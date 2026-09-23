@@ -28,7 +28,7 @@ dependencies:
   # google_mlkit_text_recognition: ^0.11.0
 
   # Diff core
-  diff_match_patch: ^0.3.3
+  diff_match_patch: ^0.4.1
   
   # Utils
   path: ^1.8.3
