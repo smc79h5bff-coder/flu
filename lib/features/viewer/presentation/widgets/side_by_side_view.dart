@@ -44,7 +44,7 @@ class SideBySideView extends StatelessWidget {
   Widget build(BuildContext context) {
     // Line number each entry starts at, per side. -1 = not on that side.
     final meta = _lineMeta(result);
-    final rows = _computeRows(result.entries);
+    final rows = computeAlignedRows(result.entries);
     final s = Theme.of(context).colorScheme;
 
     final divider = Container(width: 1, color: s.outlineVariant);
@@ -73,20 +73,36 @@ class SideBySideView extends StatelessWidget {
             itemCount: rows.length,
             itemBuilder: (ctx, i) {
               final spec = rows[i];
-              if (spec.ins != null) {
-                // Merged delete+insert pair row.
-                Widget row = _comboRow(context, result.entries[spec.del!],
-                    result.entries[spec.ins!], meta[spec.del!], meta[spec.ins!]);
-                // 合并行同时挂在 delete 与 insert 两个条目的 key 上：查找命中任
-                // 一侧时都能精确 ensureVisible 到这一行。
-                final k1 = rowKeysByEntry?[spec.del];
-                final k2 = rowKeysByEntry?[spec.ins];
-                if (k1 != null) row = KeyedSubtree(key: k1, child: row);
-                if (k2 != null) row = KeyedSubtree(key: k2, child: row);
-                return row;
+              final Widget row;
+              final List<int> keyOwners;
+              if (spec.del != null && spec.ins != null) {
+                // Paired delete+insert row.
+                row = _comboRow(
+                  context,
+                  result.entries[spec.del!],
+                  result.entries[spec.ins!],
+                  meta[spec.del!],
+                  meta[spec.ins!],
+                );
+                keyOwners = <int>[spec.del!, spec.ins!];
+              } else if (spec.del != null) {
+                final ei = spec.del!;
+                row = _alignedRow(ctx, result.entries[ei], meta[ei]);
+                keyOwners = <int>[ei];
+              } else {
+                // ins-only: single insert row with empty left cell.
+                final ei = spec.ins!;
+                row = _alignedRow(ctx, result.entries[ei], meta[ei]);
+                keyOwners = <int>[ei];
               }
-              final ei = spec.del!;
-              return _withRowKey(_alignedRow(ctx, result.entries[ei], meta[ei]), ei);
+              // 一个渲染行可能挂在多个 entry key 上（配对行同时挂 del/ins），
+              // 使查找/差异跳转命中任一侧都能精确定位。
+              Widget out = row;
+              for (final k in keyOwners) {
+                final key = rowKeysByEntry?[k];
+                if (key != null) out = KeyedSubtree(key: key, child: out);
+              }
+              return out;
             },
           ),
         ),
@@ -94,12 +110,7 @@ class SideBySideView extends StatelessWidget {
     );
   }
 
-  Widget _withRowKey(Widget child, int entryIndex) {
-    final key = rowKeysByEntry?[entryIndex];
-    return key == null ? child : KeyedSubtree(key: key, child: child);
-  }
-
-  /// Merged delete+insert pair row: left shows deleted chars (red + strike),
+  /// Paired delete+insert row: left shows deleted chars (red + strike),
   /// right shows added chars (green + underline), diffed against each other.
   Widget _comboRow(
     BuildContext context,
@@ -159,8 +170,6 @@ class SideBySideView extends StatelessWidget {
       DiffOperation.replace => (e.newText.isEmpty ? e.text : e.newText, '~', s.tertiary),
     };
 
-    // Char-level diff highlight for replace rows: left shows deleted chars,
-    // right shows added chars (both diffed against the other side's text).
     final _CharDiff? leftCharDiff = e.operation == DiffOperation.replace
         ? _CharDiff(
             before: e.oldText.isEmpty ? e.text : e.oldText,
@@ -216,8 +225,6 @@ class _CharDiff {
   final bool side; // true=right(new), false=left(old)
 }
 
-/// One aligned cell inside a side-by-side row: line-number gutter + marker +
-/// (optionally search-highlighted) text.
 class _Cell extends StatelessWidget {
   const _Cell({
     required this.text,
@@ -234,12 +241,7 @@ class _Cell extends StatelessWidget {
   final String symbol;
   final Color? color;
   final String findQuery;
-
-  /// Explicit cell background (e.g. surface tint for the original column).
   final Color? bg;
-
-  /// When set, the text is rendered as an inline character-level diff instead
-  /// of a plain/text-highlighted node (used for replace rows).
   final _CharDiff? charDiff;
 
   @override
@@ -263,8 +265,6 @@ class _Cell extends StatelessWidget {
     }
 
     return Container(
-      // 0.25: same rationale as MergedView — keep highlight visible in light
-      // theme without overpowering the text color.
       color: bg ?? color?.withOpacity(0.25),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: Row(
@@ -310,23 +310,63 @@ class _Cell extends StatelessWidget {
   }
 }
 
-/// Computes a lightweight row-spec table (no widgets). Each entry is either
-/// `(del: i, ins: null)` = a single-entry row, or `(del: i, ins: i+1)` = a
-/// merged delete+insert pair. [skipEqual] drops equal rows (diff-only view).
-List<({int? del, int? ins})> _computeRows(List<DiffEntry> entries,
-    {bool skipEqual = false}) {
-  final rows = <({int? del, int? ins})>[];
-  for (var i = 0; i < entries.length; i++) {
+/// 一个渲染行对应的 entry 索引。至少一个非 null。
+/// - del & ins 都非 null：配对行（左 delete / 右 insert）
+/// - 只有 del：单独 delete 或 equal / replace 行
+/// - 只有 ins：单独 insert 行（左空右内容）
+typedef AlignedRow = ({int? del, int? ins});
+
+/// **块级对齐**：把 dmp 输出的“分组”delete/insert 转成“按行号一一配对”的
+/// 行表。dmp 输出的 entries 形状是：
+///
+///     [del del ... del] [ins ins ... ins] [equal] [del del] [ins ins] ...
+///
+/// 之前 `_computeRows` 只配对“紧邻的 del+ins”，因此一块 N 行的替换只配对
+/// 成功 1 对（最后一个 del + 第一个 ins），其余 N-1 对都退化成整行 delete
+/// 或整行 insert，行内字符 diff 从不触发 —— 表现就是“问号没标出”“仅差
+/// 异视图只显示两处不同”。
+///
+/// 本函数按块配对：del 块与紧跟的 ins 块按 min(delLen, insLen) 一一配对，
+/// 多出来的 delete / insert 各自单独成行。
+List<AlignedRow> computeAlignedRows(List<DiffEntry> entries) {
+  final rows = <AlignedRow>[];
+  var i = 0;
+  while (i < entries.length) {
     final e = entries[i];
-    if (skipEqual && e.operation == DiffOperation.equal) continue;
-    final isDel = e.operation == DiffOperation.delete;
-    final nextIsIns = i + 1 < entries.length &&
-        entries[i + 1].operation == DiffOperation.insert;
-    if (isDel && nextIsIns) {
-      rows.add((del: i, ins: i + 1));
-      i++; // consume the following insert
+    if (e.operation == DiffOperation.delete ||
+        e.operation == DiffOperation.insert) {
+      // 收集连续的 delete
+      final delStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.delete) {
+        i++;
+      }
+      final delEnd = i;
+      // 收集紧跟的连续 insert
+      final insStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.insert) {
+        i++;
+      }
+      final insEnd = i;
+
+      final delCount = delEnd - delStart;
+      final insCount = insEnd - insStart;
+      final pairs = delCount < insCount ? delCount : insCount;
+
+      for (var k = 0; k < pairs; k++) {
+        rows.add((del: delStart + k, ins: insStart + k));
+      }
+      for (var k = pairs; k < delCount; k++) {
+        rows.add((del: delStart + k, ins: null));
+      }
+      for (var k = pairs; k < insCount; k++) {
+        rows.add((del: null, ins: insStart + k));
+      }
     } else {
+      // equal 或 replace：单行显示
       rows.add((del: i, ins: null));
+      i++;
     }
   }
   return rows;
