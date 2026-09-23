@@ -27,9 +27,6 @@ final modifiedEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 /// PRD §2 Module 3.4 — diff is always computed on processed text.
 final showProcessedTextProvider = StateProvider<bool>((ref) => false);
 
-/// Active diff engine (P0 toggles line ↔ char; semantic is P2).
-final useCharEngineProvider = StateProvider<bool>((ref) => false);
-
 /// User-defined preprocessing rules (mutable list).
 final userRulesProvider =
     StateNotifierProvider<UserRulesNotifier, List<PreprocessingRule>>(
