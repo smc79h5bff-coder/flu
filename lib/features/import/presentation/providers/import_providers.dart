@@ -23,9 +23,6 @@ final modifiedFilePathProvider = StateProvider<String?>((ref) => null);
 final originalEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 final modifiedEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 
-/// Active diff engine (P0 toggles line ↔ char; semantic is P2).
-final useCharEngineProvider = StateProvider<bool>((ref) => false);
-
 /// Toggles "show processed text" vs "show original text" in the viewer.
 /// PRD §2 Module 3.4 — diff is always computed on processed text.
 final showProcessedTextProvider = StateProvider<bool>((ref) => false);
