@@ -4,6 +4,7 @@ import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
+import 'side_by_side_view.dart' show AlignedRow, computeAlignedRows;
 
 /// Only entries with differences are rendered, laid out side-by-side so the
 /// user can see at a glance what was removed (left, original) vs added
@@ -22,24 +23,16 @@ class DiffOnlyView extends StatelessWidget {
   });
 
   final DiffResult result;
-
-  /// Optional filenames shown as column headers.
   final String? originalFileName;
   final String? modifiedFileName;
-
-  /// Single scroll controller shared by the aligned rows.
   final ScrollController? controller;
-
-  /// When non-empty, matching substrings inside each line are highlighted.
   final String findQuery;
-
-  /// Optional per-entry [GlobalKey]s used for precise [Scrollable.ensureVisible].
   final Map<int, GlobalKey>? rowKeysByEntry;
 
   @override
   Widget build(BuildContext context) {
     final meta = _lineMeta(result);
-    final rows = _computeRows(result.entries, skipEqual: true);
+    final rows = _computeDiffOnlyRows(result.entries);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
@@ -47,7 +40,7 @@ class DiffOnlyView extends StatelessWidget {
       return Expanded(
         child: name == null
             ? const SizedBox.shrink()
-            : _PaneHeader(fileName: name, color: color, isLeft: true),
+            : _PaneHeader(fileName: name, color: color),
       );
     }
 
@@ -67,20 +60,27 @@ class DiffOnlyView extends StatelessWidget {
             itemCount: rows.length,
             itemBuilder: (ctx, i) {
               final spec = rows[i];
-              if (spec.ins != null) {
-                // Merged delete+insert pair row.
-                Widget row = _comboRow(context, result.entries[spec.del!],
+              final Widget row;
+              final List<int> keyOwners;
+              if (spec.del != null && spec.ins != null) {
+                row = _comboRow(context, result.entries[spec.del!],
                     result.entries[spec.ins!], meta[spec.del!], meta[spec.ins!]);
-                // 合并行同时挂在 delete 与 insert 两个条目的 key 上：查找命中任
-                // 一侧时都能精确 ensureVisible 到这一行。
-                final k1 = rowKeysByEntry?[spec.del];
-                final k2 = rowKeysByEntry?[spec.ins];
-                if (k1 != null) row = KeyedSubtree(key: k1, child: row);
-                if (k2 != null) row = KeyedSubtree(key: k2, child: row);
-                return row;
+                keyOwners = <int>[spec.del!, spec.ins!];
+              } else if (spec.del != null) {
+                final ei = spec.del!;
+                row = _alignedRow(ctx, result.entries[ei], meta[ei]);
+                keyOwners = <int>[ei];
+              } else {
+                final ei = spec.ins!;
+                row = _alignedRow(ctx, result.entries[ei], meta[ei]);
+                keyOwners = <int>[ei];
               }
-              final ei = spec.del!;
-              return _withRowKey(_alignedRow(ctx, result.entries[ei], meta[ei]), ei);
+              Widget out = row;
+              for (final k in keyOwners) {
+                final key = rowKeysByEntry?[k];
+                if (key != null) out = KeyedSubtree(key: key, child: out);
+              }
+              return out;
             },
           ),
         ),
@@ -88,13 +88,6 @@ class DiffOnlyView extends StatelessWidget {
     );
   }
 
-  Widget _withRowKey(Widget child, int entryIndex) {
-    final key = rowKeysByEntry?[entryIndex];
-    return key == null ? child : KeyedSubtree(key: key, child: child);
-  }
-
-  /// Merged delete+insert pair row: left shows deleted chars (red + strike),
-  /// right shows added chars (green + underline), diffed against each other.
   Widget _comboRow(
     BuildContext context,
     DiffEntry del,
@@ -151,8 +144,6 @@ class DiffOnlyView extends StatelessWidget {
       DiffOperation.equal => (e.text, '', null),
     };
 
-    // Char-level diff highlight for replace rows: left shows deleted chars,
-    // right shows added chars (both diffed against the other side's text).
     final _CharDiff? leftCharDiff = e.operation == DiffOperation.replace
         ? _CharDiff(
             before: e.oldText.isEmpty ? e.text : e.oldText,
@@ -197,6 +188,27 @@ class DiffOnlyView extends StatelessWidget {
       ],
     );
   }
+
+  /// “仅差异”专用：先按块级对齐（复用 side_by_side 的实现），再跳过
+  /// 完全不涉及差异的行（即两个 entry 都是 equal 的情况，实际上对齐后
+  /// equal 行只会作为单行出现，del/ins 至少一个非 null 才是差异行）。
+  ///
+  /// 注意：equal 行在对齐结果里是 `(del: i, ins: null)`，其 entry 类型是
+  /// equal。所以要按 entry 的 operation 过滤，而不是按 del/ins 是否为 null
+  /// 过滤——后者的判据会把 equal 行误留。
+  List<AlignedRow> _computeDiffOnlyRows(List<DiffEntry> entries) {
+    final all = computeAlignedRows(entries);
+    final out = <AlignedRow>[];
+    for (final r in all) {
+      final delOp = r.del == null ? null : entries[r.del!].operation;
+      final insOp = r.ins == null ? null : entries[r.ins!].operation;
+      final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
+          (insOp == null || insOp == DiffOperation.equal);
+      if (onlyEqual) continue;
+      out.add(r);
+    }
+    return out;
+  }
 }
 
 /// Holds the two texts + which side to render for a character-level diff cell.
@@ -205,10 +217,9 @@ class _CharDiff {
 
   final String before;
   final String after;
-  final bool side; // true=right(new), false=left(old)
+  final bool side;
 }
 
-/// One cell inside a diff-only row: gutter + marker + highlighted text.
 class _DiffCell extends StatelessWidget {
   const _DiffCell({
     required this.text,
@@ -226,9 +237,6 @@ class _DiffCell extends StatelessWidget {
   final Color? color;
   final String findQuery;
   final Color? bg;
-
-  /// When set, the text is rendered as an inline character-level diff instead
-  /// of a plain/text-highlighted node (used for replace rows).
   final _CharDiff? charDiff;
 
   @override
@@ -252,7 +260,6 @@ class _DiffCell extends StatelessWidget {
     }
 
     return Container(
-      // 0.25: visible in light theme without overpowering the text color.
       color: bg ?? color?.withOpacity(0.25),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: Row(
@@ -298,29 +305,6 @@ class _DiffCell extends StatelessWidget {
   }
 }
 
-/// Computes a lightweight row-spec table (no widgets). Each entry is either
-/// `(del: i, ins: null)` = a single-entry row, or `(del: i, ins: i+1)` = a
-/// merged delete+insert pair. [skipEqual] drops equal rows (diff-only view).
-List<({int? del, int? ins})> _computeRows(List<DiffEntry> entries,
-    {bool skipEqual = false}) {
-  final rows = <({int? del, int? ins})>[];
-  for (var i = 0; i < entries.length; i++) {
-    final e = entries[i];
-    if (skipEqual && e.operation == DiffOperation.equal) continue;
-    final isDel = e.operation == DiffOperation.delete;
-    final nextIsIns = i + 1 < entries.length &&
-        entries[i + 1].operation == DiffOperation.insert;
-    if (isDel && nextIsIns) {
-      rows.add((del: i, ins: i + 1));
-      i++; // consume the following insert
-    } else {
-      rows.add((del: i, ins: null));
-    }
-  }
-  return rows;
-}
-
-/// Computes the running line number for each side at every entry.
 List<({int orig, int mod})> _lineMeta(DiffResult result) {
   final meta = <({int orig, int mod})>[];
   var o = 0, m = 0;
@@ -338,17 +322,11 @@ List<({int orig, int mod})> _lineMeta(DiffResult result) {
   return meta;
 }
 
-/// Slim header strip showing which file the column below represents.
 class _PaneHeader extends StatelessWidget {
-  const _PaneHeader({
-    required this.fileName,
-    required this.color,
-    required this.isLeft,
-  });
+  const _PaneHeader({required this.fileName, required this.color});
 
   final String fileName;
   final Color color;
-  final bool isLeft;
 
   @override
   Widget build(BuildContext context) {
