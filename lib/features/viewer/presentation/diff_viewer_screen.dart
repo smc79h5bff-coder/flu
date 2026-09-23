@@ -64,14 +64,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (matches.isNotEmpty) _scrollToEntry(matches.first);
   }
 
-  /// 当前视图渲染出的总行数。
-  /// - merged：entry 数
-  /// - sideBySide / diffOnly：按块级对齐后的行数（del/ins 分组配对）
   int _renderedRows(DiffResult diff, ViewMode mode) {
     if (mode == ViewMode.merged) return diff.entries.length;
     final rows = computeAlignedRows(diff.entries);
     if (mode == ViewMode.sideBySide) return rows.length;
-    // diffOnly：跳过 equal 行
     var n = 0;
     for (final r in rows) {
       final delOp = r.del == null ? null : diff.entries[r.del!].operation;
@@ -131,8 +127,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     locate(0);
   }
 
-  /// 给定 entryIndex，返回它在当前视图里渲染成第几行。
-  /// 和两个视图里的布局逻辑必须保持一致，否则滚动估算会错位。
   int _entryToRow(List<DiffEntry> entries, int entryIndex, ViewMode mode) {
     if (mode == ViewMode.merged) return entryIndex;
 
@@ -144,7 +138,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
       return -1;
     }
-    // diffOnly：跳过 equal 行
     var row = 0;
     for (final spec in rows) {
       final delOp = spec.del == null ? null : entries[spec.del!].operation;
@@ -337,6 +330,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             tooltip: '更多操作',
             onSelected: (_) {},
             itemBuilder: (context) => [
+              // 只保留横屏切换。字符 diff 引擎已删除（对几万行做全文字符
+              // 级 Myers 太慢，且语义错误——丢掉了“行”这个基本单位）。
               PopupMenuItem<void>(
                 value: null,
                 child: Row(
@@ -353,26 +348,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   Navigator.of(context).maybePop();
                   _toggleOrientation();
                 },
-              ),
-              PopupMenuItem<void>(
-                value: null,
-                child: Row(
-                  children: [
-                    Icon(
-                      ref.watch(useCharEngineProvider)
-                          ? Icons.science_outlined
-                          : Icons.straighten,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(ref.watch(useCharEngineProvider)
-                        ? '字符 diff 引擎'
-                        : '行 diff 引擎'),
-                  ],
-                ),
-                onTap: () =>
-                    ref.read(useCharEngineProvider.notifier).state =
-                        !ref.read(useCharEngineProvider),
               ),
             ],
           ),
