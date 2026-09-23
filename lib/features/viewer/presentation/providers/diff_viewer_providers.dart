@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:charset/charset.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../diff/application/char_diff_engine.dart';
 import '../../../diff/application/diff_engine.dart';
 import '../../../diff/application/line_diff_engine.dart';
 import '../../../diff/domain/diff_entry.dart';
@@ -84,24 +83,20 @@ typedef _DiffRequest =
     ({
       String original,
       String modified,
-      int engine,
       bool unifyAnsi,
     });
 
-/// 在后台 isolate 中执行 diff 计算，返回扁平化的差异条目数据。
+/// 在后台 isolate 中执行 diff 计算。
 ///
-/// 900k 字符的生理计算若放在主线程会直接卡死 UI（ANR/纯白），必须放到
-/// isolate 里跑。返回值用 record 列表（全部是可传输基本类型），回传后
-/// 再在主线程重建 [DiffResult]。
+/// 只保留行 diff 引擎。之前还有 CharDiffEngine（对全文做字符级 Myers），
+/// 在几千几万行的文件上是 1~3 秒的灾难，且语义不对——它丢掉了“行”这个
+/// 基本单位。NMM 也只用行级 xdiff + 行内字符 diff，没有全文字符引擎。
 List<(int, String, String, String, double)> _computeInWorker(
   _DiffRequest req,
 ) {
-  // 统一编码 ANSI：将两侧都归一化到 ANSI（GBK 超集），删除无法表示的字符。
-  // 逐字符检测开销大，必须在后台 isolate 内执行。若文本已是完整 ANSI 则不处理。
   final original = req.unifyAnsi ? unifyToAnsi(req.original) : req.original;
   final modified = req.unifyAnsi ? unifyToAnsi(req.modified) : req.modified;
-  final DiffEngine engine =
-      req.engine == 0 ? const CharDiffEngine() : const LineDiffEngine();
+  const DiffEngine engine = LineDiffEngine();
   final result = engine.compute(original, modified);
   return <(int, String, String, String, double)>[
     for (final e in result.entries)
@@ -109,8 +104,8 @@ List<(int, String, String, String, double)> _computeInWorker(
   ];
 }
 
-/// Computed diff. Listens to preprocessed text + engine selection + an
-/// import revision counter (so a re-import forces a recompute).
+/// Computed diff. Listens to preprocessed text + an import revision counter
+/// (so a re-import forces a recompute).
 ///
 /// diff 计算在后台 isolate 中进行，避免大文本卡死主线程。
 final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
@@ -139,14 +134,12 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   // Revision bump triggers a fresh read.
   ref.watch(importRevisionProvider);
 
-  final useChar = ref.watch(useCharEngineProvider);
   final unifyAnsi = ref.watch(unifyAnsiProvider);
   final rows = await compute(
     _computeInWorker,
     (
       original: origNorm,
       modified: modNorm,
-      engine: useChar ? 0 : 1,
       unifyAnsi: unifyAnsi,
     ),
   );
@@ -162,6 +155,6 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
           similarity: r.$5,
         ),
     ],
-    engineType: useChar ? DiffEngineType.char : DiffEngineType.line,
+    engineType: DiffEngineType.line,
   );
 });
