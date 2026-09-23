@@ -16,11 +16,6 @@ import 'widgets/side_by_side_view.dart';
 /// Diff viewer — switches between merged / side-by-side / diff-only views
 /// and offers jump-to-diff gestures (PRD §2 Module 6 + §4.2 手势操作:
 /// "左右滑 → 跳转上一处/下一处差异").
-///
-/// Stateful to hold a [ScrollController] + the index of the currently
-/// focused non-equal entry. Vertical scrolling stays native to ListView;
-/// horizontal flings are intercepted by a [GestureDetector] to drive
-/// next/prev diff jumps.
 class DiffViewerScreen extends ConsumerStatefulWidget {
   const DiffViewerScreen({super.key});
 
@@ -38,8 +33,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final Map<int, GlobalKey> _rowKeysByEntry = <int, GlobalKey>{};
 
   /// Position into [_diffIndices] of the currently focused diff entry.
-  /// -1 = nothing focused yet (initial state).
   int _currentDiffPos = -1;
+
+  /// 当前视口里第一个可见差异条目的 entry index。
+  /// 用于跨视图切换时把位置“迁移”到新视图的同一处差异。
+  /// null 表示还没捕获过（首次进入）。
+  int? _anchorEntryIndex;
 
   // ---- 查找状态 ----
   bool _showFind = false;
@@ -98,11 +97,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   /// 查找/差异跳转：
-  /// 1) 目标行已构建 → [Scrollable.ensureVisible] 精确定位（近距、快）；
+  /// 1) 目标行已构建 → [Scrollable.ensureVisible] 精确定位；
   /// 2) 未构建 → 先按“行占比 × 总高度”估算滚到目标附近，若仍未被构建则
   ///    沿目标方向每轮推进大半个视口（双向收敛），直到目标行进入构建窗口
-  ///    再 ensureVisible 校正。大距离用瞬移（jumpTo）、近距离用短动画，
-  ///    跳转干脆不拖沓。
+  ///    再 ensureVisible 校正。
   void _scrollToEntry(int entryIndex) {
     Future<void> locate(int round) async {
       final ctx = _rowKeysByEntry[entryIndex]?.currentContext;
@@ -137,7 +135,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       target = target.clamp(0.0, maxExtent);
       if ((pos.pixels - target).abs() < 1.0) return;
       if ((pos.pixels - target).abs() > viewport * 3) {
-        pos.jumpTo(target); // 大距离瞬移，干脆不拖沓
+        pos.jumpTo(target); // 大距离瞬移
       } else {
         await pos.animateTo(
           target,
@@ -152,12 +150,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     locate(0);
   }
 
-  /// Returns the scroll controller + visible-row offset for a diff entry in
-  /// the given view mode. The row index is computed from the actual rendered
-  /// row layout (merged: entry==row; side-by-side / diff-only: delete+insert
-  /// pairs collapse to one row, and diff-only skips equal entries entirely),
-  /// so the first estimate lands on the correct viewport instead of drifting
-  /// on large files.
+  /// Returns the row index that [entryIndex] occupies in the given view mode.
   int _entryToRow(List<DiffEntry> entries, int entryIndex, ViewMode mode) {
     if (mode == ViewMode.merged) return entryIndex;
     final skipEqual = mode == ViewMode.diffOnly;
@@ -176,7 +169,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
       row++;
     }
-    return -1; // entry is not rendered as its own row in this mode
+    return -1;
   }
 
   void _nextMatch() {
@@ -242,6 +235,53 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (pos < 0 || pos >= indices.length) return;
     setState(() => _currentDiffPos = pos);
     _scrollToEntry(indices[pos]);
+  }
+
+  /// 记录当前视口里第一个可见差异条目的 entry index。
+  /// 由 ScrollEndNotification 触发（滚动停止后一次），也用于切换视图前。
+  ///
+  /// 找法：遍历所有差异条目的 GlobalKey，取“底部 > 0”的第一个（即第一个
+  /// 还未完全滚出视口顶部的条目）。这对应视口里的第一处差异。
+  void _captureAnchor() {
+    if (_rowKeysByEntry.isEmpty) return;
+    final sorted = _rowKeysByEntry.keys.toList()..sort();
+    for (final idx in sorted) {
+      final ctx = _rowKeysByEntry[idx]?.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached) continue;
+      // 相对屏幕的顶部位置 + 高度：如果底部 >= 0，说明还没完全滚出去。
+      final top = box.localToGlobal(Offset.zero).dy;
+      if (top + box.size.height > 0) {
+        _anchorEntryIndex = idx;
+        return;
+      }
+    }
+  }
+
+  /// 切换到新视图，并把位置迁移到同一处差异。
+  ///
+  /// 流程：
+  /// 1. 记录旧视图里的 anchor entry index。
+  /// 2. setState 切换 viewMode。
+  /// 3. 下一帧在新视图里 `_scrollToEntry(anchor)`。
+  ///
+  /// 用 addPostFrameCallback 是因为新视图的 ListView 必须完成 build 之后
+  /// ScrollController 才有 position，否则 _scrollToEntry 的第一轮会被
+  /// “hasClients == false” 挡掉。
+  void _switchView(ViewMode newMode) {
+    final current = ref.read(viewModeProvider);
+    if (current == newMode) return;
+    _captureAnchor();
+    final anchor = _anchorEntryIndex;
+    ref.read(viewModeProvider.notifier).state = newMode;
+    // 让新视图先完成一次 build，再迁移位置。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (anchor != null) {
+        _scrollToEntry(anchor);
+      }
+    });
   }
 
   /// Toggles between forced portrait and forced landscape.
@@ -383,44 +423,51 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               ButtonSegment(value: ViewMode.diffOnly, label: Text('仅差异')),
             ],
             selected: {viewMode},
-            onSelectionChanged: (s) =>
-                ref.read(viewModeProvider.notifier).state = s.first,
+            // 改用 _switchView：切换前捕获 anchor，切完后在新视图里迁移位置。
+            onSelectionChanged: (s) => _switchView(s.first),
           ),
           Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onHorizontalDragEnd: (details) {
-                final velocity = details.primaryVelocity ?? 0;
-                if (velocity < -300) {
-                  _jumpToNextDiff();
-                } else if (velocity > 300) {
-                  _jumpToPrevDiff();
-                }
+            // 滚动停止后捕获 anchor，供下次视图切换使用。
+            child: NotificationListener<ScrollEndNotification>(
+              onNotification: (_) {
+                _captureAnchor();
+                return false;
               },
-              child: switch (viewMode) {
-                ViewMode.merged => MergedView(
-                    result: diff,
-                    controller: _scrollController,
-                    findQuery: _findQuery,
-                    rowKeysByEntry: _rowKeysByEntry,
-                  ),
-                ViewMode.sideBySide => SideBySideView(
-                    result: diff,
-                    originalFileName: origName,
-                    modifiedFileName: modName,
-                    controller: _scrollController,
-                    findQuery: _findQuery,
-                    rowKeysByEntry: _rowKeysByEntry,
-                  ),
-                ViewMode.diffOnly => DiffOnlyView(
-                    result: diff,
-                    originalFileName: origName,
-                    modifiedFileName: modName,
-                    controller: _scrollController,
-                    findQuery: _findQuery,
-                    rowKeysByEntry: _rowKeysByEntry,
-                  ),
-              },
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragEnd: (details) {
+                  final velocity = details.primaryVelocity ?? 0;
+                  if (velocity < -300) {
+                    _jumpToNextDiff();
+                  } else if (velocity > 300) {
+                    _jumpToPrevDiff();
+                  }
+                },
+                child: switch (viewMode) {
+                  ViewMode.merged => MergedView(
+                      result: diff,
+                      controller: _scrollController,
+                      findQuery: _findQuery,
+                      rowKeysByEntry: _rowKeysByEntry,
+                    ),
+                  ViewMode.sideBySide => SideBySideView(
+                      result: diff,
+                      originalFileName: origName,
+                      modifiedFileName: modName,
+                      controller: _scrollController,
+                      findQuery: _findQuery,
+                      rowKeysByEntry: _rowKeysByEntry,
+                    ),
+                  ViewMode.diffOnly => DiffOnlyView(
+                      result: diff,
+                      originalFileName: origName,
+                      modifiedFileName: modName,
+                      controller: _scrollController,
+                      findQuery: _findQuery,
+                      rowKeysByEntry: _rowKeysByEntry,
+                    ),
+                },
+              ),
             ),
           ),
         ],
@@ -428,7 +475,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
-  /// 查找输入栏：输入关键词 → 高亮命中；上下按钮在命中条目间跳转；显示 n/m。
+  /// 查找输入栏。
   Widget _buildFindBar() {
     final total = _matchEntries.length;
     final current = _matchPos >= 0 ? _matchPos + 1 : 0;
