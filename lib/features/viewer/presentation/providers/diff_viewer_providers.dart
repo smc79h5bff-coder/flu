@@ -13,6 +13,50 @@ enum ViewMode { merged, sideBySide, diffOnly }
 
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 
+/// 计时面板开关。默认打开（调试用）。发布时把默认值改成 false。
+final showPerfOverlayProvider = StateProvider<bool>((ref) => true);
+
+/// 最近一次 diff 各阶段耗时（毫秒）。调试用，显示在对比页顶部。
+class DiffPerfStats {
+  const DiffPerfStats({
+    required this.prepMs,
+    required this.isolateRoundTripMs,
+    required this.expandMs,
+    required this.ansiMs,
+    required this.mapLinesMs,
+    required this.diffMainMs,
+    required this.charsToLinesMs,
+    required this.chunksMs,
+    required this.chunkCount,
+    required this.entryCount,
+    required this.origLen,
+    required this.modLen,
+  });
+
+  final int prepMs;
+  final int isolateRoundTripMs;
+  final int expandMs;
+  final int ansiMs;
+  final int mapLinesMs;
+  final int diffMainMs;
+  final int charsToLinesMs;
+  final int chunksMs;
+  final int chunkCount;
+  final int entryCount;
+  final int origLen;
+  final int modLen;
+
+  String get oneLine =>
+      'prep=$prepMs isolate=$isolateRoundTripMs expand=$expandMs '
+      '| ansi=$ansiMs mapLines=$mapLinesMs diffMain=$diffMainMs '
+      'charsToLines=$charsToLinesMs chunks=$chunksMs '
+      '| chunkCount=$chunkCount entries=$entryCount '
+      'origLen=$origLen modLen=$modLen';
+}
+
+/// 最近一次 diff 的性能数据。对比页读取它来显示顶部面板。
+final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
+
 /// 忽略空白符号：比较前去掉水平空白字符（空格、制表符）。
 /// 注意用 `[ \t]+` 而非 `\s`，因为 `\s` 会把换行也吃掉、导致整篇并成一行。
 final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
@@ -41,7 +85,7 @@ String unifyToAnsi(String text) {
     try {
       final bytes = gbk.encode(ch);
       if (gbk.decode(bytes) != ch) continue;
-      sb.write(ch);
+      sb.add(ch);
     } catch (_) {
       // 无法转换 → 删除
     }
@@ -50,7 +94,6 @@ String unifyToAnsi(String text) {
 }
 
 /// 按三个“忽略”开关对文本做比较前预处理。
-/// 顺序：先统一换行符 → 去空白符号 → 删空行。
 String applyDiffIgnores(
   String text, {
   bool whitespace = false,
@@ -81,6 +124,18 @@ typedef _DiffRequest =
       bool unifyAnsi,
     });
 
+/// isolate 返回值：chunks + isolate 内各阶段耗时。
+/// record 各字段类型都可跨 isolate 传输。
+typedef _DiffResultPayload =
+    ({
+      List<(int, String)> chunks,
+      int ansiMs,
+      int mapLinesMs,
+      int diffMainMs,
+      int charsToLinesMs,
+      int chunksMs,
+    });
+
 /// dmp 的 op 常量映射到 [DiffOperation] 的 index。
 ///   dmp:           DIFF_DELETE = -1, DIFF_EQUAL = 0, DIFF_INSERT = 1
 ///   DiffOperation: equal = 0, insert = 1, delete = 2, replace = 3
@@ -92,15 +147,8 @@ int _dmpOpToIndex(int op) {
 
 /// 在后台 isolate 中执行 diff 计算。
 ///
-/// **关键：不在 isolate 内展开每个 chunk 成单行 DiffEntry。**
-/// dmp 的输出天然是“块级”：一段连续 delete 是一个 chunk，一段连续 insert
-/// 是一个 chunk，一段连续 equal 是一个 chunk。之前 `LineDiffEngine` 把每个
-/// chunk 拆成 N 个单行 DiffEntry，导致 isolate 内构造了上万个 Dart 对象，
-/// 跨 isolate 又传输了上万个 tuple —— 这就是“点对比要等一会”的根源。
-///
-/// 现在 isolate 只返回 `List<(opIndex, chunkText)>`（几百个到几千个），
-/// 主线程再展开成 DiffEntry。传输量降低一个数量级。
-List<(int, String)> _computeInWorker(_DiffRequest req) {
+/// 返回 chunks + 各阶段耗时。耗时用 int（毫秒），跨 isolate 传输开销可忽略。
+_DiffResultPayload _computeInWorker(_DiffRequest req) {
   final sw = Stopwatch()..start();
 
   final original = req.unifyAnsi ? unifyToAnsi(req.original) : req.original;
@@ -108,7 +156,14 @@ List<(int, String)> _computeInWorker(_DiffRequest req) {
   final tAnsi = sw.elapsedMilliseconds;
 
   if (original.isEmpty && modified.isEmpty) {
-    return const <(int, String)>[];
+    return (
+      chunks: const <(int, String)>[],
+      ansiMs: tAnsi,
+      mapLinesMs: 0,
+      diffMainMs: 0,
+      charsToLinesMs: 0,
+      chunksMs: 0,
+    );
   }
 
   final dmp = DiffMatchPatch();
@@ -129,24 +184,17 @@ List<(int, String)> _computeInWorker(_DiffRequest req) {
   ];
   final tChunks = sw.elapsedMilliseconds;
 
-  if (kDebugMode) {
-    debugPrint('[diff-isolate] ansi=${tAnsi}ms '
-        'mapLines=${tMapLines - tAnsi}ms '
-        'diffMain=${tMain - tMapLines}ms '
-        'charsToLines=${tBack - tMain}ms '
-        'chunks=${tChunks - tBack}ms '
-        'chunkCount=${chunks.length} '
-        'origLen=${original.length} modLen=${modified.length}');
-  }
-
-  return chunks;
+  return (
+    chunks: chunks,
+    ansiMs: tAnsi,
+    mapLinesMs: tMapLines - tAnsi,
+    diffMainMs: tMain - tMapLines,
+    charsToLinesMs: tBack - tMain,
+    chunksMs: tChunks - tBack,
+  );
 }
 
 /// 把 isolate 返回的 chunks 展开成单行 [DiffEntry] 列表。
-/// 在主线程运行；每行是一次 substring + 一次 DiffEntry 构造，1 万行 ~ 50ms。
-///
-/// 只在遇到 '\n' 时切分，不做 `split('\n')`（那会创建中间 List，代价更大）。
-/// 忽略末尾因 `\n` 产生的空段：与旧实现的语义保持一致。
 List<DiffEntry> _expandChunks(List<(int, String)> chunks) {
   final out = <DiffEntry>[];
   for (final (opIndex, text) in chunks) {
@@ -178,10 +226,7 @@ DiffEntry _mkEntry(DiffOperation op, String line) {
   }
 }
 
-/// Computed diff. Listens to preprocessed text + an import revision counter
-/// (so a re-import forces a recompute).
-///
-/// diff 计算在后台 isolate 中进行；结果回主线程后展开为 DiffEntry 列表。
+/// Computed diff. Listens to preprocessed text + an import revision counter.
 final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final sw = Stopwatch()..start();
 
@@ -211,7 +256,7 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final unifyAnsi = ref.watch(unifyAnsiProvider);
   final tPrep = sw.elapsedMilliseconds;
 
-  final chunks = await compute(
+  final payload = await compute(
     _computeInWorker,
     (
       original: origNorm,
@@ -221,15 +266,24 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   );
   final tIsolate = sw.elapsedMilliseconds;
 
-  final entries = _expandChunks(chunks);
+  final entries = _expandChunks(payload.chunks);
   final tExpand = sw.elapsedMilliseconds;
 
-  if (kDebugMode) {
-    debugPrint('[diff-main] prep=${tPrep}ms '
-        'isolateRoundTrip=${tIsolate - tPrep}ms '
-        'expand=${tExpand - tIsolate}ms '
-        'entries=${entries.length}');
-  }
+  // 写入性能数据，供对比页顶部显示。
+  ref.read(lastDiffPerfProvider.notifier).state = DiffPerfStats(
+    prepMs: tPrep,
+    isolateRoundTripMs: tIsolate - tPrep,
+    expandMs: tExpand - tIsolate,
+    ansiMs: payload.ansiMs,
+    mapLinesMs: payload.mapLinesMs,
+    diffMainMs: payload.diffMainMs,
+    charsToLinesMs: payload.charsToLinesMs,
+    chunksMs: payload.chunksMs,
+    chunkCount: payload.chunks.length,
+    entryCount: entries.length,
+    origLen: origNorm.length,
+    modLen: modNorm.length,
+  );
 
   return DiffResult(entries: entries, engineType: DiffEngineType.line);
 });
