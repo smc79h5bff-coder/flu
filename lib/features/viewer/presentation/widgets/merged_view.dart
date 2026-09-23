@@ -47,22 +47,74 @@ class MergedView extends ConsumerWidget {
       if (e.operation == DiffOperation.equal || e.operation == DiffOperation.insert) m++;
     }
 
+    final order = _mergedOrder(result.entries);
+
     return ListView.builder(
       controller: controller,
       padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: result.entries.length,
+      itemCount: order.length,
       itemBuilder: (ctx, i) {
-        final e = result.entries[i];
+        final ei = order[i];
+        final e = result.entries[ei];
         final tile = _EntryTile(
           entry: e,
-          lineNumber: lineNumbers ? meta[i].orig : 0,
+          lineNumber: lineNumbers ? meta[ei].orig : 0,
           findQuery: findQuery,
         );
-        final key = rowKeysByEntry?[i];
+        final key = rowKeysByEntry?[ei];
         return key == null ? tile : KeyedSubtree(key: key, child: tile);
       },
     );
   }
+}
+
+/// 把 dmp 分组输出的 entries 重排成“交替配对”的显示顺序。
+///
+/// dmp 对“A 每行结尾有 ? / B 没有”这类输入，输出形状是：
+///   [del del ... del] [ins ins ... ins]
+/// 直接按顺序渲染 = 两个大块。本函数按块配对后交替输出：
+///   del0, ins0, del1, ins1, ..., 剩余的单独输出
+/// 视觉上类似 git unified diff，一眼能看出每行都改了。
+List<int> _mergedOrder(List<DiffEntry> entries) {
+  final order = <int>[];
+  var i = 0;
+  while (i < entries.length) {
+    final e = entries[i];
+    if (e.operation == DiffOperation.delete ||
+        e.operation == DiffOperation.insert) {
+      final delStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.delete) {
+        i++;
+      }
+      final delEnd = i;
+      final insStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.insert) {
+        i++;
+      }
+      final insEnd = i;
+
+      final delCount = delEnd - delStart;
+      final insCount = insEnd - insStart;
+      final pairs = delCount < insCount ? delCount : insCount;
+
+      for (var k = 0; k < pairs; k++) {
+        order.add(delStart + k);
+        order.add(insStart + k);
+      }
+      for (var k = pairs; k < delCount; k++) {
+        order.add(delStart + k);
+      }
+      for (var k = pairs; k < insCount; k++) {
+        order.add(insStart + k);
+      }
+    } else {
+      order.add(i);
+      i++;
+    }
+  }
+  return order;
 }
 
 class _EntryTile extends StatelessWidget {
@@ -178,8 +230,7 @@ class _EntryTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         // 0.25 keeps the highlight clearly visible in light theme while
-        // still letting the base text color through. 0.12 (previous value)
-        // was too faint against the light scaffold background.
+        // still letting the base text color through.
         color: color.withOpacity(0.25),
         border: Border(left: BorderSide(color: color, width: 3)),
         borderRadius: BorderRadius.circular(4),
