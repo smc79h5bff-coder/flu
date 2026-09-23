@@ -209,9 +209,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _jumpToNextDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    // _currentDiffPos 是“上一次已知的差异序号”。用户如果手动滚动过，
-    // _syncDiffPosToScroll 会把它更新到视口里的第一处差异，所以从这里
-    // +1 就是“下一处”；如果从未滚动/点过，-1 → 0，跳到第一处。
     final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
     final next = (current + 1) % indices.length;
     _jumpToDiffPos(next);
@@ -220,7 +217,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _jumpToPrevDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    // 未聚焦时视为 0，prev 会绕到最后一处；否则从当前位置 -1。
     final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
     final prev = (current - 1 + indices.length) % indices.length;
     _jumpToDiffPos(prev);
@@ -233,11 +229,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollToEntry(indices[pos]);
   }
 
-  /// 遍历所有已登记的 GlobalKey，找到第一个还在视口里的差异条目，
-  /// 记录它的 entry index 作为 anchor。
-  ///
-  /// 返回 entry index（不是 _currentDiffPos 里的位置），因为跨视图迁移
-  /// 用的是 entry index，`_currentDiffPos` 换算要在调用方做。
+  /// 遍历所有已登记的 GlobalKey，找到第一个还在视口里的差异条目。
   int? _findFirstVisibleDiffEntry() {
     if (_rowKeysByEntry.isEmpty) return null;
     final sorted = _rowKeysByEntry.keys.toList()..sort();
@@ -255,13 +247,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   /// 记录 anchor 并同步顶部“N/总数”计数器。
-  ///
-  /// 之前这个函数只记 anchor，`_currentDiffPos` 不动，导致用户滚动到
-  /// 第 150 处时顶部还显示 1/200，且点“下一处”从过期的 0 开始 +1 → 跳到
-  /// 第 1 处（“跳到文档开头”）。
-  ///
-  /// 现在顺手把 anchor 换算成它在 `_diffIndices()` 里的序号，写回
-  /// `_currentDiffPos`。用 setState 是因为顶部计数在 AppBar 里。
   void _captureAnchor() {
     final anchorEntry = _findFirstVisibleDiffEntry();
     if (anchorEntry == null) return;
@@ -269,8 +254,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    // 目标条目可能因为当前视图过滤（equal 行在 diff-only 里不渲染）而
-    // 不在 indices 里；二分/线性找到第一个 >= anchorEntry 的位置最稳。
     final pos = _lowerBound(indices, anchorEntry);
     if (pos >= indices.length) return;
     if (pos != _currentDiffPos) {
@@ -279,7 +262,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   /// 返回 indices 里第一个 >= value 的下标（二分）。
-  /// indices 单调递增，长度通常是几百到几千，二分足够。
   int _lowerBound(List<int> indices, int value) {
     var lo = 0, hi = indices.length;
     while (lo < hi) {
@@ -421,6 +403,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         children: [
           if (_showFind) _buildFindBar(),
           DiffStatsBar(result: diff),
+          if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
           SegmentedButton<ViewMode>(
             segments: const [
               ButtonSegment(value: ViewMode.merged, label: Text('合并')),
@@ -474,6 +457,28 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 性能面板：显示最近一次 diff 各阶段耗时（毫秒）。
+  /// 只在 [showPerfOverlayProvider] 为 true 时显示。调试用。
+  Widget _buildPerfOverlay() {
+    final perf = ref.watch(lastDiffPerfProvider);
+    if (perf == null) return const SizedBox.shrink();
+    final s = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      color: s.tertiaryContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: SelectableText(
+        perf.oneLine,
+        style: TextStyle(
+          fontSize: 10,
+          fontFamily: 'monospace',
+          color: s.onTertiaryContainer,
+        ),
+        maxLines: 3,
       ),
     );
   }
