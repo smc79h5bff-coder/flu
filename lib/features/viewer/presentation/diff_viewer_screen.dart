@@ -26,7 +26,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   final Map<int, GlobalKey> _rowKeysByEntry = <int, GlobalKey>{};
 
+  /// Position into [_diffIndices] of the currently focused diff entry.
+  /// -1 = nothing focused yet (initial state).
   int _currentDiffPos = -1;
+
+  /// 当前视口里第一个可见差异条目的 entry index（跨视图切换用）。
   int? _anchorEntryIndex;
 
   bool _showFind = false;
@@ -35,6 +39,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   int _matchPos = -1;
 
   bool _landscape = false;
+
+  /// 缓存上次计算出的 diff indices，避免滚动时每帧重新扫描一遍 entries。
+  /// 只在 diff 结果变化时失效。
+  List<int>? _cachedDiffIndices;
+  DiffResult? _cachedDiffIndicesFor;
 
   @override
   void dispose() {
@@ -171,13 +180,21 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
+  /// Indices of all non-equal entries in the current diff result.
+  /// 结果按 diff 对象缓存：滚动时每帧都会读这个列表，重复 O(n) 扫描会拖慢。
   List<int> _diffIndices() {
     final diff = _diff;
     if (diff == null) return const <int>[];
-    return <int>[
+    if (identical(_cachedDiffIndicesFor, diff) && _cachedDiffIndices != null) {
+      return _cachedDiffIndices!;
+    }
+    final list = <int>[
       for (var i = 0; i < diff.entries.length; i++)
         if (diff.entries[i].operation != DiffOperation.equal) i,
     ];
+    _cachedDiffIndices = list;
+    _cachedDiffIndicesFor = diff;
+    return list;
   }
 
   void _ensureRowKeys() {
@@ -192,13 +209,18 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _jumpToNextDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    final next = (_currentDiffPos + 1) % indices.length;
+    // _currentDiffPos 是“上一次已知的差异序号”。用户如果手动滚动过，
+    // _syncDiffPosToScroll 会把它更新到视口里的第一处差异，所以从这里
+    // +1 就是“下一处”；如果从未滚动/点过，-1 → 0，跳到第一处。
+    final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
+    final next = (current + 1) % indices.length;
     _jumpToDiffPos(next);
   }
 
   void _jumpToPrevDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
+    // 未聚焦时视为 0，prev 会绕到最后一处；否则从当前位置 -1。
     final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
     final prev = (current - 1 + indices.length) % indices.length;
     _jumpToDiffPos(prev);
@@ -211,8 +233,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollToEntry(indices[pos]);
   }
 
-  void _captureAnchor() {
-    if (_rowKeysByEntry.isEmpty) return;
+  /// 遍历所有已登记的 GlobalKey，找到第一个还在视口里的差异条目，
+  /// 记录它的 entry index 作为 anchor。
+  ///
+  /// 返回 entry index（不是 _currentDiffPos 里的位置），因为跨视图迁移
+  /// 用的是 entry index，`_currentDiffPos` 换算要在调用方做。
+  int? _findFirstVisibleDiffEntry() {
+    if (_rowKeysByEntry.isEmpty) return null;
     final sorted = _rowKeysByEntry.keys.toList()..sort();
     for (final idx in sorted) {
       final ctx = _rowKeysByEntry[idx]?.currentContext;
@@ -221,10 +248,49 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       if (box == null || !box.attached) continue;
       final top = box.localToGlobal(Offset.zero).dy;
       if (top + box.size.height > 0) {
-        _anchorEntryIndex = idx;
-        return;
+        return idx;
       }
     }
+    return null;
+  }
+
+  /// 记录 anchor 并同步顶部“N/总数”计数器。
+  ///
+  /// 之前这个函数只记 anchor，`_currentDiffPos` 不动，导致用户滚动到
+  /// 第 150 处时顶部还显示 1/200，且点“下一处”从过期的 0 开始 +1 → 跳到
+  /// 第 1 处（“跳到文档开头”）。
+  ///
+  /// 现在顺手把 anchor 换算成它在 `_diffIndices()` 里的序号，写回
+  /// `_currentDiffPos`。用 setState 是因为顶部计数在 AppBar 里。
+  void _captureAnchor() {
+    final anchorEntry = _findFirstVisibleDiffEntry();
+    if (anchorEntry == null) return;
+    _anchorEntryIndex = anchorEntry;
+
+    final indices = _diffIndices();
+    if (indices.isEmpty) return;
+    // 目标条目可能因为当前视图过滤（equal 行在 diff-only 里不渲染）而
+    // 不在 indices 里；二分/线性找到第一个 >= anchorEntry 的位置最稳。
+    final pos = _lowerBound(indices, anchorEntry);
+    if (pos >= indices.length) return;
+    if (pos != _currentDiffPos) {
+      setState(() => _currentDiffPos = pos);
+    }
+  }
+
+  /// 返回 indices 里第一个 >= value 的下标（二分）。
+  /// indices 单调递增，长度通常是几百到几千，二分足够。
+  int _lowerBound(List<int> indices, int value) {
+    var lo = 0, hi = indices.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (indices[mid] < value) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
   }
 
   void _switchView(ViewMode newMode) {
@@ -330,8 +396,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             tooltip: '更多操作',
             onSelected: (_) {},
             itemBuilder: (context) => [
-              // 只保留横屏切换。字符 diff 引擎已删除（对几万行做全文字符
-              // 级 Myers 太慢，且语义错误——丢掉了“行”这个基本单位）。
               PopupMenuItem<void>(
                 value: null,
                 child: Row(
