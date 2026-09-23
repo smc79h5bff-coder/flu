@@ -92,10 +92,12 @@ class InlineCharDiff extends StatelessWidget {
         ));
       }
     }
+    // Removed the previous `maxLines: 3, overflow: ellipsis` — it truncated
+    // long replace rows so users couldn't see the full change. Letting the
+    // cell grow vertically is acceptable because the fixed-itemExtent
+    // optimization is not used here (text can wrap freely).
     return Text.rich(
       TextSpan(style: base, children: spans),
-      maxLines: 3,
-      overflow: TextOverflow.ellipsis,
     );
   }
 }
