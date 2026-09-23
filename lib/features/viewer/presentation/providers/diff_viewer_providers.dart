@@ -1,9 +1,8 @@
+import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/foundation.dart';
 import 'package:charset/charset.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../diff/application/diff_engine.dart';
-import '../../../diff/application/line_diff_engine.dart';
 import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
@@ -29,14 +28,10 @@ final ignoreLineEndingsProvider = StateProvider<bool>((ref) => false);
 final unifyAnsiProvider = StateProvider<bool>((ref) => false);
 
 /// ANSI 编码（中文 Windows 环境下通常即 GBK / GB2312 / CP936）。
-/// 用 charset 包的 `gbk` codec（真双字节 GBK，即 CP936/ANSI）作为目标编码：
-/// 若文本已能完整表示为 ANSI 则原样返回（不处理，防止误判）；若有无法表示
-/// 的字符则删除这些字符。
-/// 注意该操作需逐个检测字符，开销较大，故放在 diff 计算的后台 isolate 内执行。
 String unifyToAnsi(String text) {
   try {
     final bytes = gbk.encode(text);
-    if (gbk.decode(bytes) == text) return text; // 已完全可表示为 ANSI，无需处理
+    if (gbk.decode(bytes) == text) return text;
   } catch (_) {
     // 整体编码失败（存在无法表示字符），走逐字符删除路径。
   }
@@ -45,7 +40,7 @@ String unifyToAnsi(String text) {
     final ch = String.fromCharCode(rune);
     try {
       final bytes = gbk.encode(ch);
-      if (gbk.decode(bytes) != ch) continue; // 无法精确往返 → 视为不可表示，删除
+      if (gbk.decode(bytes) != ch) continue;
       sb.write(ch);
     } catch (_) {
       // 无法转换 → 删除
@@ -86,34 +81,114 @@ typedef _DiffRequest =
       bool unifyAnsi,
     });
 
+/// dmp 的 op 常量映射到 [DiffOperation] 的 index。
+///   dmp:           DIFF_DELETE = -1, DIFF_EQUAL = 0, DIFF_INSERT = 1
+///   DiffOperation: equal = 0, insert = 1, delete = 2, replace = 3
+int _dmpOpToIndex(int op) {
+  if (op == DIFF_EQUAL) return DiffOperation.equal.index;
+  if (op == DIFF_INSERT) return DiffOperation.insert.index;
+  return DiffOperation.delete.index;
+}
+
 /// 在后台 isolate 中执行 diff 计算。
 ///
-/// 只保留行 diff 引擎。之前还有 CharDiffEngine（对全文做字符级 Myers），
-/// 在几千几万行的文件上是 1~3 秒的灾难，且语义不对——它丢掉了“行”这个
-/// 基本单位。NMM 也只用行级 xdiff + 行内字符 diff，没有全文字符引擎。
-List<(int, String, String, String, double)> _computeInWorker(
-  _DiffRequest req,
-) {
+/// **关键：不在 isolate 内展开每个 chunk 成单行 DiffEntry。**
+/// dmp 的输出天然是“块级”：一段连续 delete 是一个 chunk，一段连续 insert
+/// 是一个 chunk，一段连续 equal 是一个 chunk。之前 `LineDiffEngine` 把每个
+/// chunk 拆成 N 个单行 DiffEntry，导致 isolate 内构造了上万个 Dart 对象，
+/// 跨 isolate 又传输了上万个 tuple —— 这就是“点对比要等一会”的根源。
+///
+/// 现在 isolate 只返回 `List<(opIndex, chunkText)>`（几百个到几千个），
+/// 主线程再展开成 DiffEntry。传输量降低一个数量级。
+List<(int, String)> _computeInWorker(_DiffRequest req) {
+  final sw = Stopwatch()..start();
+
   final original = req.unifyAnsi ? unifyToAnsi(req.original) : req.original;
   final modified = req.unifyAnsi ? unifyToAnsi(req.modified) : req.modified;
-  const DiffEngine engine = LineDiffEngine();
-  final result = engine.compute(original, modified);
-  return <(int, String, String, String, double)>[
-    for (final e in result.entries)
-      (e.operation.index, e.text, e.oldText, e.newText, e.similarity),
+  final tAnsi = sw.elapsedMilliseconds;
+
+  if (original.isEmpty && modified.isEmpty) {
+    return const <(int, String)>[];
+  }
+
+  final dmp = DiffMatchPatch();
+  final lines = dmp.diffLinesToChars(original, modified);
+  final chars1 = lines[0] as String;
+  final chars2 = lines[1] as String;
+  final lineArray = lines[2] as List<String>;
+  final tMapLines = sw.elapsedMilliseconds;
+
+  final diffs = dmp.diffMain(chars1, chars2, false);
+  final tMain = sw.elapsedMilliseconds;
+
+  dmp.diffCharsToLines(diffs, lineArray);
+  final tBack = sw.elapsedMilliseconds;
+
+  final chunks = <(int, String)>[
+    for (final d in diffs) (_dmpOpToIndex(d.operation), d.text),
   ];
+  final tChunks = sw.elapsedMilliseconds;
+
+  if (kDebugMode) {
+    debugPrint('[diff-isolate] ansi=${tAnsi}ms '
+        'mapLines=${tMapLines - tAnsi}ms '
+        'diffMain=${tMain - tMapLines}ms '
+        'charsToLines=${tBack - tMain}ms '
+        'chunks=${tChunks - tBack}ms '
+        'chunkCount=${chunks.length} '
+        'origLen=${original.length} modLen=${modified.length}');
+  }
+
+  return chunks;
+}
+
+/// 把 isolate 返回的 chunks 展开成单行 [DiffEntry] 列表。
+/// 在主线程运行；每行是一次 substring + 一次 DiffEntry 构造，1 万行 ~ 50ms。
+///
+/// 只在遇到 '\n' 时切分，不做 `split('\n')`（那会创建中间 List，代价更大）。
+/// 忽略末尾因 `\n` 产生的空段：与旧实现的语义保持一致。
+List<DiffEntry> _expandChunks(List<(int, String)> chunks) {
+  final out = <DiffEntry>[];
+  for (final (opIndex, text) in chunks) {
+    final op = DiffOperation.values[opIndex];
+    var start = 0;
+    for (var i = 0; i < text.length; i++) {
+      if (text.codeUnitAt(i) == 0x0A) {
+        out.add(_mkEntry(op, text.substring(start, i)));
+        start = i + 1;
+      }
+    }
+    if (start < text.length) {
+      out.add(_mkEntry(op, text.substring(start)));
+    }
+  }
+  return out;
+}
+
+DiffEntry _mkEntry(DiffOperation op, String line) {
+  switch (op) {
+    case DiffOperation.equal:
+      return DiffEntry(operation: op, text: line);
+    case DiffOperation.insert:
+      return DiffEntry(operation: op, text: line, newText: line);
+    case DiffOperation.delete:
+      return DiffEntry(operation: op, text: line, oldText: line);
+    case DiffOperation.replace:
+      return DiffEntry(operation: op, text: line);
+  }
 }
 
 /// Computed diff. Listens to preprocessed text + an import revision counter
 /// (so a re-import forces a recompute).
 ///
-/// diff 计算在后台 isolate 中进行，避免大文本卡死主线程。
+/// diff 计算在后台 isolate 中进行；结果回主线程后展开为 DiffEntry 列表。
 final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
+  final sw = Stopwatch()..start();
+
   final original = ref.watch(preprocessedOriginalProvider);
   final modified = ref.watch(preprocessedModifiedProvider);
   if (original.isEmpty || modified.isEmpty) return null;
 
-  // 三个“忽略”开关：比较前对文本做统一预处理。
   final ignoreWs = ref.watch(ignoreWhitespaceProvider);
   final ignoreEmpty = ref.watch(ignoreEmptyLinesProvider);
   final ignoreNl = ref.watch(ignoreLineEndingsProvider);
@@ -131,11 +206,12 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   );
   if (origNorm.isEmpty || modNorm.isEmpty) return null;
 
-  // Revision bump triggers a fresh read.
   ref.watch(importRevisionProvider);
 
   final unifyAnsi = ref.watch(unifyAnsiProvider);
-  final rows = await compute(
+  final tPrep = sw.elapsedMilliseconds;
+
+  final chunks = await compute(
     _computeInWorker,
     (
       original: origNorm,
@@ -143,18 +219,17 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
       unifyAnsi: unifyAnsi,
     ),
   );
+  final tIsolate = sw.elapsedMilliseconds;
 
-  return DiffResult(
-    entries: <DiffEntry>[
-      for (final r in rows)
-        DiffEntry(
-          operation: DiffOperation.values[r.$1],
-          text: r.$2,
-          oldText: r.$3,
-          newText: r.$4,
-          similarity: r.$5,
-        ),
-    ],
-    engineType: DiffEngineType.line,
-  );
+  final entries = _expandChunks(chunks);
+  final tExpand = sw.elapsedMilliseconds;
+
+  if (kDebugMode) {
+    debugPrint('[diff-main] prep=${tPrep}ms '
+        'isolateRoundTrip=${tIsolate - tPrep}ms '
+        'expand=${tExpand - tIsolate}ms '
+        'entries=${entries.length}');
+  }
+
+  return DiffResult(entries: entries, engineType: DiffEngineType.line);
 });
