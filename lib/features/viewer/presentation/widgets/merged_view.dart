@@ -108,26 +108,28 @@ class _EntryTile extends StatelessWidget {
         ),
     };
 
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (lineNumber > 0)
-            Container(
-              width: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-              alignment: Alignment.topCenter,
-              child: Text(
-                '$lineNumber',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-              ),
+    // NOTE: We intentionally avoid `IntrinsicHeight` here. IntrinsicHeight
+    // forces a second measure pass per tile, which is the single biggest
+    // ListView scrolling cost in this screen. `CrossAxisAlignment.start`
+    // gives the same visual layout (gutter aligned to top) with one measure.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (lineNumber > 0)
+          Container(
+            width: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            alignment: Alignment.topCenter,
+            child: Text(
+              '$lineNumber',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
             ),
-          Expanded(child: row),
-        ],
-      ),
+          ),
+        Expanded(child: row),
+      ],
     );
   }
 
@@ -175,7 +177,10 @@ class _EntryTile extends StatelessWidget {
       margin: const EdgeInsets.only(right: 8, top: 2, bottom: 2),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        // 0.25 keeps the highlight clearly visible in light theme while
+        // still letting the base text color through. 0.12 (previous value)
+        // was too faint against the light scaffold background.
+        color: color.withOpacity(0.25),
         border: Border(left: BorderSide(color: color, width: 3)),
         borderRadius: BorderRadius.circular(4),
       ),
