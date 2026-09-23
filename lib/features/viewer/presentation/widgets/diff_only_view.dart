@@ -252,7 +252,8 @@ class _DiffCell extends StatelessWidget {
     }
 
     return Container(
-      color: bg ?? color?.withOpacity(0.10),
+      // 0.25: visible in light theme without overpowering the text color.
+      color: bg ?? color?.withOpacity(0.25),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
