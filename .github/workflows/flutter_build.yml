@@ -19,11 +19,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 👇 这里改回了 v2，这是目前正确的稳定版本
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
+          flutter-version: '3.19.0'
           channel: stable
 
       - name: Install dependencies
