@@ -54,7 +54,7 @@ class MergedView extends ConsumerWidget {
       thumbVisibility: false,
       child: ListView.builder(
         controller: controller,
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 2),
         itemCount: order.length,
         itemBuilder: (ctx, i) {
           final ei = order[i];
@@ -180,7 +180,7 @@ class _EntryTile extends StatelessWidget {
       children: [
         if (showLineNumbers && lineNumber > 0)
           Container(
-            width: 34,
+            width: 26,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             alignment: Alignment.topCenter,
             child: Text(
@@ -222,7 +222,7 @@ class _EntryTile extends StatelessWidget {
     final style = TextStyle(
       fontSize: bodyFontSize,
       color: color,
-      height: 1.4,
+      height: 1.2,
       decoration: strikeThrough ? TextDecoration.lineThrough : null,
     );
     final Widget content = (charDiffAfter != null && charDiffBefore != null)
@@ -238,11 +238,11 @@ class _EntryTile extends StatelessWidget {
           );
 
     return Container(
-      margin: const EdgeInsets.only(right: 8, top: 2, bottom: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      margin: const EdgeInsets.only(right: 2, top: 2, bottom: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
       decoration: BoxDecoration(
         color: color.withOpacity(0.25),
-        border: Border(left: BorderSide(color: color, width: 3)),
+        border: Border(left: BorderSide(color: color, width: 2)),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
