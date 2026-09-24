@@ -9,7 +9,7 @@ import '../../preprocessing/domain/encoding_type.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../viewer/presentation/diff_viewer_screen.dart';
 import 'comparison_settings_screen.dart';
-import 'role_confirm_dialog.dart';
+
 import 'text_preview_screen.dart';
 
 /// 文件浏览器：首页。
@@ -187,14 +187,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       }
     }
 
-    final f1 = File(paths[0]);
-    final f2 = File(paths[1]);
-
-    final result = await showDialog<({File original, File modified})>(
-      context: context,
-      builder: (_) => RoleConfirmDialog(fileA: f1, fileB: f2),
-    );
-    if (result == null || !mounted) return;
+    // 不再弹角色确认框，默认 paths[0] 是原文件、paths[1] 是修改版。
+final result = (
+  original: File(paths[0]),
+  modified: File(paths[1]),
+);
 
     try {
       showDialog<void>(
