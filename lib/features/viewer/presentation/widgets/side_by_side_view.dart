@@ -72,7 +72,7 @@ class SideBySideView extends ConsumerWidget {
         Expanded(
           child: Scrollbar(
             controller: controller,
-            thumbVisibility: false,
+            thumbVisibility: true,
             child: ListView.builder(
               key: const Key('side-by-side-list'),
               controller: controller,
