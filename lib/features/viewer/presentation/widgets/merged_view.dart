@@ -19,6 +19,7 @@ class MergedView extends ConsumerWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+    this.onLongPressEntry,
     super.key,
   });
 
@@ -30,6 +31,9 @@ class MergedView extends ConsumerWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+
+  /// 长按某行时回调，参数是该行对应的 entry 下标。
+  final void Function(int entryIndex)? onLongPressEntry;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -63,8 +67,17 @@ class MergedView extends ConsumerWidget {
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
           );
+          final wrapped = onLongPressEntry == null
+              ? tile
+              : GestureDetector(
+                  onLongPress: () => onLongPressEntry!(ei),
+                  behavior: HitTestBehavior.opaque,
+                  child: tile,
+                );
           final key = rowKeysByEntry?[ei];
-          return key == null ? tile : KeyedSubtree(key: key, child: tile);
+          return key == null
+              ? wrapped
+              : KeyedSubtree(key: key, child: wrapped);
         },
       ),
     );
