@@ -45,7 +45,7 @@ class SideBySideView extends ConsumerStatefulWidget {
 }
 
 class _SideBySideViewState extends ConsumerState<SideBySideView> {
-  // 独立滚动模式下左右各自需要独立 controller（同步模式仍用 widget.controller）。
+  // 独立滚动模式：左右各自 controller。
   final ScrollController _leftCtrl = ScrollController();
   final ScrollController _rightCtrl = ScrollController();
 
@@ -86,8 +86,8 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
   // ============ 同步滚动 ============
 
   Widget _buildSynced(BuildContext context, DiffColors c) {
-    final meta = _lineMeta(widget.result);
-    final rows = computeAlignedRows(widget.result.entries);
+    final meta = cachedLineMeta(widget.result);
+    final rows = cachedAlignedRows(widget.result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
@@ -146,9 +146,12 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                   keyOwners = <int>[ei];
                 }
                 Widget out = row;
-                for (final k in keyOwners) {
-                  final key = widget.rowKeysByEntry?[k];
-                  if (key != null) out = KeyedSubtree(key: key, child: out);
+                if (widget.rowKeysByEntry != null) {
+                  for (final k in keyOwners) {
+                    final key = widget.rowKeysByEntry!
+                        .putIfAbsent(k, () => GlobalKey());
+                    out = KeyedSubtree(key: key, child: out);
+                  }
                 }
                 if (widget.onLongPressEntry != null) {
                   out = GestureDetector(
@@ -169,7 +172,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
   // ============ 独立滚动 ============
 
   Widget _buildIndependent(BuildContext context, DiffColors c) {
-    final meta = _lineMeta(widget.result);
+    final meta = cachedLineMeta(widget.result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
@@ -514,6 +517,249 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CharDiff {
+  const _CharDiff({
+    required this.before,
+    required this.after,
+    required this.side,
+    required this.removedBg,
+    required this.removedFg,
+    required this.addedBg,
+    required this.addedFg,
+  });
+
+  final String before;
+  final String after;
+  final bool side;
+  final Color removedBg;
+  final Color removedFg;
+  final Color addedBg;
+  final Color addedFg;
+}
+
+class _Cell extends StatelessWidget {
+  const _Cell({
+    required this.text,
+    required this.line,
+    required this.symbol,
+    required this.bg,
+    required this.fg,
+    required this.findQuery,
+    required this.isCurrentMatch,
+    required this.matchYellow,
+    required this.matchOrange,
+    this.charDiff,
+    this.showLineNumbers = true,
+    this.bodyFontSize = 14.0,
+    this.gutterFontSize = 11.0,
+  });
+
+  final String text;
+  final int line;
+  final String symbol;
+  final Color bg;
+  final Color fg;
+  final String findQuery;
+  final bool isCurrentMatch;
+  final Color matchYellow;
+  final Color matchOrange;
+  final _CharDiff? charDiff;
+  final bool showLineNumbers;
+  final double bodyFontSize;
+  final double gutterFontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Theme.of(context)
+        .textTheme
+        .bodyMedium
+        ?.copyWith(fontSize: bodyFontSize, color: fg);
+    final outline = Theme.of(context).colorScheme.outline;
+
+    Widget content;
+    if (charDiff != null) {
+      content = InlineCharDiff(
+        before: charDiff!.before,
+        after: charDiff!.after,
+        side: charDiff!.side,
+        style: body,
+        findQuery: findQuery,
+        isCurrentMatch: isCurrentMatch,
+        addedFg: charDiff!.addedFg,
+        addedBg: charDiff!.addedBg,
+        removedFg: charDiff!.removedFg,
+        removedBg: charDiff!.removedBg,
+      );
+    } else if (findQuery.isEmpty || !text.contains(findQuery)) {
+      content = Text(text.isEmpty ? ' ' : text, style: body, softWrap: true);
+    } else {
+      content = RichText(text: TextSpan(style: body, children: _spans(text)));
+    }
+
+    return Container(
+      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showLineNumbers) ...[
+            SizedBox(
+              width: 30,
+              child: Text(
+                line < 0 ? '' : '$line',
+                textAlign: TextAlign.end,
+                style: TextStyle(fontSize: gutterFontSize, color: outline),
+              ),
+            ),
+            if (symbol.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              Text(symbol,
+                  style: TextStyle(
+                      color: fg,
+                      fontWeight: FontWeight.bold,
+                      fontSize: bodyFontSize)),
+            ],
+          ],
+          const SizedBox(width: 6),
+          Expanded(child: content),
+        ],
+      ),
+    );
+  }
+
+  List<InlineSpan> _spans(String text) {
+    final q = findQuery;
+    final bg = isCurrentMatch ? matchOrange : matchYellow;
+    final spans = <InlineSpan>[];
+    var start = 0;
+    int idx;
+    while ((idx = text.indexOf(q, start)) != -1) {
+      if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
+      spans.add(TextSpan(
+        text: q,
+        style: TextStyle(
+          backgroundColor: bg,
+          fontWeight: FontWeight.bold,
+        ),
+      ));
+      start = idx + q.length;
+    }
+    if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
+    return spans;
+  }
+}
+
+typedef AlignedRow = ({int? del, int? ins});
+
+List<AlignedRow> computeAlignedRows(List<DiffEntry> entries) {
+  final rows = <AlignedRow>[];
+  var i = 0;
+  while (i < entries.length) {
+    final e = entries[i];
+    if (e.operation == DiffOperation.delete ||
+        e.operation == DiffOperation.insert) {
+      final delStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.delete) {
+        i++;
+      }
+      final delEnd = i;
+      final insStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.insert) {
+        i++;
+      }
+      final insEnd = i;
+
+      final delCount = delEnd - delStart;
+      final insCount = insEnd - insStart;
+      final pairs = delCount < insCount ? delCount : insCount;
+
+      for (var k = 0; k < pairs; k++) {
+        rows.add((del: delStart + k, ins: insStart + k));
+      }
+      for (var k = pairs; k < delCount; k++) {
+        rows.add((del: delStart + k, ins: null));
+      }
+      for (var k = pairs; k < insCount; k++) {
+        rows.add((del: null, ins: insStart + k));
+      }
+    } else {
+      rows.add((del: i, ins: null));
+      i++;
+    }
+  }
+  return rows;
+}
+
+List<({int orig, int mod})> _lineMeta(DiffResult result) {
+  final meta = <({int orig, int mod})>[];
+  var o = 0, m = 0;
+  for (final e in result.entries) {
+    final usesOrig = e.operation == DiffOperation.equal ||
+        e.operation == DiffOperation.delete ||
+        e.operation == DiffOperation.replace;
+    final usesMod = e.operation == DiffOperation.equal ||
+        e.operation == DiffOperation.insert ||
+        e.operation == DiffOperation.replace;
+    meta.add((orig: usesOrig ? o : -1, mod: usesMod ? m : -1));
+    if (usesOrig) o++;
+    if (usesMod) m++;
+  }
+  return meta;
+}
+
+// ========== 派生数据缓存（避免每次 rebuild 全量重算） ==========
+
+DiffResult? _lastAlignedRowsFor;
+List<AlignedRow>? _lastAlignedRows;
+
+/// 按 diff 实例缓存对齐行。同一个 DiffResult 反复调用只算一次。
+List<AlignedRow> cachedAlignedRows(DiffResult diff) {
+  if (identical(_lastAlignedRowsFor, diff) && _lastAlignedRows != null) {
+    return _lastAlignedRows!;
+  }
+  _lastAlignedRows = computeAlignedRows(diff.entries);
+  _lastAlignedRowsFor = diff;
+  return _lastAlignedRows!;
+}
+
+DiffResult? _lastLineMetaFor;
+List<({int orig, int mod})>? _lastLineMeta;
+
+/// 按 diff 实例缓存行号元数据。
+List<({int orig, int mod})> cachedLineMeta(DiffResult diff) {
+  if (identical(_lastLineMetaFor, diff) && _lastLineMeta != null) {
+    return _lastLineMeta!;
+  }
+  _lastLineMeta = _lineMeta(diff);
+  _lastLineMetaFor = diff;
+  return _lastLineMeta!;
+}
+
+class _PaneHeader extends StatelessWidget {
+  const _PaneHeader({required this.fileName, required this.color});
+
+  final String fileName;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: color.withOpacity(0.08),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Text(
+        fileName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style:
+            TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+      ),
     );
   }
 }
