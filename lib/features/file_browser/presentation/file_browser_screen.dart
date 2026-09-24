@@ -1173,7 +1173,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
     return Container(
       width: double.infinity,
-      color: s.surfaceVariant.withOpacity(0.4),
+      color: const Color(0xFFE3F2FD),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
