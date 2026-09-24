@@ -57,16 +57,26 @@ final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
 /// 忽略空白符号：比较前去掉水平空白字符（空格、制表符）。
 /// 注意用 `[ \t]+` 而非 `\s`，因为 `\s` 会把换行也吃掉、导致整篇并成一行。
 final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
-final ignoreWhitespaceProvider = StateProvider<bool>((ref) => false);
+final ignoreWhitespaceProvider = StateProvider<bool>((ref) => true);
 
 /// 忽略空行：比较前删除空白/空行。
-final ignoreEmptyLinesProvider = StateProvider<bool>((ref) => false);
+final ignoreEmptyLinesProvider = StateProvider<bool>((ref) => true);
 
 /// 忽略换行符：比较前统一换行格式（\r\n / \r / \n），避免换行符差异误报。
-final ignoreLineEndingsProvider = StateProvider<bool>((ref) => false);
+final ignoreLineEndingsProvider = StateProvider<bool>((ref) => true);
 
 /// 统一编码 ANSI 对比。
 final unifyAnsiProvider = StateProvider<bool>((ref) => false);
+
+/// 忽略大小写：A 和 a 视为相同。
+final ignoreCaseProvider = StateProvider<bool>((ref) => false);
+
+/// 忽略中英文逗号：去掉 , 和 ， 后对比。
+final ignoreCommasProvider = StateProvider<bool>((ref) => false);
+
+/// 忽略纯数字：连续的 [0-9]+ 整体替换成 <NUM> 占位符。
+/// 例：abc123 和 abc456 视为相同。
+final ignoreNumbersProvider = StateProvider<bool>((ref) => false);
 
 /// ANSI 编码（中文 Windows 环境下通常即 GBK / GB2312 / CP936）。
 String unifyToAnsi(String text) {
@@ -96,6 +106,9 @@ String applyDiffIgnores(
   bool whitespace = false,
   bool emptyLines = false,
   bool lineEndings = false,
+  bool ignoreCase = false,
+  bool ignoreCommas = false,
+  bool ignoreNumbers = false,
 }) {
   var out = text;
   if (lineEndings) {
@@ -109,6 +122,18 @@ String applyDiffIgnores(
         .split('\n')
         .where((l) => l.trim().isNotEmpty)
         .join('\n');
+  }
+  if (ignoreCommas) {
+    // 只处理中英文逗号。
+    out = out.replaceAll(',', '').replaceAll('，', '');
+  }
+  if (ignoreNumbers) {
+    // 连续数字整体替换成占位符，避免 abc123 和 abc456 被误判为不同。
+    out = out.replaceAll(RegExp(r'[0-9]+'), '<NUM>');
+  }
+  if (ignoreCase) {
+    // 最后做：前面步骤可能引入 ASCII 字符（<NUM>），统一转小写。
+    out = out.toLowerCase();
   }
   return out;
 }
