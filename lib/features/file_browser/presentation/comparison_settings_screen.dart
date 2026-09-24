@@ -6,15 +6,9 @@ import '../../import/presentation/providers/import_providers.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import '../../viewer/presentation/providers/diff_viewer_providers.dart';
 
-/// 比较设置页面。
-///
-/// 把所有对比相关的可调项集中在一页：
-///   - 忽略项：空白 / 空行 / 换行 / 大小写 / 逗号 / 数字 / ANSI
-///   - 内置预处理规则（可勾选启用）
-///   - 用户自定义预处理规则（可增删）
-///   - 新建自定义规则
-///
-/// 从文件管理器和对比页都能进入；两处打开的是同一个页面。
+/// 比较设置页面。所有规则/开关在同一列表中，顺序：
+///   自定义规则 → 内置规则 → 忽略项
+/// 无分区标题、无分割线。
 class ComparisonSettingsScreen extends ConsumerWidget {
   const ComparisonSettingsScreen({super.key});
 
@@ -42,10 +36,24 @@ class ComparisonSettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
-          _sectionHeader(context, '忽略项'),
+          // ---- 1. 自定义规则 ----
+          for (final r in userRules)
+            _ruleTile(context, ref, r, builtin: false),
+          ListTile(
+            leading: Icon(Icons.add_circle_outline,
+                color: Theme.of(context).colorScheme.primary),
+            title: const Text('新建规则'),
+            onTap: () => _showEditor(context, ref),
+          ),
+
+          // ---- 2. 内置规则 ----
+          for (final r in builtinRules)
+            _ruleTile(context, ref, r, builtin: true),
+
+          // ---- 3. 忽略项 ----
           _switchTile(
             context,
-            title: '忽略空白符号',
+            title: '删掉空白符号',
             subtitle: '去掉所有空格和 Tab 后对比',
             value: ref.watch(ignoreWhitespaceProvider),
             onChanged: (v) =>
@@ -53,7 +61,7 @@ class ComparisonSettingsScreen extends ConsumerWidget {
           ),
           _switchTile(
             context,
-            title: '忽略空行',
+            title: '删掉空行',
             subtitle: '去掉空白行后对比',
             value: ref.watch(ignoreEmptyLinesProvider),
             onChanged: (v) =>
@@ -61,7 +69,7 @@ class ComparisonSettingsScreen extends ConsumerWidget {
           ),
           _switchTile(
             context,
-            title: '忽略换行符',
+            title: '统一换行符',
             subtitle: r'统一 \r\n / \r / \n 三种换行格式',
             value: ref.watch(ignoreLineEndingsProvider),
             onChanged: (v) =>
@@ -69,7 +77,7 @@ class ComparisonSettingsScreen extends ConsumerWidget {
           ),
           _switchTile(
             context,
-            title: '忽略大小写',
+            title: '大写全转成小写',
             subtitle: 'A 和 a 视为相同',
             value: ref.watch(ignoreCaseProvider),
             onChanged: (v) =>
@@ -77,29 +85,20 @@ class ComparisonSettingsScreen extends ConsumerWidget {
           ),
           _switchTile(
             context,
-            title: '忽略中英文逗号',
-            subtitle: '去掉英文 , 和中文 ， 后对比',
-            value: ref.watch(ignoreCommasProvider),
-            onChanged: (v) =>
-                ref.read(ignoreCommasProvider.notifier).state = v,
-          ),
-          _switchTile(
-            context,
-            title: '忽略纯数字',
+            title: '忽略纯数字（数字改为占位符）',
             subtitle: '连续数字（如 123）视为占位符 <NUM>',
             value: ref.watch(ignoreNumbersProvider),
             onChanged: (v) =>
                 ref.read(ignoreNumbersProvider.notifier).state = v,
           ),
           _switchTile(
-  context,
-  title: '忽略不可见字符',
-  subtitle: '删除零宽空格/连字、方向控制、BOM、软连字符、'
-      'NBSP 等看不见的字符后再对比',
-  value: ref.watch(ignoreInvisibleProvider),
-  onChanged: (v) =>
-      ref.read(ignoreInvisibleProvider.notifier).state = v,
-),
+            context,
+            title: '忽略不可见字符',
+            subtitle: '删除零宽空格/连字、方向控制、BOM、软连字符、NBSP 等看不见的字符后再对比',
+            value: ref.watch(ignoreInvisibleProvider),
+            onChanged: (v) =>
+                ref.read(ignoreInvisibleProvider.notifier).state = v,
+          ),
           _switchTile(
             context,
             title: '统一编码 ANSI',
@@ -109,69 +108,46 @@ class ComparisonSettingsScreen extends ConsumerWidget {
                 ref.read(unifyAnsiProvider.notifier).state = v,
           ),
 
-          const Divider(height: 32),
-          _sectionHeader(context, '内置预处理规则（可勾选启用）'),
-          for (final r in builtinRules)
-            _ruleTile(
-              context,
-              rule: r,
-              onToggle: (v) => ref
-                  .read(builtinRuleEnablesProvider.notifier)
-                  .update((prev) => {...prev, r.id: v}),
-            ),
-
-          const Divider(height: 32),
-          _sectionHeader(context, '自定义预处理规则'),
-          if (userRules.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                '暂无自定义规则',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          for (final r in userRules)
-            _ruleTile(
-              context,
-              rule: r,
-              onToggle: (v) => ref
-                  .read(userRulesProvider.notifier)
-                  .update(r.copyWith(enabled: v)),
-              onDelete: () =>
-                  ref.read(userRulesProvider.notifier).remove(r.id),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.add),
-              label: const Text('新建自定义规则'),
-              onPressed: () => _showEditor(context, ref),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              '所有设置立即生效。下次打开对比页会使用新的设置。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
           const SizedBox(height: 32),
         ],
       ),
     );
   }
 
-  Widget _sectionHeader(BuildContext context, String text) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w600,
+  Widget _ruleTile(
+    BuildContext context,
+    WidgetRef ref,
+    PreprocessingRule rule, {
+    required bool builtin,
+  }) {
+    return ListTile(
+      title: Text(rule.name),
+      subtitle: Text(
+        '/${rule.findPattern}/ → "${rule.replaceWith}"',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(
+            value: rule.enabled,
+            onChanged: builtin
+                ? (v) => ref
+                    .read(builtinRuleEnablesProvider.notifier)
+                    .update((prev) => {...prev, rule.id: v})
+                : (v) => ref
+                    .read(userRulesProvider.notifier)
+                    .update(rule.copyWith(enabled: v)),
+          ),
+          if (!builtin)
+            IconButton(
+              tooltip: '移除该规则',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () =>
+                  ref.read(userRulesProvider.notifier).remove(rule.id),
             ),
+        ],
       ),
     );
   }
@@ -194,47 +170,17 @@ class ComparisonSettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _ruleTile(
-    BuildContext context, {
-    required PreprocessingRule rule,
-    required ValueChanged<bool> onToggle,
-    VoidCallback? onDelete,
-  }) {
-    return ListTile(
-      title: Text(rule.name),
-      subtitle: Text(
-        '/${rule.findPattern}/ → "${rule.replaceWith}"',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelSmall,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Switch(value: rule.enabled, onChanged: onToggle),
-          if (onDelete != null)
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: '移除',
-              onPressed: onDelete,
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditor(BuildContext context, WidgetRef ref) {
-    showDialog<PreprocessingRule>(
+  void _showEditor(BuildContext context, WidgetRef ref) async {
+    final rule = await showDialog<PreprocessingRule>(
       context: context,
       builder: (_) => const _RuleEditorDialog(),
-    ).then((rule) {
-      if (rule != null) {
-        ref.read(userRulesProvider.notifier).add(rule);
-      }
-    });
+    );
+    if (rule != null) ref.read(userRulesProvider.notifier).add(rule);
   }
 }
 
+/// 新建规则对话框。从 rules_management_screen.dart 复制过来，
+/// 保持和原来一致的行为。
 class _RuleEditorDialog extends StatefulWidget {
   const _RuleEditorDialog();
 
@@ -282,7 +228,6 @@ class _RuleEditorDialogState extends State<_RuleEditorDialog> {
                 hintText: '<DATE>',
               ),
             ),
-            const SizedBox(height: 12),
             DropdownButton<RuleScope>(
               value: _scope,
               isExpanded: true,
