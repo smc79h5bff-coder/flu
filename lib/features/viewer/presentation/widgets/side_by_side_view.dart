@@ -65,12 +65,16 @@ class SideBySideView extends ConsumerWidget {
             header(modifiedFileName, s.primary),
           ],
         ),
-        Expanded(
-          child: ListView.builder(
-            key: const Key('side-by-side-list'),
-            controller: controller,
-            itemCount: rows.length,
-            itemBuilder: (ctx, i) {
+Expanded(
+  child: Scrollbar(
+    controller: controller,
+    thumbVisibility: false,
+    child: ListView.builder(
+      key: const Key('side-by-side-list'),
+      controller: controller,
+      itemCount: rows.length,
+      itemBuilder: (ctx, i) {
+        // ... 原有内容，往里缩 2 格
               final spec = rows[i];
               final Widget row;
               final List<int> keyOwners;
