@@ -8,7 +8,7 @@ class RegexHelpScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
 
-    Widget section(String title, IconData icon, List<Widget> children) {
+    Widget section(String title, IconData? icon, List<Widget> children) {
       return Card(
         margin: const EdgeInsets.only(bottom: 12),
         child: Padding(
@@ -18,8 +18,10 @@ class RegexHelpScreen extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(icon, size: 20, color: s.primary),
-                  const SizedBox(width: 8),
+                  if (icon != null) ...[
+                    Icon(icon, size: 20, color: s.primary),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: Text(
                       title,
@@ -142,7 +144,8 @@ class RegexHelpScreen extends StatelessWidget {
             ]),
 
             // ============ 六、转义 ============
-            section('六、转义（匹配符号本身）', Icons.escape, [
+            // 这一节不显示图标
+            section('六、转义（匹配符号本身）', null, [
               line('下面的符号在正则里有特殊含义。想匹配它们"本身"，前面加反斜杠 \\'),
               const SizedBox(height: 4),
               code(r'. * + ? ( ) [ ] { } | \ ^ $'),
@@ -196,9 +199,7 @@ class RegexHelpScreen extends StatelessWidget {
               line('2. 在"查找"框里填内容'),
               line('3. 想在左侧查找就打开"查左侧文件内容"开关；想查右侧就打开"查右侧文件内容"（两个至少要开一个）'),
               line('4. 点"正则"按钮开启正则模式（变蓝变粗）'),
-              // 方案 B：用 raw string
               line(r'5. 在"替换为"框里填替换内容，可用 $1 $2'),
-
               line('6. 点"替换"换当前一处，或"全部替换"一次换完'),
               line('7. 替换累积在缓存里，屏幕暂时不变。点"应用并刷新"才真正生效'),
               const SizedBox(height: 6),
