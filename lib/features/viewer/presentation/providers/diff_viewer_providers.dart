@@ -10,7 +10,7 @@ import '../../../import/presentation/providers/import_providers.dart';
 // diff_viewer_providers.dart 里三个都要 import 时：
 
 import '../../../../core/storage/persistent_notifier.dart';
-import '../../../../core/storage/pref_keys.dart'
+import '../../../../core/storage/pref_keys.dart';
 
 
 /// View mode in the diff viewer. PRD §2 Module 6.
