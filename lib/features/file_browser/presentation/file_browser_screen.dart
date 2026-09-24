@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../parser/application/document_parser.dart';
@@ -194,6 +195,18 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     });
   }
 
+  void _toggleSelectionPath(String path) {
+    setState(() {
+      _selectionMode = true;
+      if (_selectedPaths.contains(path)) {
+        _selectedPaths.remove(path);
+        if (_selectedPaths.isEmpty) _selectionMode = false;
+      } else {
+        _selectedPaths.add(path);
+      }
+    });
+  }
+
   void _openPreview(_EntryInfo info) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -211,7 +224,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     setState(() {}); // 让 clear 按钮显隐
   }
 
-  /// 点搜索按钮。
   void _doSearch() {
     final q = _searchCtrl.text;
     if (q.isEmpty) return;
@@ -222,6 +234,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   void _clearSearch() {
     _searchTaskId++;
     _searchCtrl.clear();
+    _selectionMode = false;
+    _selectedPaths.clear();
     setState(() {
       _searchResults = [];
       _searching = false;
@@ -234,7 +248,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     setState(() => _searching = false);
   }
 
-  /// 长按搜索按钮：弹范围菜单。
   Future<void> _showScopeMenu() async {
     final ctx = _searchBtnKey.currentContext;
     if (ctx == null) return;
@@ -293,7 +306,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  /// 去掉被父目录覆盖的子目录。
   List<String> _dedupFolders(List<String> folders) {
     final sorted = List<String>.from(folders)..sort();
     final out = <String>[];
@@ -408,7 +420,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  // ==================== 对比 / MD5 / 属性 ====================
+  // ==================== 对比 / MD5 / 属性 / 复制路径 ====================
 
   Future<void> _startCompare() async {
     if (_selectedPaths.length != 2) return;
@@ -633,6 +645,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _copyPath() async {
+    if (_selectedPaths.length != 1) return;
+    final path = _selectedPaths.first;
+    await Clipboard.setData(ClipboardData(text: path));
+    if (mounted) _toast('路径已复制');
   }
 
   static String _formatTimeFull(DateTime t) {
@@ -971,6 +990,73 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
+  /// 长按标题 → 弹跳转目录对话框。
+  Future<void> _showJumpToPathDialog() async {
+    final ctrl = TextEditingController();
+    final path = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('跳转到目录'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '输入或粘贴完整路径：',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: '/storage/emulated/0/xxx',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (v) => Navigator.pop(c, v),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '若粘贴的是文件路径，会跳到该文件所在目录',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text.trim()),
+            child: const Text('跳转'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+
+    if (!mounted || path == null || path.isEmpty) return;
+
+    var target = path;
+    if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
+      target = File(target).parent.path;
+    }
+
+    if (!Directory(target).existsSync()) {
+      _toast('目录不存在：$target');
+      return;
+    }
+    if (!target.startsWith(_rootPath)) {
+      _toast('只能跳到内部存储（$_rootPath）以内');
+      return;
+    }
+    _navigateTo(target);
+  }
+
   Future<String?> _pickDirectory(String title) async {
     return showDialog<String>(
       context: context,
@@ -1086,8 +1172,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         body: Column(
           children: [
             if (!_selectionMode) _buildBreadcrumbs(),
-            if (!_selectionMode) _buildSearchBar(),
-            if (!_selectionMode && _searchActive) _buildSearchStatusBar(),
+            if (!_selectionMode || _searchActive) _buildSearchBar(),
+            if (_searchActive) _buildSearchStatusBar(),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -1106,7 +1192,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   PreferredSizeWidget _buildNormalAppBar() {
     final isFav = _favorites.contains(_currentPath);
     return AppBar(
-      title: Text(_title),
+      title: GestureDetector(
+        onLongPress: _showJumpToPathDialog,
+        child: Text(_title),
+      ),
       leading: _canGoUp
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
@@ -1211,7 +1300,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
       child: Row(
         children: [
-          // 左侧：搜索按钮（点=搜索，长按=范围菜单）
           InkWell(
             key: _searchBtnKey,
             onTap: hasText ? _doSearch : null,
@@ -1236,7 +1324,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
             ),
           ),
           const SizedBox(width: 4),
-          // 中间：输入框
           Expanded(
             child: TextField(
               controller: _searchCtrl,
@@ -1253,7 +1340,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               onSubmitted: (_) => _doSearch(),
             ),
           ),
-          // 右侧：清空按钮
           if (hasText)
             IconButton(
               icon: const Icon(Icons.clear),
@@ -1348,7 +1434,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
                 Expanded(
                   child: FilledButton.tonalIcon(
                     icon: const Icon(Icons.fingerprint, size: 18),
-                    label: const Text('MD5 对比'),
+                    label: const Text('MD5'),
                     onPressed: canMd5 ? _md5Compare : null,
                   ),
                 ),
@@ -1358,6 +1444,14 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
                     icon: const Icon(Icons.info_outline, size: 18),
                     label: const Text('属性'),
                     onPressed: canProps ? _showProperties : null,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    icon: const Icon(Icons.link, size: 18),
+                    label: const Text('复制路径'),
+                    onPressed: canProps ? _copyPath : null,
                   ),
                 ),
               ],
@@ -1440,9 +1534,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         itemCount: _searchResults.length,
         itemBuilder: (ctx, i) {
           final hit = _searchResults[i];
+          final selected = _selectedPaths.contains(hit.path);
           return ListTile(
             dense: true,
-            leading: const Icon(Icons.insert_drive_file_outlined),
+            selected: selected,
+            selectedTileColor: Theme.of(context)
+                .colorScheme
+                .primary
+                .withOpacity(0.12),
+            leading: _selectionMode
+                ? Checkbox(
+                    value: selected,
+                    onChanged: (_) => _toggleSelectionPath(hit.path),
+                  )
+                : const Icon(Icons.insert_drive_file_outlined),
             title: Text(
               hit.name,
               maxLines: 1,
@@ -1457,9 +1562,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               overflow: TextOverflow.ellipsis,
             ),
             onTap: () {
-              final parent = File(hit.path).parent.path;
-              _navigateTo(parent);
+              if (_selectionMode) {
+                _toggleSelectionPath(hit.path);
+                return;
+              }
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => TextPreviewScreen(
+                    filePath: hit.path,
+                    fileName: hit.name,
+                  ),
+                ),
+              );
             },
+            onLongPress: () => _toggleSelectionPath(hit.path),
           );
         },
       );
@@ -1623,6 +1739,7 @@ class _TextInputDialogState extends State<_TextInputDialog> {
 }
 
 /// 只显示目录的路径选择器。用于"移动到 / 复制到"。
+/// 顶部有跳转输入框，可粘贴路径直接跳转。
 class _DirectoryPickerDialog extends StatefulWidget {
   const _DirectoryPickerDialog({
     required this.title,
@@ -1640,6 +1757,7 @@ class _DirectoryPickerDialog extends StatefulWidget {
 
 class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
   late String _path;
+  late final TextEditingController _jumpCtrl;
   List<Directory> _dirs = const [];
   bool _loading = true;
 
@@ -1647,7 +1765,14 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
   void initState() {
     super.initState();
     _path = widget.initialPath;
+    _jumpCtrl = TextEditingController();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _jumpCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1684,6 +1809,28 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
     _load();
   }
 
+  void _jumpToPath(String path) {
+    if (path.isEmpty) return;
+    var target = path;
+    if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
+      target = File(target).parent.path;
+    }
+    if (!Directory(target).existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('目录不存在')),
+      );
+      return;
+    }
+    if (!target.startsWith(widget.rootPath)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('只能跳到内部存储以内')),
+      );
+      return;
+    }
+    setState(() => _path = target);
+    _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final relPath = _path == widget.rootPath
@@ -1692,12 +1839,38 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
 
     return AlertDialog(
       title: Text(widget.title),
+      contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
       content: SizedBox(
         width: double.maxFinite,
-        height: 400,
+        height: MediaQuery.of(context).size.height * 0.7,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _jumpCtrl,
+                      decoration: const InputDecoration(
+                        hintText: '粘贴路径跳转',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: (v) => _jumpToPath(v.trim()),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_forward),
+                    tooltip: '跳转',
+                    onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
             Row(
               children: [
                 IconButton(
