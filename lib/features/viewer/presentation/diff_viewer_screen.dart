@@ -49,12 +49,22 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
-  @override
-  void dispose() {
-    _findController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
+@override
+void initState() {
+  super.initState();
+  // 每次进入对比页都从"仅差异"开始，不继承上次的选择。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    ref.read(viewModeProvider.notifier).state = ViewMode.diffOnly;
+  });
+}
+
+@override
+void dispose() {
+  _findController.dispose();
+  _scrollController.dispose();
+  super.dispose();
+}
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
 
