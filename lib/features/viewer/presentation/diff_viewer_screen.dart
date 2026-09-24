@@ -83,6 +83,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
 
+  /// 当前停留的匹配项对应的 entry 下标（用于"仅差异"视图橙色高亮）。
+  int? get _currentMatchEntry {
+    if (_matchEntries.isEmpty) return null;
+    if (_matchPos < 0 || _matchPos >= _matchEntries.length) return null;
+    return _matchEntries[_matchPos];
+  }
+
   // ==================== 查找 / 替换基础逻辑 ====================
 
   /// 根据当前查找词 + 开关，构建 Pattern。空串/非法正则 → 永不匹配。
@@ -152,6 +159,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _findChanged(String q) {
+    _findQuery = q; // 必须先更新，_buildFindPattern 才能读到新词
     final diff = _diff;
     final matches = <int>[];
     if (q.isNotEmpty && diff != null) {
@@ -172,7 +180,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
     }
     setState(() {
-      _findQuery = q;
       _matchEntries = matches;
       _matchPos = matches.isEmpty ? -1 : 0;
     });
@@ -1467,6 +1474,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                       modifiedFileName: modName,
                       controller: _scrollController,
                       findQuery: _findQuery,
+                      currentMatchEntry: _currentMatchEntry,
                       rowKeysByEntry: _rowKeysByEntry,
                       showLineNumbers: ref.watch(showLineNumbersProvider),
                       bodyFontSize: ref.watch(bodyFontSizeProvider),
@@ -1567,24 +1575,20 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       required bool value,
       required VoidCallback onTap,
       VoidCallback? onLongPress,
-      String? tooltip,
     }) {
-      return Tooltip(
-        message: tooltip ?? label,
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: value ? FontWeight.bold : FontWeight.normal,
-                color: value
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+      return InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: value ? FontWeight.bold : FontWeight.normal,
+              color: value
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ),
@@ -1627,7 +1631,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
 
     return Material(
-      color: Theme.of(context).colorScheme.surfaceVariant,
+      color: Theme.of(context).colorScheme.surface,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Column(
@@ -1730,14 +1734,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ),
               ],
             ),
-            // 第四行：正则 + Aa + 词 + 应用并刷新
+            // 第四行：正则 + 忽略大小写 + 整词 + 应用并刷新
             Row(
               children: [
                 const SizedBox(width: 8),
                 toggle(
                   label: '正则',
                   value: _regexEnable,
-                  tooltip: '开：按正则匹配；长按查看正则帮助',
                   onTap: () => setState(() {
                     _regexEnable = !_regexEnable;
                     _findChanged(_findController.text);
@@ -1745,22 +1748,22 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   onLongPress: _openRegexHelp,
                 ),
                 toggle(
-                  label: 'Aa',
+                  label: '忽略大小写',
                   value: _caseInsensitive,
-                  tooltip: '忽略大小写',
                   onTap: () => setState(() {
                     _caseInsensitive = !_caseInsensitive;
                     _findChanged(_findController.text);
                   }),
+                  onLongPress: () => _toast('开启后 A 和 a 视为相同'),
                 ),
                 toggle(
-                  label: '词',
+                  label: '整词',
                   value: _wholeWord,
-                  tooltip: '整词匹配（对中文无效）',
                   onTap: () => setState(() {
                     _wholeWord = !_wholeWord;
                     _findChanged(_findController.text);
                   }),
+                  onLongPress: () => _toast('只匹配完整单词，对中文无效'),
                 ),
                 if (pendingCount > 0) ...[
                   const SizedBox(width: 8),
