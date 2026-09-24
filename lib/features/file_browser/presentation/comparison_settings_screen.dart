@@ -92,6 +92,15 @@ class ComparisonSettingsScreen extends ConsumerWidget {
                 ref.read(ignoreNumbersProvider.notifier).state = v,
           ),
           _switchTile(
+  context,
+  title: '忽略不可见字符',
+  subtitle: '删除零宽空格/连字、方向控制、BOM、软连字符、'
+      'NBSP 等看不见的字符后再对比',
+  value: ref.watch(ignoreInvisibleProvider),
+  onChanged: (v) =>
+      ref.read(ignoreInvisibleProvider.notifier).state = v,
+),
+          _switchTile(
             context,
             title: '统一编码 ANSI',
             subtitle: '非 ANSI 字符（Emoji、生僻字）会被删除。开启会丢失内容，慎用',
