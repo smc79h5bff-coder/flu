@@ -15,6 +15,7 @@ class InlineCharDiff extends StatelessWidget {
     required this.side,
     this.style,
     this.findQuery = '',
+    this.isCurrentMatch = false,
     this.addedFg,
     this.addedBg,
     this.removedFg,
@@ -29,10 +30,20 @@ class InlineCharDiff extends StatelessWidget {
   final TextStyle? style;
   final String findQuery;
 
+  /// 是否是"当前停留的匹配项"。为 true 时，命中的查找词用橙色高亮，
+  /// 其它匹配仍用黄色。
+  final bool isCurrentMatch;
+
   final Color? addedFg;
   final Color? addedBg;
   final Color? removedFg;
   final Color? removedBg;
+
+  /// 普通匹配：浅黄。
+  static const Color _matchYellow = Color(0xFFFFF59D);
+
+  /// 当前匹配：橙色。
+  static const Color _matchOrange = Color(0xFFFF9800);
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +57,8 @@ class InlineCharDiff extends StatelessWidget {
       color: removedFg ?? Colors.red.shade700,
       backgroundColor: removedBg ?? Colors.red.withValues(alpha: .18),
     );
+
+    final matchBg = isCurrentMatch ? _matchOrange : _matchYellow;
 
     final spans = <TextSpan>[];
     for (final (op, text) in segs) {
@@ -69,7 +82,7 @@ class InlineCharDiff extends StatelessWidget {
           ));
         }
         final matchedStyle = (segHighlight ?? base).copyWith(
-          backgroundColor: const Color(0xFFFFF59D),
+          backgroundColor: matchBg,
           fontWeight: FontWeight.bold,
         );
         spans.add(TextSpan(text: findQuery, style: matchedStyle));
