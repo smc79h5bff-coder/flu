@@ -8,13 +8,13 @@ import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
 
 /// Merged single-pane view: original + modified interleaved.
-/// PRD §2 Module 6.
 class MergedView extends ConsumerWidget {
   const MergedView({
     required this.result,
     this.controller,
     this.lineNumbers = true,
     this.findQuery = '',
+    this.currentMatchEntry,
     this.rowKeysByEntry,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
@@ -27,13 +27,18 @@ class MergedView extends ConsumerWidget {
   final ScrollController? controller;
   final bool lineNumbers;
   final String findQuery;
+
+  /// 当前停留的匹配项对应的 entry 下标；用于橙色高亮。
+  final int? currentMatchEntry;
+
   final Map<int, GlobalKey>? rowKeysByEntry;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
-
-  /// 长按某行时回调，参数是该行对应的 entry 下标。
   final void Function(int entryIndex)? onLongPressEntry;
+
+  static const Color _matchYellow = Color(0xFFFFF59D);
+  static const Color _matchOrange = Color(0xFFFF9800);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -59,10 +64,14 @@ class MergedView extends ConsumerWidget {
         itemBuilder: (ctx, i) {
           final ei = order[i];
           final e = result.entries[ei];
+          final isCurrent = currentMatchEntry != null && ei == currentMatchEntry;
           final tile = _EntryTile(
             entry: e,
             lineNumber: lineNumbers ? meta[ei].orig : 0,
             findQuery: findQuery,
+            isCurrentMatch: isCurrent,
+            matchYellow: _matchYellow,
+            matchOrange: _matchOrange,
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
@@ -131,6 +140,9 @@ class _EntryTile extends StatelessWidget {
     required this.entry,
     required this.lineNumber,
     required this.findQuery,
+    required this.isCurrentMatch,
+    required this.matchYellow,
+    required this.matchOrange,
     required this.showLineNumbers,
     required this.bodyFontSize,
     required this.gutterFontSize,
@@ -139,6 +151,9 @@ class _EntryTile extends StatelessWidget {
   final DiffEntry entry;
   final int lineNumber;
   final String findQuery;
+  final bool isCurrentMatch;
+  final Color matchYellow;
+  final Color matchOrange;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
@@ -232,6 +247,7 @@ class _EntryTile extends StatelessWidget {
             side: charDiffSide,
             style: style,
             findQuery: findQuery,
+            isCurrentMatch: isCurrentMatch,
           )
         : RichText(
             text: TextSpan(style: style, children: _spans(text)),
@@ -265,6 +281,7 @@ class _EntryTile extends StatelessWidget {
   List<InlineSpan> _spans(String text) {
     final q = findQuery;
     if (q.isEmpty || text.isEmpty) return [TextSpan(text: text)];
+    final bg = isCurrentMatch ? matchOrange : matchYellow;
     final spans = <InlineSpan>[];
     var start = 0;
     int idx;
@@ -272,8 +289,8 @@ class _EntryTile extends StatelessWidget {
       if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
       spans.add(TextSpan(
         text: q,
-        style: const TextStyle(
-          backgroundColor: Color(0xFFFFF59D),
+        style: TextStyle(
+          backgroundColor: bg,
           fontWeight: FontWeight.bold,
         ),
       ));
