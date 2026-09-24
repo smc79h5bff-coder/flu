@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
-import 'features/import/presentation/import_screen.dart';
+import 'features/file_browser/presentation/file_browser_screen.dart';
+import 'features/file_browser/presentation/permission_gate.dart';
 
 class DocDiffApp extends ConsumerWidget {
   const DocDiffApp({super.key});
@@ -15,7 +16,7 @@ class DocDiffApp extends ConsumerWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
-      home: const ImportScreen(),
+      home: const PermissionGate(child: FileBrowserScreen()),
     );
   }
 }
