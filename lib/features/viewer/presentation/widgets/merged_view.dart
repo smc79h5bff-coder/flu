@@ -27,7 +27,10 @@ class MergedView extends ConsumerWidget {
   final ScrollController? controller;
   final bool lineNumbers;
   final String findQuery;
+
+  /// 当前停留的匹配项对应的 entry 下标；用于橙色高亮。
   final int? currentMatchEntry;
+
   final Map<int, GlobalKey>? rowKeysByEntry;
   final bool showLineNumbers;
   final double bodyFontSize;
@@ -53,43 +56,50 @@ class MergedView extends ConsumerWidget {
 
     // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏。
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Scrollbar(
-      controller: controller,
-      interactive: true,
-      thickness: 12,
-      radius: const Radius.circular(6),
-      thumbColor: (isDark ? Colors.white : Colors.black).withOpacity(0.42),
-      trackVisibility: false,
-      child: ListView.builder(
+    return ScrollbarTheme(
+      data: ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll(
+          (isDark ? Colors.white : Colors.black).withValues(alpha: 0.42),
+        ),
+        thickness: const WidgetStatePropertyAll(12),
+        radius: const Radius.circular(6),
+        trackVisibility: const WidgetStatePropertyAll(false),
+      ),
+      child: Scrollbar(
         controller: controller,
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        itemCount: order.length,
-        itemBuilder: (ctx, i) {
-          final ei = order[i];
-          final e = result.entries[ei];
-          final isCurrent = currentMatchEntry != null && ei == currentMatchEntry;
-          final tile = _EntryTile(
-            entry: e,
-            lineNumber: lineNumbers ? meta[ei].orig : 0,
-            findQuery: findQuery,
-            isCurrentMatch: isCurrent,
-            matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
-          );
-          final wrapped = onLongPressEntry == null
-              ? tile
-              : GestureDetector(
-                  onLongPress: () => onLongPressEntry!(ei),
-                  behavior: HitTestBehavior.opaque,
-                  child: tile,
-                );
-          if (rowKeysByEntry == null) return wrapped;
-          final key = rowKeysByEntry!.putIfAbsent(ei, () => GlobalKey());
-          return KeyedSubtree(key: key, child: wrapped);
-        },
+        interactive: true,
+        child: ListView.builder(
+          controller: controller,
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          itemCount: order.length,
+          itemBuilder: (ctx, i) {
+            final ei = order[i];
+            final e = result.entries[ei];
+            final isCurrent =
+                currentMatchEntry != null && ei == currentMatchEntry;
+            final tile = _EntryTile(
+              entry: e,
+              lineNumber: lineNumbers ? meta[ei].orig : 0,
+              findQuery: findQuery,
+              isCurrentMatch: isCurrent,
+              matchYellow: _matchYellow,
+              matchOrange: _matchOrange,
+              showLineNumbers: showLineNumbers,
+              bodyFontSize: bodyFontSize,
+              gutterFontSize: gutterFontSize,
+            );
+            final wrapped = onLongPressEntry == null
+                ? tile
+                : GestureDetector(
+                    onLongPress: () => onLongPressEntry!(ei),
+                    behavior: HitTestBehavior.opaque,
+                    child: tile,
+                  );
+            if (rowKeysByEntry == null) return wrapped;
+            final key = rowKeysByEntry!.putIfAbsent(ei, () => GlobalKey());
+            return KeyedSubtree(key: key, child: wrapped);
+          },
+        ),
       ),
     );
   }
@@ -259,7 +269,7 @@ class _EntryTile extends StatelessWidget {
       margin: const EdgeInsets.only(right: 2, top: 2, bottom: 2),
       padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.25),
+        color: color.withValues(alpha: 0.25),
         border: Border(left: BorderSide(color: color, width: 2)),
         borderRadius: BorderRadius.circular(4),
       ),
