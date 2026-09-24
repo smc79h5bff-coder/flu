@@ -19,6 +19,7 @@ class SideBySideView extends ConsumerWidget {
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
     this.syncScroll = true,
+    this.onLongPressEntry,
     super.key,
   });
 
@@ -32,6 +33,9 @@ class SideBySideView extends ConsumerWidget {
   final double bodyFontSize;
   final double gutterFontSize;
   final bool syncScroll;
+
+  /// 长按某行时回调，参数是该行关联的 entry 下标（1 个或 2 个）。
+  final void Function(List<int> entryIndices)? onLongPressEntry;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -101,6 +105,13 @@ class SideBySideView extends ConsumerWidget {
                   final key = rowKeysByEntry?[k];
                   if (key != null) out = KeyedSubtree(key: key, child: out);
                 }
+                if (onLongPressEntry != null) {
+                  out = GestureDetector(
+                    onLongPress: () => onLongPressEntry!(keyOwners),
+                    behavior: HitTestBehavior.opaque,
+                    child: out,
+                  );
+                }
                 return out;
               },
             ),
@@ -150,12 +161,18 @@ class SideBySideView extends ConsumerWidget {
                   itemCount: leftIndices.length,
                   itemBuilder: (ctx, i) {
                     final ei = leftIndices[i];
-                    return _singleSideTile(
+                    final tile = _singleSideTile(
                       context,
                       result.entries[ei],
                       meta[ei].orig,
                       isLeft: true,
                       c: c,
+                    );
+                    if (onLongPressEntry == null) return tile;
+                    return GestureDetector(
+                      onLongPress: () => onLongPressEntry!(<int>[ei]),
+                      behavior: HitTestBehavior.opaque,
+                      child: tile,
                     );
                   },
                 ),
@@ -167,12 +184,18 @@ class SideBySideView extends ConsumerWidget {
                   itemCount: rightIndices.length,
                   itemBuilder: (ctx, i) {
                     final ei = rightIndices[i];
-                    return _singleSideTile(
+                    final tile = _singleSideTile(
                       context,
                       result.entries[ei],
                       meta[ei].mod,
                       isLeft: false,
                       c: c,
+                    );
+                    if (onLongPressEntry == null) return tile;
+                    return GestureDetector(
+                      onLongPress: () => onLongPressEntry!(<int>[ei]),
+                      behavior: HitTestBehavior.opaque,
+                      child: tile,
                     );
                   },
                 ),
