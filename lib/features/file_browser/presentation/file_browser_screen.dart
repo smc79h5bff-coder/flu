@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import '../../preprocessing/domain/encoding_type.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'comparison_settings_screen.dart';
 import '../../parser/application/document_parser.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../viewer/presentation/diff_viewer_screen.dart';
@@ -370,13 +370,24 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               onPressed: _goUp,
             )
           : null,
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          tooltip: '刷新',
-          onPressed: _load,
+actions: [
+  IconButton(
+    icon: const Icon(Icons.tune),
+    tooltip: '比较设置',
+    onPressed: () {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const ComparisonSettingsScreen(),
         ),
-      ],
+      );
+    },
+  ),
+  IconButton(
+    icon: const Icon(Icons.refresh),
+    tooltip: '刷新',
+    onPressed: _load,
+  ),
+],
     );
   }
 
