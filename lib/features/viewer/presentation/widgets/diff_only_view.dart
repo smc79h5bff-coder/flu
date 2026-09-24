@@ -55,6 +55,8 @@ class DiffOnlyView extends ConsumerWidget {
       );
     }
 
+    // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏（去掉 thumbVisibility）。
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
         Row(
@@ -66,12 +68,14 @@ class DiffOnlyView extends ConsumerWidget {
         ),
         Expanded(
           child: Scrollbar(
-  controller: controller,
-  thumbVisibility: true,
-  interactive: true,
-  thickness: 10,
-  radius: const Radius.circular(5),
-  child: ListView.builder(
+            controller: controller,
+            interactive: true,
+            thickness: 12,
+            radius: const Radius.circular(6),
+            thumbColor:
+                (isDark ? Colors.white : Colors.black).withOpacity(0.42),
+            trackVisibility: false,
+            child: ListView.builder(
               key: const Key('diff-only-list'),
               controller: controller,
               itemCount: rows.length,
