@@ -66,9 +66,12 @@ class DiffOnlyView extends ConsumerWidget {
         ),
         Expanded(
           child: Scrollbar(
-            controller: controller,
-            thumbVisibility: true,
-            child: ListView.builder(
+  controller: controller,
+  thumbVisibility: true,
+  interactive: true,
+  thickness: 10,
+  radius: const Radius.circular(5),
+  child: ListView.builder(
               key: const Key('diff-only-list'),
               controller: controller,
               itemCount: rows.length,
