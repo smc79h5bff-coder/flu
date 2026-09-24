@@ -4,21 +4,20 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../preprocessing/domain/encoding_type.dart';
-// 新（对）
-import '../../parser/application/document_parser.dart';
+import '../../../parser/application/document_parser.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../viewer/presentation/diff_viewer_screen.dart';
 import 'role_confirm_dialog.dart';
+import 'text_preview_screen.dart';
 
 /// 文件浏览器：首页。
 ///
-/// 功能：
-///   - 顶部面包屑（可点击任意层级跳转）
-///   - 搜索框（按文件名过滤当前目录）
-///   - 长按 / 点击进入多选
-///   - 选中两个文件 → 对比 → 角色确认 → 跳转对比页
-///   - 列表项显示文件名 + 修改时间 + 大小
+/// 交互：
+///   - 点击文件夹 → 进入
+///   - 点击文件 → 预览（TextPreviewScreen）
+///   - 长按文件 → 进入多选
+///   - 多选模式下单击 → 勾选/取消
+///   - 选中 2 个文件 → 底部"对比"按钮
 class FileBrowserScreen extends ConsumerStatefulWidget {
   const FileBrowserScreen({super.key});
 
@@ -26,7 +25,6 @@ class FileBrowserScreen extends ConsumerStatefulWidget {
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
 
-/// 一个文件/文件夹 + 元信息。
 class _EntryInfo {
   _EntryInfo({
     required this.entity,
@@ -84,8 +82,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         return name.startsWith('.');
       });
 
-      // 并发 stat 每个条目，拿到 size / modified。
-      // 一个目录里几百个文件时 Future.wait 能并发跑，不会阻塞太狠。
       final infos = await Future.wait(raw.map((e) async {
         final name = e.path.split('/').last;
         final isDir = e is Directory;
@@ -96,7 +92,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           modified = st.modified;
           if (!isDir) size = st.size;
         } catch (_) {
-          // 权限不足 / 文件被删：忽略。
+          // 忽略
         }
         return _EntryInfo(
           entity: e,
@@ -126,7 +122,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  /// 跳转到任意路径（面包屑 / 进入文件夹共用）。
   void _navigateTo(String path) {
     if (path == _currentPath) return;
     _clearSelection();
@@ -159,15 +154,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         _selectedPaths.remove(e.path);
         if (_selectedPaths.isEmpty) _selectionMode = false;
       } else {
-        if (_selectedPaths.length >= 2) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('最多选 2 个文件')),
-          );
-          return;
-        }
         _selectedPaths.add(e.path);
       }
     });
+  }
+
+  void _openPreview(_EntryInfo info) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TextPreviewScreen(
+          filePath: info.entity.path,
+          fileName: info.name,
+        ),
+      ),
+    );
   }
 
   Future<void> _startCompare() async {
@@ -242,9 +242,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
-  // ---------- 面包屑 ----------
-
-  /// 当前路径的段列表。根路径显示为“内部存储”。
   List<({String label, String path})> get _crumbs {
     final relative = _currentPath.substring(_rootPath.length);
     final segments = relative.split('/').where((s) => s.isNotEmpty).toList();
@@ -268,9 +265,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       final c = crumbs[i];
       final isLast = i == crumbs.length - 1;
       if (i > 0) {
-        widgets.add(
-          Icon(Icons.chevron_right, size: 16, color: s.outline),
-        );
+        widgets.add(Icon(Icons.chevron_right, size: 16, color: s.outline));
       }
       widgets.add(
         GestureDetector(
@@ -300,8 +295,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
-  // ---------- 格式化 ----------
-
   static String _formatSize(int? bytes) {
     if (bytes == null) return '';
     if (bytes < 1024) return '$bytes B';
@@ -321,8 +314,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         '${two(t.hour)}:${two(t.minute)}';
   }
 
-  // ---------- UI ----------
-
   String get _title {
     if (_currentPath == _rootPath) return '内部存储';
     return _currentPath.split('/').last;
@@ -333,6 +324,15 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     if (_query.isEmpty) return all;
     final q = _query.toLowerCase();
     return all.where((e) => e.name.toLowerCase().contains(q)).toList();
+  }
+
+  /// 用于副标题第三行的相对路径。根目录 -> `~/`，其它 -> `~/Download/...`。
+  String _relPath(String fullPath) {
+    if (fullPath == _rootPath) return '~/';
+    if (fullPath.startsWith(_rootPath)) {
+      return '~${fullPath.substring(_rootPath.length)}';
+    }
+    return fullPath;
   }
 
   @override
@@ -427,7 +427,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
             Expanded(
               child: FilledButton.icon(
                 icon: const Icon(Icons.compare_arrows),
-                label: const Text('对比'),
+                label: Text(
+                  canCompare ? '对比' : '选择两个文件后对比（已选 ${_selectedPaths.length}）',
+                ),
                 onPressed: canCompare ? _startCompare : null,
               ),
             ),
@@ -473,18 +475,23 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         final e = info.entity;
         final selected = _selectedPaths.contains(e.path);
 
-        final subtitleParts = <String>[];
+        // 三行布局：
+        //   标题：文件名
+        //   副标题1：大小 · 时间（文件夹则只显示时间）
+        //   副标题2：完整相对路径
+        final String metaLine;
         if (info.isDir) {
-          subtitleParts.add('文件夹');
+          metaLine = _formatTime(info.modified);
         } else {
-          subtitleParts.add(_formatSize(info.size));
+          final size = _formatSize(info.size);
+          final time = _formatTime(info.modified);
+          metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
         }
-        final timeText = _formatTime(info.modified);
-        if (timeText.isNotEmpty) subtitleParts.add(timeText);
-        final subtitle = subtitleParts.where((s) => s.isNotEmpty).join(' · ');
+        final relPath = _relPath(e.path);
 
         return ListTile(
-          dense: true,
+          isThreeLine: true,
+          dense: false,
           selected: selected,
           selectedTileColor:
               Theme.of(context).colorScheme.primary.withOpacity(0.12),
@@ -504,14 +511,26 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          subtitle: subtitle.isEmpty
-              ? null
-              : Text(
-                  subtitle,
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (metaLine.isNotEmpty)
+                Text(
+                  metaLine,
                   style: Theme.of(context).textTheme.labelSmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+              Text(
+                relPath,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
           onTap: () {
             if (_selectionMode) {
               if (!info.isDir) _toggleSelection(e);
@@ -520,7 +539,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
             if (info.isDir) {
               _navigateTo(e.path);
             } else {
-              _toggleSelection(e);
+              _openPreview(info);
             }
           },
           onLongPress: () {
