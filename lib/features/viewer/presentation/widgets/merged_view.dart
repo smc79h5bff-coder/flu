@@ -45,27 +45,28 @@ class MergedView extends ConsumerWidget {
 
     final order = _mergedOrder(result.entries);
 
-return Scrollbar(
-  controller: controller,
-  thumbVisibility: false,
-  child: ListView.builder(
-    controller: controller,
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    itemCount: order.length,
-    itemBuilder: (ctx, i) {
-        final ei = order[i];
-        final e = result.entries[ei];
-        final tile = _EntryTile(
-          entry: e,
-          lineNumber: lineNumbers ? meta[ei].orig : 0,
-          findQuery: findQuery,
-          showLineNumbers: showLineNumbers,
-          bodyFontSize: bodyFontSize,
-          gutterFontSize: gutterFontSize,
-        );
-        final key = rowKeysByEntry?[ei];
-        return key == null ? tile : KeyedSubtree(key: key, child: tile);
-      },
+    return Scrollbar(
+      controller: controller,
+      thumbVisibility: false,
+      child: ListView.builder(
+        controller: controller,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: order.length,
+        itemBuilder: (ctx, i) {
+          final ei = order[i];
+          final e = result.entries[ei];
+          final tile = _EntryTile(
+            entry: e,
+            lineNumber: lineNumbers ? meta[ei].orig : 0,
+            findQuery: findQuery,
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
+          );
+          final key = rowKeysByEntry?[ei];
+          return key == null ? tile : KeyedSubtree(key: key, child: tile);
+        },
+      ),
     );
   }
 }
@@ -231,7 +232,7 @@ class _EntryTile extends StatelessWidget {
         border: Border(left: BorderSide(color: color, width: 3)),
         borderRadius: BorderRadius.circular(4),
       ),
-child: Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (showLineNumbers && symbol.isNotEmpty) ...[
