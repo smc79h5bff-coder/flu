@@ -45,11 +45,14 @@ class MergedView extends ConsumerWidget {
 
     final order = _mergedOrder(result.entries);
 
-    return ListView.builder(
-      controller: controller,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: order.length,
-      itemBuilder: (ctx, i) {
+return Scrollbar(
+  controller: controller,
+  thumbVisibility: false,
+  child: ListView.builder(
+    controller: controller,
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    itemCount: order.length,
+    itemBuilder: (ctx, i) {
         final ei = order[i];
         final e = result.entries[ei];
         final tile = _EntryTile(
