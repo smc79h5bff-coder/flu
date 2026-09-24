@@ -228,15 +228,17 @@ class _EntryTile extends StatelessWidget {
         border: Border(left: BorderSide(color: color, width: 3)),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Row(
+child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(symbol,
-              style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: bodyFontSize)),
-          const SizedBox(width: 8),
+          if (showLineNumbers && symbol.isNotEmpty) ...[
+            Text(symbol,
+                style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: bodyFontSize)),
+            const SizedBox(width: 8),
+          ],
           Expanded(child: content),
         ],
       ),
