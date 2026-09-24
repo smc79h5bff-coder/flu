@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -64,6 +65,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
+  /// 滚动结束防抖定时器。
+  Timer? _captureTimer;
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +79,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   @override
   void dispose() {
+    _captureTimer?.cancel();
     _findController.dispose();
     _replaceController.dispose();
     _scrollController.dispose();
@@ -92,7 +97,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 查找 / 替换基础逻辑 ====================
 
-  /// 根据当前查找词 + 开关，构建 Pattern。空串/非法正则 → 永不匹配。
   Pattern _buildFindPattern() {
     final q = _findQuery;
     if (q.isEmpty) return RegExp(r'(?!)');
@@ -105,7 +109,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
-  /// 展开替换串里的 $0/$1/$2... 捕获组引用。
   String _expandReplacement(String tpl, Match m) {
     final out = StringBuffer();
     final re = RegExp(r'\$(\d+)');
@@ -120,7 +123,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return out.toString();
   }
 
-  /// 对一段文本应用当前 pattern 的替换。
   String _applyReplace(String text, String replacement) {
     final p = _buildFindPattern();
     if (_regexEnable) {
@@ -129,7 +131,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return text.replaceAll(p, replacement);
   }
 
-  /// 判断一个 entry 在这一侧是否需要被搜索（依据开关和 op）。
   bool _entryMatchesOnLeft(DiffEntry e) {
     if (!_searchLeft) return false;
     if (e.operation == DiffOperation.insert) return false;
@@ -142,7 +143,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return true;
   }
 
-  /// 取 entry 在左侧的显示文本。
   String _entryLeftText(DiffEntry e) {
     if (e.operation == DiffOperation.replace && e.oldText.isNotEmpty) {
       return e.oldText;
@@ -150,7 +150,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return e.text;
   }
 
-  /// 取 entry 在右侧的显示文本。
   String _entryRightText(DiffEntry e) {
     if (e.operation == DiffOperation.replace && e.newText.isNotEmpty) {
       return e.newText;
@@ -159,7 +158,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _findChanged(String q) {
-    _findQuery = q; // 必须先更新，_buildFindPattern 才能读到新词
+    _findQuery = q;
     final diff = _diff;
     final matches = <int>[];
     if (q.isNotEmpty && diff != null) {
@@ -204,7 +203,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _doReplace(replacement: _replaceController.text, all: true);
   }
 
-  /// 累积替换到 pending 缓存，不立即刷新。
   void _doReplace({required String replacement, required bool all}) {
     final diff = _diff;
     if (diff == null) return;
@@ -226,7 +224,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     for (final ei in targets) {
       final e = diff.entries[ei];
 
-      // 左侧
       if (_entryMatchesOnLeft(e) && meta[ei].orig >= 0) {
         final origLine = meta[ei].orig;
         final current = _pendingOrigChanges[origLine] ?? _entryLeftText(e);
@@ -236,7 +233,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         }
       }
 
-      // 右侧
       if (_entryMatchesOnRight(e) && meta[ei].mod >= 0) {
         final modLine = meta[ei].mod;
         final current = _pendingModChanges[modLine] ?? _entryRightText(e);
@@ -256,7 +252,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _toast('已加入待应用队列（$count 处）· 点"应用并刷新"生效');
   }
 
-  /// 把 pending 缓存一次性写回 raw + 重算 diff。
   void _applyPendingChanges() {
     if (_pendingOrigChanges.isEmpty && _pendingModChanges.isEmpty) return;
 
@@ -270,7 +265,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _toast('已应用替换');
   }
 
-  /// 批量修改某侧 raw 文本中的多行。
   void _applyRawChanges({
     required bool isOriginal,
     required Map<int, String> changes,
@@ -305,7 +299,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
-  /// 关闭查找栏。若有未应用替换，先询问。
   Future<void> _closeFindBar() async {
     if (_pendingOrigChanges.isNotEmpty || _pendingModChanges.isNotEmpty) {
       if (!mounted) return;
@@ -355,7 +348,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   int _renderedRows(DiffResult diff, ViewMode mode) {
     if (mode == ViewMode.merged) return diff.entries.length;
-    final rows = computeAlignedRows(diff.entries);
+    final rows = cachedAlignedRows(diff);
     if (mode == ViewMode.sideBySide) return rows.length;
     var n = 0;
     for (final r in rows) {
@@ -385,7 +378,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final diff = _diff;
       final mode = ref.read(viewModeProvider);
       if (diff == null || !_scrollController.hasClients) return;
-      final targetRow = _entryToRow(diff.entries, entryIndex, mode);
+      final targetRow = _entryToRow(diff, entryIndex, mode);
       final pos = _scrollController.position;
       final maxExtent = pos.maxScrollExtent;
       if (targetRow < 0 || maxExtent <= 0) return;
@@ -416,10 +409,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     locate(0);
   }
 
-  int _entryToRow(List<DiffEntry> entries, int entryIndex, ViewMode mode) {
+  int _entryToRow(DiffResult diff, int entryIndex, ViewMode mode) {
     if (mode == ViewMode.merged) return entryIndex;
 
-    final rows = computeAlignedRows(entries);
+    final rows = cachedAlignedRows(diff);
     if (mode == ViewMode.sideBySide) {
       for (var r = 0; r < rows.length; r++) {
         final spec = rows[r];
@@ -429,8 +422,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
     var row = 0;
     for (final spec in rows) {
-      final delOp = spec.del == null ? null : entries[spec.del!].operation;
-      final insOp = spec.ins == null ? null : entries[spec.ins!].operation;
+      final delOp = spec.del == null ? null : diff.entries[spec.del!].operation;
+      final insOp = spec.ins == null ? null : diff.entries[spec.ins!].operation;
       final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
           (insOp == null || insOp == DiffOperation.equal);
       if (onlyEqual) continue;
@@ -481,15 +474,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return list;
   }
 
-  void _ensureRowKeys() {
-    for (final i in <int>{
-      ..._matchEntries,
-      ..._diffIndices(),
-    }) {
-      _rowKeysByEntry.putIfAbsent(i, () => GlobalKey());
-    }
-  }
-
   void _jumpToNextDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
@@ -514,23 +498,36 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollToEntry(indices[pos]);
   }
 
+  /// 找屏幕上最靠上的那个已构建行。O(可见行数)，不做排序。
   int? _findFirstVisibleDiffEntry() {
     if (_rowKeysByEntry.isEmpty) return null;
-    final sorted = _rowKeysByEntry.keys.toList()..sort();
-    for (final idx in sorted) {
-      final ctx = _rowKeysByEntry[idx]?.currentContext;
+    int? best;
+    double bestTop = double.infinity;
+    for (final e in _rowKeysByEntry.entries) {
+      final ctx = e.value.currentContext;
       if (ctx == null) continue;
       final box = ctx.findRenderObject() as RenderBox?;
       if (box == null || !box.attached) continue;
       final top = box.localToGlobal(Offset.zero).dy;
-      if (top + box.size.height > 0) {
-        return idx;
+      if (top + box.size.height > 0 && top < bestTop) {
+        bestTop = top;
+        best = e.key;
       }
     }
-    return null;
+    return best;
   }
 
+  /// 防抖入口：滚动结束时调用，250ms 内只真正执行一次。
   void _captureAnchor() {
+    _captureTimer?.cancel();
+    _captureTimer = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) _captureAnchorNow();
+    });
+  }
+
+  /// 立即执行锚点捕获（切视图等场景需要同步结果）。
+  void _captureAnchorNow() {
+    if (!mounted) return;
     final anchorEntry = _findFirstVisibleDiffEntry();
     if (anchorEntry == null) return;
     _anchorEntryIndex = anchorEntry;
@@ -563,7 +560,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _switchView(ViewMode newMode) {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
-    _captureAnchor();
+    _captureTimer?.cancel();
+    _captureAnchorNow();
     final anchor = _anchorEntryIndex;
     ref.read(viewModeProvider.notifier).state = newMode;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1000,6 +998,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? anchorOrigText,
     String? anchorModText,
   }) {
+    _captureTimer?.cancel();
     _currentDiffPos = -1;
     _anchorEntryIndex = null;
     _matchEntries = const <int>[];
@@ -1224,7 +1223,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? origName,
     String? modName,
   ) {
-    _ensureRowKeys();
     final totalDiffs = _diffIndices().length;
     final currentPos = _currentDiffPos >= 0 ? _currentDiffPos + 1 : 0;
 
@@ -1637,7 +1635,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 第一行：关闭 + 查找框
             Row(
               children: [
                 IconButton(
@@ -1661,7 +1658,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ),
               ],
             ),
-            // 第二行：替换框 + 替换当前 + 全部替换
             Row(
               children: [
                 const SizedBox(width: 48),
@@ -1691,7 +1687,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ),
               ],
             ),
-            // 第三行：查左/查右 + 上下跳转
             Row(
               children: [
                 const SizedBox(width: 8),
@@ -1734,7 +1729,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ),
               ],
             ),
-            // 第四行：正则 + 忽略大小写 + 整词 + 应用并刷新
             Row(
               children: [
                 const SizedBox(width: 8),
