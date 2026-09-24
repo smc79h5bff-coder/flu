@@ -980,8 +980,8 @@ appBar: AppBar(
                     ),
                     const SizedBox(width: 10),
                     Text(ref.watch(syncScrollProvider)
-                        ? '两栏同步滚动：开'
-                        : '两栏同步滚动：关'),
+                        ? '关闭两栏同步滚动'
+                        : '开启两栏同步滚动'),
                   ],
                 ),
               ),
@@ -996,8 +996,8 @@ appBar: AppBar(
                     ),
                     const SizedBox(width: 10),
                     Text(ref.watch(showPerfOverlayProvider)
-                        ? '性能面板：开'
-                        : '性能面板：关'),
+                        ? '关闭性能面板'
+                        : '开启性能面板'),
                   ],
                 ),
               ),
