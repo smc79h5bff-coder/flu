@@ -79,14 +79,54 @@ class UserRulesNotifier extends StateNotifier<List<PreprocessingRule>> {
 //   xxx               → 删掉 xxx
 //   xxx->=>yyy        → 把 xxx 换成 yyy
 //
+// 替换串支持转义：\n \r \t \\ \0
+//   xxx->=>a\nb       → 把 xxx 换成 "a 换行 b"
+//
 // 关键词规则里 xxx / yyy 都是普通文字（特殊字符自动转义）。
-// 正则规则里 xxx 是正则，yyy 是普通替换串。
+// 正则规则里 xxx 是正则，yyy 是普通替换串（$1 $2 是捕获组）。
 
 /// 关键词规则原文。
 final keywordRulesTextProvider = StateProvider<String>((ref) => '');
 
 /// 正则规则原文。
 final regexRulesTextProvider = StateProvider<String>((ref) => '');
+
+/// 把替换串里的转义序列（\n \r \t \\ \0）转成真正的控制字符。
+/// 这样用户能在编辑器里写 `->=>a\nb` 表示"替换成 a 换行 b"。
+String _unescapeReplacement(String s) {
+  if (!s.contains(r'\')) return s; // 没有反斜杠，直接返回，零开销
+  final sb = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    final c = s[i];
+    if (c == r'\' && i + 1 < s.length) {
+      final n = s[i + 1];
+      switch (n) {
+        case 'n':
+          sb.write('\n');
+          i++;
+          continue;
+        case 'r':
+          sb.write('\r');
+          i++;
+          continue;
+        case 't':
+          sb.write('\t');
+          i++;
+          continue;
+        case '0':
+          sb.write('\u0000');
+          i++;
+          continue;
+        case r'\':
+          sb.write(r'\');
+          i++;
+          continue;
+      }
+    }
+    sb.write(c);
+  }
+  return sb.toString();
+}
 
 /// 应用关键词规则到 [text]。
 ///
@@ -122,19 +162,19 @@ String applyKeywordRules(String text, String rulesText) {
       final pattern = deletions.map(RegExp.escape).join('|');
       out = out.replaceAll(RegExp(pattern), '');
     } catch (_) {
-      // 组合正则失败（极少见），退化为逐条。
       for (final w in deletions) {
         out = out.replaceAll(w, '');
       }
     }
   }
 
-  // 替换：逐条。
+  // 替换：逐条（替换串支持转义）。
   for (final r in replacements) {
+    final repl = _unescapeReplacement(r.replace);
     try {
-      out = out.replaceAll(RegExp(RegExp.escape(r.find)), r.replace);
+      out = out.replaceAll(RegExp(RegExp.escape(r.find)), repl);
     } catch (_) {
-      out = out.replaceAll(r.find, r.replace);
+      out = out.replaceAll(r.find, repl);
     }
   }
 
@@ -161,7 +201,7 @@ String applyRegexRules(String text, String rulesText) {
     }
     if (find.isEmpty) continue;
     try {
-      out = out.replaceAll(RegExp(find), replace);
+      out = out.replaceAll(RegExp(find), _unescapeReplacement(replace));
     } catch (_) {
       // 非法正则忽略，不影响其它规则。
     }
