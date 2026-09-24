@@ -846,8 +846,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final currentPos = _currentDiffPos >= 0 ? _currentDiffPos + 1 : 0;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('对比结果'),
+      
+appBar: AppBar(
+  title: const Text(
+    '对比结果',
+    style: TextStyle(fontSize: 16),
+  ),
         actions: [
           // 计数器
           Center(
