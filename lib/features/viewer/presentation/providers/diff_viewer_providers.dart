@@ -515,3 +515,41 @@ Color? hexToColor(String s) {
   if (v == null) return null;
   return Color(0xFF000000 | v);
 }
+
+/// 把"预处理后的行号"映射回 raw 文本中的行号。
+///
+/// 目前只有 `ignoreEmptyLines` 会改变行数（删空行），其余忽略项
+/// 都只做行内替换，不增删行。所以要精确定位 raw 行，只需复现
+/// "哪些行会被 emptyLines 保留"这一条判断。
+///
+/// 注意：自定义预处理规则如果跨行匹配（如把两行合成一行），行数
+/// 也会变，本函数覆盖不到。那种情况就地编辑会定位不准，属于已知限制。
+int? rawLineForNormalizedLine(
+  String raw, {
+  required int normalizedLine,
+  required bool ignoreWhitespace,
+  required bool ignoreEmptyLines,
+  required bool ignoreInvisible,
+}) {
+  if (normalizedLine < 0) return null;
+  final lines =
+      raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+
+  if (!ignoreEmptyLines) {
+    return normalizedLine < lines.length ? normalizedLine : null;
+  }
+
+  // 复现 applyDiffIgnores 里 emptyLines 那一步的判定顺序：
+  // invisible → whitespace → trim().isNotEmpty
+  var count = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var s = lines[i];
+    if (ignoreInvisible) s = s.replaceAll(_invisibleChars, '');
+    if (ignoreWhitespace) s = s.replaceAll(_horizontalWhitespace, '');
+    if (s.trim().isNotEmpty) {
+      if (count == normalizedLine) return i;
+      count++;
+    }
+  }
+  return null;
+}
