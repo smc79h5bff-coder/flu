@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,7 +11,6 @@ import '../../preprocessing/domain/encoding_type.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../viewer/presentation/diff_viewer_screen.dart';
 import 'comparison_settings_screen.dart';
-
 import 'text_preview_screen.dart';
 
 /// 文件浏览器：首页。
@@ -19,14 +20,17 @@ import 'text_preview_screen.dart';
 ///   - 点击文件 → 预览
 ///   - 长按任意项 → 进入多选
 ///   - 多选模式下单击 → 勾选/取消
-///   - 选中 2 个文件 → 底部"对比"主按钮
-///   - 选中 1+ 项 → 底部"重命名/移动/复制/删除"按钮
+///   - 选中 2 个文件 → 底部"对比"/"MD5 对比"
+///   - 选中 1 项   → 底部"属性"/"重命名"
 class FileBrowserScreen extends ConsumerStatefulWidget {
   const FileBrowserScreen({super.key});
 
   @override
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
+
+/// 排序字段。
+enum _SortField { name, modified, size }
 
 class _EntryInfo {
   _EntryInfo({
@@ -57,6 +61,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
 
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
+
+  // 排序状态（内存版，关 App 恢复默认）
+  _SortField _sortField = _SortField.name;
+  bool _sortAsc = true;
+
+  // 收藏夹（内存版，关 App 清空）
+  final List<String> _favorites = <String>[];
 
   @override
   void initState() {
@@ -107,8 +118,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       }));
 
       infos.sort((a, b) {
+        // 文件夹永远在前
         if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
-        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        int cmp;
+        switch (_sortField) {
+          case _SortField.name:
+            cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          case _SortField.modified:
+            final at = a.modified?.millisecondsSinceEpoch ?? 0;
+            final bt = b.modified?.millisecondsSinceEpoch ?? 0;
+            cmp = at.compareTo(bt);
+          case _SortField.size:
+            final as = a.size ?? 0;
+            final bs = b.size ?? 0;
+            cmp = as.compareTo(bs);
+        }
+        return _sortAsc ? cmp : -cmp;
       });
 
       if (!mounted) return;
@@ -188,10 +213,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
 
     // 不再弹角色确认框，默认 paths[0] 是原文件、paths[1] 是修改版。
-final result = (
-  original: File(paths[0]),
-  modified: File(paths[1]),
-);
+    final result = (
+      original: File(paths[0]),
+      modified: File(paths[1]),
+    );
 
     try {
       showDialog<void>(
@@ -219,8 +244,10 @@ final result = (
       ref.read(modifiedRawTextProvider.notifier).state = modParsed.plainText;
       ref.read(originalFileNameProvider.notifier).state = origParsed.fileName;
       ref.read(modifiedFileNameProvider.notifier).state = modParsed.fileName;
-      ref.read(originalEncodingProvider.notifier).state = origParsed.encodingLabel;
-      ref.read(modifiedEncodingProvider.notifier).state = modParsed.encodingLabel;
+      ref.read(originalEncodingProvider.notifier).state =
+          origParsed.encodingLabel;
+      ref.read(modifiedEncodingProvider.notifier).state =
+          modParsed.encodingLabel;
       ref.read(originalFilePathProvider.notifier).state = result.original.path;
       ref.read(modifiedFilePathProvider.notifier).state = result.modified.path;
       ref.read(importRevisionProvider.notifier).state++;
@@ -249,6 +276,321 @@ final result = (
       plainText: parsed.plainText,
       encodingLabel: parsed.encoding.label,
     );
+  }
+
+  // ---------- MD5 对比 ----------
+
+  static String _md5Worker(Uint8List bytes) {
+    return md5.convert(bytes).toString();
+  }
+
+  Future<void> _md5Compare() async {
+    if (_selectedPaths.length != 2) return;
+    final paths = _selectedPaths.toList();
+
+    for (final p in paths) {
+      if (Directory(p).existsSync()) {
+        _toast('MD5 对比只支持文件，请勿选中文件夹');
+        return;
+      }
+    }
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final b1 = await File(paths[0]).readAsBytes();
+      final b2 = await File(paths[1]).readAsBytes();
+      final h1 = await compute(_md5Worker, b1);
+      final h2 = await compute(_md5Worker, b2);
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+
+      final same = h1 == h2;
+      final name1 = paths[0].split('/').last;
+      final name2 = paths[1].split('/').last;
+
+      await showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('MD5 对比'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name1,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  h1,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  name2,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  h2,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  same ? '相同' : '不同',
+                  style: TextStyle(
+                    color: same ? Colors.red : Colors.green,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      _toast('计算 MD5 失败：$e');
+    }
+  }
+
+  // ---------- 属性 ----------
+
+  Future<void> _showProperties() async {
+    if (_selectedPaths.length != 1) return;
+    final path = _selectedPaths.first;
+    final name = path.split('/').last;
+
+    int? size;
+    DateTime? modified;
+    DateTime? accessed;
+    bool isDir = false;
+    try {
+      final st = await FileStat.stat(path);
+      modified = st.modified;
+      accessed = st.accessed;
+      size = st.size;
+      isDir = st.type == FileSystemEntityType.directory;
+    } catch (_) {
+      // 忽略
+    }
+
+    if (!mounted) return;
+
+    Widget row(String label, String value) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+              const SizedBox(height: 2),
+              SelectableText(value),
+            ],
+          ),
+        );
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('属性'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              row('名称', name),
+              row('路径', path),
+              row('类型', isDir ? '文件夹' : '文件'),
+              row('大小',
+                  isDir ? '—' : (size == null ? '—' : _formatSize(size))),
+              if (modified != null)
+                row('修改时间', _formatTimeFull(modified)),
+              if (accessed != null)
+                row('访问时间', _formatTimeFull(accessed)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatTimeFull(DateTime t) {
+    String two(int n) => n < 10 ? '0$n' : '$n';
+    return '${t.year}-${two(t.month)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+  }
+
+  // ---------- 排序 ----------
+
+  String _sortLabel(_SortField f) {
+    switch (f) {
+      case _SortField.name:
+        return '名称';
+      case _SortField.modified:
+        return '修改时间';
+      case _SortField.size:
+        return '大小';
+    }
+  }
+
+  Future<void> _showSortDialog() async {
+    var tmpField = _sortField;
+    var tmpAsc = _sortAsc;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setState) => AlertDialog(
+          title: const Text('排序方式'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final f in _SortField.values)
+                RadioListTile<_SortField>(
+                  dense: true,
+                  title: Text(_sortLabel(f)),
+                  value: f,
+                  groupValue: tmpField,
+                  onChanged: (v) => setState(() => tmpField = v ?? tmpField),
+                ),
+              const Divider(),
+              RadioListTile<bool>(
+                dense: true,
+                title: const Text('升序'),
+                value: true,
+                groupValue: tmpAsc,
+                onChanged: (_) => setState(() => tmpAsc = true),
+              ),
+              RadioListTile<bool>(
+                dense: true,
+                title: const Text('降序'),
+                value: false,
+                groupValue: tmpAsc,
+                onChanged: (_) => setState(() => tmpAsc = false),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == true && mounted) {
+      setState(() {
+        _sortField = tmpField;
+        _sortAsc = tmpAsc;
+      });
+      _load();
+    }
+  }
+
+  // ---------- 收藏夹 ----------
+
+  void _toggleFavorite() {
+    setState(() {
+      if (_favorites.contains(_currentPath)) {
+        _favorites.remove(_currentPath);
+        _toast('已取消收藏');
+      } else {
+        _favorites.add(_currentPath);
+        _toast('已收藏当前目录');
+      }
+    });
+  }
+
+  Future<void> _showFavorites() async {
+    if (_favorites.isEmpty) {
+      _toast('还没有收藏任何目录');
+      return;
+    }
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('已收藏目录'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _favorites.length,
+            itemBuilder: (ctx, i) {
+              final p = _favorites[i];
+              return ListTile(
+                dense: true,
+                leading: const Icon(Icons.folder, color: Colors.amber),
+                title: Text(p.split('/').last),
+                subtitle: Text(
+                  p,
+                  style: const TextStyle(fontSize: 11),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => Navigator.pop(c, p),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  tooltip: '移除收藏',
+                  onPressed: () {
+                    setState(() => _favorites.removeAt(i));
+                    Navigator.pop(c);
+                    _showFavorites();
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+    if (picked != null && mounted) {
+      if (Directory(picked).existsSync()) {
+        _navigateTo(picked);
+      } else {
+        _toast('该目录已不存在');
+        setState(() => _favorites.remove(picked));
+      }
+    }
   }
 
   // ---------- 文件操作 ----------
@@ -580,6 +922,7 @@ final result = (
   }
 
   PreferredSizeWidget _buildNormalAppBar() {
+    final isFav = _favorites.contains(_currentPath);
     return AppBar(
       title: Text(_title),
       leading: _canGoUp
@@ -600,10 +943,67 @@ final result = (
             );
           },
         ),
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          tooltip: '刷新',
-          onPressed: _load,
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: '更多',
+          onSelected: (v) {
+            switch (v) {
+              case 'refresh':
+                _load();
+              case 'sort':
+                _showSortDialog();
+              case 'fav':
+                _toggleFavorite();
+              case 'favorites':
+                _showFavorites();
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem<String>(
+              value: 'refresh',
+              child: Row(
+                children: [
+                  Icon(Icons.refresh),
+                  SizedBox(width: 10),
+                  Text('刷新'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'sort',
+              child: Row(
+                children: [
+                  Icon(Icons.sort),
+                  SizedBox(width: 10),
+                  Text('排序方式'),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem<String>(
+              value: 'fav',
+              child: Row(
+                children: [
+                  Icon(
+                    isFav ? Icons.star : Icons.star_border,
+                    color: isFav ? Colors.amber : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(isFav ? '取消收藏此目录' : '收藏此目录'),
+                ],
+              ),
+            ),
+            PopupMenuItem<String>(
+              value: 'favorites',
+              child: Row(
+                children: [
+                  const Icon(Icons.bookmarks_outlined),
+                  const SizedBox(width: 10),
+                  Text('已收藏目录 (${_favorites.length})'),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -646,15 +1046,16 @@ final result = (
     );
   }
 
-  /// 底部栏：根据选中数量动态显示按钮。
-  /// - 选中 2 个 → 显示"对比"主按钮 + 操作按钮
-  /// - 其它数量 → 只显示操作按钮
+  /// 底部栏：双行布局。
+  /// 第一行：[对比] [MD5对比] [属性]
+  /// 第二行：[重命名] [移动] [复制] [删除]
   Widget _buildBottomBar() {
     final n = _selectedPaths.length;
     final canCompare = n == 2;
-
-    // 操作按钮（重命名只在单选时可用）
+    final canMd5 = n == 2;
+    final canProps = n == 1;
     final canRename = n == 1;
+    final canOps = n >= 1;
 
     return SafeArea(
       child: Container(
@@ -667,47 +1068,71 @@ final result = (
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (canCompare)
-              Expanded(
-                child: FilledButton.icon(
-                  icon: const Icon(Icons.compare_arrows),
-                  label: const Text('对比'),
-                  onPressed: _startCompare,
-                ),
-              )
-            else
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text(
-                    n == 1 ? '选中 2 个文件可对比' : '已选 $n 项',
-                    style: Theme.of(context).textTheme.labelMedium,
+            // ---- 第一行 ----
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.compare_arrows, size: 18),
+                    label: const Text('对比'),
+                    onPressed: canCompare ? _startCompare : null,
                   ),
                 ),
-              ),
-            const SizedBox(width: 4),
-            _actionButton(
-              icon: Icons.drive_file_rename_outline,
-              tooltip: '重命名',
-              onPressed: canRename ? _rename : null,
+                const SizedBox(width: 6),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    icon: const Icon(Icons.fingerprint, size: 18),
+                    label: const Text('MD5 对比'),
+                    onPressed: canMd5 ? _md5Compare : null,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    icon: const Icon(Icons.info_outline, size: 18),
+                    label: const Text('属性'),
+                    onPressed: canProps ? _showProperties : null,
+                  ),
+                ),
+              ],
             ),
-            _actionButton(
-              icon: Icons.drive_file_move_outline,
-              tooltip: '移动',
-              onPressed: n >= 1 ? _move : null,
-            ),
-            _actionButton(
-              icon: Icons.copy_all_outlined,
-              tooltip: '复制',
-              onPressed: n >= 1 ? _copy : null,
-            ),
-            _actionButton(
-              icon: Icons.delete_outline,
-              tooltip: '删除',
-              color: Colors.red,
-              onPressed: n >= 1 ? _delete : null,
+            const SizedBox(height: 4),
+            // ---- 第二行 ----
+            Row(
+              children: [
+                Expanded(
+                  child: _wideAction(
+                    icon: Icons.drive_file_rename_outline,
+                    label: '重命名',
+                    onPressed: canRename ? _rename : null,
+                  ),
+                ),
+                Expanded(
+                  child: _wideAction(
+                    icon: Icons.drive_file_move_outline,
+                    label: '移动',
+                    onPressed: canOps ? _move : null,
+                  ),
+                ),
+                Expanded(
+                  child: _wideAction(
+                    icon: Icons.copy_all_outlined,
+                    label: '复制',
+                    onPressed: canOps ? _copy : null,
+                  ),
+                ),
+                Expanded(
+                  child: _wideAction(
+                    icon: Icons.delete_outline,
+                    label: '删除',
+                    color: Colors.red,
+                    onPressed: canOps ? _delete : null,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -715,16 +1140,31 @@ final result = (
     );
   }
 
-  Widget _actionButton({
+  /// 宽版图标+文字按钮，用于底部第二行。
+  Widget _wideAction({
     required IconData icon,
-    required String tooltip,
+    required String label,
     required VoidCallback? onPressed,
     Color? color,
   }) {
-    return IconButton(
-      icon: Icon(icon, color: color),
-      tooltip: tooltip,
-      onPressed: onPressed,
+    final disabled = onPressed == null;
+    final c = disabled ? Colors.grey : (color ?? Colors.black87);
+    return InkWell(
+      onTap: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 22, color: c),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: c),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
