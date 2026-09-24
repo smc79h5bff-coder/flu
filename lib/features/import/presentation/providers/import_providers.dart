@@ -73,14 +73,113 @@ class UserRulesNotifier extends StateNotifier<List<PreprocessingRule>> {
       state = json.map(PreprocessingRule.fromJson).toList();
 }
 
+// ==================== 关键词 / 正则替换规则 ====================
+//
+// 两段纯文本，一行一条规则：
+//   xxx               → 删掉 xxx
+//   xxx->=>yyy        → 把 xxx 换成 yyy
+//
+// 关键词规则里 xxx / yyy 都是普通文字（特殊字符自动转义）。
+// 正则规则里 xxx 是正则，yyy 是普通替换串。
+
+/// 关键词规则原文。
+final keywordRulesTextProvider = StateProvider<String>((ref) => '');
+
+/// 正则规则原文。
+final regexRulesTextProvider = StateProvider<String>((ref) => '');
+
+/// 应用关键词规则到 [text]。
+///
+/// 删除项会合并成一个正则一次扫完；替换项逐条 replaceAll。
+String applyKeywordRules(String text, String rulesText) {
+  if (text.isEmpty || rulesText.isEmpty) return text;
+
+  final deletions = <String>[];
+  final replacements = <({String find, String replace})>[];
+
+  for (final raw in rulesText.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final idx = line.indexOf('->=>');
+    if (idx >= 0) {
+      final find = line.substring(0, idx);
+      final replace = line.substring(idx + 4);
+      if (find.isNotEmpty) {
+        replacements.add((find: find, replace: replace));
+      }
+    } else {
+      deletions.add(line);
+    }
+  }
+
+  var out = text;
+
+  // 删除：合并成一个正则，一次扫描。
+  if (deletions.isNotEmpty) {
+    // 长的排前面，避免短词先命中把长词切碎。
+    deletions.sort((a, b) => b.length.compareTo(a.length));
+    try {
+      final pattern = deletions.map(RegExp.escape).join('|');
+      out = out.replaceAll(RegExp(pattern), '');
+    } catch (_) {
+      // 组合正则失败（极少见），退化为逐条。
+      for (final w in deletions) {
+        out = out.replaceAll(w, '');
+      }
+    }
+  }
+
+  // 替换：逐条。
+  for (final r in replacements) {
+    try {
+      out = out.replaceAll(RegExp(RegExp.escape(r.find)), r.replace);
+    } catch (_) {
+      out = out.replaceAll(r.find, r.replace);
+    }
+  }
+
+  return out;
+}
+
+/// 应用正则规则到 [text]。逐条 replaceAll，非法正则跳过。
+String applyRegexRules(String text, String rulesText) {
+  if (text.isEmpty || rulesText.isEmpty) return text;
+
+  var out = text;
+  for (final raw in rulesText.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final idx = line.indexOf('->=>');
+    String find;
+    String replace;
+    if (idx >= 0) {
+      find = line.substring(0, idx);
+      replace = line.substring(idx + 4);
+    } else {
+      find = line;
+      replace = '';
+    }
+    if (find.isEmpty) continue;
+    try {
+      out = out.replaceAll(RegExp(find), replace);
+    } catch (_) {
+      // 非法正则忽略，不影响其它规则。
+    }
+  }
+  return out;
+}
+
 /// Computed: produces preprocessed text for both sides.
 final preprocessedOriginalProvider = Provider<String>((ref) {
   final raw = ref.watch(originalRawTextProvider);
   if (raw == null) return '';
   final rules = ref.watch(userRulesProvider);
   final builtins = ref.watch(builtinRulesWithStateProvider);
-  return PreprocessingService(userRules: rules, builtinRules: builtins)
+  var out = PreprocessingService(userRules: rules, builtinRules: builtins)
       .apply(raw, isOriginal: true);
+  out = applyKeywordRules(out, ref.watch(keywordRulesTextProvider));
+  out = applyRegexRules(out, ref.watch(regexRulesTextProvider));
+  return out;
 });
 
 final preprocessedModifiedProvider = Provider<String>((ref) {
@@ -88,8 +187,11 @@ final preprocessedModifiedProvider = Provider<String>((ref) {
   if (raw == null) return '';
   final rules = ref.watch(userRulesProvider);
   final builtins = ref.watch(builtinRulesWithStateProvider);
-  return PreprocessingService(userRules: rules, builtinRules: builtins)
+  var out = PreprocessingService(userRules: rules, builtinRules: builtins)
       .apply(raw, isOriginal: false);
+  out = applyKeywordRules(out, ref.watch(keywordRulesTextProvider));
+  out = applyRegexRules(out, ref.watch(regexRulesTextProvider));
+  return out;
 });
 
 /// Bumped whenever a new import succeeds — used by the viewer to know
