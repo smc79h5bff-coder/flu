@@ -331,6 +331,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       builder: (_) => const _DisplaySettingsSheet(),
     );
   }
+  void _openComparisonSettings() {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => const ComparisonSettingsScreen(),
+    ),
+  );
+}
 
   // ==================== 导出差异 ====================
 
