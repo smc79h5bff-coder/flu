@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
+import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
 import 'side_by_side_view.dart' show AlignedRow, computeAlignedRows;
 
-class DiffOnlyView extends StatelessWidget {
+class DiffOnlyView extends ConsumerWidget {
   const DiffOnlyView({
     required this.result,
     this.originalFileName,
@@ -31,7 +33,8 @@ class DiffOnlyView extends StatelessWidget {
   final double gutterFontSize;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = watchDiffColors(ref);
     final meta = _lineMeta(result);
     final rows = _computeDiffOnlyRows(result.entries);
     final s = Theme.of(context).colorScheme;
@@ -65,15 +68,15 @@ class DiffOnlyView extends StatelessWidget {
               final List<int> keyOwners;
               if (spec.del != null && spec.ins != null) {
                 row = _comboRow(context, result.entries[spec.del!],
-                    result.entries[spec.ins!], meta[spec.del!], meta[spec.ins!]);
+                    result.entries[spec.ins!], meta[spec.del!], meta[spec.ins!], c);
                 keyOwners = <int>[spec.del!, spec.ins!];
               } else if (spec.del != null) {
                 final ei = spec.del!;
-                row = _alignedRow(ctx, result.entries[ei], meta[ei]);
+                row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
                 keyOwners = <int>[ei];
               } else {
                 final ei = spec.ins!;
-                row = _alignedRow(ctx, result.entries[ei], meta[ei]);
+                row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
                 keyOwners = <int>[ei];
               }
               Widget out = row;
@@ -95,20 +98,32 @@ class DiffOnlyView extends StatelessWidget {
     DiffEntry ins,
     ({int orig, int mod}) delMeta,
     ({int orig, int mod}) insMeta,
+    DiffColors c,
   ) {
     final s = Theme.of(context).colorScheme;
+    final leftText = del.text;
+    final rightText = ins.text;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: _DiffCell(
-            text: del.text,
+            text: leftText,
             line: delMeta.orig,
-            symbol: '−',
-            color: s.error,
-            bg: null,
+            symbol: '~',
+            bg: c.replaceLeftBg,
+            fg: c.replaceLeftFg,
             findQuery: findQuery,
-            charDiff: _CharDiff(before: del.text, after: ins.text, side: false),
+            charDiff: _CharDiff(
+              before: leftText,
+              after: rightText,
+              side: false,
+              removedBg: c.charDeleteBg,
+              removedFg: c.charDeleteFg,
+              addedBg: c.charInsertBg,
+              addedFg: c.charInsertFg,
+            ),
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
@@ -117,13 +132,21 @@ class DiffOnlyView extends StatelessWidget {
         Container(width: 1, color: s.outlineVariant),
         Expanded(
           child: _DiffCell(
-            text: ins.text,
+            text: rightText,
             line: insMeta.mod,
-            symbol: '+',
-            color: s.error,
-            bg: null,
+            symbol: '~',
+            bg: c.replaceRightBg,
+            fg: c.replaceRightFg,
             findQuery: findQuery,
-            charDiff: _CharDiff(before: del.text, after: ins.text, side: true),
+            charDiff: _CharDiff(
+              before: leftText,
+              after: rightText,
+              side: true,
+              removedBg: c.charDeleteBg,
+              removedFg: c.charDeleteFg,
+              addedBg: c.charInsertBg,
+              addedFg: c.charInsertFg,
+            ),
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
@@ -134,40 +157,72 @@ class DiffOnlyView extends StatelessWidget {
   }
 
   Widget _alignedRow(
-      BuildContext context, DiffEntry e, ({int orig, int mod}) m) {
+      BuildContext context, DiffEntry e, ({int orig, int mod}) m, DiffColors c) {
     final s = Theme.of(context).colorScheme;
+    final plainLeftBg = s.surfaceVariant;
+    final plainRightBg = s.surface;
+    final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
+        (Theme.of(context).brightness == Brightness.dark
+            ? Colors.white
+            : Colors.black);
 
-    final (String leftText, String leftSym, Color? leftColor) =
-        switch (e.operation) {
-      DiffOperation.delete => (e.text, '−', s.error),
-      DiffOperation.insert => ('', '', null),
-      DiffOperation.replace =>
-        (e.oldText.isEmpty ? e.text : e.oldText, '~', s.tertiary),
-      DiffOperation.equal => (e.text, '', null),
-    };
-    final (String rightText, String rightSym, Color? rightColor) =
-        switch (e.operation) {
-      DiffOperation.insert => (e.text, '+', s.error),
-      DiffOperation.delete => ('', '', null),
-      DiffOperation.replace =>
-        (e.newText.isEmpty ? e.text : e.newText, '~', s.tertiary),
-      DiffOperation.equal => (e.text, '', null),
-    };
+    String leftText = '';
+    String rightText = '';
+    Color leftBg = plainLeftBg;
+    Color rightBg = plainRightBg;
+    Color leftFg = defaultFg;
+    Color rightFg = defaultFg;
+    String leftSym = '';
+    String rightSym = '';
+    _CharDiff? leftCharDiff;
+    _CharDiff? rightCharDiff;
 
-    final _CharDiff? leftCharDiff = e.operation == DiffOperation.replace
-        ? _CharDiff(
-            before: e.oldText.isEmpty ? e.text : e.oldText,
-            after: e.newText.isEmpty ? e.text : e.newText,
-            side: false,
-          )
-        : null;
-    final _CharDiff? rightCharDiff = e.operation == DiffOperation.replace
-        ? _CharDiff(
-            before: e.oldText.isEmpty ? e.text : e.oldText,
-            after: e.newText.isEmpty ? e.text : e.newText,
-            side: true,
-          )
-        : null;
+    switch (e.operation) {
+      case DiffOperation.equal:
+        leftText = e.text;
+        rightText = e.text;
+        break;
+      case DiffOperation.delete:
+        leftText = e.text;
+        leftBg = c.deleteRowBg;
+        leftFg = c.deleteRowFg;
+        leftSym = '−';
+        break;
+      case DiffOperation.insert:
+        rightText = e.text;
+        rightBg = c.insertRowBg;
+        rightFg = c.insertRowFg;
+        rightSym = '+';
+        break;
+      case DiffOperation.replace:
+        leftText = e.oldText.isEmpty ? e.text : e.oldText;
+        rightText = e.newText.isEmpty ? e.text : e.newText;
+        leftBg = c.replaceLeftBg;
+        leftFg = c.replaceLeftFg;
+        rightBg = c.replaceRightBg;
+        rightFg = c.replaceRightFg;
+        leftSym = '~';
+        rightSym = '~';
+        leftCharDiff = _CharDiff(
+          before: leftText,
+          after: rightText,
+          side: false,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+        rightCharDiff = _CharDiff(
+          before: leftText,
+          after: rightText,
+          side: true,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+        break;
+    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,8 +232,8 @@ class DiffOnlyView extends StatelessWidget {
             text: leftText,
             line: m.orig,
             symbol: leftSym,
-            color: leftColor,
-            bg: leftColor == null ? s.surfaceVariant : null,
+            bg: leftBg,
+            fg: leftFg,
             findQuery: findQuery,
             charDiff: leftCharDiff,
             showLineNumbers: showLineNumbers,
@@ -192,8 +247,8 @@ class DiffOnlyView extends StatelessWidget {
             text: rightText,
             line: m.mod,
             symbol: rightSym,
-            color: rightColor,
-            bg: rightColor == null ? s.surface : null,
+            bg: rightBg,
+            fg: rightFg,
             findQuery: findQuery,
             charDiff: rightCharDiff,
             showLineNumbers: showLineNumbers,
@@ -221,12 +276,23 @@ class DiffOnlyView extends StatelessWidget {
 }
 
 class _CharDiff {
-  const _CharDiff(
-      {required this.before, required this.after, required this.side});
+  const _CharDiff({
+    required this.before,
+    required this.after,
+    required this.side,
+    required this.removedBg,
+    required this.removedFg,
+    required this.addedBg,
+    required this.addedFg,
+  });
 
   final String before;
   final String after;
   final bool side;
+  final Color removedBg;
+  final Color removedFg;
+  final Color addedBg;
+  final Color addedFg;
 }
 
 class _DiffCell extends StatelessWidget {
@@ -234,9 +300,9 @@ class _DiffCell extends StatelessWidget {
     required this.text,
     required this.line,
     required this.symbol,
-    required this.color,
+    required this.bg,
+    required this.fg,
     required this.findQuery,
-    this.bg,
     this.charDiff,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
@@ -246,9 +312,9 @@ class _DiffCell extends StatelessWidget {
   final String text;
   final int line;
   final String symbol;
-  final Color? color;
+  final Color bg;
+  final Color fg;
   final String findQuery;
-  final Color? bg;
   final _CharDiff? charDiff;
   final bool showLineNumbers;
   final double bodyFontSize;
@@ -259,7 +325,7 @@ class _DiffCell extends StatelessWidget {
     final body = Theme.of(context)
         .textTheme
         .bodyMedium
-        ?.copyWith(fontSize: bodyFontSize);
+        ?.copyWith(fontSize: bodyFontSize, color: fg);
     final outline = Theme.of(context).colorScheme.outline;
 
     Widget content;
@@ -270,6 +336,10 @@ class _DiffCell extends StatelessWidget {
         side: charDiff!.side,
         style: body,
         findQuery: findQuery,
+        addedFg: charDiff!.addedFg,
+        addedBg: charDiff!.addedBg,
+        removedFg: charDiff!.removedFg,
+        removedBg: charDiff!.removedBg,
       );
     } else if (findQuery.isEmpty || !text.contains(findQuery)) {
       content = Text(text.isEmpty ? ' ' : text, style: body, softWrap: true);
@@ -278,12 +348,12 @@ class _DiffCell extends StatelessWidget {
     }
 
     return Container(
-      color: bg ?? color?.withOpacity(0.25),
+      color: bg,
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (showLineNumbers)
+          if (showLineNumbers) ...[
             SizedBox(
               width: 30,
               child: Text(
@@ -292,11 +362,14 @@ class _DiffCell extends StatelessWidget {
                 style: TextStyle(fontSize: gutterFontSize, color: outline),
               ),
             ),
-          if (symbol.isNotEmpty) ...[
-            const SizedBox(width: 4),
-            Text(symbol,
-                style: TextStyle(
-                    color: color, fontWeight: FontWeight.bold, fontSize: bodyFontSize)),
+            if (symbol.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              Text(symbol,
+                  style: TextStyle(
+                      color: fg,
+                      fontWeight: FontWeight.bold,
+                      fontSize: bodyFontSize)),
+            ],
           ],
           const SizedBox(width: 6),
           Expanded(child: content),
