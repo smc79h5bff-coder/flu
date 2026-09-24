@@ -13,15 +13,6 @@ import '../../viewer/presentation/diff_viewer_screen.dart';
 import 'comparison_settings_screen.dart';
 import 'text_preview_screen.dart';
 
-/// 文件浏览器：首页。
-///
-/// 交互：
-///   - 点击文件夹 → 进入
-///   - 点击文件 → 预览
-///   - 长按任意项 → 进入多选
-///   - 多选模式下单击 → 勾选/取消
-///   - 选中 2 个文件 → 底部"对比"/"MD5 对比"
-///   - 选中 1 项   → 底部"属性"/"重命名"
 class FileBrowserScreen extends ConsumerStatefulWidget {
   const FileBrowserScreen({super.key});
 
@@ -29,8 +20,9 @@ class FileBrowserScreen extends ConsumerStatefulWidget {
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
 
-/// 排序字段。
 enum _SortField { name, modified, size }
+
+enum _SearchScope { currentRecursive, custom }
 
 class _EntryInfo {
   _EntryInfo({
@@ -48,6 +40,12 @@ class _EntryInfo {
   final DateTime? modified;
 }
 
+class _SearchHit {
+  const _SearchHit({required this.path, required this.name});
+  final String path;
+  final String name;
+}
+
 class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   static const String _rootPath = '/storage/emulated/0';
 
@@ -57,17 +55,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   String? _error;
 
   final TextEditingController _searchCtrl = TextEditingController();
-  String _query = '';
 
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
-  // 排序状态（内存版，关 App 恢复默认）
   _SortField _sortField = _SortField.name;
   bool _sortAsc = true;
 
-  // 收藏夹（内存版，关 App 清空）
   final List<String> _favorites = <String>[];
+
+  // ===== 搜索相关 =====
+  _SearchScope _searchScope = _SearchScope.currentRecursive;
+  final List<String> _customSearchFolders = <String>[];
+  List<_SearchHit> _searchResults = <_SearchHit>[];
+  bool _searching = false;
+  int _searchTaskId = 0;
+  DateTime _lastUiRefresh = DateTime.now();
 
   @override
   void initState() {
@@ -118,7 +121,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       }));
 
       infos.sort((a, b) {
-        // 文件夹永远在前
         if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
         int cmp;
         switch (_sortField) {
@@ -154,9 +156,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     if (path == _currentPath) return;
     _clearSelection();
     _searchCtrl.clear();
+    _searchTaskId++; // 停掉正在跑的搜索
     setState(() {
       _currentPath = path;
-      _query = '';
+      _searchResults = [];
+      _searching = false;
     });
     _load();
   }
@@ -198,13 +202,145 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
-  // ---------- 对比 ----------
+  // ==================== 搜索 ====================
+
+  void _onSearchChanged(String v) {
+    setState(() {}); // 刷新状态行显示/隐藏
+    _startSearch(v);
+  }
+
+  void _clearSearch() {
+    _searchTaskId++;
+    _searchCtrl.clear();
+    setState(() {
+      _searchResults = [];
+      _searching = false;
+    });
+  }
+
+  void _cancelSearch() {
+    _searchTaskId++;
+    setState(() => _searching = false);
+  }
+
+  /// 去掉被父目录覆盖的子目录。
+  List<String> _dedupFolders(List<String> folders) {
+    final sorted = List<String>.from(folders)..sort();
+    final out = <String>[];
+    for (final f in sorted) {
+      final covered = out.any((p) => f == p || f.startsWith('$p/'));
+      if (!covered) out.add(f);
+    }
+    return out;
+  }
+
+  Future<void> _startSearch(String query) async {
+    final taskId = ++_searchTaskId;
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _searching = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _searching = true;
+      _searchResults = [];
+    });
+    _lastUiRefresh = DateTime.now();
+
+    final roots = <String>[];
+    if (_searchScope == _SearchScope.currentRecursive) {
+      roots.add(_currentPath);
+    } else {
+      if (_customSearchFolders.isEmpty) {
+        _toast('请先管理已勾选文件夹');
+        if (mounted) setState(() => _searching = false);
+        return;
+      }
+      roots.addAll(_dedupFolders(_customSearchFolders));
+    }
+
+    final lowerQuery = query.toLowerCase();
+    final results = <_SearchHit>[];
+
+    for (final root in roots) {
+      if (taskId != _searchTaskId) return;
+      await _scanDir(root, lowerQuery, results, taskId);
+    }
+
+    if (taskId != _searchTaskId) return;
+    if (!mounted) return;
+    setState(() => _searching = false);
+  }
+
+  Future<void> _scanDir(
+    String dirPath,
+    String lowerQuery,
+    List<_SearchHit> results,
+    int taskId,
+  ) async {
+    if (results.length >= 500) return;
+    try {
+      await for (final e in Directory(dirPath).list(followLinks: false)) {
+        if (taskId != _searchTaskId) return;
+        if (results.length >= 500) return;
+
+        if (e is Directory) {
+          final name = e.path.split('/').last;
+          if (name.startsWith('.')) continue;
+          final lower = e.path.toLowerCase();
+          if (lower.contains('/android/data') ||
+              lower.contains('/android/obb')) {
+            continue;
+          }
+          await _scanDir(e.path, lowerQuery, results, taskId);
+        } else if (e is File) {
+          final name = e.path.split('/').last;
+          if (name.toLowerCase().contains(lowerQuery)) {
+            results.add(_SearchHit(path: e.path, name: name));
+            final now = DateTime.now();
+            if (mounted &&
+                now.difference(_lastUiRefresh).inMilliseconds > 100) {
+              _lastUiRefresh = now;
+              setState(() => _searchResults = List.from(results));
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // 权限不够或目录读取失败，忽略，继续
+    }
+  }
+
+  Future<void> _showSearchFolderPicker() async {
+    final result = await showDialog<List<String>>(
+      context: context,
+      builder: (_) => _SearchFolderPickerDialog(
+        rootPath: _rootPath,
+        initialPath: _currentPath,
+        initialSelected: _customSearchFolders,
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _customSearchFolders
+          ..clear()
+          ..addAll(result);
+      });
+      if (_searchCtrl.text.isNotEmpty) {
+        _onSearchChanged(_searchCtrl.text);
+      }
+    }
+  }
+
+  // ==================== 对比 / MD5 / 属性 ====================
 
   Future<void> _startCompare() async {
     if (_selectedPaths.length != 2) return;
     final paths = _selectedPaths.toList();
 
-    // 检查两个都是文件（不是文件夹）。
     for (final p in paths) {
       if (Directory(p).existsSync()) {
         _toast('对比只支持文件，请勿选中文件夹');
@@ -212,7 +348,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       }
     }
 
-    // 不再弹角色确认框，默认 paths[0] 是原文件、paths[1] 是修改版。
     final result = (
       original: File(paths[0]),
       modified: File(paths[1]),
@@ -278,8 +413,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
-  // ---------- MD5 对比 ----------
-
   static String _md5Worker(Uint8List bytes) {
     return md5.convert(bytes).toString();
   }
@@ -323,30 +456,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  name1,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                Text(name1,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 SelectableText(
                   h1,
                   style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                  ),
+                      fontFamily: 'monospace', fontSize: 12),
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  name2,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                Text(name2,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 SelectableText(
                   h2,
                   style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                  ),
+                      fontFamily: 'monospace', fontSize: 12),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -375,8 +500,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  // ---------- 属性 ----------
-
   Future<void> _showProperties() async {
     if (_selectedPaths.length != 1) return;
     final path = _selectedPaths.first;
@@ -403,10 +526,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
+              Text(label, style: Theme.of(context).textTheme.labelSmall),
               const SizedBox(height: 2),
               SelectableText(value),
             ],
@@ -427,10 +547,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               row('类型', isDir ? '文件夹' : '文件'),
               row('大小',
                   isDir ? '—' : (size == null ? '—' : _formatSize(size))),
-              if (modified != null)
-                row('修改时间', _formatTimeFull(modified)),
-              if (accessed != null)
-                row('访问时间', _formatTimeFull(accessed)),
+              if (modified != null) row('修改时间', _formatTimeFull(modified)),
+              if (accessed != null) row('访问时间', _formatTimeFull(accessed)),
             ],
           ),
         ),
@@ -450,7 +568,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
   }
 
-  // ---------- 排序 ----------
+  // ==================== 排序 / 收藏 ====================
 
   String _sortLabel(_SortField f) {
     switch (f) {
@@ -520,8 +638,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       _load();
     }
   }
-
-  // ---------- 收藏夹 ----------
 
   void _toggleFavorite() {
     setState(() {
@@ -593,7 +709,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  // ---------- 文件操作 ----------
+  // ==================== 文件操作 ====================
 
   void _toast(String msg) {
     if (!mounted) return;
@@ -782,7 +898,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  /// 弹一个只显示目录的选择器。用户选中一个目录，返回它的路径。
   Future<String?> _pickDirectory(String title) async {
     return showDialog<String>(
       context: context,
@@ -794,7 +909,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
-  // ---------- 面包屑 ----------
+  // ==================== 面包屑 ====================
 
   List<({String label, String path})> get _crumbs {
     final relative = _currentPath.substring(_rootPath.length);
@@ -873,13 +988,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     return _currentPath.split('/').last;
   }
 
-  List<_EntryInfo> get _filteredEntries {
-    final all = _entries ?? const <_EntryInfo>[];
-    if (_query.isEmpty) return all;
-    final q = _query.toLowerCase();
-    return all.where((e) => e.name.toLowerCase().contains(q)).toList();
-  }
-
   String _relPath(String fullPath) {
     if (fullPath == _rootPath) return '~/';
     if (fullPath.startsWith(_rootPath)) {
@@ -906,6 +1014,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           children: [
             if (!_selectionMode) _buildBreadcrumbs(),
             if (!_selectionMode) _buildSearchBar(),
+            if (!_selectionMode && _searchCtrl.text.isNotEmpty)
+              _buildSearchStatusBar(),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -1019,36 +1129,138 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
+  // ==================== 搜索栏 UI ====================
+
   Widget _buildSearchBar() {
+    final isCustom = _searchScope == _SearchScope.custom;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: TextField(
-        controller: _searchCtrl,
-        decoration: InputDecoration(
-          hintText: '搜索当前目录下的文件',
-          prefixIcon: const Icon(Icons.search),
-          isDense: true,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          suffixIcon: _query.isEmpty
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    setState(() => _query = '');
-                  },
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: isCustom && _customSearchFolders.isEmpty
+                    ? '请先管理已勾选文件夹'
+                    : '搜索',
+                prefixIcon: const Icon(Icons.search),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-        ),
-        onChanged: (v) => setState(() => _query = v),
+                suffixIcon: _searchCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: _clearSearch,
+                      ),
+              ),
+              onChanged: _onSearchChanged,
+            ),
+          ),
+          const SizedBox(width: 4),
+          PopupMenuButton<String>(
+            icon: Icon(
+              isCustom ? Icons.tune : Icons.folder_open,
+              color: isCustom
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            tooltip: '搜索范围',
+            onSelected: (v) {
+              if (v == 'current') {
+                setState(() => _searchScope = _SearchScope.currentRecursive);
+                if (_searchCtrl.text.isNotEmpty) {
+                  _onSearchChanged(_searchCtrl.text);
+                }
+              } else if (v == 'custom') {
+                setState(() => _searchScope = _SearchScope.custom);
+                if (_searchCtrl.text.isNotEmpty) {
+                  _onSearchChanged(_searchCtrl.text);
+                }
+              } else if (v == 'manage') {
+                _showSearchFolderPicker();
+              }
+            },
+            itemBuilder: (context) => [
+              CheckedPopupMenuItem<String>(
+                value: 'current',
+                checked: _searchScope == _SearchScope.currentRecursive,
+                child: const Text('当前目录及子目录'),
+              ),
+              CheckedPopupMenuItem<String>(
+                value: 'custom',
+                checked: _searchScope == _SearchScope.custom,
+                child: Text('自定义范围（${_customSearchFolders.length}）'),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
+                value: 'manage',
+                enabled: _searchScope == _SearchScope.custom,
+                child: const Row(
+                  children: [
+                    Icon(Icons.edit_location_alt, size: 18),
+                    SizedBox(width: 8),
+                    Text('管理已勾选文件夹'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  /// 底部栏：双行布局。
-  /// 第一行：[对比] [MD5对比] [属性]
-  /// 第二行：[重命名] [移动] [复制] [删除]
+  Widget _buildSearchStatusBar() {
+    if (_searching) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '扫描中... 已找到 ${_searchResults.length} 个',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: _cancelSearch,
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _searchResults.length >= 500
+                  ? '已达上限，只显示前 500 个'
+                  : '共找到 ${_searchResults.length} 个',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 底部栏 ====================
+
   Widget _buildBottomBar() {
     final n = _selectedPaths.length;
     final canCompare = n == 2;
@@ -1071,7 +1283,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ---- 第一行 ----
             Row(
               children: [
                 Expanded(
@@ -1100,7 +1311,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               ],
             ),
             const SizedBox(height: 4),
-            // ---- 第二行 ----
             Row(
               children: [
                 Expanded(
@@ -1140,7 +1350,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
-  /// 宽版图标+文字按钮，用于底部第二行。
   Widget _wideAction({
     required IconData icon,
     required String label,
@@ -1158,17 +1367,53 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           children: [
             Icon(icon, size: 22, color: c),
             const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(fontSize: 11, color: c),
-            ),
+            Text(label, style: TextStyle(fontSize: 11, color: c)),
           ],
         ),
       ),
     );
   }
 
+  // ==================== 主体 ====================
+
   Widget _buildBody() {
+    // 搜索模式
+    if (_searchCtrl.text.isNotEmpty) {
+      if (_searchResults.isEmpty) {
+        return Center(
+          child: Text(_searching ? '正在扫描...' : '未找到匹配'),
+        );
+      }
+      return ListView.builder(
+        itemCount: _searchResults.length,
+        itemBuilder: (ctx, i) {
+          final hit = _searchResults[i];
+          return ListTile(
+            dense: true,
+            leading: const Icon(Icons.insert_drive_file_outlined),
+            title: Text(
+              hit.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              _relPath(hit.path),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () {
+              final parent = File(hit.path).parent.path;
+              _navigateTo(parent);
+            },
+          );
+        },
+      );
+    }
+
+    // 普通目录模式
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -1190,11 +1435,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       );
     }
 
-    final entries = _filteredEntries;
+    final entries = _entries ?? const <_EntryInfo>[];
     if (entries.isEmpty) {
-      return Center(
-        child: Text(_query.isEmpty ? '空目录' : '没有匹配的文件'),
-      );
+      return const Center(child: Text('空目录'));
     }
 
     return ListView.builder(
@@ -1273,7 +1516,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   }
 }
 
-// ---------- 辅助 Widget ----------
+// ==================== 辅助 Widget ====================
 
 class _TextInputDialog extends StatefulWidget {
   const _TextInputDialog({
@@ -1455,6 +1698,252 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
         FilledButton(
           onPressed: () => Navigator.pop(context, _path),
           child: const Text('选这个目录'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 自定义搜索文件夹的勾选器。
+class _SearchFolderPickerDialog extends StatefulWidget {
+  const _SearchFolderPickerDialog({
+    required this.rootPath,
+    required this.initialPath,
+    required this.initialSelected,
+  });
+
+  final String rootPath;
+  final String initialPath;
+  final List<String> initialSelected;
+
+  @override
+  State<_SearchFolderPickerDialog> createState() =>
+      _SearchFolderPickerDialogState();
+}
+
+class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
+  late String _path;
+  late List<String> _selected;
+  List<Directory> _dirs = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _path = widget.initialPath;
+    _selected = List<String>.from(widget.initialSelected);
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final raw = await Directory(_path).list(followLinks: false).toList();
+      final dirs = raw.whereType<Directory>().where((d) {
+        final name = d.path.split('/').last;
+        return !name.startsWith('.');
+      }).toList()
+        ..sort((a, b) =>
+            a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+      if (!mounted) return;
+      setState(() {
+        _dirs = dirs;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dirs = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  bool get _canGoUp => _path != widget.rootPath;
+
+  void _goUp() {
+    if (!_canGoUp) return;
+    final parent = Directory(_path).parent.path;
+    if (parent.length < widget.rootPath.length) return;
+    setState(() => _path = parent);
+    _load();
+  }
+
+  void _toggle(String path) {
+    setState(() {
+      if (_selected.contains(path)) {
+        _selected.remove(path);
+      } else {
+        _selected.add(path);
+      }
+    });
+  }
+
+  Future<void> _showSelected() async {
+    await showDialog<void>(
+      context: context,
+      builder: (outerContext) => StatefulBuilder(
+        builder: (innerContext, setInnerState) => AlertDialog(
+          title: const Text('已勾选文件夹'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: _selected.isEmpty
+                ? const Text('还没有勾选任何文件夹')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _selected.length,
+                    itemBuilder: (ctx, i) {
+                      final p = _selected[i];
+                      return ListTile(
+                        dense: true,
+                        title: Text(p.split('/').last),
+                        subtitle: Text(
+                          p,
+                          style: const TextStyle(fontSize: 11),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          tooltip: '移除',
+                          onPressed: () {
+                            setInnerState(() => _selected.removeAt(i));
+                            setState(() {}); // 刷新外层"已勾选 N 个"
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(innerContext),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final relPath = _path == widget.rootPath
+        ? '~/'
+        : '~${_path.substring(widget.rootPath.length)}';
+
+    return AlertDialog(
+      title: const Text('选择搜索文件夹'),
+      contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 420,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_upward),
+                  onPressed: _canGoUp ? _goUp : null,
+                  tooltip: '上一级',
+                ),
+                Expanded(
+                  child: Text(
+                    relPath,
+                    style: Theme.of(context).textTheme.labelSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _dirs.isEmpty
+                      ? const Center(child: Text('（无子目录）'))
+                      : ListView.builder(
+                          itemCount: _dirs.length,
+                          itemBuilder: (ctx, i) {
+                            final d = _dirs[i];
+                            final name = d.path.split('/').last;
+                            final selected = _selected.contains(d.path);
+                            return ListTile(
+                              dense: true,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(horizontal: 4),
+                              leading: SizedBox(
+                                width: 68,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    InkWell(
+                                      onTap: () => _toggle(d.path),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(4),
+                                        child: Icon(
+                                          selected
+                                              ? Icons.check_box
+                                              : Icons.check_box_outline_blank,
+                                          color: selected
+                                              ? Theme.of(context)
+                                                  .colorScheme
+                                                  .primary
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                    InkWell(
+                                      onTap: () => _toggle(d.path),
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(4),
+                                        child: Icon(Icons.folder,
+                                            color: Colors.amber),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              title: Text(name),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () {
+                                setState(() => _path = d.path);
+                                _load();
+                              },
+                            );
+                          },
+                        ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+              child: Row(
+                children: [
+                  Text(
+                    '已勾选 ${_selected.length} 个',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: _selected.isEmpty ? null : _showSelected,
+                    child: const Text('查看'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _selected),
+          child: const Text('确定'),
         ),
       ],
     );
