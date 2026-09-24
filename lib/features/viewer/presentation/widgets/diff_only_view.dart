@@ -47,6 +47,7 @@ class DiffOnlyView extends ConsumerWidget {
     final rows = _computeDiffOnlyRows(result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Widget header(String? name, Color color) {
       return Expanded(
@@ -56,8 +57,6 @@ class DiffOnlyView extends ConsumerWidget {
       );
     }
 
-    // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏。
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
         Row(
@@ -68,64 +67,70 @@ class DiffOnlyView extends ConsumerWidget {
           ],
         ),
         Expanded(
-          child: Scrollbar(
-            controller: controller,
-            interactive: true,
-            thickness: 12,
-            radius: const Radius.circular(6),
-            thumbColor:
-                (isDark ? Colors.white : Colors.black).withOpacity(0.42),
-            trackVisibility: false,
-            child: ListView.builder(
-              key: const Key('diff-only-list'),
+          child: ScrollbarTheme(
+            data: ScrollbarThemeData(
+              thumbColor: WidgetStatePropertyAll(
+                (isDark ? Colors.white : Colors.black)
+                    .withValues(alpha: 0.42),
+              ),
+              thickness: const WidgetStatePropertyAll(12),
+              radius: const Radius.circular(6),
+              trackVisibility: const WidgetStatePropertyAll(false),
+            ),
+            child: Scrollbar(
               controller: controller,
-              itemCount: rows.length,
-              itemBuilder: (ctx, i) {
-                final spec = rows[i];
-                final isCurrent = currentMatchEntry != null &&
-                    (spec.del == currentMatchEntry ||
-                        spec.ins == currentMatchEntry);
-                final Widget row;
-                final List<int> keyOwners;
-                if (spec.del != null && spec.ins != null) {
-                  row = _comboRow(
-                    context,
-                    result.entries[spec.del!],
-                    result.entries[spec.ins!],
-                    meta[spec.del!],
-                    meta[spec.ins!],
-                    c,
-                    isCurrent,
-                  );
-                  keyOwners = <int>[spec.del!, spec.ins!];
-                } else if (spec.del != null) {
-                  final ei = spec.del!;
-                  row = _alignedRow(
-                      ctx, result.entries[ei], meta[ei], c, isCurrent);
-                  keyOwners = <int>[ei];
-                } else {
-                  final ei = spec.ins!;
-                  row = _alignedRow(
-                      ctx, result.entries[ei], meta[ei], c, isCurrent);
-                  keyOwners = <int>[ei];
-                }
-                Widget out = row;
-                if (rowKeysByEntry != null) {
-                  for (final k in keyOwners) {
-                    final key =
-                        rowKeysByEntry!.putIfAbsent(k, () => GlobalKey());
-                    out = KeyedSubtree(key: key, child: out);
+              interactive: true,
+              child: ListView.builder(
+                key: const Key('diff-only-list'),
+                controller: controller,
+                itemCount: rows.length,
+                itemBuilder: (ctx, i) {
+                  final spec = rows[i];
+                  final isCurrent = currentMatchEntry != null &&
+                      (spec.del == currentMatchEntry ||
+                          spec.ins == currentMatchEntry);
+                  final Widget row;
+                  final List<int> keyOwners;
+                  if (spec.del != null && spec.ins != null) {
+                    row = _comboRow(
+                      context,
+                      result.entries[spec.del!],
+                      result.entries[spec.ins!],
+                      meta[spec.del!],
+                      meta[spec.ins!],
+                      c,
+                      isCurrent,
+                    );
+                    keyOwners = <int>[spec.del!, spec.ins!];
+                  } else if (spec.del != null) {
+                    final ei = spec.del!;
+                    row = _alignedRow(
+                        ctx, result.entries[ei], meta[ei], c, isCurrent);
+                    keyOwners = <int>[ei];
+                  } else {
+                    final ei = spec.ins!;
+                    row = _alignedRow(
+                        ctx, result.entries[ei], meta[ei], c, isCurrent);
+                    keyOwners = <int>[ei];
                   }
-                }
-                if (onLongPressEntry != null) {
-                  out = GestureDetector(
-                    onLongPress: () => onLongPressEntry!(keyOwners),
-                    behavior: HitTestBehavior.opaque,
-                    child: out,
-                  );
-                }
-                return out;
-              },
+                  Widget out = row;
+                  if (rowKeysByEntry != null) {
+                    for (final k in keyOwners) {
+                      final key =
+                          rowKeysByEntry!.putIfAbsent(k, () => GlobalKey());
+                      out = KeyedSubtree(key: key, child: out);
+                    }
+                  }
+                  if (onLongPressEntry != null) {
+                    out = GestureDetector(
+                      onLongPress: () => onLongPressEntry!(keyOwners),
+                      behavior: HitTestBehavior.opaque,
+                      child: out,
+                    );
+                  }
+                  return out;
+                },
+              ),
             ),
           ),
         ),
@@ -476,7 +481,7 @@ class _PaneHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: color.withOpacity(0.08),
+      color: color.withValues(alpha: 0.08),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Text(
         fileName,
