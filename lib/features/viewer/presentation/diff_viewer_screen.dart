@@ -29,11 +29,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final Map<int, GlobalKey> _rowKeysByEntry = <int, GlobalKey>{};
 
   int _currentDiffPos = -1;
+
   /// 最近一次程序化跳转（点上一处/下一处）的时间戳。
-/// 跳转后 800ms 内不让 _captureAnchor 覆盖 _currentDiffPos——
-/// 因为程序化跳转用的是 alignment: 0.25，目标上方的差异还在屏幕上
-/// 可见，_captureAnchor 会把位置误判回目标之前的那一处。
-int _lastJumpAtMs = 0;
+  /// 跳转后 800ms 内不让 _captureAnchor 覆盖 _currentDiffPos——
+  /// 因为程序化跳转用的是 alignment: 0.25，目标上方的差异还在屏幕上
+  /// 可见，_captureAnchor 会把位置误判回目标之前的那一处。
+  int _lastJumpAtMs = 0;
   int? _anchorEntryIndex;
 
   bool _showFind = false;
@@ -208,33 +209,33 @@ int _lastJumpAtMs = 0;
     }
   }
 
-void _jumpToNextDiff() {
-  final indices = _diffIndices();
-  if (indices.isEmpty) return;
-  // 未聚焦（-1）时，第一次点“下一处”跳到第 0 处。
-  // 否则从当前位置 +1，到末尾循环回 0。
-  final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
-  final next = (current + 1) % indices.length;
-  _jumpToDiffPos(next);
-}
+  void _jumpToNextDiff() {
+    final indices = _diffIndices();
+    if (indices.isEmpty) return;
+    // 未聚焦（-1）时，第一次点“下一处”跳到第 0 处。
+    // 否则从当前位置 +1，到末尾循环回 0。
+    final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
+    final next = (current + 1) % indices.length;
+    _jumpToDiffPos(next);
+  }
 
-void _jumpToPrevDiff() {
-  final indices = _diffIndices();
-  if (indices.isEmpty) return;
-  // 未聚焦（-1）时，第一次点“上一处”跳到最后一处。
-  // 否则从当前位置 -1，到开头循环回末尾。
-  final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
-  final prev = (current - 1 + indices.length) % indices.length;
-  _jumpToDiffPos(prev);
-}
+  void _jumpToPrevDiff() {
+    final indices = _diffIndices();
+    if (indices.isEmpty) return;
+    // 未聚焦（-1）时，第一次点“上一处”跳到最后一处。
+    // 否则从当前位置 -1，到开头循环回末尾。
+    final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
+    final prev = (current - 1 + indices.length) % indices.length;
+    _jumpToDiffPos(prev);
+  }
 
-void _jumpToDiffPos(int pos) {
-  final indices = _diffIndices();
-  if (pos < 0 || pos >= indices.length) return;
-  _lastJumpAtMs = DateTime.now().millisecondsSinceEpoch;
-  setState(() => _currentDiffPos = pos);
-  _scrollToEntry(indices[pos]);
-}
+  void _jumpToDiffPos(int pos) {
+    final indices = _diffIndices();
+    if (pos < 0 || pos >= indices.length) return;
+    _lastJumpAtMs = DateTime.now().millisecondsSinceEpoch;
+    setState(() => _currentDiffPos = pos);
+    _scrollToEntry(indices[pos]);
+  }
 
   int? _findFirstVisibleDiffEntry() {
     if (_rowKeysByEntry.isEmpty) return null;
@@ -252,25 +253,25 @@ void _jumpToDiffPos(int pos) {
     return null;
   }
 
-void _captureAnchor() {
-  final anchorEntry = _findFirstVisibleDiffEntry();
-  if (anchorEntry == null) return;
-  _anchorEntryIndex = anchorEntry;
+  void _captureAnchor() {
+    final anchorEntry = _findFirstVisibleDiffEntry();
+    if (anchorEntry == null) return;
+    _anchorEntryIndex = anchorEntry;
 
-  // 程序化跳转后 800ms 内不更新计数器。否则点“下一处”时，目标上方
-  // 仍在屏幕上可见的上一处差异会被 _captureAnchor 误判为“当前位置”，
-  // 导致计数器被打回，下一次点“下一处”看起来像卡住或往回跳。
-  final now = DateTime.now().millisecondsSinceEpoch;
-  if (now - _lastJumpAtMs < 800) return;
+    // 程序化跳转后 800ms 内不更新计数器。否则点“下一处”时，目标上方
+    // 仍在屏幕上可见的上一处差异会被 _captureAnchor 误判为“当前位置”，
+    // 导致计数器被打回，下一次点“下一处”看起来像卡住或往回跳。
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastJumpAtMs < 800) return;
 
-  final indices = _diffIndices();
-  if (indices.isEmpty) return;
-  final pos = _lowerBound(indices, anchorEntry);
-  if (pos >= indices.length) return;
-  if (pos != _currentDiffPos) {
-    setState(() => _currentDiffPos = pos);
+    final indices = _diffIndices();
+    if (indices.isEmpty) return;
+    final pos = _lowerBound(indices, anchorEntry);
+    if (pos >= indices.length) return;
+    if (pos != _currentDiffPos) {
+      setState(() => _currentDiffPos = pos);
+    }
   }
-}
 
   int _lowerBound(List<int> indices, int value) {
     var lo = 0, hi = indices.length;
@@ -313,6 +314,333 @@ void _captureAnchor() {
     showModalBottomSheet<void>(
       context: context,
       builder: (_) => const _DisplaySettingsSheet(),
+    );
+  }
+
+  // ==================== 长按：复制 / 就地编辑 ====================
+
+  /// 计算每个 entry 对应的原/改行号（预处理后），-1 表示该侧不涉及。
+  /// 逻辑和视图里的 _lineMeta 一致，这里独立一份。
+  List<({int orig, int mod})> _computeLineMeta(DiffResult result) {
+    final meta = <({int orig, int mod})>[];
+    var o = 0, m = 0;
+    for (final e in result.entries) {
+      final usesOrig = e.operation == DiffOperation.equal ||
+          e.operation == DiffOperation.delete ||
+          e.operation == DiffOperation.replace;
+      final usesMod = e.operation == DiffOperation.equal ||
+          e.operation == DiffOperation.insert ||
+          e.operation == DiffOperation.replace;
+      meta.add((orig: usesOrig ? o : -1, mod: usesMod ? m : -1));
+      if (usesOrig) o++;
+      if (usesMod) m++;
+    }
+    return meta;
+  }
+
+  /// 把某侧 raw 文本的第 [normalizedLine] 行替换为 [newText]，写回 provider。
+  void _replaceRawLine({
+    required bool isOriginal,
+    required int normalizedLine,
+    required String newText,
+  }) {
+    final raw = ref.read(
+      isOriginal ? originalRawTextProvider : modifiedRawTextProvider,
+    );
+    if (raw == null) return;
+
+    final rawLine = rawLineForNormalizedLine(
+      raw,
+      normalizedLine: normalizedLine,
+      ignoreWhitespace: ref.read(ignoreWhitespaceProvider),
+      ignoreEmptyLines: ref.read(ignoreEmptyLinesProvider),
+      ignoreInvisible: ref.read(ignoreInvisibleProvider),
+    );
+    if (rawLine == null) return;
+
+    final lines =
+        raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+    if (rawLine < 0 || rawLine >= lines.length) return;
+    lines[rawLine] = newText;
+    final newRaw = lines.join('\n');
+
+    if (isOriginal) {
+      ref.read(originalRawTextProvider.notifier).state = newRaw;
+    } else {
+      ref.read(modifiedRawTextProvider.notifier).state = newRaw;
+    }
+  }
+
+  /// 长按某一行的入口。entryIndices 是这一行关联的 entry 下标：
+  /// 合并视图传 [ei]；并排/仅差异传 [delIdx, insIdx]（可能是单元素）。
+  Future<void> _onRowLongPress(List<int> entryIndices) async {
+    final diff = _diff;
+    if (diff == null || entryIndices.isEmpty) return;
+
+    // 分类出"原文侧"和"修改侧"各自的 entry。
+    int? origEntryIdx;
+    int? modEntryIdx;
+    for (final i in entryIndices) {
+      final op = diff.entries[i].operation;
+      if (op == DiffOperation.equal) {
+        origEntryIdx ??= i;
+        modEntryIdx ??= i;
+      } else if (op == DiffOperation.delete ||
+          op == DiffOperation.replace) {
+        origEntryIdx ??= i;
+      } else if (op == DiffOperation.insert) {
+        modEntryIdx ??= i;
+      }
+    }
+    if (origEntryIdx == null && modEntryIdx == null) return;
+
+    final meta = _computeLineMeta(diff);
+
+    String? origText;
+    String? modText;
+    int? origLine;
+    int? modLine;
+
+    if (origEntryIdx != null) {
+      final e = diff.entries[origEntryIdx];
+      origText = (e.operation == DiffOperation.replace &&
+              e.oldText.isNotEmpty)
+          ? e.oldText
+          : e.text;
+      final m = meta[origEntryIdx].orig;
+      if (m >= 0) origLine = m;
+    }
+    if (modEntryIdx != null) {
+      final e = diff.entries[modEntryIdx];
+      modText = (e.operation == DiffOperation.replace &&
+              e.newText.isNotEmpty)
+          ? e.newText
+          : e.text;
+      final m = meta[modEntryIdx].mod;
+      if (m >= 0) modLine = m;
+    }
+
+    // 弹底部菜单：复制 / 编辑。
+    final action = await _showRowActionSheet(
+      origText: origText,
+      modText: modText,
+    );
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case 'copyOrig':
+        if (origText != null) {
+          await Clipboard.setData(ClipboardData(text: origText));
+          if (mounted) _toast('已复制原版此行');
+        }
+        return;
+      case 'copyMod':
+        if (modText != null) {
+          await Clipboard.setData(ClipboardData(text: modText));
+          if (mounted) _toast('已复制修改版此行');
+        }
+        return;
+      case 'edit':
+        break;
+      default:
+        return;
+    }
+
+    // 编辑：弹对话框。
+    final edited = await _showRowEditDialog(
+      origText: origText,
+      modText: modText,
+    );
+    if (edited == null) return;
+
+    if (origLine != null && origText != null) {
+      _replaceRawLine(
+        isOriginal: true,
+        normalizedLine: origLine,
+        newText: edited.orig,
+      );
+    }
+    if (modLine != null && modText != null) {
+      _replaceRawLine(
+        isOriginal: false,
+        normalizedLine: modLine,
+        newText: edited.mod,
+      );
+    }
+
+    // 触发 diff 重算 + 重置视图，并按行号锚回原位置。
+    ref.read(importRevisionProvider.notifier).state++;
+    _resetViewAfterEdit(
+      anchorOrigLine: origLine,
+      anchorModLine: modLine,
+    );
+  }
+
+  /// 底部菜单。哪侧有内容就显示对应的复制项。
+  Future<String?> _showRowActionSheet({
+    required String? origText,
+    required String? modText,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (origText != null)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('复制原版此行'),
+                subtitle: Text(
+                  origText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(c).textTheme.labelSmall,
+                ),
+                onTap: () => Navigator.pop(c, 'copyOrig'),
+              ),
+            if (modText != null)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('复制修改版此行'),
+                subtitle: Text(
+                  modText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(c).textTheme.labelSmall,
+                ),
+                onTap: () => Navigator.pop(c, 'copyMod'),
+              ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('编辑此行'),
+              onTap: () => Navigator.pop(c, 'edit'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 弹出编辑对话框。哪侧有内容就显示哪个输入框。
+  /// 返回 (orig, mod)；取消返回 null。
+  Future<({String orig, String mod})?> _showRowEditDialog({
+    required String? origText,
+    required String? modText,
+  }) async {
+    final origCtrl = TextEditingController(text: origText ?? '');
+    final modCtrl = TextEditingController(text: modText ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('编辑此行'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (origText != null) ...[
+                const Text('原版'),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: origCtrl,
+                  maxLines: null,
+                  autofocus: modText == null,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+              if (modText != null) ...[
+                if (origText != null) const SizedBox(height: 12),
+                const Text('修改版'),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: modCtrl,
+                  maxLines: null,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return null;
+    return (orig: origCtrl.text, mod: modCtrl.text);
+  }
+
+  /// 编辑后重置视图状态，并按行号锚回原位置。
+  /// 只改内容不改行数时，行号保持不变，视图基本停在原处。
+  void _resetViewAfterEdit({int? anchorOrigLine, int? anchorModLine}) {
+    _currentDiffPos = -1;
+    _anchorEntryIndex = null;
+    _matchEntries = const <int>[];
+    _matchPos = -1;
+    _findController.clear();
+    _findQuery = '';
+    _rowKeysByEntry.clear();
+    _cachedDiffIndices = null;
+    _cachedDiffIndicesFor = null;
+    setState(() {});
+
+    if (anchorOrigLine == null && anchorModLine == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      });
+      return;
+    }
+
+    _scrollToLineAfterRecompute(anchorOrigLine, anchorModLine);
+  }
+
+  /// diff 重算需要时间（大文件可能几百毫秒），这里轮询等待新结果，
+  /// 找到对应行号的 entry 后滚过去。最多等 3 秒。
+  Future<void> _scrollToLineAfterRecompute(
+    int? origLine,
+    int? modLine,
+  ) async {
+    // 先等一下，让 provider 进入 recompute 状态
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    for (var attempt = 0; attempt < 30; attempt++) {
+      if (!mounted) return;
+      final diff = _diff;
+      if (diff != null) {
+        final meta = _computeLineMeta(diff);
+        for (var i = 0; i < meta.length; i++) {
+          final m = meta[i];
+          if ((origLine != null && m.orig == origLine) ||
+              (modLine != null && m.mod == modLine)) {
+            _scrollToEntry(i);
+            return;
+          }
+        }
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
     );
   }
 
@@ -641,6 +969,7 @@ void _captureAnchor() {
                       showLineNumbers: ref.watch(showLineNumbersProvider),
                       bodyFontSize: ref.watch(bodyFontSizeProvider),
                       gutterFontSize: ref.watch(gutterFontSizeProvider),
+                      onLongPressEntry: (i) => _onRowLongPress([i]),
                     ),
                   ViewMode.sideBySide => SideBySideView(
                       result: diff,
@@ -653,6 +982,7 @@ void _captureAnchor() {
                       bodyFontSize: ref.watch(bodyFontSizeProvider),
                       gutterFontSize: ref.watch(gutterFontSizeProvider),
                       syncScroll: ref.watch(syncScrollProvider),
+                      onLongPressEntry: _onRowLongPress,
                     ),
                   ViewMode.diffOnly => DiffOnlyView(
                       result: diff,
@@ -664,6 +994,7 @@ void _captureAnchor() {
                       showLineNumbers: ref.watch(showLineNumbersProvider),
                       bodyFontSize: ref.watch(bodyFontSizeProvider),
                       gutterFontSize: ref.watch(gutterFontSizeProvider),
+                      onLongPressEntry: _onRowLongPress,
                     ),
                 },
               ),
@@ -804,8 +1135,6 @@ void _captureAnchor() {
   }
 }
 
-/// 显示设置底部面板：行号显隐、正文字号、行号字号。
-/// 独立顶级类，不能写在 _DiffViewerScreenState 内部。
 /// 显示设置底部面板：行号显隐、正文字号、行号字号 + 12 个差异颜色。
 class _DisplaySettingsSheet extends ConsumerWidget {
   const _DisplaySettingsSheet();
