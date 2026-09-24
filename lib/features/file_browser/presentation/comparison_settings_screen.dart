@@ -5,9 +5,10 @@ import '../../help/presentation/help_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import '../../viewer/presentation/providers/diff_viewer_providers.dart';
+import 'replace_rules_screen.dart';
 
 /// 比较设置页面。所有规则/开关在同一列表中，顺序：
-///   自定义规则 → 内置规则 → 忽略项
+///   关键词规则 → 正则规则 → 自定义规则 → 内置规则 → 忽略项
 /// 无分区标题、无分割线。
 class ComparisonSettingsScreen extends ConsumerWidget {
   const ComparisonSettingsScreen({super.key});
@@ -36,6 +37,22 @@ class ComparisonSettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          // ---- 0. 关键词 / 正则 批量规则 ----
+          _entryTile(
+            context,
+            ref,
+            title: '关键词规则',
+            subtitle: '普通文字，一行一条。xx->=>yy 替换，xx 删除',
+            isRegex: false,
+          ),
+          _entryTile(
+            context,
+            ref,
+            title: '正则规则',
+            subtitle: r'正则匹配，一行一条。\d+->=>N 替换，\d+ 删除',
+            isRegex: true,
+          ),
+
           // ---- 1. 自定义规则 ----
           for (final r in userRules)
             _ruleTile(context, ref, r, builtin: false),
@@ -111,6 +128,51 @@ class ComparisonSettingsScreen extends ConsumerWidget {
           const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+
+  /// 关键词 / 正则 规则入口。
+  Widget _entryTile(
+    BuildContext context,
+    WidgetRef ref, {
+    required String title,
+    required String subtitle,
+    required bool isRegex,
+  }) {
+    final text = ref.watch(
+      isRegex ? regexRulesTextProvider : keywordRulesTextProvider,
+    );
+    final n = text.isEmpty
+        ? 0
+        : text.split('\n').where((l) => l.trim().isNotEmpty).length;
+
+    return ListTile(
+      leading: Icon(
+        isRegex ? Icons.code : Icons.text_fields,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      title: Text(title),
+      subtitle: Text(
+        subtitle,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$n 条', style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right),
+        ],
+      ),
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ReplaceRulesScreen(isRegex: isRegex),
+          ),
+        );
+      },
     );
   }
 
