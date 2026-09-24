@@ -58,11 +58,16 @@ class DiffOnlyView extends ConsumerWidget {
           ],
         ),
         Expanded(
-          child: ListView.builder(
-            key: const Key('diff-only-list'),
-            controller: controller,
-            itemCount: rows.length,
-            itemBuilder: (ctx, i) {
+child: Scrollbar(
+  controller: controller,
+  thumbVisibility: false,
+  child: ListView.builder(
+    key: const Key('diff-only-list'),
+    controller: controller,
+    itemCount: rows.length,
+    itemBuilder: (ctx, i) {
+      // ... 原有内容，往里缩 2 格
+   
               final spec = rows[i];
               final Widget row;
               final List<int> keyOwners;
