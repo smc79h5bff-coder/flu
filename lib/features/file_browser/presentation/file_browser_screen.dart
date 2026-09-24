@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
-
+import '../../preprocessing/domain/encoding_type.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
