@@ -63,16 +63,20 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     required Widget child,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final thumb =
-        (isDark ? Colors.white : Colors.black).withOpacity(0.42);
-    return Scrollbar(
-      controller: controller,
-      interactive: true,
-      thickness: 12,
-      radius: const Radius.circular(6),
-      thumbColor: thumb,
-      trackVisibility: false,
-      child: child,
+    return ScrollbarTheme(
+      data: ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll(
+          (isDark ? Colors.white : Colors.black).withValues(alpha: 0.42),
+        ),
+        thickness: const WidgetStatePropertyAll(12),
+        radius: const Radius.circular(6),
+        trackVisibility: const WidgetStatePropertyAll(false),
+      ),
+      child: Scrollbar(
+        controller: controller,
+        interactive: true,
+        child: child,
+      ),
     );
   }
 
@@ -751,7 +755,7 @@ class _PaneHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: color.withOpacity(0.08),
+      color: color.withValues(alpha: 0.08),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Text(
         fileName,
