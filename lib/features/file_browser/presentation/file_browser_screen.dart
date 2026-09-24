@@ -11,10 +11,12 @@ import 'role_confirm_dialog.dart';
 
 /// 文件浏览器：首页。
 ///
-/// 本轮加入：
-///   - 顶部搜索框（按文件名过滤当前目录）
-///   - 长按进入多选模式
-///   - 选中两个文件 → 对比按钮 → 角色确认 → 跳转对比页
+/// 功能：
+///   - 顶部面包屑（可点击任意层级跳转）
+///   - 搜索框（按文件名过滤当前目录）
+///   - 长按 / 点击进入多选
+///   - 选中两个文件 → 对比 → 角色确认 → 跳转对比页
+///   - 列表项显示文件名 + 修改时间 + 大小
 class FileBrowserScreen extends ConsumerStatefulWidget {
   const FileBrowserScreen({super.key});
 
@@ -22,19 +24,34 @@ class FileBrowserScreen extends ConsumerStatefulWidget {
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
 
+/// 一个文件/文件夹 + 元信息。
+class _EntryInfo {
+  _EntryInfo({
+    required this.entity,
+    required this.name,
+    required this.isDir,
+    this.size,
+    this.modified,
+  });
+
+  final FileSystemEntity entity;
+  final String name;
+  final bool isDir;
+  final int? size;
+  final DateTime? modified;
+}
+
 class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   static const String _rootPath = '/storage/emulated/0';
 
   late String _currentPath;
-  List<FileSystemEntity>? _entries;
+  List<_EntryInfo>? _entries;
   bool _loading = false;
   String? _error;
 
-  // 搜索
   final TextEditingController _searchCtrl = TextEditingController();
   String _query = '';
 
-  // 多选
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
@@ -58,25 +75,44 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     });
     try {
       final dir = Directory(_currentPath);
-      final list = await dir.list(followLinks: false).toList();
+      final raw = await dir.list(followLinks: false).toList();
 
-      // 过滤隐藏文件（以 '.' 开头）。
-      list.removeWhere((e) {
+      raw.removeWhere((e) {
         final name = e.path.split('/').last;
         return name.startsWith('.');
       });
 
-      // 排序：文件夹在前，然后按名字。
-      list.sort((a, b) {
-        final aIsDir = a is Directory;
-        final bIsDir = b is Directory;
-        if (aIsDir != bIsDir) return aIsDir ? -1 : 1;
-        return a.path.toLowerCase().compareTo(b.path.toLowerCase());
+      // 并发 stat 每个条目，拿到 size / modified。
+      // 一个目录里几百个文件时 Future.wait 能并发跑，不会阻塞太狠。
+      final infos = await Future.wait(raw.map((e) async {
+        final name = e.path.split('/').last;
+        final isDir = e is Directory;
+        int? size;
+        DateTime? modified;
+        try {
+          final st = await e.stat();
+          modified = st.modified;
+          if (!isDir) size = st.size;
+        } catch (_) {
+          // 权限不足 / 文件被删：忽略。
+        }
+        return _EntryInfo(
+          entity: e,
+          name: name,
+          isDir: isDir,
+          size: size,
+          modified: modified,
+        );
+      }));
+
+      infos.sort((a, b) {
+        if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
 
       if (!mounted) return;
       setState(() {
-        _entries = list;
+        _entries = infos;
         _loading = false;
       });
     } catch (e) {
@@ -88,11 +124,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  void _enter(Directory dir) {
+  /// 跳转到任意路径（面包屑 / 进入文件夹共用）。
+  void _navigateTo(String path) {
+    if (path == _currentPath) return;
     _clearSelection();
     _searchCtrl.clear();
     setState(() {
-      _currentPath = dir.path;
+      _currentPath = path;
       _query = '';
     });
     _load();
@@ -104,13 +142,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     if (!_canGoUp) return;
     final parent = Directory(_currentPath).parent.path;
     if (parent.length < _rootPath.length) return;
-    _clearSelection();
-    _searchCtrl.clear();
-    setState(() {
-      _currentPath = parent;
-      _query = '';
-    });
-    _load();
+    _navigateTo(parent);
   }
 
   void _clearSelection() {
@@ -125,7 +157,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         _selectedPaths.remove(e.path);
         if (_selectedPaths.isEmpty) _selectionMode = false;
       } else {
-        // 最多选 2 个。
         if (_selectedPaths.length >= 2) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('最多选 2 个文件')),
@@ -143,15 +174,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     final f1 = File(paths[0]);
     final f2 = File(paths[1]);
 
-    // 角色确认
-    final result = await showDialog<
-        ({File original, File modified})>(
+    final result = await showDialog<({File original, File modified})>(
       context: context,
       builder: (_) => RoleConfirmDialog(fileA: f1, fileB: f2),
     );
     if (result == null || !mounted) return;
 
-    // 读文件 + 解析
     try {
       showDialog<void>(
         context: context,
@@ -172,20 +200,18 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       ));
 
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop(); // 关闭 loading
+      Navigator.of(context, rootNavigator: true).pop();
 
-      // 填充 provider
       ref.read(originalRawTextProvider.notifier).state = origParsed.plainText;
       ref.read(modifiedRawTextProvider.notifier).state = modParsed.plainText;
       ref.read(originalFileNameProvider.notifier).state = origParsed.fileName;
       ref.read(modifiedFileNameProvider.notifier).state = modParsed.fileName;
-      ref.read(originalEncodingProvider.notifier).state = origParsed.encoding.label;
-      ref.read(modifiedEncodingProvider.notifier).state = modParsed.encoding.label;
+      ref.read(originalEncodingProvider.notifier).state = origParsed.encodingLabel;
+      ref.read(modifiedEncodingProvider.notifier).state = modParsed.encodingLabel;
       ref.read(originalFilePathProvider.notifier).state = result.original.path;
       ref.read(modifiedFilePathProvider.notifier).state = result.modified.path;
       ref.read(importRevisionProvider.notifier).state++;
 
-      // 跳转对比页
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => const DiffViewerScreen(),
@@ -200,7 +226,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  /// 后台 isolate 解析文件，避免大文件阻塞 UI。
   static Future<ParsedDocumentResult> _parseInWorker(
     ({String fileName, Uint8List bytes}) input,
   ) async {
@@ -215,19 +240,97 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
+  // ---------- 面包屑 ----------
+
+  /// 当前路径的段列表。根路径显示为“内部存储”。
+  List<({String label, String path})> get _crumbs {
+    final relative = _currentPath.substring(_rootPath.length);
+    final segments = relative.split('/').where((s) => s.isNotEmpty).toList();
+
+    final out = <({String label, String path})>[
+      (label: '内部存储', path: _rootPath),
+    ];
+    var acc = _rootPath;
+    for (final seg in segments) {
+      acc = '$acc/$seg';
+      out.add((label: seg, path: acc));
+    }
+    return out;
+  }
+
+  Widget _buildBreadcrumbs() {
+    final crumbs = _crumbs;
+    final s = Theme.of(context).colorScheme;
+    final widgets = <Widget>[];
+    for (var i = 0; i < crumbs.length; i++) {
+      final c = crumbs[i];
+      final isLast = i == crumbs.length - 1;
+      if (i > 0) {
+        widgets.add(
+          Icon(Icons.chevron_right, size: 16, color: s.outline),
+        );
+      }
+      widgets.add(
+        GestureDetector(
+          onTap: isLast ? null : () => _navigateTo(c.path),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Text(
+              c.label,
+              style: TextStyle(
+                fontSize: 13,
+                color: isLast ? s.onSurface : s.primary,
+                fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return Container(
+      width: double.infinity,
+      color: s.surfaceVariant.withOpacity(0.4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Row(children: widgets),
+      ),
+    );
+  }
+
+  // ---------- 格式化 ----------
+
+  static String _formatSize(int? bytes) {
+    if (bytes == null) return '';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+  }
+
+  static String _formatTime(DateTime? t) {
+    if (t == null) return '';
+    String two(int n) => n < 10 ? '0$n' : '$n';
+    return '${t.year}-${two(t.month)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}';
+  }
+
+  // ---------- UI ----------
+
   String get _title {
     if (_currentPath == _rootPath) return '内部存储';
     return _currentPath.split('/').last;
   }
 
-  List<FileSystemEntity> get _filteredEntries {
-    final all = _entries ?? const <FileSystemEntity>[];
+  List<_EntryInfo> get _filteredEntries {
+    final all = _entries ?? const <_EntryInfo>[];
     if (_query.isEmpty) return all;
     final q = _query.toLowerCase();
-    return all.where((e) {
-      final name = e.path.split('/').last.toLowerCase();
-      return name.contains(q);
-    }).toList();
+    return all.where((e) => e.name.toLowerCase().contains(q)).toList();
   }
 
   @override
@@ -246,12 +349,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         appBar: _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
         body: Column(
           children: [
+            if (!_selectionMode) _buildBreadcrumbs(),
             if (!_selectionMode) _buildSearchBar(),
             Expanded(child: _buildBody()),
           ],
         ),
-        bottomNavigationBar:
-            _selectionMode ? _buildBottomBar() : null,
+        bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
       ),
     );
   }
@@ -364,40 +467,62 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     return ListView.builder(
       itemCount: entries.length,
       itemBuilder: (ctx, i) {
-        final e = entries[i];
-        final name = e.path.split('/').last;
-        final isDir = e is Directory;
+        final info = entries[i];
+        final e = info.entity;
         final selected = _selectedPaths.contains(e.path);
+
+        final subtitleParts = <String>[];
+        if (info.isDir) {
+          subtitleParts.add('文件夹');
+        } else {
+          subtitleParts.add(_formatSize(info.size));
+        }
+        final timeText = _formatTime(info.modified);
+        if (timeText.isNotEmpty) subtitleParts.add(timeText);
+        final subtitle = subtitleParts.where((s) => s.isNotEmpty).join(' · ');
 
         return ListTile(
           dense: true,
           selected: selected,
           selectedTileColor:
               Theme.of(context).colorScheme.primary.withOpacity(0.12),
-          leading: _selectionMode && !isDir
+          leading: _selectionMode && !info.isDir
               ? Checkbox(
                   value: selected,
                   onChanged: (_) => _toggleSelection(e),
                 )
               : Icon(
-                  isDir ? Icons.folder : Icons.insert_drive_file_outlined,
-                  color: isDir ? Colors.amber.shade600 : null,
+                  info.isDir
+                      ? Icons.folder
+                      : Icons.insert_drive_file_outlined,
+                  color: info.isDir ? Colors.amber.shade600 : null,
                 ),
-          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          title: Text(
+            info.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: subtitle.isEmpty
+              ? null
+              : Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.labelSmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
           onTap: () {
             if (_selectionMode) {
-              if (!isDir) _toggleSelection(e);
+              if (!info.isDir) _toggleSelection(e);
               return;
             }
-            if (isDir) {
-              _enter(e);
+            if (info.isDir) {
+              _navigateTo(e.path);
             } else {
-              // 单击普通文件：也进入多选（方便快速选两个）。
               _toggleSelection(e);
             }
           },
           onLongPress: () {
-            if (!isDir) _toggleSelection(e);
+            if (!info.isDir) _toggleSelection(e);
           },
         );
       },
@@ -405,7 +530,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   }
 }
 
-/// 用于把 ParsedDocument 中最关键的几个字段传回主 isolate。
 class ParsedDocumentResult {
   const ParsedDocumentResult({
     required this.fileName,
