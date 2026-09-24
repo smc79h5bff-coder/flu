@@ -12,6 +12,7 @@ import '../../diff/domain/diff_entry.dart';
 import '../../diff/domain/diff_operation.dart';
 import '../../diff/domain/diff_result.dart';
 import '../../edit/presentation/edit_screen.dart';
+import '../../file_browser/presentation/comparison_settings_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'widgets/diff_only_view.dart';
