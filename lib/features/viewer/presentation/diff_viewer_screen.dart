@@ -1845,8 +1845,12 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                       divisions: 18,
                       value: bodySize,
                       label: bodySize.toStringAsFixed(0),
+
+
                       onChanged: (v) =>
-                          ref.read(bodyFontSizeProvider.notifier).state = v,
+    ref.read(bodyFontSizeProvider.notifier).update(v),
+
+                    
                     ),
                     Text(
                       '行号字号：${gutterSize.toStringAsFixed(0)}',
