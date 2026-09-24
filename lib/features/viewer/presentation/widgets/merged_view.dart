@@ -27,10 +27,7 @@ class MergedView extends ConsumerWidget {
   final ScrollController? controller;
   final bool lineNumbers;
   final String findQuery;
-
-  /// 当前停留的匹配项对应的 entry 下标；用于橙色高亮。
   final int? currentMatchEntry;
-
   final Map<int, GlobalKey>? rowKeysByEntry;
   final bool showLineNumbers;
   final double bodyFontSize;
@@ -54,7 +51,7 @@ class MergedView extends ConsumerWidget {
 
     final order = _mergedOrder(result.entries);
 
-    // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏（去掉 thumbVisibility）。
+    // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏。
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scrollbar(
       controller: controller,
@@ -89,10 +86,9 @@ class MergedView extends ConsumerWidget {
                   behavior: HitTestBehavior.opaque,
                   child: tile,
                 );
-          final key = rowKeysByEntry?[ei];
-          return key == null
-              ? wrapped
-              : KeyedSubtree(key: key, child: wrapped);
+          if (rowKeysByEntry == null) return wrapped;
+          final key = rowKeysByEntry!.putIfAbsent(ei, () => GlobalKey());
+          return KeyedSubtree(key: key, child: wrapped);
         },
       ),
     );
