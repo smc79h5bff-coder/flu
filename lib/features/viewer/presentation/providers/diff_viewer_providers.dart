@@ -234,6 +234,7 @@ bool _containsPua(String s) {
 ///
 /// 复杂度：O(行数 + D²)，D 是差异块数。几万行文档、几百处差异，
 /// 在 Dart 上 < 100ms。
+
 _DiffPayload _computeInWorker(_DiffRequest req) {
   final sw = Stopwatch()..start();
 
@@ -252,8 +253,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
     );
   }
 
-  // 退化路径：输入含 PUA 字符时，做字符级 diff（慢但正确）。
-  // 实际业务里几乎不会发生。
+  // 退化路径：输入含 PUA 字符时，做字符级 diff。
   if (_containsPua(original) || _containsPua(modified)) {
     final dmp = DiffMatchPatch();
     final raw = dmp.diff(original, modified);
@@ -276,13 +276,42 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final linesB = _splitLines(modified);
   final tSplit = sw.elapsedMilliseconds;
 
+  // ========== 前后缀剥离 ==========
+  // 剥掉开头相同的行和结尾相同的行，只对中间不同的部分做 diff。
+  // Git / xdiff / GNU diff 默认都做这一步，dmp 不做，所以要手动补。
+  // A 6000 行 vs B 前 1500 行时，剥离后只剩 4500 行 vs 空做 diff，
+  // 输出 1 个 delete chunk，而不是几十个小 chunk。
+  final minLen =
+      linesA.length < linesB.length ? linesA.length : linesB.length;
+
+  var commonPrefix = 0;
+  while (commonPrefix < minLen &&
+      linesA[commonPrefix] == linesB[commonPrefix]) {
+    commonPrefix++;
+  }
+
+  var commonSuffix = 0;
+  final maxSuffix = minLen - commonPrefix; // 后缀不与前缀重叠
+  while (commonSuffix < maxSuffix &&
+      linesA[linesA.length - 1 - commonSuffix] ==
+          linesB[linesB.length - 1 - commonSuffix]) {
+    commonSuffix++;
+  }
+
+  final midAStart = commonPrefix;
+  final midAEnd = linesA.length - commonSuffix;
+  final midBStart = commonPrefix;
+  final midBEnd = linesB.length - commonSuffix;
+
+  // ========== PUA 编码 + diff（只对中间段） ==========
   final lineToCode = <String, int>{};
   final codeToLine = <int, String>{};
   var nextCode = 0xE000;
 
-  String encode(List<String> lines) {
+  String encode(List<String> lines, int start, int end) {
     final sb = StringBuffer();
-    for (final line in lines) {
+    for (var i = start; i < end; i++) {
+      final line = lines[i];
       var code = lineToCode[line];
       if (code == null) {
         code = nextCode++;
@@ -294,17 +323,23 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
     return sb.toString();
   }
 
-  final encA = encode(linesA);
-  final encB = encode(linesB);
+  final encA = encode(linesA, midAStart, midAEnd);
+  final encB = encode(linesB, midBStart, midBEnd);
   final tEncode = sw.elapsedMilliseconds;
 
   final dmp = DiffMatchPatch();
   final diffs = dmp.diff(encA, encB);
   final tDiff = sw.elapsedMilliseconds;
 
-  // 把每个 chunk 展开成逐行的 (opIndex, line) 列表。
-  // 同一 op 的连续行会被拆成多行——主线程直接构造 DiffEntry，不再展开。
+  // ========== 拼回：前缀 + 中间 diff + 后缀 ==========
   final out = <(int, String)>[];
+
+  // 前缀（都是 equal）
+  for (var i = 0; i < commonPrefix; i++) {
+    out.add((DiffOperation.equal.index, linesA[i]));
+  }
+
+  // 中间 diff
   for (final d in diffs) {
     final opIndex = _dmpOpToIndex(d.operation);
     for (final rune in d.text.runes) {
@@ -314,6 +349,12 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       }
     }
   }
+
+  // 后缀（都是 equal）
+  for (var i = linesA.length - commonSuffix; i < linesA.length; i++) {
+    out.add((DiffOperation.equal.index, linesA[i]));
+  }
+
   final tExpand = sw.elapsedMilliseconds;
 
   return (
