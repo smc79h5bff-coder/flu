@@ -15,6 +15,7 @@ import '../../edit/presentation/edit_screen.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'providers/diff_viewer_providers.dart';
+import 'regex_help_screen.dart';
 import 'widgets/diff_only_view.dart';
 import 'widgets/merged_view.dart';
 import 'widgets/side_by_side_view.dart';
@@ -29,15 +30,13 @@ class DiffViewerScreen extends ConsumerStatefulWidget {
 class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _findController = TextEditingController();
+  final TextEditingController _replaceController = TextEditingController();
 
   final Map<int, GlobalKey> _rowKeysByEntry = <int, GlobalKey>{};
 
   int _currentDiffPos = -1;
 
   /// 最近一次程序化跳转（点上一处/下一处）的时间戳。
-  /// 跳转后 800ms 内不让 _captureAnchor 覆盖 _currentDiffPos——
-  /// 因为程序化跳转用的是 alignment: 0.25，目标上方的差异还在屏幕上
-  /// 可见，_captureAnchor 会把位置误判回目标之前的那一处。
   int _lastJumpAtMs = 0;
   int? _anchorEntryIndex;
 
@@ -45,6 +44,17 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String _findQuery = '';
   List<int> _matchEntries = const <int>[];
   int _matchPos = -1;
+
+  // 查找/替换的高级选项
+  bool _regexEnable = false;
+  bool _caseInsensitive = false;
+  bool _wholeWord = false;
+  bool _searchLeft = true;
+  bool _searchRight = true;
+
+  // 未应用的替换缓存：key = 预处理后的行号，value = 新的整行文本
+  final Map<int, String> _pendingOrigChanges = <int, String>{};
+  final Map<int, String> _pendingModChanges = <int, String>{};
 
   bool _landscape = false;
 
@@ -57,7 +67,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   @override
   void initState() {
     super.initState();
-    // 每次进入对比页都从"仅差异"开始，不继承上次的选择。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(viewModeProvider.notifier).state = ViewMode.diffOnly;
@@ -67,20 +76,98 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   @override
   void dispose() {
     _findController.dispose();
+    _replaceController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
 
+  // ==================== 查找 / 替换基础逻辑 ====================
+
+  /// 根据当前查找词 + 开关，构建 Pattern。空串/非法正则 → 永不匹配。
+  Pattern _buildFindPattern() {
+    final q = _findQuery;
+    if (q.isEmpty) return RegExp(r'(?!)');
+    var src = _regexEnable ? q : RegExp.escape(q);
+    if (_wholeWord) src = r'\b' + src + r'\b';
+    try {
+      return RegExp(src, caseSensitive: !_caseInsensitive, multiLine: true);
+    } catch (_) {
+      return RegExp(r'(?!)');
+    }
+  }
+
+  /// 展开替换串里的 $0/$1/$2... 捕获组引用。
+  String _expandReplacement(String tpl, Match m) {
+    final out = StringBuffer();
+    final re = RegExp(r'\$(\d+)');
+    var last = 0;
+    for (final match in re.allMatches(tpl)) {
+      out.write(tpl.substring(last, match.start));
+      final idx = int.parse(match.group(1)!);
+      out.write(m.group(idx) ?? '');
+      last = match.end;
+    }
+    out.write(tpl.substring(last));
+    return out.toString();
+  }
+
+  /// 对一段文本应用当前 pattern 的替换。
+  String _applyReplace(String text, String replacement) {
+    final p = _buildFindPattern();
+    if (_regexEnable) {
+      return text.replaceAllMapped(p, (m) => _expandReplacement(replacement, m));
+    }
+    return text.replaceAll(p, replacement);
+  }
+
+  /// 判断一个 entry 在这一侧是否需要被搜索（依据开关和 op）。
+  bool _entryMatchesOnLeft(DiffEntry e) {
+    if (!_searchLeft) return false;
+    if (e.operation == DiffOperation.insert) return false;
+    return true;
+  }
+
+  bool _entryMatchesOnRight(DiffEntry e) {
+    if (!_searchRight) return false;
+    if (e.operation == DiffOperation.delete) return false;
+    return true;
+  }
+
+  /// 取 entry 在左侧的显示文本。
+  String _entryLeftText(DiffEntry e) {
+    if (e.operation == DiffOperation.replace && e.oldText.isNotEmpty) {
+      return e.oldText;
+    }
+    return e.text;
+  }
+
+  /// 取 entry 在右侧的显示文本。
+  String _entryRightText(DiffEntry e) {
+    if (e.operation == DiffOperation.replace && e.newText.isNotEmpty) {
+      return e.newText;
+    }
+    return e.text;
+  }
+
   void _findChanged(String q) {
     final diff = _diff;
     final matches = <int>[];
     if (q.isNotEmpty && diff != null) {
+      final p = _buildFindPattern();
       for (var i = 0; i < diff.entries.length; i++) {
         final e = diff.entries[i];
-        final hit = e.text.contains(q) ||
-            (e.operation == DiffOperation.replace && e.oldText.contains(q));
+        var hit = false;
+        if (_entryMatchesOnLeft(e) &&
+            p.allMatches(_entryLeftText(e)).isNotEmpty) {
+          hit = true;
+        }
+        if (!hit &&
+            _entryMatchesOnRight(e) &&
+            p.allMatches(_entryRightText(e)).isNotEmpty) {
+          hit = true;
+        }
         if (hit) matches.add(i);
       }
     }
@@ -91,6 +178,173 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     });
     if (matches.isNotEmpty) _scrollToEntry(matches.first);
   }
+
+  // ==================== 替换 ====================
+
+  void _replaceCurrentInline() {
+    if (_findQuery.isEmpty || _matchEntries.isEmpty || _matchPos < 0) {
+      _toast('没有可替换的内容');
+      return;
+    }
+    _doReplace(replacement: _replaceController.text, all: false);
+  }
+
+  void _replaceAllInline() {
+    if (_findQuery.isEmpty || _matchEntries.isEmpty) {
+      _toast('没有可替换的内容');
+      return;
+    }
+    _doReplace(replacement: _replaceController.text, all: true);
+  }
+
+  /// 累积替换到 pending 缓存，不立即刷新。
+  void _doReplace({required String replacement, required bool all}) {
+    final diff = _diff;
+    if (diff == null) return;
+
+    final targets = all
+        ? _matchEntries
+        : (_matchPos >= 0 && _matchPos < _matchEntries.length
+            ? <int>[_matchEntries[_matchPos]]
+            : const <int>[]);
+    if (targets.isEmpty) {
+      _toast('没有可替换的内容');
+      return;
+    }
+
+    final meta = _computeLineMeta(diff);
+    final p = _buildFindPattern();
+    var count = 0;
+
+    for (final ei in targets) {
+      final e = diff.entries[ei];
+
+      // 左侧
+      if (_entryMatchesOnLeft(e) && meta[ei].orig >= 0) {
+        final origLine = meta[ei].orig;
+        final current = _pendingOrigChanges[origLine] ?? _entryLeftText(e);
+        if (p.allMatches(current).isNotEmpty) {
+          _pendingOrigChanges[origLine] = _applyReplace(current, replacement);
+          count++;
+        }
+      }
+
+      // 右侧
+      if (_entryMatchesOnRight(e) && meta[ei].mod >= 0) {
+        final modLine = meta[ei].mod;
+        final current = _pendingModChanges[modLine] ?? _entryRightText(e);
+        if (p.allMatches(current).isNotEmpty) {
+          _pendingModChanges[modLine] = _applyReplace(current, replacement);
+          count++;
+        }
+      }
+    }
+
+    if (count == 0) {
+      _toast('没有可替换的内容');
+      return;
+    }
+
+    setState(() {});
+    _toast('已加入待应用队列（$count 处）· 点"应用并刷新"生效');
+  }
+
+  /// 把 pending 缓存一次性写回 raw + 重算 diff。
+  void _applyPendingChanges() {
+    if (_pendingOrigChanges.isEmpty && _pendingModChanges.isEmpty) return;
+
+    _applyRawChanges(isOriginal: true, changes: _pendingOrigChanges);
+    _applyRawChanges(isOriginal: false, changes: _pendingModChanges);
+    _pendingOrigChanges.clear();
+    _pendingModChanges.clear();
+
+    ref.read(importRevisionProvider.notifier).state++;
+    _resetViewAfterEdit();
+    _toast('已应用替换');
+  }
+
+  /// 批量修改某侧 raw 文本中的多行。
+  void _applyRawChanges({
+    required bool isOriginal,
+    required Map<int, String> changes,
+  }) {
+    if (changes.isEmpty) return;
+    final raw = ref.read(
+      isOriginal ? originalRawTextProvider : modifiedRawTextProvider,
+    );
+    if (raw == null) return;
+
+    final lines =
+        raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+
+    for (final entry in changes.entries) {
+      final rawLine = rawLineForNormalizedLine(
+        raw,
+        normalizedLine: entry.key,
+        ignoreWhitespace: ref.read(ignoreWhitespaceProvider),
+        ignoreEmptyLines: ref.read(ignoreEmptyLinesProvider),
+        ignoreInvisible: ref.read(ignoreInvisibleProvider),
+      );
+      if (rawLine == null) continue;
+      if (rawLine < 0 || rawLine >= lines.length) continue;
+      lines[rawLine] = entry.value;
+    }
+
+    final newRaw = lines.join('\n');
+    if (isOriginal) {
+      ref.read(originalRawTextProvider.notifier).state = newRaw;
+    } else {
+      ref.read(modifiedRawTextProvider.notifier).state = newRaw;
+    }
+  }
+
+  /// 关闭查找栏。若有未应用替换，先询问。
+  Future<void> _closeFindBar() async {
+    if (_pendingOrigChanges.isNotEmpty || _pendingModChanges.isNotEmpty) {
+      if (!mounted) return;
+      final n = _pendingOrigChanges.length + _pendingModChanges.length;
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('有未应用的替换'),
+          content: Text('有 $n 处修改还没应用，怎么处理？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, 'cancel'),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, 'discard'),
+              child: const Text('放弃'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, 'apply'),
+              child: const Text('应用并关闭'),
+            ),
+          ],
+        ),
+      );
+      if (choice == 'cancel' || choice == null) return;
+      if (choice == 'apply') {
+        _applyPendingChanges();
+      } else {
+        _pendingOrigChanges.clear();
+        _pendingModChanges.clear();
+      }
+    }
+
+    if (!mounted) return;
+    _findController.clear();
+    _replaceController.clear();
+    setState(() {
+      _showFind = false;
+      _findQuery = '';
+      _matchEntries = const [];
+      _matchPos = -1;
+    });
+  }
+
+  // ==================== 滚动 / 跳转 ====================
 
   int _renderedRows(DiffResult diff, ViewMode mode) {
     if (mode == ViewMode.merged) return diff.entries.length;
@@ -199,6 +453,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
+  void _openRegexHelp() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const RegexHelpScreen()),
+    );
+  }
+
   List<int> _diffIndices() {
     final diff = _diff;
     if (diff == null) return const <int>[];
@@ -226,8 +486,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _jumpToNextDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    // 未聚焦（-1）时，第一次点“下一处”跳到第 0 处。
-    // 否则从当前位置 +1，到末尾循环回 0。
     final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
     final next = (current + 1) % indices.length;
     _jumpToDiffPos(next);
@@ -236,8 +494,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _jumpToPrevDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    // 未聚焦（-1）时，第一次点“上一处”跳到最后一处。
-    // 否则从当前位置 -1，到开头循环回末尾。
     final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
     final prev = (current - 1 + indices.length) % indices.length;
     _jumpToDiffPos(prev);
@@ -272,9 +528,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (anchorEntry == null) return;
     _anchorEntryIndex = anchorEntry;
 
-    // 程序化跳转后 800ms 内不更新计数器。否则点“下一处”时，目标上方
-    // 仍在屏幕上可见的上一处差异会被 _captureAnchor 误判为“当前位置”，
-    // 导致计数器被打回，下一次点“下一处”看起来像卡住或往回跳。
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastJumpAtMs < 800) return;
 
@@ -331,23 +584,17 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       builder: (_) => const _DisplaySettingsSheet(),
     );
   }
+
   void _openComparisonSettings() {
-  Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => const ComparisonSettingsScreen(),
-    ),
-  );
-}
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ComparisonSettingsScreen(),
+      ),
+    );
+  }
 
   // ==================== 导出差异 ====================
 
-  /// 收集差异，拆成左右两段。
-  ///
-  /// 规则：
-  ///   - 配对删除行 vs 新增行做字符级 diff
-  ///   - 左边有独有内容 → 左独有归左段，右独有归右段
-  ///   - 左边无独有内容（纯追加）→ 右独有归左段
-  ///   - 多出的整行：delete 归左段，insert 归左段
   ({List<String> left, List<String> right}) _collectDiffParts(
       DiffResult diff) {
     final leftParts = <String>[];
@@ -406,7 +653,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return (left: leftParts, right: rightParts);
   }
 
-  /// 弹出选择：导出左边还是右边。选完弹系统保存框。
   Future<void> _exportDiff() async {
     final diff = _diff;
     if (diff == null) return;
@@ -475,8 +721,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 长按：复制 / 就地编辑 ====================
 
-  /// 计算每个 entry 对应的原/改行号（预处理后），-1 表示该侧不涉及。
-  /// 逻辑和视图里的 _lineMeta 一致，这里独立一份。
   List<({int orig, int mod})> _computeLineMeta(DiffResult result) {
     final meta = <({int orig, int mod})>[];
     var o = 0, m = 0;
@@ -494,7 +738,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return meta;
   }
 
-  /// 把某侧 raw 文本的第 [normalizedLine] 行替换为 [newText]，写回 provider。
   void _replaceRawLine({
     required bool isOriginal,
     required int normalizedLine,
@@ -527,13 +770,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
-  /// 长按某一行的入口。entryIndices 是这一行关联的 entry 下标：
-  /// 合并视图传 [ei]；并排/仅差异传 [delIdx, insIdx]（可能是单元素）。
   Future<void> _onRowLongPress(List<int> entryIndices) async {
     final diff = _diff;
     if (diff == null || entryIndices.isEmpty) return;
 
-    // 分类出"原文侧"和"修改侧"各自的 entry。
     int? origEntryIdx;
     int? modEntryIdx;
     for (final i in entryIndices) {
@@ -552,8 +792,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     final meta = _computeLineMeta(diff);
 
-    // 抓"上一行内容"作为稳健锚点：编辑会改当前行，但上一行通常不动。
-    // 找到被改 entry 的前一个 entry，取其文本作为锚。
     String? origAnchorText;
     String? modAnchorText;
     if (origEntryIdx != null && origEntryIdx > 0) {
@@ -570,24 +808,23 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     if (origEntryIdx != null) {
       final e = diff.entries[origEntryIdx];
-      origText = (e.operation == DiffOperation.replace &&
-              e.oldText.isNotEmpty)
-          ? e.oldText
-          : e.text;
+      origText =
+          (e.operation == DiffOperation.replace && e.oldText.isNotEmpty)
+              ? e.oldText
+              : e.text;
       final m = meta[origEntryIdx].orig;
       if (m >= 0) origLine = m;
     }
     if (modEntryIdx != null) {
       final e = diff.entries[modEntryIdx];
-      modText = (e.operation == DiffOperation.replace &&
-              e.newText.isNotEmpty)
-          ? e.newText
-          : e.text;
+      modText =
+          (e.operation == DiffOperation.replace && e.newText.isNotEmpty)
+              ? e.newText
+              : e.text;
       final m = meta[modEntryIdx].mod;
       if (m >= 0) modLine = m;
     }
 
-    // 弹底部菜单：复制 / 编辑。
     final action = await _showRowActionSheet(
       origText: origText,
       modText: modText,
@@ -613,7 +850,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         return;
     }
 
-    // 编辑：弹对话框。
     final edited = await _showRowEditDialog(
       origText: origText,
       modText: modText,
@@ -635,7 +871,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       );
     }
 
-    // 触发 diff 重算 + 重置视图，并按行号/内容锚回原位置。
     ref.read(importRevisionProvider.notifier).state++;
     _resetViewAfterEdit(
       anchorOrigLine: origLine,
@@ -645,7 +880,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
-  /// 底部菜单。哪侧有内容就显示对应的复制项。
   Future<String?> _showRowActionSheet({
     required String? origText,
     required String? modText,
@@ -692,8 +926,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
-  /// 弹出编辑对话框。哪侧有内容就显示哪个输入框。
-  /// 返回 (orig, mod)；取消返回 null。
   Future<({String orig, String mod})?> _showRowEditDialog({
     required String? origText,
     required String? modText,
@@ -755,8 +987,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return (orig: origCtrl.text, mod: modCtrl.text);
   }
 
-  /// 编辑后重置视图状态，并按行号/内容锚回原位置。
-  /// 优先用"上一行内容"锚（行数变了也稳），拿不到内容再退回行号锚。
   void _resetViewAfterEdit({
     int? anchorOrigLine,
     int? anchorModLine,
@@ -767,8 +997,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _anchorEntryIndex = null;
     _matchEntries = const <int>[];
     _matchPos = -1;
-    _findController.clear();
-    _findQuery = '';
     _rowKeysByEntry.clear();
     _cachedDiffIndices = null;
     _cachedDiffIndicesFor = null;
@@ -794,24 +1022,17 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
-  /// diff 重算需要时间（大文件可能几百毫秒），这里轮询等待新结果，
-  /// 优先按"上一行内容"锚定位（行数变了也稳），失败再退回行号锚。
-  /// 最多等 3 秒。
   Future<void> _scrollToLineAfterRecompute(
     int? origLine,
     int? modLine,
     String? origAnchorText,
     String? modAnchorText,
   ) async {
-    // 先等一下，让 provider 进入 recompute 状态
     await Future<void>.delayed(const Duration(milliseconds: 200));
     for (var attempt = 0; attempt < 30; attempt++) {
       if (!mounted) return;
       final diff = _diff;
       if (diff != null) {
-        // 1) 内容锚优先：在 raw 文本里找这个内容现在落在哪一行。
-        //    注意新 diff 里 entry.text 是预处理后的文本，锚文本也是从
-        //    entry 里取的（同一预处理空间），所以可以直接比较。
         int? hitEntry;
         if (origAnchorText != null && origAnchorText.isNotEmpty) {
           for (var i = 0; i < diff.entries.length; i++) {
@@ -832,7 +1053,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           }
         }
         if (hitEntry != null) {
-          // 锚在"上一行"，滚到它的下一行（也就是被改行现在的位置）。
           final target = hitEntry + 1 < diff.entries.length
               ? hitEntry + 1
               : hitEntry;
@@ -840,7 +1060,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           return;
         }
 
-        // 2) 内容锚失效，退回行号锚。
         final meta = _computeLineMeta(diff);
         for (var i = 0; i < meta.length; i++) {
           final m = meta[i];
@@ -1009,7 +1228,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           style: TextStyle(fontSize: 11),
         ),
         actions: [
-          // 计数器
           Center(
             key: const Key('diff-position'),
             child: Padding(
@@ -1020,7 +1238,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               ),
             ),
           ),
-          // 上一处 / 下一处 / 查找——编辑已移入菜单，其余按钮加大点击区。
           IconButton(
             key: const Key('prev-diff'),
             icon: const Icon(Icons.arrow_upward),
@@ -1041,7 +1258,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             icon: const Icon(Icons.search),
             iconSize: 26,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            tooltip: '查找',
+            tooltip: '查找 / 替换',
             onPressed: () => setState(() => _showFind = !_showFind),
           ),
           PopupMenuButton<String>(
@@ -1064,11 +1281,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               } else if (v == 'syncScroll') {
                 final cur = ref.read(syncScrollProvider);
                 ref.read(syncScrollProvider.notifier).state = !cur;
-} else if (v == 'displaySettings') {
-  _openDisplaySettings();
-} else if (v == 'comparisonSettings') {
-  _openComparisonSettings();
-}
+              } else if (v == 'displaySettings') {
+                _openDisplaySettings();
+              } else if (v == 'comparisonSettings') {
+                _openComparisonSettings();
+              }
             },
             itemBuilder: (context) => [
               const PopupMenuItem<String>(
@@ -1128,15 +1345,15 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ),
               ),
               const PopupMenuItem<String>(
-  value: 'comparisonSettings',
-  child: Row(
-    children: [
-      Icon(Icons.rule),
-      SizedBox(width: 10),
-      Text('比较设置'),
-    ],
-  ),
-),
+                value: 'comparisonSettings',
+                child: Row(
+                  children: [
+                    Icon(Icons.rule),
+                    SizedBox(width: 10),
+                    Text('比较设置'),
+                  ],
+                ),
+              ),
               PopupMenuItem<String>(
                 value: 'syncScroll',
                 child: Row(
@@ -1194,11 +1411,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           if (_originalDeleted || _modifiedDeleted) _buildDeletedBanner(),
           _buildEncodingBanner(),
           if (_showFind) _buildFindBar(),
-          // 原 DiffStatsBar（+N -M ~K 那一行）已删除，节省竖向空间。
           if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
           SegmentedButton<ViewMode>(
             segments: const [
-              // 仅差异放最前（默认视图），合并放最后。
               ButtonSegment(value: ViewMode.diffOnly, label: Text('仅差异')),
               ButtonSegment(value: ViewMode.sideBySide, label: Text('并排')),
               ButtonSegment(value: ViewMode.merged, label: Text('合并')),
@@ -1340,55 +1555,237 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
+  // ==================== 查找栏 UI ====================
+
   Widget _buildFindBar() {
     final total = _matchEntries.length;
-    final current = _matchPos >= 0 ? _matchPos + 1 : 0;
+    final pendingCount =
+        _pendingOrigChanges.length + _pendingModChanges.length;
+
+    Widget toggle({
+      required String label,
+      required bool value,
+      required VoidCallback onTap,
+      VoidCallback? onLongPress,
+      String? tooltip,
+    }) {
+      return Tooltip(
+        message: tooltip ?? label,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: value ? FontWeight.bold : FontWeight.normal,
+                color: value
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget sideToggle({
+      required String label,
+      required bool value,
+      required VoidCallback onTap,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                value ? Icons.check_box : Icons.check_box_outline_blank,
+                size: 16,
+                color: value
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: value
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Material(
       color: Theme.of(context).colorScheme.surfaceVariant,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () {
-                _findController.clear();
-                setState(() {
-                  _showFind = false;
-                  _findQuery = '';
-                  _matchEntries = const [];
-                  _matchPos = -1;
-                });
-              },
-            ),
-            Expanded(
-              child: TextField(
-                controller: _findController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: '输入要查找的内容',
-                  isDense: true,
-                  border: InputBorder.none,
+            // 第一行：关闭 + 查找框
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: '关闭查找',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _closeFindBar,
                 ),
-                onChanged: _findChanged,
-                onSubmitted: (_) => _nextMatch(),
-              ),
+                Expanded(
+                  child: TextField(
+                    controller: _findController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: '查找',
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
+                    onChanged: _findChanged,
+                    onSubmitted: (_) => _nextMatch(),
+                  ),
+                ),
+              ],
             ),
-            SizedBox(
-              width: 48,
-              child: Text('$current/$total',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelSmall),
+            // 第二行：替换框 + 替换当前 + 全部替换
+            Row(
+              children: [
+                const SizedBox(width: 48),
+                Expanded(
+                  child: TextField(
+                    controller: _replaceController,
+                    decoration: const InputDecoration(
+                      hintText: '替换为（留空 = 删掉）',
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: total == 0 ? null : _replaceCurrentInline,
+                  child: const Text('替换当前'),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: total == 0 ? null : _replaceAllInline,
+                  child: const Text('全部替换'),
+                ),
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.arrow_upward),
-              tooltip: '上一个',
-              onPressed: total == 0 ? null : _prevMatch,
+            // 第三行：查左/查右 + 上下跳转
+            Row(
+              children: [
+                const SizedBox(width: 8),
+                sideToggle(
+                  label: '查左侧',
+                  value: _searchLeft,
+                  onTap: () {
+                    if (_searchLeft && !_searchRight) {
+                      _toast('至少要开一个（左/右）');
+                      return;
+                    }
+                    setState(() => _searchLeft = !_searchLeft);
+                    _findChanged(_findController.text);
+                  },
+                ),
+                sideToggle(
+                  label: '查右侧',
+                  value: _searchRight,
+                  onTap: () {
+                    if (_searchRight && !_searchLeft) {
+                      _toast('至少要开一个（左/右）');
+                      return;
+                    }
+                    setState(() => _searchRight = !_searchRight);
+                    _findChanged(_findController.text);
+                  },
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.arrow_upward),
+                  tooltip: '上一个',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: total == 0 ? null : _prevMatch,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_downward),
+                  tooltip: '下一个',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: total == 0 ? null : _nextMatch,
+                ),
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.arrow_downward),
-              tooltip: '下一个',
-              onPressed: total == 0 ? null : _nextMatch,
+            // 第四行：正则 + Aa + 词 + 应用并刷新
+            Row(
+              children: [
+                const SizedBox(width: 8),
+                toggle(
+                  label: '正则',
+                  value: _regexEnable,
+                  tooltip: '开：按正则匹配；长按查看正则帮助',
+                  onTap: () => setState(() {
+                    _regexEnable = !_regexEnable;
+                    _findChanged(_findController.text);
+                  }),
+                  onLongPress: _openRegexHelp,
+                ),
+                toggle(
+                  label: 'Aa',
+                  value: _caseInsensitive,
+                  tooltip: '忽略大小写',
+                  onTap: () => setState(() {
+                    _caseInsensitive = !_caseInsensitive;
+                    _findChanged(_findController.text);
+                  }),
+                ),
+                toggle(
+                  label: '词',
+                  value: _wholeWord,
+                  tooltip: '整词匹配（对中文无效）',
+                  onTap: () => setState(() {
+                    _wholeWord = !_wholeWord;
+                    _findChanged(_findController.text);
+                  }),
+                ),
+                if (pendingCount > 0) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '待应用 $pendingCount',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange.shade800,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: pendingCount > 0
+                        ? Colors.orange.shade800
+                        : null,
+                  ),
+                  onPressed: pendingCount > 0 ? _applyPendingChanges : null,
+                  icon: const Icon(Icons.done_all, size: 16),
+                  label: const Text('应用并刷新'),
+                ),
+              ],
             ),
           ],
         ),
@@ -1397,7 +1794,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 }
 
-/// 显示设置底部面板：行号显隐、正文字号、行号字号 + 12 个差异颜色。
+/// 显示设置底部面板。
 class _DisplaySettingsSheet extends ConsumerWidget {
   const _DisplaySettingsSheet();
 
