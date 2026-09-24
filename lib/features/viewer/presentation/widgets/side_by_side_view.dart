@@ -14,6 +14,7 @@ class SideBySideView extends ConsumerWidget {
     this.modifiedFileName,
     this.controller,
     this.findQuery = '',
+    this.currentMatchEntry,
     this.rowKeysByEntry,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
@@ -28,14 +29,16 @@ class SideBySideView extends ConsumerWidget {
   final String? modifiedFileName;
   final ScrollController? controller;
   final String findQuery;
+  final int? currentMatchEntry;
   final Map<int, GlobalKey>? rowKeysByEntry;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
   final bool syncScroll;
-
-  /// 长按某行时回调，参数是该行关联的 entry 下标（1 个或 2 个）。
   final void Function(List<int> entryIndices)? onLongPressEntry;
+
+  static const Color _matchYellow = Color(0xFFFFF59D);
+  static const Color _matchOrange = Color(0xFFFF9800);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -44,7 +47,7 @@ class SideBySideView extends ConsumerWidget {
     return _buildIndependent(context, c);
   }
 
-  // ============ 同步滚动：左右共用一行 ============
+  // ============ 同步滚动 ============
 
   Widget _buildSynced(BuildContext context, DiffColors c) {
     final meta = _lineMeta(result);
@@ -79,6 +82,9 @@ class SideBySideView extends ConsumerWidget {
               itemCount: rows.length,
               itemBuilder: (ctx, i) {
                 final spec = rows[i];
+                final isCurrent = currentMatchEntry != null &&
+                    (spec.del == currentMatchEntry ||
+                        spec.ins == currentMatchEntry);
                 final Widget row;
                 final List<int> keyOwners;
                 if (spec.del != null && spec.ins != null) {
@@ -89,15 +95,18 @@ class SideBySideView extends ConsumerWidget {
                     meta[spec.del!],
                     meta[spec.ins!],
                     c,
+                    isCurrent,
                   );
                   keyOwners = <int>[spec.del!, spec.ins!];
                 } else if (spec.del != null) {
                   final ei = spec.del!;
-                  row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
+                  row = _alignedRow(
+                      ctx, result.entries[ei], meta[ei], c, isCurrent);
                   keyOwners = <int>[ei];
                 } else {
                   final ei = spec.ins!;
-                  row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
+                  row = _alignedRow(
+                      ctx, result.entries[ei], meta[ei], c, isCurrent);
                   keyOwners = <int>[ei];
                 }
                 Widget out = row;
@@ -121,7 +130,7 @@ class SideBySideView extends ConsumerWidget {
     );
   }
 
-  // ============ 独立滚动：左右两个 ListView ============
+  // ============ 独立滚动 ============
 
   Widget _buildIndependent(BuildContext context, DiffColors c) {
     final meta = _lineMeta(result);
@@ -161,11 +170,14 @@ class SideBySideView extends ConsumerWidget {
                   itemCount: leftIndices.length,
                   itemBuilder: (ctx, i) {
                     final ei = leftIndices[i];
+                    final isCurrent =
+                        currentMatchEntry != null && ei == currentMatchEntry;
                     final tile = _singleSideTile(
                       context,
                       result.entries[ei],
                       meta[ei].orig,
                       isLeft: true,
+                      isCurrentMatch: isCurrent,
                       c: c,
                     );
                     if (onLongPressEntry == null) return tile;
@@ -184,11 +196,14 @@ class SideBySideView extends ConsumerWidget {
                   itemCount: rightIndices.length,
                   itemBuilder: (ctx, i) {
                     final ei = rightIndices[i];
+                    final isCurrent =
+                        currentMatchEntry != null && ei == currentMatchEntry;
                     final tile = _singleSideTile(
                       context,
                       result.entries[ei],
                       meta[ei].mod,
                       isLeft: false,
+                      isCurrentMatch: isCurrent,
                       c: c,
                     );
                     if (onLongPressEntry == null) return tile;
@@ -212,6 +227,7 @@ class SideBySideView extends ConsumerWidget {
     DiffEntry e,
     int line, {
     required bool isLeft,
+    required bool isCurrentMatch,
     required DiffColors c,
   }) {
     final s = Theme.of(context).colorScheme;
@@ -242,7 +258,6 @@ class SideBySideView extends ConsumerWidget {
       bg = c.insertRowBg;
       fg = c.insertRowFg;
     } else {
-      // replace 在 dmp 里不会单独出现，为完整性保留。
       text = isLeft
           ? (e.oldText.isEmpty ? e.text : e.oldText)
           : (e.newText.isEmpty ? e.text : e.newText);
@@ -258,6 +273,9 @@ class SideBySideView extends ConsumerWidget {
       bg: bg,
       fg: fg,
       findQuery: findQuery,
+      isCurrentMatch: isCurrentMatch,
+      matchYellow: _matchYellow,
+      matchOrange: _matchOrange,
       charDiff: null,
       showLineNumbers: showLineNumbers,
       bodyFontSize: bodyFontSize,
@@ -272,6 +290,7 @@ class SideBySideView extends ConsumerWidget {
     ({int orig, int mod}) delMeta,
     ({int orig, int mod}) insMeta,
     DiffColors c,
+    bool isCurrentMatch,
   ) {
     final s = Theme.of(context).colorScheme;
     final leftText = del.text;
@@ -288,6 +307,9 @@ class SideBySideView extends ConsumerWidget {
             bg: c.replaceLeftBg,
             fg: c.replaceLeftFg,
             findQuery: findQuery,
+            isCurrentMatch: isCurrentMatch,
+            matchYellow: _matchYellow,
+            matchOrange: _matchOrange,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -311,6 +333,9 @@ class SideBySideView extends ConsumerWidget {
             bg: c.replaceRightBg,
             fg: c.replaceRightFg,
             findQuery: findQuery,
+            isCurrentMatch: isCurrentMatch,
+            matchYellow: _matchYellow,
+            matchOrange: _matchOrange,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -330,7 +355,12 @@ class SideBySideView extends ConsumerWidget {
   }
 
   Widget _alignedRow(
-      BuildContext context, DiffEntry e, ({int orig, int mod}) m, DiffColors c) {
+    BuildContext context,
+    DiffEntry e,
+    ({int orig, int mod}) m,
+    DiffColors c,
+    bool isCurrentMatch,
+  ) {
     final s = Theme.of(context).colorScheme;
     final plainLeftBg = s.surfaceVariant;
     final plainRightBg = s.surface;
@@ -360,7 +390,6 @@ class SideBySideView extends ConsumerWidget {
         leftBg = c.deleteRowBg;
         leftFg = c.deleteRowFg;
         leftSym = '−';
-        // 右侧空白：普通背景，无文字
         break;
       case DiffOperation.insert:
         rightText = e.text;
@@ -409,6 +438,9 @@ class SideBySideView extends ConsumerWidget {
             bg: leftBg,
             fg: leftFg,
             findQuery: findQuery,
+            isCurrentMatch: isCurrentMatch,
+            matchYellow: _matchYellow,
+            matchOrange: _matchOrange,
             charDiff: leftCharDiff,
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
@@ -424,6 +456,9 @@ class SideBySideView extends ConsumerWidget {
             bg: rightBg,
             fg: rightFg,
             findQuery: findQuery,
+            isCurrentMatch: isCurrentMatch,
+            matchYellow: _matchYellow,
+            matchOrange: _matchOrange,
             charDiff: rightCharDiff,
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
@@ -463,6 +498,9 @@ class _Cell extends StatelessWidget {
     required this.bg,
     required this.fg,
     required this.findQuery,
+    required this.isCurrentMatch,
+    required this.matchYellow,
+    required this.matchOrange,
     this.charDiff,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
@@ -475,6 +513,9 @@ class _Cell extends StatelessWidget {
   final Color bg;
   final Color fg;
   final String findQuery;
+  final bool isCurrentMatch;
+  final Color matchYellow;
+  final Color matchOrange;
   final _CharDiff? charDiff;
   final bool showLineNumbers;
   final double bodyFontSize;
@@ -496,6 +537,7 @@ class _Cell extends StatelessWidget {
         side: charDiff!.side,
         style: body,
         findQuery: findQuery,
+        isCurrentMatch: isCurrentMatch,
         addedFg: charDiff!.addedFg,
         addedBg: charDiff!.addedBg,
         removedFg: charDiff!.removedFg,
@@ -540,6 +582,7 @@ class _Cell extends StatelessWidget {
 
   List<InlineSpan> _spans(String text) {
     final q = findQuery;
+    final bg = isCurrentMatch ? matchOrange : matchYellow;
     final spans = <InlineSpan>[];
     var start = 0;
     int idx;
@@ -547,8 +590,8 @@ class _Cell extends StatelessWidget {
       if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
       spans.add(TextSpan(
         text: q,
-        style: const TextStyle(
-          backgroundColor: Color(0xFFFFF59D),
+        style: TextStyle(
+          backgroundColor: bg,
           fontWeight: FontWeight.bold,
         ),
       ));
