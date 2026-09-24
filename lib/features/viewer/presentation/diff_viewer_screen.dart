@@ -11,7 +11,6 @@ import '../../edit/presentation/edit_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'widgets/diff_only_view.dart';
-import 'widgets/diff_stats_bar.dart';
 import 'widgets/merged_view.dart';
 import 'widgets/side_by_side_view.dart';
 
@@ -396,6 +395,17 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     final meta = _computeLineMeta(diff);
 
+    // 抓"上一行内容"作为稳健锚点：编辑会改当前行，但上一行通常不动。
+    // 找到被改 entry 的前一个 entry，取其文本作为锚。
+    String? origAnchorText;
+    String? modAnchorText;
+    if (origEntryIdx != null && origEntryIdx > 0) {
+      origAnchorText = diff.entries[origEntryIdx - 1].text;
+    }
+    if (modEntryIdx != null && modEntryIdx > 0) {
+      modAnchorText = diff.entries[modEntryIdx - 1].text;
+    }
+
     String? origText;
     String? modText;
     int? origLine;
@@ -431,13 +441,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       case 'copyOrig':
         if (origText != null) {
           await Clipboard.setData(ClipboardData(text: origText));
-          if (mounted) _toast('已复制原版此行');
+          if (mounted) _toast('已复制左边此行');
         }
         return;
       case 'copyMod':
         if (modText != null) {
           await Clipboard.setData(ClipboardData(text: modText));
-          if (mounted) _toast('已复制修改版此行');
+          if (mounted) _toast('已复制右边此行');
         }
         return;
       case 'edit':
@@ -468,11 +478,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       );
     }
 
-    // 触发 diff 重算 + 重置视图，并按行号锚回原位置。
+    // 触发 diff 重算 + 重置视图，并按行号/内容锚回原位置。
     ref.read(importRevisionProvider.notifier).state++;
     _resetViewAfterEdit(
       anchorOrigLine: origLine,
       anchorModLine: modLine,
+      anchorOrigText: origAnchorText,
+      anchorModText: modAnchorText,
     );
   }
 
@@ -490,7 +502,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             if (origText != null)
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('复制原版此行'),
+                title: const Text('复制左边此行'),
                 subtitle: Text(
                   origText,
                   maxLines: 1,
@@ -502,7 +514,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             if (modText != null)
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('复制修改版此行'),
+                title: const Text('复制右边此行'),
                 subtitle: Text(
                   modText,
                   maxLines: 1,
@@ -541,7 +553,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (origText != null) ...[
-                const Text('原版'),
+                const Text('左边'),
                 const SizedBox(height: 4),
                 TextField(
                   controller: origCtrl,
@@ -555,7 +567,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               ],
               if (modText != null) ...[
                 if (origText != null) const SizedBox(height: 12),
-                const Text('修改版'),
+                const Text('右边'),
                 const SizedBox(height: 4),
                 TextField(
                   controller: modCtrl,
@@ -586,9 +598,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return (orig: origCtrl.text, mod: modCtrl.text);
   }
 
-  /// 编辑后重置视图状态，并按行号锚回原位置。
-  /// 只改内容不改行数时，行号保持不变，视图基本停在原处。
-  void _resetViewAfterEdit({int? anchorOrigLine, int? anchorModLine}) {
+  /// 编辑后重置视图状态，并按行号/内容锚回原位置。
+  /// 优先用"上一行内容"锚（行数变了也稳），拿不到内容再退回行号锚。
+  void _resetViewAfterEdit({
+    int? anchorOrigLine,
+    int? anchorModLine,
+    String? anchorOrigText,
+    String? anchorModText,
+  }) {
     _currentDiffPos = -1;
     _anchorEntryIndex = null;
     _matchEntries = const <int>[];
@@ -600,7 +617,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _cachedDiffIndicesFor = null;
     setState(() {});
 
-    if (anchorOrigLine == null && anchorModLine == null) {
+    final hasAnchor = anchorOrigLine != null ||
+        anchorModLine != null ||
+        (anchorOrigText != null && anchorOrigText.isNotEmpty) ||
+        (anchorModText != null && anchorModText.isNotEmpty);
+    if (!hasAnchor) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -608,14 +629,22 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       return;
     }
 
-    _scrollToLineAfterRecompute(anchorOrigLine, anchorModLine);
+    _scrollToLineAfterRecompute(
+      anchorOrigLine,
+      anchorModLine,
+      anchorOrigText,
+      anchorModText,
+    );
   }
 
   /// diff 重算需要时间（大文件可能几百毫秒），这里轮询等待新结果，
-  /// 找到对应行号的 entry 后滚过去。最多等 3 秒。
+  /// 优先按"上一行内容"锚定位（行数变了也稳），失败再退回行号锚。
+  /// 最多等 3 秒。
   Future<void> _scrollToLineAfterRecompute(
     int? origLine,
     int? modLine,
+    String? origAnchorText,
+    String? modAnchorText,
   ) async {
     // 先等一下，让 provider 进入 recompute 状态
     await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -623,6 +652,38 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       if (!mounted) return;
       final diff = _diff;
       if (diff != null) {
+        // 1) 内容锚优先：在 raw 文本里找这个内容现在落在哪一行。
+        //    注意新 diff 里 entry.text 是预处理后的文本，锚文本也是从
+        //    entry 里取的（同一预处理空间），所以可以直接比较。
+        int? hitEntry;
+        if (origAnchorText != null && origAnchorText.isNotEmpty) {
+          for (var i = 0; i < diff.entries.length; i++) {
+            if (diff.entries[i].text == origAnchorText) {
+              hitEntry = i;
+              break;
+            }
+          }
+        }
+        if (hitEntry == null &&
+            modAnchorText != null &&
+            modAnchorText.isNotEmpty) {
+          for (var i = 0; i < diff.entries.length; i++) {
+            if (diff.entries[i].text == modAnchorText) {
+              hitEntry = i;
+              break;
+            }
+          }
+        }
+        if (hitEntry != null) {
+          // 锚在"上一行"，滚到它的下一行（也就是被改行现在的位置）。
+          final target = hitEntry + 1 < diff.entries.length
+              ? hitEntry + 1
+              : hitEntry;
+          _scrollToEntry(target);
+          return;
+        }
+
+        // 2) 内容锚失效，退回行号锚。
         final meta = _computeLineMeta(diff);
         for (var i = 0; i < meta.length; i++) {
           final m = meta[i];
@@ -721,7 +782,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final path = ref.read(
       isOriginal ? originalFilePathProvider : modifiedFilePathProvider,
     );
-    final label = isOriginal ? '原文件' : '修改版';
+    final label = isOriginal ? '左边文件' : '右边文件';
     final ok = await _confirmDelete(label, path);
     if (!ok || !mounted) return;
 
@@ -788,6 +849,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       appBar: AppBar(
         title: const Text('对比结果'),
         actions: [
+          // 计数器
           Center(
             key: const Key('diff-position'),
             child: Padding(
@@ -798,33 +860,37 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               ),
             ),
           ),
+          // 上一处 / 下一处 / 查找——编辑已移入菜单，其余按钮加大点击区。
           IconButton(
             key: const Key('prev-diff'),
             icon: const Icon(Icons.arrow_upward),
+            iconSize: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             tooltip: '上一处差异',
             onPressed: _jumpToPrevDiff,
           ),
           IconButton(
             key: const Key('next-diff'),
             icon: const Icon(Icons.arrow_downward),
+            iconSize: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             tooltip: '下一处差异',
             onPressed: _jumpToNextDiff,
           ),
           IconButton(
             icon: const Icon(Icons.search),
+            iconSize: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             tooltip: '查找',
             onPressed: () => setState(() => _showFind = !_showFind),
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit),
-            tooltip: '编辑文档',
-            onPressed: _openEdit,
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.tune),
             tooltip: '更多操作',
             onSelected: (v) {
-              if (v == 'delOriginal') {
+              if (v == 'edit') {
+                _openEdit();
+              } else if (v == 'delOriginal') {
                 _deleteSide(isOriginal: true);
               } else if (v == 'delModified') {
                 _deleteSide(isOriginal: false);
@@ -841,6 +907,17 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem<String>(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit),
+                    SizedBox(width: 10),
+                    Text('编辑文档'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               PopupMenuItem<String>(
                 value: 'delOriginal',
                 enabled: !_originalDeleted &&
@@ -849,7 +926,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   children: [
                     const Icon(Icons.delete_outline, color: Colors.red),
                     const SizedBox(width: 10),
-                    Text(_originalDeleted ? '原文件已删除' : '删除原文件'),
+                    Text(_originalDeleted ? '左边文件已删除' : '删除左边文件'),
                   ],
                 ),
               ),
@@ -861,7 +938,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   children: [
                     const Icon(Icons.delete_outline, color: Colors.red),
                     const SizedBox(width: 10),
-                    Text(_modifiedDeleted ? '修改版已删除' : '删除修改版'),
+                    Text(_modifiedDeleted ? '右边文件已删除' : '删除右边文件'),
                   ],
                 ),
               ),
@@ -933,13 +1010,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           if (_originalDeleted || _modifiedDeleted) _buildDeletedBanner(),
           _buildEncodingBanner(),
           if (_showFind) _buildFindBar(),
-          DiffStatsBar(result: diff),
+          // 原 DiffStatsBar（+N -M ~K 那一行）已删除，节省竖向空间。
           if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
           SegmentedButton<ViewMode>(
             segments: const [
-              ButtonSegment(value: ViewMode.merged, label: Text('合并')),
-              ButtonSegment(value: ViewMode.sideBySide, label: Text('并排')),
+              // 仅差异放最前（默认视图），合并放最后。
               ButtonSegment(value: ViewMode.diffOnly, label: Text('仅差异')),
+              ButtonSegment(value: ViewMode.sideBySide, label: Text('并排')),
+              ButtonSegment(value: ViewMode.merged, label: Text('合并')),
             ],
             selected: {viewMode},
             onSelectionChanged: (s) => _switchView(s.first),
@@ -1007,8 +1085,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   Widget _buildDeletedBanner() {
     final parts = <String>[];
-    if (_originalDeleted) parts.add('原文件');
-    if (_modifiedDeleted) parts.add('修改版');
+    if (_originalDeleted) parts.add('左边文件');
+    if (_modifiedDeleted) parts.add('右边文件');
     return Container(
       width: double.infinity,
       color: Colors.red.shade100,
