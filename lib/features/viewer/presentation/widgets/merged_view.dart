@@ -51,7 +51,7 @@ class MergedView extends ConsumerWidget {
 
     return Scrollbar(
       controller: controller,
-      thumbVisibility: false,
+      thumbVisibility: true,
       child: ListView.builder(
         controller: controller,
         padding: const EdgeInsets.symmetric(vertical: 2),
