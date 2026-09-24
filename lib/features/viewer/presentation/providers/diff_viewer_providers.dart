@@ -14,7 +14,20 @@ enum ViewMode { merged, sideBySide, diffOnly }
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 
 /// 计时面板开关。默认打开（调试用）。发布时把默认值改成 false。
-final showPerfOverlayProvider = StateProvider<bool>((ref) => true);
+final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
+
+/// 对比页显示行号。
+final showLineNumbersProvider = StateProvider<bool>((ref) => true);
+
+/// 对比页正文字号。
+final bodyFontSizeProvider = StateProvider<double>((ref) => 14.0);
+
+/// 对比页行号字号。
+final gutterFontSizeProvider = StateProvider<double>((ref) => 11.0);
+
+/// 并排视图两栏同步滚动。关闭后左右独立滚动。
+final syncScrollProvider = StateProvider<bool>((ref) => true);
+
 
 /// 最近一次 diff 各阶段耗时（毫秒）。调试用，显示在对比页顶部。
 class DiffPerfStats {
