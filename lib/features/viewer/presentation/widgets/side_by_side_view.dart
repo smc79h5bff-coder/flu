@@ -7,7 +7,7 @@ import '../../../diff/domain/diff_result.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
 
-class SideBySideView extends ConsumerWidget {
+class SideBySideView extends ConsumerStatefulWidget {
   const SideBySideView({
     required this.result,
     this.originalFileName,
@@ -41,17 +41,53 @@ class SideBySideView extends ConsumerWidget {
   static const Color _matchOrange = Color(0xFFFF9800);
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SideBySideView> createState() => _SideBySideViewState();
+}
+
+class _SideBySideViewState extends ConsumerState<SideBySideView> {
+  // 独立滚动模式下左右各自需要独立 controller（同步模式仍用 widget.controller）。
+  final ScrollController _leftCtrl = ScrollController();
+  final ScrollController _rightCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _leftCtrl.dispose();
+    _rightCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 统一滚动条样式：粗一点、半透明、闲置隐藏、可拖拽。
+  Widget _scrollbar({
+    required BuildContext context,
+    required ScrollController? controller,
+    required Widget child,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final thumb =
+        (isDark ? Colors.white : Colors.black).withOpacity(0.42);
+    return Scrollbar(
+      controller: controller,
+      interactive: true,
+      thickness: 12,
+      radius: const Radius.circular(6),
+      thumbColor: thumb,
+      trackVisibility: false,
+      child: child,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = watchDiffColors(ref);
-    if (syncScroll) return _buildSynced(context, c);
+    if (widget.syncScroll) return _buildSynced(context, c);
     return _buildIndependent(context, c);
   }
 
   // ============ 同步滚动 ============
 
   Widget _buildSynced(BuildContext context, DiffColors c) {
-    final meta = _lineMeta(result);
-    final rows = computeAlignedRows(result.entries);
+    final meta = _lineMeta(widget.result);
+    final rows = computeAlignedRows(widget.result.entries);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
@@ -67,31 +103,31 @@ class SideBySideView extends ConsumerWidget {
       children: [
         Row(
           children: [
-            header(originalFileName, s.error),
+            header(widget.originalFileName, s.error),
             divider,
-            header(modifiedFileName, s.primary),
+            header(widget.modifiedFileName, s.primary),
           ],
         ),
         Expanded(
-          child: Scrollbar(
-            controller: controller,
-            thumbVisibility: true,
+          child: _scrollbar(
+            context: context,
+            controller: widget.controller,
             child: ListView.builder(
               key: const Key('side-by-side-list'),
-              controller: controller,
+              controller: widget.controller,
               itemCount: rows.length,
               itemBuilder: (ctx, i) {
                 final spec = rows[i];
-                final isCurrent = currentMatchEntry != null &&
-                    (spec.del == currentMatchEntry ||
-                        spec.ins == currentMatchEntry);
+                final isCurrent = widget.currentMatchEntry != null &&
+                    (spec.del == widget.currentMatchEntry ||
+                        spec.ins == widget.currentMatchEntry);
                 final Widget row;
                 final List<int> keyOwners;
                 if (spec.del != null && spec.ins != null) {
                   row = _comboRow(
                     context,
-                    result.entries[spec.del!],
-                    result.entries[spec.ins!],
+                    widget.result.entries[spec.del!],
+                    widget.result.entries[spec.ins!],
                     meta[spec.del!],
                     meta[spec.ins!],
                     c,
@@ -101,22 +137,22 @@ class SideBySideView extends ConsumerWidget {
                 } else if (spec.del != null) {
                   final ei = spec.del!;
                   row = _alignedRow(
-                      ctx, result.entries[ei], meta[ei], c, isCurrent);
+                      ctx, widget.result.entries[ei], meta[ei], c, isCurrent);
                   keyOwners = <int>[ei];
                 } else {
                   final ei = spec.ins!;
                   row = _alignedRow(
-                      ctx, result.entries[ei], meta[ei], c, isCurrent);
+                      ctx, widget.result.entries[ei], meta[ei], c, isCurrent);
                   keyOwners = <int>[ei];
                 }
                 Widget out = row;
                 for (final k in keyOwners) {
-                  final key = rowKeysByEntry?[k];
+                  final key = widget.rowKeysByEntry?[k];
                   if (key != null) out = KeyedSubtree(key: key, child: out);
                 }
-                if (onLongPressEntry != null) {
+                if (widget.onLongPressEntry != null) {
                   out = GestureDetector(
-                    onLongPress: () => onLongPressEntry!(keyOwners),
+                    onLongPress: () => widget.onLongPressEntry!(keyOwners),
                     behavior: HitTestBehavior.opaque,
                     child: out,
                   );
@@ -133,14 +169,14 @@ class SideBySideView extends ConsumerWidget {
   // ============ 独立滚动 ============
 
   Widget _buildIndependent(BuildContext context, DiffColors c) {
-    final meta = _lineMeta(result);
+    final meta = _lineMeta(widget.result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
     final leftIndices = <int>[];
     final rightIndices = <int>[];
-    for (var i = 0; i < result.entries.length; i++) {
-      final op = result.entries[i].operation;
+    for (var i = 0; i < widget.result.entries.length; i++) {
+      final op = widget.result.entries[i].operation;
       if (op != DiffOperation.insert) leftIndices.add(i);
       if (op != DiffOperation.delete) rightIndices.add(i);
     }
@@ -155,9 +191,9 @@ class SideBySideView extends ConsumerWidget {
       children: [
         Row(
           children: [
-            Expanded(child: header(originalFileName, s.error)),
+            Expanded(child: header(widget.originalFileName, s.error)),
             divider,
-            Expanded(child: header(modifiedFileName, s.primary)),
+            Expanded(child: header(widget.modifiedFileName, s.primary)),
           ],
         ),
         Expanded(
@@ -165,54 +201,66 @@ class SideBySideView extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: ListView.builder(
-                  key: const Key('sbs-left-list'),
-                  itemCount: leftIndices.length,
-                  itemBuilder: (ctx, i) {
-                    final ei = leftIndices[i];
-                    final isCurrent =
-                        currentMatchEntry != null && ei == currentMatchEntry;
-                    final tile = _singleSideTile(
-                      context,
-                      result.entries[ei],
-                      meta[ei].orig,
-                      isLeft: true,
-                      isCurrentMatch: isCurrent,
-                      c: c,
-                    );
-                    if (onLongPressEntry == null) return tile;
-                    return GestureDetector(
-                      onLongPress: () => onLongPressEntry!(<int>[ei]),
-                      behavior: HitTestBehavior.opaque,
-                      child: tile,
-                    );
-                  },
+                child: _scrollbar(
+                  context: context,
+                  controller: _leftCtrl,
+                  child: ListView.builder(
+                    key: const Key('sbs-left-list'),
+                    controller: _leftCtrl,
+                    itemCount: leftIndices.length,
+                    itemBuilder: (ctx, i) {
+                      final ei = leftIndices[i];
+                      final isCurrent = widget.currentMatchEntry != null &&
+                          ei == widget.currentMatchEntry;
+                      final tile = _singleSideTile(
+                        context,
+                        widget.result.entries[ei],
+                        meta[ei].orig,
+                        isLeft: true,
+                        isCurrentMatch: isCurrent,
+                        c: c,
+                      );
+                      if (widget.onLongPressEntry == null) return tile;
+                      return GestureDetector(
+                        onLongPress: () =>
+                            widget.onLongPressEntry!(<int>[ei]),
+                        behavior: HitTestBehavior.opaque,
+                        child: tile,
+                      );
+                    },
+                  ),
                 ),
               ),
               divider,
               Expanded(
-                child: ListView.builder(
-                  key: const Key('sbs-right-list'),
-                  itemCount: rightIndices.length,
-                  itemBuilder: (ctx, i) {
-                    final ei = rightIndices[i];
-                    final isCurrent =
-                        currentMatchEntry != null && ei == currentMatchEntry;
-                    final tile = _singleSideTile(
-                      context,
-                      result.entries[ei],
-                      meta[ei].mod,
-                      isLeft: false,
-                      isCurrentMatch: isCurrent,
-                      c: c,
-                    );
-                    if (onLongPressEntry == null) return tile;
-                    return GestureDetector(
-                      onLongPress: () => onLongPressEntry!(<int>[ei]),
-                      behavior: HitTestBehavior.opaque,
-                      child: tile,
-                    );
-                  },
+                child: _scrollbar(
+                  context: context,
+                  controller: _rightCtrl,
+                  child: ListView.builder(
+                    key: const Key('sbs-right-list'),
+                    controller: _rightCtrl,
+                    itemCount: rightIndices.length,
+                    itemBuilder: (ctx, i) {
+                      final ei = rightIndices[i];
+                      final isCurrent = widget.currentMatchEntry != null &&
+                          ei == widget.currentMatchEntry;
+                      final tile = _singleSideTile(
+                        context,
+                        widget.result.entries[ei],
+                        meta[ei].mod,
+                        isLeft: false,
+                        isCurrentMatch: isCurrent,
+                        c: c,
+                      );
+                      if (widget.onLongPressEntry == null) return tile;
+                      return GestureDetector(
+                        onLongPress: () =>
+                            widget.onLongPressEntry!(<int>[ei]),
+                        behavior: HitTestBehavior.opaque,
+                        child: tile,
+                      );
+                    },
+                  ),
                 ),
               ),
             ],
@@ -272,14 +320,14 @@ class SideBySideView extends ConsumerWidget {
       symbol: symbol,
       bg: bg,
       fg: fg,
-      findQuery: findQuery,
+      findQuery: widget.findQuery,
       isCurrentMatch: isCurrentMatch,
-      matchYellow: _matchYellow,
-      matchOrange: _matchOrange,
+      matchYellow: SideBySideView._matchYellow,
+      matchOrange: SideBySideView._matchOrange,
       charDiff: null,
-      showLineNumbers: showLineNumbers,
-      bodyFontSize: bodyFontSize,
-      gutterFontSize: gutterFontSize,
+      showLineNumbers: widget.showLineNumbers,
+      bodyFontSize: widget.bodyFontSize,
+      gutterFontSize: widget.gutterFontSize,
     );
   }
 
@@ -306,10 +354,10 @@ class SideBySideView extends ConsumerWidget {
             symbol: '~',
             bg: c.replaceLeftBg,
             fg: c.replaceLeftFg,
-            findQuery: findQuery,
+            findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchYellow: SideBySideView._matchYellow,
+            matchOrange: SideBySideView._matchOrange,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -319,9 +367,9 @@ class SideBySideView extends ConsumerWidget {
               addedBg: c.charInsertBg,
               addedFg: c.charInsertFg,
             ),
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
+            showLineNumbers: widget.showLineNumbers,
+            bodyFontSize: widget.bodyFontSize,
+            gutterFontSize: widget.gutterFontSize,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -332,10 +380,10 @@ class SideBySideView extends ConsumerWidget {
             symbol: '~',
             bg: c.replaceRightBg,
             fg: c.replaceRightFg,
-            findQuery: findQuery,
+            findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchYellow: SideBySideView._matchYellow,
+            matchOrange: SideBySideView._matchOrange,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -345,9 +393,9 @@ class SideBySideView extends ConsumerWidget {
               addedBg: c.charInsertBg,
               addedFg: c.charInsertFg,
             ),
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
+            showLineNumbers: widget.showLineNumbers,
+            bodyFontSize: widget.bodyFontSize,
+            gutterFontSize: widget.gutterFontSize,
           ),
         ),
       ],
@@ -437,14 +485,14 @@ class SideBySideView extends ConsumerWidget {
             symbol: leftSym,
             bg: leftBg,
             fg: leftFg,
-            findQuery: findQuery,
+            findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchYellow: SideBySideView._matchYellow,
+            matchOrange: SideBySideView._matchOrange,
             charDiff: leftCharDiff,
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
+            showLineNumbers: widget.showLineNumbers,
+            bodyFontSize: widget.bodyFontSize,
+            gutterFontSize: widget.gutterFontSize,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -455,232 +503,17 @@ class SideBySideView extends ConsumerWidget {
             symbol: rightSym,
             bg: rightBg,
             fg: rightFg,
-            findQuery: findQuery,
+            findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchYellow: SideBySideView._matchYellow,
+            matchOrange: SideBySideView._matchOrange,
             charDiff: rightCharDiff,
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
+            showLineNumbers: widget.showLineNumbers,
+            bodyFontSize: widget.bodyFontSize,
+            gutterFontSize: widget.gutterFontSize,
           ),
         ),
       ],
-    );
-  }
-}
-
-class _CharDiff {
-  const _CharDiff({
-    required this.before,
-    required this.after,
-    required this.side,
-    required this.removedBg,
-    required this.removedFg,
-    required this.addedBg,
-    required this.addedFg,
-  });
-
-  final String before;
-  final String after;
-  final bool side;
-  final Color removedBg;
-  final Color removedFg;
-  final Color addedBg;
-  final Color addedFg;
-}
-
-class _Cell extends StatelessWidget {
-  const _Cell({
-    required this.text,
-    required this.line,
-    required this.symbol,
-    required this.bg,
-    required this.fg,
-    required this.findQuery,
-    required this.isCurrentMatch,
-    required this.matchYellow,
-    required this.matchOrange,
-    this.charDiff,
-    this.showLineNumbers = true,
-    this.bodyFontSize = 14.0,
-    this.gutterFontSize = 11.0,
-  });
-
-  final String text;
-  final int line;
-  final String symbol;
-  final Color bg;
-  final Color fg;
-  final String findQuery;
-  final bool isCurrentMatch;
-  final Color matchYellow;
-  final Color matchOrange;
-  final _CharDiff? charDiff;
-  final bool showLineNumbers;
-  final double bodyFontSize;
-  final double gutterFontSize;
-
-  @override
-  Widget build(BuildContext context) {
-    final body = Theme.of(context)
-        .textTheme
-        .bodyMedium
-        ?.copyWith(fontSize: bodyFontSize, color: fg);
-    final outline = Theme.of(context).colorScheme.outline;
-
-    Widget content;
-    if (charDiff != null) {
-      content = InlineCharDiff(
-        before: charDiff!.before,
-        after: charDiff!.after,
-        side: charDiff!.side,
-        style: body,
-        findQuery: findQuery,
-        isCurrentMatch: isCurrentMatch,
-        addedFg: charDiff!.addedFg,
-        addedBg: charDiff!.addedBg,
-        removedFg: charDiff!.removedFg,
-        removedBg: charDiff!.removedBg,
-      );
-    } else if (findQuery.isEmpty || !text.contains(findQuery)) {
-      content = Text(text.isEmpty ? ' ' : text, style: body, softWrap: true);
-    } else {
-      content = RichText(text: TextSpan(style: body, children: _spans(text)));
-    }
-
-    return Container(
-      color: bg,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showLineNumbers) ...[
-            SizedBox(
-              width: 30,
-              child: Text(
-                line < 0 ? '' : '$line',
-                textAlign: TextAlign.end,
-                style: TextStyle(fontSize: gutterFontSize, color: outline),
-              ),
-            ),
-            if (symbol.isNotEmpty) ...[
-              const SizedBox(width: 4),
-              Text(symbol,
-                  style: TextStyle(
-                      color: fg,
-                      fontWeight: FontWeight.bold,
-                      fontSize: bodyFontSize)),
-            ],
-          ],
-          const SizedBox(width: 6),
-          Expanded(child: content),
-        ],
-      ),
-    );
-  }
-
-  List<InlineSpan> _spans(String text) {
-    final q = findQuery;
-    final bg = isCurrentMatch ? matchOrange : matchYellow;
-    final spans = <InlineSpan>[];
-    var start = 0;
-    int idx;
-    while ((idx = text.indexOf(q, start)) != -1) {
-      if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
-      spans.add(TextSpan(
-        text: q,
-        style: TextStyle(
-          backgroundColor: bg,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      start = idx + q.length;
-    }
-    if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
-    return spans;
-  }
-}
-
-typedef AlignedRow = ({int? del, int? ins});
-
-List<AlignedRow> computeAlignedRows(List<DiffEntry> entries) {
-  final rows = <AlignedRow>[];
-  var i = 0;
-  while (i < entries.length) {
-    final e = entries[i];
-    if (e.operation == DiffOperation.delete ||
-        e.operation == DiffOperation.insert) {
-      final delStart = i;
-      while (i < entries.length &&
-          entries[i].operation == DiffOperation.delete) {
-        i++;
-      }
-      final delEnd = i;
-      final insStart = i;
-      while (i < entries.length &&
-          entries[i].operation == DiffOperation.insert) {
-        i++;
-      }
-      final insEnd = i;
-
-      final delCount = delEnd - delStart;
-      final insCount = insEnd - insStart;
-      final pairs = delCount < insCount ? delCount : insCount;
-
-      for (var k = 0; k < pairs; k++) {
-        rows.add((del: delStart + k, ins: insStart + k));
-      }
-      for (var k = pairs; k < delCount; k++) {
-        rows.add((del: delStart + k, ins: null));
-      }
-      for (var k = pairs; k < insCount; k++) {
-        rows.add((del: null, ins: insStart + k));
-      }
-    } else {
-      rows.add((del: i, ins: null));
-      i++;
-    }
-  }
-  return rows;
-}
-
-List<({int orig, int mod})> _lineMeta(DiffResult result) {
-  final meta = <({int orig, int mod})>[];
-  var o = 0, m = 0;
-  for (final e in result.entries) {
-    final usesOrig = e.operation == DiffOperation.equal ||
-        e.operation == DiffOperation.delete ||
-        e.operation == DiffOperation.replace;
-    final usesMod = e.operation == DiffOperation.equal ||
-        e.operation == DiffOperation.insert ||
-        e.operation == DiffOperation.replace;
-    meta.add((orig: usesOrig ? o : -1, mod: usesMod ? m : -1));
-    if (usesOrig) o++;
-    if (usesMod) m++;
-  }
-  return meta;
-}
-
-class _PaneHeader extends StatelessWidget {
-  const _PaneHeader({required this.fileName, required this.color});
-
-  final String fileName;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: color.withOpacity(0.08),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Text(
-        fileName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style:
-            TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
-      ),
     );
   }
 }
