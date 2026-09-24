@@ -7,6 +7,11 @@ import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../../../import/presentation/providers/import_providers.dart';
+// diff_viewer_providers.dart 里三个都要 import 时：
+
+import '../../../../core/storage/persistent_notifier.dart';
+import '../../../../core/storage/pref_keys.dart'
+
 
 /// View mode in the diff viewer. PRD §2 Module 6.
 enum ViewMode { merged, sideBySide, diffOnly }
@@ -20,7 +25,15 @@ final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
 final showLineNumbersProvider = StateProvider<bool>((ref) => true);
 
 /// 对比页正文字号。
-final bodyFontSizeProvider = StateProvider<double>((ref) => 14.0);
+
+final bodyFontSizeProvider =
+    NotifierProvider<BodyFontSizeNotifier, double>(BodyFontSizeNotifier.new);
+
+class BodyFontSizeNotifier extends DoublePrefNotifier {
+  BodyFontSizeNotifier()
+      : super(key: PrefKeys.bodyFontSize, initial: 14.0);
+}
+
 
 /// 对比页行号字号。
 final gutterFontSizeProvider = StateProvider<double>((ref) => 11.0);
