@@ -1064,9 +1064,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               } else if (v == 'syncScroll') {
                 final cur = ref.read(syncScrollProvider);
                 ref.read(syncScrollProvider.notifier).state = !cur;
-              } else if (v == 'displaySettings') {
-                _openDisplaySettings();
-              }
+} else if (v == 'displaySettings') {
+  _openDisplaySettings();
+} else if (v == 'comparisonSettings') {
+  _openComparisonSettings();
+}
             },
             itemBuilder: (context) => [
               const PopupMenuItem<String>(
@@ -1125,6 +1127,16 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   ],
                 ),
               ),
+              const PopupMenuItem<String>(
+  value: 'comparisonSettings',
+  child: Row(
+    children: [
+      Icon(Icons.rule),
+      SizedBox(width: 10),
+      Text('比较设置'),
+    ],
+  ),
+),
               PopupMenuItem<String>(
                 value: 'syncScroll',
                 child: Row(
