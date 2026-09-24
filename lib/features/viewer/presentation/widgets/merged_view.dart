@@ -16,35 +16,31 @@ class MergedView extends ConsumerWidget {
     this.lineNumbers = true,
     this.findQuery = '',
     this.rowKeysByEntry,
+    this.showLineNumbers = true,
+    this.bodyFontSize = 14.0,
+    this.gutterFontSize = 11.0,
     super.key,
   });
 
   final DiffResult result;
-
-  /// Optional scroll controller; when attached, the parent screen can drive
-  /// programmatic jumps to the next/previous diff entry.
   final ScrollController? controller;
-
-  /// Show a per-entry line-number gutter (original side for equal/delete,
-  /// modified side for equal/insert).
   final bool lineNumbers;
-
-  /// When non-empty, matching substrings inside each entry are highlighted.
   final String findQuery;
-
-  /// Optional per-entry [GlobalKey]s (by entry index) used by the parent to
-  /// scroll precisely to search/diff hits via [Scrollable.ensureVisible].
   final Map<int, GlobalKey>? rowKeysByEntry;
+  final bool showLineNumbers;
+  final double bodyFontSize;
+  final double gutterFontSize;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Precompute the running line number for each side at every entry.
     final meta = <({int orig, int mod})>[];
     var o = 0, m = 0;
     for (final e in result.entries) {
       meta.add((orig: o, mod: m));
-      if (e.operation == DiffOperation.equal || e.operation == DiffOperation.delete) o++;
-      if (e.operation == DiffOperation.equal || e.operation == DiffOperation.insert) m++;
+      if (e.operation == DiffOperation.equal ||
+          e.operation == DiffOperation.delete) o++;
+      if (e.operation == DiffOperation.equal ||
+          e.operation == DiffOperation.insert) m++;
     }
 
     final order = _mergedOrder(result.entries);
@@ -60,6 +56,9 @@ class MergedView extends ConsumerWidget {
           entry: e,
           lineNumber: lineNumbers ? meta[ei].orig : 0,
           findQuery: findQuery,
+          showLineNumbers: showLineNumbers,
+          bodyFontSize: bodyFontSize,
+          gutterFontSize: gutterFontSize,
         );
         final key = rowKeysByEntry?[ei];
         return key == null ? tile : KeyedSubtree(key: key, child: tile);
@@ -68,13 +67,6 @@ class MergedView extends ConsumerWidget {
   }
 }
 
-/// 把 dmp 分组输出的 entries 重排成“交替配对”的显示顺序。
-///
-/// dmp 对“A 每行结尾有 ? / B 没有”这类输入，输出形状是：
-///   [del del ... del] [ins ins ... ins]
-/// 直接按顺序渲染 = 两个大块。本函数按块配对后交替输出：
-///   del0, ins0, del1, ins1, ..., 剩余的单独输出
-/// 视觉上类似 git unified diff，一眼能看出每行都改了。
 List<int> _mergedOrder(List<DiffEntry> entries) {
   final order = <int>[];
   var i = 0;
@@ -122,11 +114,17 @@ class _EntryTile extends StatelessWidget {
     required this.entry,
     required this.lineNumber,
     required this.findQuery,
+    required this.showLineNumbers,
+    required this.bodyFontSize,
+    required this.gutterFontSize,
   });
 
   final DiffEntry entry;
   final int lineNumber;
   final String findQuery;
+  final bool showLineNumbers;
+  final double bodyFontSize;
+  final double gutterFontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -160,24 +158,21 @@ class _EntryTile extends StatelessWidget {
         ),
     };
 
-    // NOTE: We intentionally avoid `IntrinsicHeight` here. IntrinsicHeight
-    // forces a second measure pass per tile, which is the single biggest
-    // ListView scrolling cost in this screen. `CrossAxisAlignment.start`
-    // gives the same visual layout (gutter aligned to top) with one measure.
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (lineNumber > 0)
+        if (showLineNumbers && lineNumber > 0)
           Container(
-            width: 30,
+            width: 34,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             alignment: Alignment.topCenter,
             child: Text(
               '$lineNumber',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+              style: TextStyle(
+                fontSize: gutterFontSize,
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
           ),
         Expanded(child: row),
@@ -190,7 +185,7 @@ class _EntryTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: RichText(
         text: TextSpan(
-          style: TextStyle(fontSize: 14, color: color, height: 1.4),
+          style: TextStyle(fontSize: bodyFontSize, color: color, height: 1.4),
           children: _spans(text),
         ),
       ),
@@ -208,7 +203,7 @@ class _EntryTile extends StatelessWidget {
     bool charDiffSide = true,
   }) {
     final style = TextStyle(
-      fontSize: 14,
+      fontSize: bodyFontSize,
       color: color,
       height: 1.4,
       decoration: strikeThrough ? TextDecoration.lineThrough : null,
@@ -229,8 +224,6 @@ class _EntryTile extends StatelessWidget {
       margin: const EdgeInsets.only(right: 8, top: 2, bottom: 2),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        // 0.25 keeps the highlight clearly visible in light theme while
-        // still letting the base text color through.
         color: color.withOpacity(0.25),
         border: Border(left: BorderSide(color: color, width: 3)),
         borderRadius: BorderRadius.circular(4),
@@ -240,7 +233,9 @@ class _EntryTile extends StatelessWidget {
         children: [
           Text(symbol,
               style: TextStyle(
-                  color: color, fontWeight: FontWeight.bold, fontSize: 14)),
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: bodyFontSize)),
           const SizedBox(width: 8),
           Expanded(child: content),
         ],
@@ -248,8 +243,6 @@ class _EntryTile extends StatelessWidget {
     );
   }
 
-  /// Split [text] by [findQuery], wrapping hits with a yellow background so
-  /// the active search term is visible inside the (possibly colored) entry.
   List<InlineSpan> _spans(String text) {
     final q = findQuery;
     if (q.isEmpty || text.isEmpty) return [TextSpan(text: text)];
