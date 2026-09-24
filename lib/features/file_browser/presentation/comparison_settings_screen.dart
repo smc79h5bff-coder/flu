@@ -2,18 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../help/presentation/help_screen.dart';
-import '../../rules/presentation/rules_management_screen.dart';
+import '../../import/presentation/providers/import_providers.dart';
+import '../../preprocessing/domain/preprocessing_rule.dart';
 import '../../viewer/presentation/providers/diff_viewer_providers.dart';
 
 /// 比较设置页面。
 ///
-/// 集中 4 个原有忽略项 + 3 个新增忽略项 + 规则/帮助入口。
-/// 所有开关都是全局默认，改完立即生效；下次对比会用新设置。
+/// 把所有对比相关的可调项集中在一页：
+///   - 忽略项：空白 / 空行 / 换行 / 大小写 / 逗号 / 数字 / ANSI
+///   - 内置预处理规则（可勾选启用）
+///   - 用户自定义预处理规则（可增删）
+///   - 新建自定义规则
+///
+/// 从文件管理器和对比页都能进入；两处打开的是同一个页面。
 class ComparisonSettingsScreen extends ConsumerWidget {
   const ComparisonSettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final userRules = ref.watch(userRulesProvider);
+    final builtinRules = ref.watch(builtinRulesWithStateProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('比较设置'),
@@ -90,21 +99,47 @@ class ComparisonSettingsScreen extends ConsumerWidget {
             onChanged: (v) =>
                 ref.read(unifyAnsiProvider.notifier).state = v,
           ),
-          const Divider(height: 24),
-          _sectionHeader(context, '高级'),
-          ListTile(
-            leading: const Icon(Icons.rule),
-            title: const Text('预处理规则'),
-            subtitle: const Text('自定义 find / replace 规则，比忽略项更灵活'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const RulesManagementScreen(),
-                ),
-              );
-            },
+
+          const Divider(height: 32),
+          _sectionHeader(context, '内置预处理规则（可勾选启用）'),
+          for (final r in builtinRules)
+            _ruleTile(
+              context,
+              rule: r,
+              onToggle: (v) => ref
+                  .read(builtinRuleEnablesProvider.notifier)
+                  .update((prev) => {...prev, r.id: v}),
+            ),
+
+          const Divider(height: 32),
+          _sectionHeader(context, '自定义预处理规则'),
+          if (userRules.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                '暂无自定义规则',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          for (final r in userRules)
+            _ruleTile(
+              context,
+              rule: r,
+              onToggle: (v) => ref
+                  .read(userRulesProvider.notifier)
+                  .update(r.copyWith(enabled: v)),
+              onDelete: () =>
+                  ref.read(userRulesProvider.notifier).remove(r.id),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('新建自定义规则'),
+              onPressed: () => _showEditor(context, ref),
+            ),
           ),
+
           const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -147,6 +182,151 @@ class ComparisonSettingsScreen extends ConsumerWidget {
       ),
       value: value,
       onChanged: onChanged,
+    );
+  }
+
+  Widget _ruleTile(
+    BuildContext context, {
+    required PreprocessingRule rule,
+    required ValueChanged<bool> onToggle,
+    VoidCallback? onDelete,
+  }) {
+    return ListTile(
+      title: Text(rule.name),
+      subtitle: Text(
+        '/${rule.findPattern}/ → "${rule.replaceWith}"',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Switch(value: rule.enabled, onChanged: onToggle),
+          if (onDelete != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: '移除',
+              onPressed: onDelete,
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditor(BuildContext context, WidgetRef ref) {
+    showDialog<PreprocessingRule>(
+      context: context,
+      builder: (_) => const _RuleEditorDialog(),
+    ).then((rule) {
+      if (rule != null) {
+        ref.read(userRulesProvider.notifier).add(rule);
+      }
+    });
+  }
+}
+
+class _RuleEditorDialog extends StatefulWidget {
+  const _RuleEditorDialog();
+
+  @override
+  State<_RuleEditorDialog> createState() => _RuleEditorDialogState();
+}
+
+class _RuleEditorDialogState extends State<_RuleEditorDialog> {
+  final _nameCtrl = TextEditingController();
+  final _findCtrl = TextEditingController();
+  final _replaceCtrl = TextEditingController();
+  RuleScope _scope = RuleScope.both;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _findCtrl.dispose();
+    _replaceCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新建规则'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: '规则名'),
+            ),
+            TextField(
+              controller: _findCtrl,
+              decoration: const InputDecoration(
+                labelText: '查找正则',
+                hintText: r'\d{4}-\d{2}-\d{2}',
+              ),
+            ),
+            TextField(
+              controller: _replaceCtrl,
+              decoration: const InputDecoration(
+                labelText: '替换串',
+                hintText: '<DATE>',
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButton<RuleScope>(
+              value: _scope,
+              isExpanded: true,
+              items: const [
+                DropdownMenuItem(
+                    value: RuleScope.both, child: Text('两份文档')),
+                DropdownMenuItem(
+                    value: RuleScope.originalOnly, child: Text('仅原文')),
+                DropdownMenuItem(
+                    value: RuleScope.modifiedOnly, child: Text('仅修改版')),
+              ],
+              onChanged: (v) => setState(() => _scope = v ?? RuleScope.both),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final name = _nameCtrl.text.trim();
+    final find = _findCtrl.text;
+    final replace = _replaceCtrl.text;
+    if (name.isEmpty || find.isEmpty) return;
+    try {
+      RegExp(find);
+    } on FormatException {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正则无效')),
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      PreprocessingRule(
+        id: 'user_${DateTime.now().microsecondsSinceEpoch}',
+        name: name,
+        findPattern: find,
+        replaceWith: replace,
+        scope: _scope,
+        enabled: true,
+        isBuiltin: false,
+      ),
     );
   }
 }
