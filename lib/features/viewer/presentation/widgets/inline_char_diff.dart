@@ -2,21 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../../diff/application/diff_cache.dart';
 
-/// Backwards-compatible free function. Routes to the session cache so callers
-/// that still import this symbol keep working.
 List<CharSeg> charSegments(String a, String b) =>
     DiffCache.instance.charSegments(a, b);
 
-/// Renders a character-level diff between [before] and [after] for one side
-/// of a "replace" row.
-///
-/// - side == false (left, old): added segments are hidden, deleted segments
-///   are shown with red strike-through.
-/// - side == true  (right, new): deleted segments are hidden, added segments
-///   are shown with green underline.
-///
-/// Segments are fetched from [DiffCache] so the same (before, after) pair is
-/// diffed only once per session, even across many rebuilds.
+/// 字符级差异渲染。**不加下划线、不加删除线**，只用字体色 + 背景色区分。
+/// 颜色由调用方传入；不传时使用内置红/绿。
 class InlineCharDiff extends StatelessWidget {
   const InlineCharDiff({
     super.key,
@@ -25,38 +15,40 @@ class InlineCharDiff extends StatelessWidget {
     required this.side,
     this.style,
     this.findQuery = '',
+    this.addedFg,
+    this.addedBg,
+    this.removedFg,
+    this.removedBg,
   });
 
   final String before;
   final String after;
-  final bool side; // true = right (new), false = left (old)
-  final TextStyle? style;
 
-  /// Optional search term: hits get a yellow background (on top of the
-  /// red/green character-diff styling) so find-highlight and char-diff can
-  /// coexist visually.
+  /// true = 右侧（新文本）；false = 左侧（旧文本）。
+  final bool side;
+  final TextStyle? style;
   final String findQuery;
+
+  final Color? addedFg;
+  final Color? addedBg;
+  final Color? removedFg;
+  final Color? removedBg;
 
   @override
   Widget build(BuildContext context) {
     final segs = DiffCache.instance.charSegments(before, after);
     final base = style ?? Theme.of(context).textTheme.bodyMedium!;
     final addedStyle = base.copyWith(
-      color: Colors.green.shade700,
-      backgroundColor: Colors.green.withValues(alpha: .18),
-      decoration: TextDecoration.underline,
-      decorationColor: Colors.green,
+      color: addedFg ?? Colors.green.shade700,
+      backgroundColor: addedBg ?? Colors.green.withValues(alpha: .18),
     );
     final removedStyle = base.copyWith(
-      color: Colors.red.shade700,
-      backgroundColor: Colors.red.withValues(alpha: .18),
-      decoration: TextDecoration.lineThrough,
-      decorationColor: Colors.red,
+      color: removedFg ?? Colors.red.shade700,
+      backgroundColor: removedBg ?? Colors.red.withValues(alpha: .18),
     );
 
     final spans = <TextSpan>[];
     for (final (op, text) in segs) {
-      // Right side keeps equal + insert; left side keeps equal + delete.
       final show = side ? op != -1 : op != 1;
       if (!show) continue;
       final segHighlight = side
@@ -66,8 +58,6 @@ class InlineCharDiff extends StatelessWidget {
         spans.add(TextSpan(text: text, style: segHighlight));
         continue;
       }
-      // Sub-split each segment by findQuery so yellow highlight coexists
-      // with the red/green char-diff styling.
       var start = 0;
       int idx;
       while (start <= text.length &&
@@ -92,12 +82,6 @@ class InlineCharDiff extends StatelessWidget {
         ));
       }
     }
-    // Removed the previous `maxLines: 3, overflow: ellipsis` — it truncated
-    // long replace rows so users couldn't see the full change. Letting the
-    // cell grow vertically is acceptable because the fixed-itemExtent
-    // optimization is not used here (text can wrap freely).
-    return Text.rich(
-      TextSpan(style: base, children: spans),
-    );
+    return Text.rich(TextSpan(style: base, children: spans));
   }
 }
