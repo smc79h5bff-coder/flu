@@ -6,7 +6,8 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
-import 'side_by_side_view.dart' show AlignedRow, computeAlignedRows;
+import 'side_by_side_view.dart'
+    show AlignedRow, cachedAlignedRows, cachedLineMeta;
 
 class DiffOnlyView extends ConsumerWidget {
   const DiffOnlyView({
@@ -42,8 +43,8 @@ class DiffOnlyView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = watchDiffColors(ref);
-    final meta = _lineMeta(result);
-    final rows = _computeDiffOnlyRows(result.entries);
+    final meta = cachedLineMeta(result);
+    final rows = _computeDiffOnlyRows(result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
@@ -55,7 +56,7 @@ class DiffOnlyView extends ConsumerWidget {
       );
     }
 
-    // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏（去掉 thumbVisibility）。
+    // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏。
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
@@ -109,9 +110,12 @@ class DiffOnlyView extends ConsumerWidget {
                   keyOwners = <int>[ei];
                 }
                 Widget out = row;
-                for (final k in keyOwners) {
-                  final key = rowKeysByEntry?[k];
-                  if (key != null) out = KeyedSubtree(key: key, child: out);
+                if (rowKeysByEntry != null) {
+                  for (final k in keyOwners) {
+                    final key =
+                        rowKeysByEntry!.putIfAbsent(k, () => GlobalKey());
+                    out = KeyedSubtree(key: key, child: out);
+                  }
                 }
                 if (onLongPressEntry != null) {
                   out = GestureDetector(
@@ -315,12 +319,12 @@ class DiffOnlyView extends ConsumerWidget {
     );
   }
 
-  List<AlignedRow> _computeDiffOnlyRows(List<DiffEntry> entries) {
-    final all = computeAlignedRows(entries);
+  List<AlignedRow> _computeDiffOnlyRows(DiffResult result) {
+    final all = cachedAlignedRows(result);
     final out = <AlignedRow>[];
     for (final r in all) {
-      final delOp = r.del == null ? null : entries[r.del!].operation;
-      final insOp = r.ins == null ? null : entries[r.ins!].operation;
+      final delOp = r.del == null ? null : result.entries[r.del!].operation;
+      final insOp = r.ins == null ? null : result.entries[r.ins!].operation;
       final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
           (insOp == null || insOp == DiffOperation.equal);
       if (onlyEqual) continue;
@@ -460,23 +464,6 @@ class _DiffCell extends StatelessWidget {
     if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
     return spans;
   }
-}
-
-List<({int orig, int mod})> _lineMeta(DiffResult result) {
-  final meta = <({int orig, int mod})>[];
-  var o = 0, m = 0;
-  for (final e in result.entries) {
-    final usesOrig = e.operation == DiffOperation.equal ||
-        e.operation == DiffOperation.delete ||
-        e.operation == DiffOperation.replace;
-    final usesMod = e.operation == DiffOperation.equal ||
-        e.operation == DiffOperation.insert ||
-        e.operation == DiffOperation.replace;
-    meta.add((orig: usesOrig ? o : -1, mod: usesMod ? m : -1));
-    if (usesOrig) o++;
-    if (usesMod) m++;
-  }
-  return meta;
 }
 
 class _PaneHeader extends StatelessWidget {
