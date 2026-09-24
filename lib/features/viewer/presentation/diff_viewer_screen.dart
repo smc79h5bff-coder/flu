@@ -29,6 +29,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final Map<int, GlobalKey> _rowKeysByEntry = <int, GlobalKey>{};
 
   int _currentDiffPos = -1;
+  /// 最近一次程序化跳转（点上一处/下一处）的时间戳。
+/// 跳转后 800ms 内不让 _captureAnchor 覆盖 _currentDiffPos——
+/// 因为程序化跳转用的是 alignment: 0.25，目标上方的差异还在屏幕上
+/// 可见，_captureAnchor 会把位置误判回目标之前的那一处。
+int _lastJumpAtMs = 0;
   int? _anchorEntryIndex;
 
   bool _showFind = false;
@@ -203,28 +208,33 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
-  void _jumpToNextDiff() {
-    final indices = _diffIndices();
-    if (indices.isEmpty) return;
-    final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
-    final next = (current + 1) % indices.length;
-    _jumpToDiffPos(next);
-  }
+void _jumpToNextDiff() {
+  final indices = _diffIndices();
+  if (indices.isEmpty) return;
+  // 未聚焦（-1）时，第一次点“下一处”跳到第 0 处。
+  // 否则从当前位置 +1，到末尾循环回 0。
+  final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
+  final next = (current + 1) % indices.length;
+  _jumpToDiffPos(next);
+}
 
-  void _jumpToPrevDiff() {
-    final indices = _diffIndices();
-    if (indices.isEmpty) return;
-    final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
-    final prev = (current - 1 + indices.length) % indices.length;
-    _jumpToDiffPos(prev);
-  }
+void _jumpToPrevDiff() {
+  final indices = _diffIndices();
+  if (indices.isEmpty) return;
+  // 未聚焦（-1）时，第一次点“上一处”跳到最后一处。
+  // 否则从当前位置 -1，到开头循环回末尾。
+  final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
+  final prev = (current - 1 + indices.length) % indices.length;
+  _jumpToDiffPos(prev);
+}
 
-  void _jumpToDiffPos(int pos) {
-    final indices = _diffIndices();
-    if (pos < 0 || pos >= indices.length) return;
-    setState(() => _currentDiffPos = pos);
-    _scrollToEntry(indices[pos]);
-  }
+void _jumpToDiffPos(int pos) {
+  final indices = _diffIndices();
+  if (pos < 0 || pos >= indices.length) return;
+  _lastJumpAtMs = DateTime.now().millisecondsSinceEpoch;
+  setState(() => _currentDiffPos = pos);
+  _scrollToEntry(indices[pos]);
+}
 
   int? _findFirstVisibleDiffEntry() {
     if (_rowKeysByEntry.isEmpty) return null;
@@ -242,19 +252,25 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return null;
   }
 
-  void _captureAnchor() {
-    final anchorEntry = _findFirstVisibleDiffEntry();
-    if (anchorEntry == null) return;
-    _anchorEntryIndex = anchorEntry;
+void _captureAnchor() {
+  final anchorEntry = _findFirstVisibleDiffEntry();
+  if (anchorEntry == null) return;
+  _anchorEntryIndex = anchorEntry;
 
-    final indices = _diffIndices();
-    if (indices.isEmpty) return;
-    final pos = _lowerBound(indices, anchorEntry);
-    if (pos >= indices.length) return;
-    if (pos != _currentDiffPos) {
-      setState(() => _currentDiffPos = pos);
-    }
+  // 程序化跳转后 800ms 内不更新计数器。否则点“下一处”时，目标上方
+  // 仍在屏幕上可见的上一处差异会被 _captureAnchor 误判为“当前位置”，
+  // 导致计数器被打回，下一次点“下一处”看起来像卡住或往回跳。
+  final now = DateTime.now().millisecondsSinceEpoch;
+  if (now - _lastJumpAtMs < 800) return;
+
+  final indices = _diffIndices();
+  if (indices.isEmpty) return;
+  final pos = _lowerBound(indices, anchorEntry);
+  if (pos >= indices.length) return;
+  if (pos != _currentDiffPos) {
+    setState(() => _currentDiffPos = pos);
   }
+}
 
   int _lowerBound(List<int> indices, int value) {
     var lo = 0, hi = indices.length;
