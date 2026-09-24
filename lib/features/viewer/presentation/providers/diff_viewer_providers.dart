@@ -90,7 +90,22 @@ final ignoreCommasProvider = StateProvider<bool>((ref) => false);
 /// 忽略纯数字：连续的 [0-9]+ 整体替换成 <NUM> 占位符。
 /// 例：abc123 和 abc456 视为相同。
 final ignoreNumbersProvider = StateProvider<bool>((ref) => false);
+/// 忽略不可见字符（零宽、方向控制、BOM、软连字符、NBSP 等）。
+/// 这些字符肉眼看不见，但会让"看起来一样"的两行被判为不同。
+/// 默认开启。
+final ignoreInvisibleProvider = StateProvider<bool>((ref) => true);
 
+/// 不可见字符正则。只列“纯控制/零宽/方向”类，不含普通空格、Tab、换行、
+/// 全角空格（这些有独立开关或语义）。
+final RegExp _invisibleChars = RegExp(
+  r'[\u00A0\u00AD'
+  r'\u200B-\u200F'
+  r'\u202A-\u202E'
+  r'\u202F'
+  r'\u2060-\u2064'
+  r'\u2066-\u2069'
+  r'\uFEFF]',
+);
 /// ANSI 编码（中文 Windows 环境下通常即 GBK / GB2312 / CP936）。
 String unifyToAnsi(String text) {
   try {
@@ -122,10 +137,16 @@ String applyDiffIgnores(
   bool ignoreCase = false,
   bool ignoreCommas = false,
   bool ignoreNumbers = false,
+  bool ignoreInvisible = false,
 }) {
   var out = text;
   if (lineEndings) {
     out = out.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  }
+  if (ignoreInvisible) {
+    // 先删不可见字符，再处理空白/空行。否则 ZWSP 可能让一行“看起来是空行”
+    // 但其实不是，导致忽略空行的判定失效。
+    out = out.replaceAll(_invisibleChars, '');
   }
   if (whitespace) {
     out = out.replaceAll(_horizontalWhitespace, '');
@@ -137,15 +158,12 @@ String applyDiffIgnores(
         .join('\n');
   }
   if (ignoreCommas) {
-    // 只处理中英文逗号。
     out = out.replaceAll(',', '').replaceAll('，', '');
   }
   if (ignoreNumbers) {
-    // 连续数字整体替换成占位符，避免 abc123 和 abc456 被误判为不同。
     out = out.replaceAll(RegExp(r'[0-9]+'), '<NUM>');
   }
   if (ignoreCase) {
-    // 最后做：前面步骤可能引入 ASCII 字符（<NUM>），统一转小写。
     out = out.toLowerCase();
   }
   return out;
@@ -335,6 +353,7 @@ final ignoreNl = ref.watch(ignoreLineEndingsProvider);
 final ignoreCase = ref.watch(ignoreCaseProvider);
 final ignoreCommas = ref.watch(ignoreCommasProvider);
 final ignoreNumbers = ref.watch(ignoreNumbersProvider);
+final ignoreInvisible = ref.watch(ignoreInvisibleProvider);
 final origNorm = applyDiffIgnores(
   original,
   whitespace: ignoreWs,
@@ -343,6 +362,7 @@ final origNorm = applyDiffIgnores(
   ignoreCase: ignoreCase,
   ignoreCommas: ignoreCommas,
   ignoreNumbers: ignoreNumbers,
+  ignoreInvisible: ignoreInvisible,
 );
 final modNorm = applyDiffIgnores(
   modified,
@@ -352,6 +372,7 @@ final modNorm = applyDiffIgnores(
   ignoreCase: ignoreCase,
   ignoreCommas: ignoreCommas,
   ignoreNumbers: ignoreNumbers,
+  ignoreInvisible: ignoreInvisible,
 );
   if (origNorm.isEmpty || modNorm.isEmpty) return null;
 
