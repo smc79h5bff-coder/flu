@@ -1,12 +1,14 @@
 import 'dart:io';
 import 'dart:typed_data';
-import '../../preprocessing/domain/encoding_type.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'comparison_settings_screen.dart';
+
 import '../../parser/application/document_parser.dart';
+import '../../preprocessing/domain/encoding_type.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../viewer/presentation/diff_viewer_screen.dart';
+import 'comparison_settings_screen.dart';
 import 'role_confirm_dialog.dart';
 import 'text_preview_screen.dart';
 
@@ -14,10 +16,11 @@ import 'text_preview_screen.dart';
 ///
 /// 交互：
 ///   - 点击文件夹 → 进入
-///   - 点击文件 → 预览（TextPreviewScreen）
-///   - 长按文件 → 进入多选
+///   - 点击文件 → 预览
+///   - 长按任意项 → 进入多选
 ///   - 多选模式下单击 → 勾选/取消
-///   - 选中 2 个文件 → 底部"对比"按钮
+///   - 选中 2 个文件 → 底部"对比"主按钮
+///   - 选中 1+ 项 → 底部"重命名/移动/复制/删除"按钮
 class FileBrowserScreen extends ConsumerStatefulWidget {
   const FileBrowserScreen({super.key});
 
@@ -170,9 +173,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
+  // ---------- 对比 ----------
+
   Future<void> _startCompare() async {
     if (_selectedPaths.length != 2) return;
     final paths = _selectedPaths.toList();
+
+    // 检查两个都是文件（不是文件夹）。
+    for (final p in paths) {
+      if (Directory(p).existsSync()) {
+        _toast('对比只支持文件，请勿选中文件夹');
+        return;
+      }
+    }
+
     final f1 = File(paths[0]);
     final f2 = File(paths[1]);
 
@@ -222,9 +236,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('读取文件失败：$e')),
-      );
+      _toast('读取文件失败：$e');
     }
   }
 
@@ -241,6 +253,209 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       encodingLabel: parsed.encoding.label,
     );
   }
+
+  // ---------- 文件操作 ----------
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  Future<bool> _confirm(String title, String message) async {
+    if (!mounted) return false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _rename() async {
+    if (_selectedPaths.length != 1) {
+      _toast('重命名一次只能操作一个');
+      return;
+    }
+    final oldPath = _selectedPaths.first;
+    final oldName = oldPath.split('/').last;
+
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (_) => _TextInputDialog(
+        title: '重命名',
+        initialValue: oldName,
+      ),
+    );
+    if (newName == null || newName.isEmpty || newName == oldName) return;
+
+    final parent = File(oldPath).parent.path;
+    final newPath = '$parent/$newName';
+
+    if (FileSystemEntity.typeSync(newPath) != FileSystemEntityType.notFound) {
+      _toast('目标已存在：$newName');
+      return;
+    }
+
+    try {
+      if (Directory(oldPath).existsSync()) {
+        await Directory(oldPath).rename(newPath);
+      } else {
+        await File(oldPath).rename(newPath);
+      }
+      _clearSelection();
+      _load();
+      _toast('已重命名为 $newName');
+    } catch (e) {
+      _toast('重命名失败：$e');
+    }
+  }
+
+  Future<void> _move() async {
+    if (_selectedPaths.isEmpty) return;
+    final target = await _pickDirectory('移动到哪？');
+    if (target == null) return;
+
+    var ok = 0;
+    var fail = 0;
+    for (final src in _selectedPaths.toList()) {
+      final name = src.split('/').last;
+      final dst = '$target/$name';
+      if (src == dst) continue;
+      try {
+        if (Directory(src).existsSync()) {
+          await Directory(src).rename(dst);
+        } else {
+          await File(src).rename(dst);
+        }
+        ok++;
+      } catch (_) {
+        fail++;
+      }
+    }
+    _clearSelection();
+    _load();
+    _toast('已移动 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
+  }
+
+  Future<void> _copy() async {
+    if (_selectedPaths.isEmpty) return;
+    final target = await _pickDirectory('复制到哪？');
+    if (target == null) return;
+
+    var ok = 0;
+    var fail = 0;
+    for (final src in _selectedPaths.toList()) {
+      final name = src.split('/').last;
+      final dst = '$target/$name';
+      if (src == dst) continue;
+      try {
+        if (Directory(src).existsSync()) {
+          await _copyDir(Directory(src), Directory(dst));
+        } else {
+          await File(src).copy(dst);
+        }
+        ok++;
+      } catch (_) {
+        fail++;
+      }
+    }
+    _clearSelection();
+    _load();
+    _toast('已复制 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
+  }
+
+  Future<void> _copyDir(Directory src, Directory dst) async {
+    await dst.create(recursive: true);
+    await for (final e in src.list(followLinks: false)) {
+      final name = e.path.split('/').last;
+      final target = '${dst.path}/$name';
+      if (e is Directory) {
+        await _copyDir(e, Directory(target));
+      } else if (e is File) {
+        await e.copy(target);
+      }
+    }
+  }
+
+  Future<void> _delete() async {
+    if (_selectedPaths.isEmpty) return;
+    final n = _selectedPaths.length;
+    final ok = await _confirm(
+      '删除 $n 项？',
+      '选中的 $n 项将从磁盘删除，无法恢复。',
+    );
+    if (!ok) return;
+
+    var deleted = 0;
+    var fail = 0;
+    for (final p in _selectedPaths.toList()) {
+      try {
+        if (Directory(p).existsSync()) {
+          await Directory(p).delete(recursive: true);
+        } else {
+          await File(p).delete();
+        }
+        deleted++;
+      } catch (_) {
+        fail++;
+      }
+    }
+    _clearSelection();
+    _load();
+    _toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
+  }
+
+  Future<void> _newFolder() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const _TextInputDialog(
+        title: '新建文件夹',
+        initialValue: '新建文件夹',
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+
+    final path = '$_currentPath/${name.trim()}';
+    if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) {
+      _toast('同名文件或文件夹已存在');
+      return;
+    }
+    try {
+      await Directory(path).create();
+      _load();
+      _toast('已新建 ${name.trim()}');
+    } catch (e) {
+      _toast('新建失败：$e');
+    }
+  }
+
+  /// 弹一个只显示目录的选择器。用户选中一个目录，返回它的路径。
+  Future<String?> _pickDirectory(String title) async {
+    return showDialog<String>(
+      context: context,
+      builder: (_) => _DirectoryPickerDialog(
+        title: title,
+        rootPath: _rootPath,
+        initialPath: _currentPath,
+      ),
+    );
+  }
+
+  // ---------- 面包屑 ----------
 
   List<({String label, String path})> get _crumbs {
     final relative = _currentPath.substring(_rootPath.length);
@@ -326,7 +541,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     return all.where((e) => e.name.toLowerCase().contains(q)).toList();
   }
 
-  /// 用于副标题第三行的相对路径。根目录 -> `~/`，其它 -> `~/Download/...`。
   String _relPath(String fullPath) {
     if (fullPath == _rootPath) return '~/';
     if (fullPath.startsWith(_rootPath)) {
@@ -357,6 +571,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           ],
         ),
         bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
+        floatingActionButton: _selectionMode
+            ? null
+            : FloatingActionButton(
+                tooltip: '新建文件夹',
+                onPressed: _newFolder,
+                child: const Icon(Icons.create_new_folder),
+              ),
       ),
     );
   }
@@ -370,24 +591,24 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               onPressed: _goUp,
             )
           : null,
-actions: [
-  IconButton(
-    icon: const Icon(Icons.tune),
-    tooltip: '比较设置',
-    onPressed: () {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const ComparisonSettingsScreen(),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.tune),
+          tooltip: '比较设置',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ComparisonSettingsScreen(),
+              ),
+            );
+          },
         ),
-      );
-    },
-  ),
-  IconButton(
-    icon: const Icon(Icons.refresh),
-    tooltip: '刷新',
-    onPressed: _load,
-  ),
-],
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: '刷新',
+          onPressed: _load,
+        ),
+      ],
     );
   }
 
@@ -428,25 +649,85 @@ actions: [
     );
   }
 
+  /// 底部栏：根据选中数量动态显示按钮。
+  /// - 选中 2 个 → 显示"对比"主按钮 + 操作按钮
+  /// - 其它数量 → 只显示操作按钮
   Widget _buildBottomBar() {
-    final canCompare = _selectedPaths.length == 2;
+    final n = _selectedPaths.length;
+    final canCompare = n == 2;
+
+    // 操作按钮（重命名只在单选时可用）
+    final canRename = n == 1;
+
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(
           children: [
-            Expanded(
-              child: FilledButton.icon(
-                icon: const Icon(Icons.compare_arrows),
-                label: Text(
-                  canCompare ? '对比' : '选择两个文件后对比（已选 ${_selectedPaths.length}）',
+            if (canCompare)
+              Expanded(
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.compare_arrows),
+                  label: const Text('对比'),
+                  onPressed: _startCompare,
                 ),
-                onPressed: canCompare ? _startCompare : null,
+              )
+            else
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    n == 1 ? '选中 2 个文件可对比' : '已选 $n 项',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
               ),
+            const SizedBox(width: 4),
+            _actionButton(
+              icon: Icons.drive_file_rename_outline,
+              tooltip: '重命名',
+              onPressed: canRename ? _rename : null,
+            ),
+            _actionButton(
+              icon: Icons.drive_file_move_outline,
+              tooltip: '移动',
+              onPressed: n >= 1 ? _move : null,
+            ),
+            _actionButton(
+              icon: Icons.copy_all_outlined,
+              tooltip: '复制',
+              onPressed: n >= 1 ? _copy : null,
+            ),
+            _actionButton(
+              icon: Icons.delete_outline,
+              tooltip: '删除',
+              color: Colors.red,
+              onPressed: n >= 1 ? _delete : null,
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _actionButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+    Color? color,
+  }) {
+    return IconButton(
+      icon: Icon(icon, color: color),
+      tooltip: tooltip,
+      onPressed: onPressed,
     );
   }
 
@@ -486,10 +767,6 @@ actions: [
         final e = info.entity;
         final selected = _selectedPaths.contains(e.path);
 
-        // 三行布局：
-        //   标题：文件名
-        //   副标题1：大小 · 时间（文件夹则只显示时间）
-        //   副标题2：完整相对路径
         final String metaLine;
         if (info.isDir) {
           metaLine = _formatTime(info.modified);
@@ -502,11 +779,10 @@ actions: [
 
         return ListTile(
           isThreeLine: true,
-          dense: false,
           selected: selected,
           selectedTileColor:
               Theme.of(context).colorScheme.primary.withOpacity(0.12),
-          leading: _selectionMode && !info.isDir
+          leading: _selectionMode
               ? Checkbox(
                   value: selected,
                   onChanged: (_) => _toggleSelection(e),
@@ -544,7 +820,7 @@ actions: [
           ),
           onTap: () {
             if (_selectionMode) {
-              if (!info.isDir) _toggleSelection(e);
+              _toggleSelection(e);
               return;
             }
             if (info.isDir) {
@@ -553,11 +829,197 @@ actions: [
               _openPreview(info);
             }
           },
-          onLongPress: () {
-            if (!info.isDir) _toggleSelection(e);
-          },
+          onLongPress: () => _toggleSelection(e),
         );
       },
+    );
+  }
+}
+
+// ---------- 辅助 Widget ----------
+
+class _TextInputDialog extends StatefulWidget {
+  const _TextInputDialog({
+    required this.title,
+    required this.initialValue,
+  });
+
+  final String title;
+  final String initialValue;
+
+  @override
+  State<_TextInputDialog> createState() => _TextInputDialogState();
+}
+
+class _TextInputDialogState extends State<_TextInputDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        decoration: const InputDecoration(border: OutlineInputBorder()),
+        onSubmitted: (v) => Navigator.pop(context, v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text),
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 只显示目录的路径选择器。用于"移动到 / 复制到"。
+class _DirectoryPickerDialog extends StatefulWidget {
+  const _DirectoryPickerDialog({
+    required this.title,
+    required this.rootPath,
+    required this.initialPath,
+  });
+
+  final String title;
+  final String rootPath;
+  final String initialPath;
+
+  @override
+  State<_DirectoryPickerDialog> createState() => _DirectoryPickerDialogState();
+}
+
+class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
+  late String _path;
+  List<Directory> _dirs = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _path = widget.initialPath;
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final raw = await Directory(_path).list(followLinks: false).toList();
+      final dirs = raw.whereType<Directory>().where((d) {
+        final name = d.path.split('/').last;
+        return !name.startsWith('.');
+      }).toList()
+        ..sort((a, b) =>
+            a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+      if (!mounted) return;
+      setState(() {
+        _dirs = dirs;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dirs = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  bool get _canGoUp => _path != widget.rootPath;
+
+  void _goUp() {
+    if (!_canGoUp) return;
+    final parent = Directory(_path).parent.path;
+    if (parent.length < widget.rootPath.length) return;
+    setState(() => _path = parent);
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final relPath = _path == widget.rootPath
+        ? '~/'
+        : '~${_path.substring(widget.rootPath.length)}';
+
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 400,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_upward),
+                  onPressed: _canGoUp ? _goUp : null,
+                  tooltip: '上一级',
+                ),
+                Expanded(
+                  child: Text(
+                    relPath,
+                    style: Theme.of(context).textTheme.labelSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _dirs.isEmpty
+                      ? const Center(child: Text('（无子目录）'))
+                      : ListView.builder(
+                          itemCount: _dirs.length,
+                          itemBuilder: (ctx, i) {
+                            final d = _dirs[i];
+                            final name = d.path.split('/').last;
+                            return ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.folder,
+                                  color: Colors.amber),
+                              title: Text(name),
+                              onTap: () {
+                                setState(() => _path = d.path);
+                                _load();
+                              },
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _path),
+          child: const Text('选这个目录'),
+        ),
+      ],
     );
   }
 }
