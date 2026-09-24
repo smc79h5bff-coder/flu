@@ -316,21 +316,30 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final modified = ref.watch(preprocessedModifiedProvider);
   if (original.isEmpty || modified.isEmpty) return null;
 
-  final ignoreWs = ref.watch(ignoreWhitespaceProvider);
-  final ignoreEmpty = ref.watch(ignoreEmptyLinesProvider);
-  final ignoreNl = ref.watch(ignoreLineEndingsProvider);
-  final origNorm = applyDiffIgnores(
-    original,
-    whitespace: ignoreWs,
-    emptyLines: ignoreEmpty,
-    lineEndings: ignoreNl,
-  );
-  final modNorm = applyDiffIgnores(
-    modified,
-    whitespace: ignoreWs,
-    emptyLines: ignoreEmpty,
-    lineEndings: ignoreNl,
-  );
+final ignoreWs = ref.watch(ignoreWhitespaceProvider);
+final ignoreEmpty = ref.watch(ignoreEmptyLinesProvider);
+final ignoreNl = ref.watch(ignoreLineEndingsProvider);
+final ignoreCase = ref.watch(ignoreCaseProvider);
+final ignoreCommas = ref.watch(ignoreCommasProvider);
+final ignoreNumbers = ref.watch(ignoreNumbersProvider);
+final origNorm = applyDiffIgnores(
+  original,
+  whitespace: ignoreWs,
+  emptyLines: ignoreEmpty,
+  lineEndings: ignoreNl,
+  ignoreCase: ignoreCase,
+  ignoreCommas: ignoreCommas,
+  ignoreNumbers: ignoreNumbers,
+);
+final modNorm = applyDiffIgnores(
+  modified,
+  whitespace: ignoreWs,
+  emptyLines: ignoreEmpty,
+  lineEndings: ignoreNl,
+  ignoreCase: ignoreCase,
+  ignoreCommas: ignoreCommas,
+  ignoreNumbers: ignoreNumbers,
+);
   if (origNorm.isEmpty || modNorm.isEmpty) return null;
 
   ref.watch(importRevisionProvider);
