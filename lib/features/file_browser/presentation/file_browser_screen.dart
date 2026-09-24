@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../parser/application/document_parser.dart';
+
+// 新（对）
+import '../../parser/application/document_parser.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../viewer/presentation/diff_viewer_screen.dart';
 import 'role_confirm_dialog.dart';
