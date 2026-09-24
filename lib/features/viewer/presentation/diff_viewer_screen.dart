@@ -790,6 +790,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
 /// 显示设置底部面板：行号显隐、正文字号、行号字号。
 /// 独立顶级类，不能写在 _DiffViewerScreenState 内部。
+/// 显示设置底部面板：行号显隐、正文字号、行号字号 + 12 个差异颜色。
 class _DisplaySettingsSheet extends ConsumerWidget {
   const _DisplaySettingsSheet();
 
@@ -800,62 +801,189 @@ class _DisplaySettingsSheet extends ConsumerWidget {
     final gutterSize = ref.watch(gutterFontSizeProvider);
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
+              const SizedBox(height: 12),
+              Text(
+                '显示设置',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView(
+                  children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('显示行号'),
+                      value: showLine,
+                      onChanged: (v) =>
+                          ref.read(showLineNumbersProvider.notifier).state = v,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '正文字号：${bodySize.toStringAsFixed(0)}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    Slider(
+                      min: 10,
+                      max: 28,
+                      divisions: 18,
+                      value: bodySize,
+                      label: bodySize.toStringAsFixed(0),
+                      onChanged: (v) =>
+                          ref.read(bodyFontSizeProvider.notifier).state = v,
+                    ),
+                    Text(
+                      '行号字号：${gutterSize.toStringAsFixed(0)}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    Slider(
+                      min: 8,
+                      max: 20,
+                      divisions: 12,
+                      value: gutterSize,
+                      label: gutterSize.toStringAsFixed(0),
+                      onChanged: (v) =>
+                          ref.read(gutterFontSizeProvider.notifier).state = v,
+                    ),
+                    const Divider(height: 32),
+                    Text(
+                      '差异颜色',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    _colorRow(context, ref, '纯删除行背景', deleteRowBgProvider),
+                    _colorRow(context, ref, '纯删除行字体', deleteRowFgProvider),
+                    _colorRow(context, ref, '纯新增行背景', insertRowBgProvider),
+                    _colorRow(context, ref, '纯新增行字体', insertRowFgProvider),
+                    _colorRow(context, ref, '修改行左背景', replaceLeftBgProvider),
+                    _colorRow(context, ref, '修改行左字体', replaceLeftFgProvider),
+                    _colorRow(context, ref, '修改行右背景', replaceRightBgProvider),
+                    _colorRow(context, ref, '修改行右字体', replaceRightFgProvider),
+                    _colorRow(context, ref, '字符删除背景', charDeleteBgProvider),
+                    _colorRow(context, ref, '字符删除字体', charDeleteFgProvider),
+                    _colorRow(context, ref, '字符新增背景', charInsertBgProvider),
+                    _colorRow(context, ref, '字符新增字体', charInsertFgProvider),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _colorRow(
+    BuildContext context,
+    WidgetRef ref,
+    String label,
+    StateProvider<Color> provider,
+  ) {
+    final color = ref.watch(provider);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: Text(label),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            colorToHex(color),
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
             ),
-            const SizedBox(height: 12),
-            Text(
-              '显示设置',
-              style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: () => _pickColor(context, ref, label, provider),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color,
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                borderRadius: BorderRadius.circular(4),
+              ),
             ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('显示行号'),
-              value: showLine,
-              onChanged: (v) =>
-                  ref.read(showLineNumbersProvider.notifier).state = v,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickColor(
+    BuildContext context,
+    WidgetRef ref,
+    String label,
+    StateProvider<Color> provider,
+  ) async {
+    final controller =
+        TextEditingController(text: colorToHex(ref.read(provider)));
+    String? error;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setState) => AlertDialog(
+          title: Text(label),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: '#RRGGBB',
+                  errorText: error,
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(() => error = null),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: hexToColor(controller.text) ?? ref.read(provider),
+                  border: Border.all(color: Theme.of(c).colorScheme.outline),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('取消'),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '正文字号：${bodySize.toStringAsFixed(0)}',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-            Slider(
-              min: 10,
-              max: 28,
-              divisions: 18,
-              value: bodySize,
-              label: bodySize.toStringAsFixed(0),
-              onChanged: (v) =>
-                  ref.read(bodyFontSizeProvider.notifier).state = v,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '行号字号：${gutterSize.toStringAsFixed(0)}',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-            Slider(
-              min: 8,
-              max: 20,
-              divisions: 12,
-              value: gutterSize,
-              label: gutterSize.toStringAsFixed(0),
-              onChanged: (v) =>
-                  ref.read(gutterFontSizeProvider.notifier).state = v,
+            FilledButton(
+              onPressed: () {
+                final parsed = hexToColor(controller.text);
+                if (parsed == null) {
+                  setState(() => error = '格式错误，需要 #RRGGBB');
+                  return;
+                }
+                ref.read(provider.notifier).state = parsed;
+                Navigator.pop(c);
+              },
+              child: const Text('确定'),
             ),
           ],
         ),
