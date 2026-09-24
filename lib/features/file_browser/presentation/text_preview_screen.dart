@@ -3,8 +3,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
-import '../../../preprocessing/application/encoding_detector.dart';
-import '../../../preprocessing/domain/encoding_type.dart';
+import '../../preprocessing/application/encoding_detector.dart';
+import '../../preprocessing/domain/encoding_type.dart';
 
 /// 纯文本预览页。点击文件浏览器里的文本文件进入。
 /// 只支持文本类扩展名；其它文件显示"暂不支持预览"。
