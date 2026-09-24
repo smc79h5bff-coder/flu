@@ -65,45 +65,45 @@ class SideBySideView extends ConsumerWidget {
             header(modifiedFileName, s.primary),
           ],
         ),
-Expanded(
-  child: Scrollbar(
-    controller: controller,
-    thumbVisibility: false,
-    child: ListView.builder(
-      key: const Key('side-by-side-list'),
-      controller: controller,
-      itemCount: rows.length,
-      itemBuilder: (ctx, i) {
-        // ... 原有内容，往里缩 2 格
-              final spec = rows[i];
-              final Widget row;
-              final List<int> keyOwners;
-              if (spec.del != null && spec.ins != null) {
-                row = _comboRow(
-                  context,
-                  result.entries[spec.del!],
-                  result.entries[spec.ins!],
-                  meta[spec.del!],
-                  meta[spec.ins!],
-                  c,
-                );
-                keyOwners = <int>[spec.del!, spec.ins!];
-              } else if (spec.del != null) {
-                final ei = spec.del!;
-                row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
-                keyOwners = <int>[ei];
-              } else {
-                final ei = spec.ins!;
-                row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
-                keyOwners = <int>[ei];
-              }
-              Widget out = row;
-              for (final k in keyOwners) {
-                final key = rowKeysByEntry?[k];
-                if (key != null) out = KeyedSubtree(key: key, child: out);
-              }
-              return out;
-            },
+        Expanded(
+          child: Scrollbar(
+            controller: controller,
+            thumbVisibility: false,
+            child: ListView.builder(
+              key: const Key('side-by-side-list'),
+              controller: controller,
+              itemCount: rows.length,
+              itemBuilder: (ctx, i) {
+                final spec = rows[i];
+                final Widget row;
+                final List<int> keyOwners;
+                if (spec.del != null && spec.ins != null) {
+                  row = _comboRow(
+                    context,
+                    result.entries[spec.del!],
+                    result.entries[spec.ins!],
+                    meta[spec.del!],
+                    meta[spec.ins!],
+                    c,
+                  );
+                  keyOwners = <int>[spec.del!, spec.ins!];
+                } else if (spec.del != null) {
+                  final ei = spec.del!;
+                  row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
+                  keyOwners = <int>[ei];
+                } else {
+                  final ei = spec.ins!;
+                  row = _alignedRow(ctx, result.entries[ei], meta[ei], c);
+                  keyOwners = <int>[ei];
+                }
+                Widget out = row;
+                for (final k in keyOwners) {
+                  final key = rowKeysByEntry?[k];
+                  if (key != null) out = KeyedSubtree(key: key, child: out);
+                }
+                return out;
+              },
+            ),
           ),
         ),
       ],
