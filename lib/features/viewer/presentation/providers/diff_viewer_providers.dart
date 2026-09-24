@@ -2,7 +2,7 @@ import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/foundation.dart';
 import 'package:charset/charset.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'package:flutter/material.dart';
 import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
