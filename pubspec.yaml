@@ -38,6 +38,7 @@ dependencies:
   gbk_codec: ^0.4.0
   enough_convert: ^1.6.0
   charset: ^2.0.1
+  crypto: ^3.0.0      # MD5 对比
 
 dev_dependencies:
   flutter_test:
