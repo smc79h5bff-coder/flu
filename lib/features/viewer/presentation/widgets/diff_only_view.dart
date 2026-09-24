@@ -19,6 +19,7 @@ class DiffOnlyView extends ConsumerWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+    this.onLongPressEntry,
     super.key,
   });
 
@@ -31,6 +32,9 @@ class DiffOnlyView extends ConsumerWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+
+  /// 长按某行时回调，参数是该行关联的 entry 下标（1 个或 2 个）。
+  final void Function(List<int> entryIndices)? onLongPressEntry;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -92,6 +96,13 @@ class DiffOnlyView extends ConsumerWidget {
                 for (final k in keyOwners) {
                   final key = rowKeysByEntry?[k];
                   if (key != null) out = KeyedSubtree(key: key, child: out);
+                }
+                if (onLongPressEntry != null) {
+                  out = GestureDetector(
+                    onLongPress: () => onLongPressEntry!(keyOwners),
+                    behavior: HitTestBehavior.opaque,
+                    child: out,
+                  );
                 }
                 return out;
               },
