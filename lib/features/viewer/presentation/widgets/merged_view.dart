@@ -188,7 +188,7 @@ class _EntryTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: RichText(
         text: TextSpan(
-          style: TextStyle(fontSize: bodyFontSize, color: color, height: 1.4),
+          style: TextStyle(fontSize: bodyFontSize, color: color, height: 1.1),
           children: _spans(text),
         ),
       ),
