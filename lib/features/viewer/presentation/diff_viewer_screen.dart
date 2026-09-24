@@ -862,7 +862,7 @@ void dispose() {
 appBar: AppBar(
   title: const Text(
     '对比结果',
-    style: TextStyle(fontSize: 16),
+    style: TextStyle(fontSize: 11),
   ),
         actions: [
           // 计数器
