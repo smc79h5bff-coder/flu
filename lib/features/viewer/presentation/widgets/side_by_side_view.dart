@@ -5,15 +5,6 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
 
-/// Side-by-side dual-pane view (PRD §2 Module 6). Each diff entry renders as
-/// ONE aligned row with a left cell (original side) and a right cell
-/// (modified side), so both columns always stay vertically in sync — in
-/// portrait and landscape alike.
-///   - equal   : text | text
-///   - delete  : old  | (blank)
-///   - insert  : (blank) | new
-///   - replace : old  | new
-/// Left / right scroll together via a single shared [controller].
 class SideBySideView extends StatelessWidget {
   const SideBySideView({
     required this.result,
@@ -22,31 +13,36 @@ class SideBySideView extends StatelessWidget {
     this.controller,
     this.findQuery = '',
     this.rowKeysByEntry,
+    this.showLineNumbers = true,
+    this.bodyFontSize = 14.0,
+    this.gutterFontSize = 11.0,
+    this.syncScroll = true,
     super.key,
   });
 
   final DiffResult result;
-
-  /// Optional filenames shown as column headers.
   final String? originalFileName;
   final String? modifiedFileName;
-
-  /// Single scroll controller shared by the aligned rows.
   final ScrollController? controller;
-
-  /// When non-empty, matching substrings inside each line are highlighted.
   final String findQuery;
-
-  /// Optional per-entry [GlobalKey]s used for precise [Scrollable.ensureVisible].
   final Map<int, GlobalKey>? rowKeysByEntry;
+  final bool showLineNumbers;
+  final double bodyFontSize;
+  final double gutterFontSize;
+  final bool syncScroll;
 
   @override
   Widget build(BuildContext context) {
-    // Line number each entry starts at, per side. -1 = not on that side.
+    if (syncScroll) return _buildSynced(context);
+    return _buildIndependent(context);
+  }
+
+  // ============ 同步滚动：左右共用一行 ============
+
+  Widget _buildSynced(BuildContext context) {
     final meta = _lineMeta(result);
     final rows = computeAlignedRows(result.entries);
     final s = Theme.of(context).colorScheme;
-
     final divider = Container(width: 1, color: s.outlineVariant);
 
     Widget header(String? name, Color color) {
@@ -76,7 +72,6 @@ class SideBySideView extends StatelessWidget {
               final Widget row;
               final List<int> keyOwners;
               if (spec.del != null && spec.ins != null) {
-                // Paired delete+insert row.
                 row = _comboRow(
                   context,
                   result.entries[spec.del!],
@@ -90,13 +85,10 @@ class SideBySideView extends StatelessWidget {
                 row = _alignedRow(ctx, result.entries[ei], meta[ei]);
                 keyOwners = <int>[ei];
               } else {
-                // ins-only: single insert row with empty left cell.
                 final ei = spec.ins!;
                 row = _alignedRow(ctx, result.entries[ei], meta[ei]);
                 keyOwners = <int>[ei];
               }
-              // 一个渲染行可能挂在多个 entry key 上（配对行同时挂 del/ins），
-              // 使查找/差异跳转命中任一侧都能精确定位。
               Widget out = row;
               for (final k in keyOwners) {
                 final key = rowKeysByEntry?[k];
@@ -110,8 +102,123 @@ class SideBySideView extends StatelessWidget {
     );
   }
 
-  /// Paired delete+insert row: left shows deleted chars (red + strike),
-  /// right shows added chars (green + underline), diffed against each other.
+  // ============ 独立滚动：左右两个 ListView ============
+
+  Widget _buildIndependent(BuildContext context) {
+    final meta = _lineMeta(result);
+    final s = Theme.of(context).colorScheme;
+    final divider = Container(width: 1, color: s.outlineVariant);
+
+    // 左侧只显示非 insert 的 entry；右侧只显示非 delete 的 entry。
+    final leftIndices = <int>[];
+    final rightIndices = <int>[];
+    for (var i = 0; i < result.entries.length; i++) {
+      final op = result.entries[i].operation;
+      if (op != DiffOperation.insert) leftIndices.add(i);
+      if (op != DiffOperation.delete) rightIndices.add(i);
+    }
+
+    Widget header(String? name, Color color) {
+      return name == null
+          ? const SizedBox.shrink()
+          : _PaneHeader(fileName: name, color: color);
+    }
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: header(originalFileName, s.error)),
+            divider,
+            Expanded(child: header(modifiedFileName, s.primary)),
+          ],
+        ),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  key: const Key('sbs-left-list'),
+                  itemCount: leftIndices.length,
+                  itemBuilder: (ctx, i) {
+                    final ei = leftIndices[i];
+                    return _singleSideTile(
+                      context,
+                      result.entries[ei],
+                      meta[ei].orig,
+                      isLeft: true,
+                    );
+                  },
+                ),
+              ),
+              divider,
+              Expanded(
+                child: ListView.builder(
+                  key: const Key('sbs-right-list'),
+                  itemCount: rightIndices.length,
+                  itemBuilder: (ctx, i) {
+                    final ei = rightIndices[i];
+                    return _singleSideTile(
+                      context,
+                      result.entries[ei],
+                      meta[ei].mod,
+                      isLeft: false,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 独立滚动模式下的单侧行。只显示 entry 的一侧。
+  Widget _singleSideTile(
+    BuildContext context,
+    DiffEntry e,
+    int line, {
+    required bool isLeft,
+  }) {
+    final s = Theme.of(context).colorScheme;
+    final String text;
+    final String symbol;
+    final Color? color;
+    if (e.operation == DiffOperation.equal) {
+      text = e.text;
+      symbol = '';
+      color = null;
+    } else if (e.operation == DiffOperation.delete) {
+      text = e.text;
+      symbol = '−';
+      color = s.error;
+    } else if (e.operation == DiffOperation.insert) {
+      text = e.text;
+      symbol = '+';
+      color = s.error;
+    } else {
+      // replace
+      text = isLeft
+          ? (e.oldText.isEmpty ? e.text : e.oldText)
+          : (e.newText.isEmpty ? e.text : e.newText);
+      symbol = '~';
+      color = s.tertiary;
+    }
+    return _Cell(
+      text: text,
+      line: line,
+      symbol: symbol,
+      color: color ?? (isLeft ? s.surfaceVariant : s.surface),
+      bg: color == null ? (isLeft ? s.surfaceVariant : s.surface) : null,
+      findQuery: findQuery,
+      showLineNumbers: showLineNumbers,
+      bodyFontSize: bodyFontSize,
+      gutterFontSize: gutterFontSize,
+    );
+  }
+
   Widget _comboRow(
     BuildContext context,
     DiffEntry del,
@@ -132,6 +239,9 @@ class SideBySideView extends StatelessWidget {
             bg: null,
             findQuery: findQuery,
             charDiff: _CharDiff(before: del.text, after: ins.text, side: false),
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -144,30 +254,34 @@ class SideBySideView extends StatelessWidget {
             bg: null,
             findQuery: findQuery,
             charDiff: _CharDiff(before: del.text, after: ins.text, side: true),
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
       ],
     );
   }
 
-  Widget _alignedRow(BuildContext context, DiffEntry e, ({int orig, int mod}) m) {
+  Widget _alignedRow(
+      BuildContext context, DiffEntry e, ({int orig, int mod}) m) {
     final s = Theme.of(context).colorScheme;
 
-    // Left cell text + marker.
     final (String leftText, String leftSym, Color? leftColor) =
         switch (e.operation) {
       DiffOperation.equal => (e.text, '', null),
       DiffOperation.delete => (e.text, '−', s.error),
       DiffOperation.insert => ('', '', null),
-      DiffOperation.replace => (e.oldText.isEmpty ? e.text : e.oldText, '~', s.tertiary),
+      DiffOperation.replace =>
+        (e.oldText.isEmpty ? e.text : e.oldText, '~', s.tertiary),
     };
-    // Right cell text + marker.
     final (String rightText, String rightSym, Color? rightColor) =
         switch (e.operation) {
       DiffOperation.equal => (e.text, '', null),
       DiffOperation.insert => (e.text, '+', s.error),
       DiffOperation.delete => ('', '', null),
-      DiffOperation.replace => (e.newText.isEmpty ? e.text : e.newText, '~', s.tertiary),
+      DiffOperation.replace =>
+        (e.newText.isEmpty ? e.text : e.newText, '~', s.tertiary),
     };
 
     final _CharDiff? leftCharDiff = e.operation == DiffOperation.replace
@@ -197,6 +311,9 @@ class SideBySideView extends StatelessWidget {
             bg: leftColor == null ? s.surfaceVariant : null,
             findQuery: findQuery,
             charDiff: leftCharDiff,
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -209,6 +326,9 @@ class SideBySideView extends StatelessWidget {
             bg: rightColor == null ? s.surface : null,
             findQuery: findQuery,
             charDiff: rightCharDiff,
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
       ],
@@ -216,13 +336,13 @@ class SideBySideView extends StatelessWidget {
   }
 }
 
-/// Holds the two texts + which side to render for a character-level diff cell.
 class _CharDiff {
-  const _CharDiff({required this.before, required this.after, required this.side});
+  const _CharDiff(
+      {required this.before, required this.after, required this.side});
 
   final String before;
   final String after;
-  final bool side; // true=right(new), false=left(old)
+  final bool side;
 }
 
 class _Cell extends StatelessWidget {
@@ -234,6 +354,9 @@ class _Cell extends StatelessWidget {
     required this.findQuery,
     this.bg,
     this.charDiff,
+    this.showLineNumbers = true,
+    this.bodyFontSize = 14.0,
+    this.gutterFontSize = 11.0,
   });
 
   final String text;
@@ -243,10 +366,16 @@ class _Cell extends StatelessWidget {
   final String findQuery;
   final Color? bg;
   final _CharDiff? charDiff;
+  final bool showLineNumbers;
+  final double bodyFontSize;
+  final double gutterFontSize;
 
   @override
   Widget build(BuildContext context) {
-    final body = Theme.of(context).textTheme.bodyMedium;
+    final body = Theme.of(context)
+        .textTheme
+        .bodyMedium
+        ?.copyWith(fontSize: bodyFontSize);
     final outline = Theme.of(context).colorScheme.outline;
 
     Widget content;
@@ -270,17 +399,20 @@ class _Cell extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 26,
-            child: Text(
-              line < 0 ? '' : '$line',
-              textAlign: TextAlign.end,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: outline),
+          if (showLineNumbers)
+            SizedBox(
+              width: 30,
+              child: Text(
+                line < 0 ? '' : '$line',
+                textAlign: TextAlign.end,
+                style: TextStyle(fontSize: gutterFontSize, color: outline),
+              ),
             ),
-          ),
           if (symbol.isNotEmpty) ...[
             const SizedBox(width: 4),
-            Text(symbol, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+            Text(symbol,
+                style: TextStyle(
+                    color: color, fontWeight: FontWeight.bold, fontSize: bodyFontSize)),
           ],
           const SizedBox(width: 6),
           Expanded(child: content),
@@ -310,24 +442,8 @@ class _Cell extends StatelessWidget {
   }
 }
 
-/// 一个渲染行对应的 entry 索引。至少一个非 null。
-/// - del & ins 都非 null：配对行（左 delete / 右 insert）
-/// - 只有 del：单独 delete 或 equal / replace 行
-/// - 只有 ins：单独 insert 行（左空右内容）
 typedef AlignedRow = ({int? del, int? ins});
 
-/// **块级对齐**：把 dmp 输出的“分组”delete/insert 转成“按行号一一配对”的
-/// 行表。dmp 输出的 entries 形状是：
-///
-///     [del del ... del] [ins ins ... ins] [equal] [del del] [ins ins] ...
-///
-/// 之前 `_computeRows` 只配对“紧邻的 del+ins”，因此一块 N 行的替换只配对
-/// 成功 1 对（最后一个 del + 第一个 ins），其余 N-1 对都退化成整行 delete
-/// 或整行 insert，行内字符 diff 从不触发 —— 表现就是“问号没标出”“仅差
-/// 异视图只显示两处不同”。
-///
-/// 本函数按块配对：del 块与紧跟的 ins 块按 min(delLen, insLen) 一一配对，
-/// 多出来的 delete / insert 各自单独成行。
 List<AlignedRow> computeAlignedRows(List<DiffEntry> entries) {
   final rows = <AlignedRow>[];
   var i = 0;
@@ -335,14 +451,12 @@ List<AlignedRow> computeAlignedRows(List<DiffEntry> entries) {
     final e = entries[i];
     if (e.operation == DiffOperation.delete ||
         e.operation == DiffOperation.insert) {
-      // 收集连续的 delete
       final delStart = i;
       while (i < entries.length &&
           entries[i].operation == DiffOperation.delete) {
         i++;
       }
       final delEnd = i;
-      // 收集紧跟的连续 insert
       final insStart = i;
       while (i < entries.length &&
           entries[i].operation == DiffOperation.insert) {
@@ -364,7 +478,6 @@ List<AlignedRow> computeAlignedRows(List<DiffEntry> entries) {
         rows.add((del: null, ins: insStart + k));
       }
     } else {
-      // equal 或 replace：单行显示
       rows.add((del: i, ins: null));
       i++;
     }
@@ -372,7 +485,6 @@ List<AlignedRow> computeAlignedRows(List<DiffEntry> entries) {
   return rows;
 }
 
-/// Computes the running line number for each side at every entry.
 List<({int orig, int mod})> _lineMeta(DiffResult result) {
   final meta = <({int orig, int mod})>[];
   var o = 0, m = 0;
@@ -390,7 +502,6 @@ List<({int orig, int mod})> _lineMeta(DiffResult result) {
   return meta;
 }
 
-/// Slim header strip showing which file the column below represents.
 class _PaneHeader extends StatelessWidget {
   const _PaneHeader({required this.fileName, required this.color});
 
@@ -407,7 +518,8 @@ class _PaneHeader extends StatelessWidget {
         fileName,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+        style:
+            TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }
