@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,11 +28,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   final Map<int, GlobalKey> _rowKeysByEntry = <int, GlobalKey>{};
 
-  /// Position into [_diffIndices] of the currently focused diff entry.
-  /// -1 = nothing focused yet (initial state).
   int _currentDiffPos = -1;
-
-  /// 当前视口里第一个可见差异条目的 entry index（跨视图切换用）。
   int? _anchorEntryIndex;
 
   bool _showFind = false;
@@ -40,8 +38,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   bool _landscape = false;
 
-  /// 缓存上次计算出的 diff indices，避免滚动时每帧重新扫描一遍 entries。
-  /// 只在 diff 结果变化时失效。
+  // 删除状态：某一侧的文件是否已从磁盘删除。
+  bool _originalDeleted = false;
+  bool _modifiedDeleted = false;
+
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
@@ -180,8 +180,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
-  /// Indices of all non-equal entries in the current diff result.
-  /// 结果按 diff 对象缓存：滚动时每帧都会读这个列表，重复 O(n) 扫描会拖慢。
   List<int> _diffIndices() {
     final diff = _diff;
     if (diff == null) return const <int>[];
@@ -229,7 +227,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollToEntry(indices[pos]);
   }
 
-  /// 遍历所有已登记的 GlobalKey，找到第一个还在视口里的差异条目。
   int? _findFirstVisibleDiffEntry() {
     if (_rowKeysByEntry.isEmpty) return null;
     final sorted = _rowKeysByEntry.keys.toList()..sort();
@@ -246,7 +243,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return null;
   }
 
-  /// 记录 anchor 并同步顶部“N/总数”计数器。
   void _captureAnchor() {
     final anchorEntry = _findFirstVisibleDiffEntry();
     if (anchorEntry == null) return;
@@ -261,7 +257,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
-  /// 返回 indices 里第一个 >= value 的下标（二分）。
   int _lowerBound(List<int> indices, int value) {
     var lo = 0, hi = indices.length;
     while (lo < hi) {
@@ -297,6 +292,108 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             DeviceOrientation.landscapeRight,
           ]
         : const [DeviceOrientation.portraitUp]);
+  }
+
+  // ---------- 删除文件 ----------
+
+  static String _fmtSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+  }
+
+  static String _fmtTime(DateTime t) {
+    String two(int n) => n < 10 ? '0$n' : '$n';
+    return '${t.year}-${two(t.month)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+  }
+
+  Future<bool> _confirmDelete(String label, String? path) async {
+    if (path == null) return false;
+    int? size;
+    DateTime? modified;
+    try {
+      final st = await File(path).stat();
+      size = st.size;
+      modified = st.modified;
+    } catch (_) {
+      // 文件可能已经不存在
+    }
+
+    if (!mounted) return false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('删除$label？'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('请确认以下信息，防止删错：'),
+            const SizedBox(height: 8),
+            Text('路径：$path',
+                style: Theme.of(c).textTheme.bodySmall),
+            if (size != null)
+              Text('大小：${_fmtSize(size)}',
+                  style: Theme.of(c).textTheme.bodySmall),
+            if (modified != null)
+              Text('修改时间：${_fmtTime(modified)}',
+                  style: Theme.of(c).textTheme.bodySmall),
+            const SizedBox(height: 12),
+            const Text(
+              '删除后无法恢复。',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _deleteSide({required bool isOriginal}) async {
+    final path = ref.read(
+      isOriginal ? originalFilePathProvider : modifiedFilePathProvider,
+    );
+    final label = isOriginal ? '原文件' : '修改版';
+    final ok = await _confirmDelete(label, path);
+    if (!ok || !mounted) return;
+
+    try {
+      await File(path!).delete();
+      if (!mounted) return;
+      setState(() {
+        if (isOriginal) {
+          _originalDeleted = true;
+        } else {
+          _modifiedDeleted = true;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$label 已删除')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('删除失败：$e')),
+      );
+    }
   }
 
   @override
@@ -373,13 +470,46 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             tooltip: '编辑文档',
             onPressed: _openEdit,
           ),
-          PopupMenuButton<void>(
+          PopupMenuButton<String>(
             icon: const Icon(Icons.tune),
             tooltip: '更多操作',
-            onSelected: (_) {},
+            onSelected: (v) {
+              if (v == 'delOriginal') {
+                _deleteSide(isOriginal: true);
+              } else if (v == 'delModified') {
+                _deleteSide(isOriginal: false);
+              } else if (v == 'orientation') {
+                _toggleOrientation();
+              }
+            },
             itemBuilder: (context) => [
-              PopupMenuItem<void>(
-                value: null,
+              PopupMenuItem<String>(
+                value: 'delOriginal',
+                enabled: !_originalDeleted &&
+                    ref.read(originalFilePathProvider) != null,
+                child: Row(
+                  children: [
+                    const Icon(Icons.delete_outline, color: Colors.red),
+                    const SizedBox(width: 10),
+                    Text(_originalDeleted ? '原文件已删除' : '删除原文件'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'delModified',
+                enabled: !_modifiedDeleted &&
+                    ref.read(modifiedFilePathProvider) != null,
+                child: Row(
+                  children: [
+                    const Icon(Icons.delete_outline, color: Colors.red),
+                    const SizedBox(width: 10),
+                    Text(_modifiedDeleted ? '修改版已删除' : '删除修改版'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
+                value: 'orientation',
                 child: Row(
                   children: [
                     Icon(
@@ -390,10 +520,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     Text(_landscape ? '切换到竖屏' : '切换到横屏'),
                   ],
                 ),
-                onTap: () {
-                  Navigator.of(context).maybePop();
-                  _toggleOrientation();
-                },
               ),
             ],
           ),
@@ -401,6 +527,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       ),
       body: Column(
         children: [
+          if (_originalDeleted || _modifiedDeleted) _buildDeletedBanner(),
           if (_showFind) _buildFindBar(),
           DiffStatsBar(result: diff),
           if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
@@ -461,8 +588,34 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
-  /// 性能面板：显示最近一次 diff 各阶段耗时（毫秒）。
-  /// 只在 [showPerfOverlayProvider] 为 true 时显示。调试用。
+  /// 顶部红条：显示哪些文件已从磁盘删除（内容仍保留显示）。
+  Widget _buildDeletedBanner() {
+    final parts = <String>[];
+    if (_originalDeleted) parts.add('原文件');
+    if (_modifiedDeleted) parts.add('修改版');
+    return Container(
+      width: double.infinity,
+      color: Colors.red.shade100,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber, size: 16, color: Colors.red.shade900),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${parts.join(" / ")} 已从磁盘删除（下方内容仅内存保留）',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red.shade900,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPerfOverlay() {
     final perf = ref.watch(lastDiffPerfProvider);
     if (perf == null) return const SizedBox.shrink();
