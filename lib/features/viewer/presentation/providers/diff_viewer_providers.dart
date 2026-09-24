@@ -413,3 +413,105 @@ final modNorm = applyDiffIgnores(
 
   return DiffResult(entries: entries, engineType: DiffEngineType.line);
 });
+
+// ==================== 差异颜色 ====================
+//
+// 12 个颜色项，分三组：
+//   1) 纯删除 / 纯新增行的整行颜色（正红 / 正绿）
+//   2) 修改行的整行颜色（浅粉 / 浅绿）+ 字体色
+//   3) 字符级差异（深红 / 深绿）+ 字体色
+//
+// 全部从 provider 读，改动立即生效，不做持久化（持久化阶段统一做）。
+
+/// 纯删除行整行背景（左侧独有行）。
+final deleteRowBgProvider =
+    StateProvider<Color>((ref) => const Color(0xFFFF0000));
+
+/// 纯删除行整行字体。
+final deleteRowFgProvider =
+    StateProvider<Color>((ref) => const Color(0xFF000000));
+
+/// 纯新增行整行背景（右侧独有行）。
+final insertRowBgProvider =
+    StateProvider<Color>((ref) => const Color(0xFF00FF00));
+
+/// 纯新增行整行字体。
+final insertRowFgProvider =
+    StateProvider<Color>((ref) => const Color(0xFF000000));
+
+/// 修改行左侧（原文件侧）整行背景。
+final replaceLeftBgProvider =
+    StateProvider<Color>((ref) => const Color(0xFFFFCDD2));
+
+/// 修改行左侧整行字体。
+final replaceLeftFgProvider =
+    StateProvider<Color>((ref) => const Color(0xFF000000));
+
+/// 修改行右侧（修改版侧）整行背景。
+final replaceRightBgProvider =
+    StateProvider<Color>((ref) => const Color(0xFFC8E6C9));
+
+/// 修改行右侧整行字体。
+final replaceRightFgProvider =
+    StateProvider<Color>((ref) => const Color(0xFF000000));
+
+/// 字符级删除（左侧行内被删的字）背景。
+final charDeleteBgProvider =
+    StateProvider<Color>((ref) => const Color(0xFFB71C1C));
+
+/// 字符级删除字体。
+final charDeleteFgProvider =
+    StateProvider<Color>((ref) => const Color(0xFFFFFFFF));
+
+/// 字符级新增（右侧行内新增的字）背景。
+final charInsertBgProvider =
+    StateProvider<Color>((ref) => const Color(0xFF1B5E20));
+
+/// 字符级新增字体。
+final charInsertFgProvider =
+    StateProvider<Color>((ref) => const Color(0xFFFFFFFF));
+
+/// 一次性从 ref 读 12 个颜色的辅助类型。
+typedef DiffColors = ({
+  Color deleteRowBg,
+  Color deleteRowFg,
+  Color insertRowBg,
+  Color insertRowFg,
+  Color replaceLeftBg,
+  Color replaceLeftFg,
+  Color replaceRightBg,
+  Color replaceRightFg,
+  Color charDeleteBg,
+  Color charDeleteFg,
+  Color charInsertBg,
+  Color charInsertFg,
+});
+
+DiffColors watchDiffColors(WidgetRef ref) => (
+      deleteRowBg: ref.watch(deleteRowBgProvider),
+      deleteRowFg: ref.watch(deleteRowFgProvider),
+      insertRowBg: ref.watch(insertRowBgProvider),
+      insertRowFg: ref.watch(insertRowFgProvider),
+      replaceLeftBg: ref.watch(replaceLeftBgProvider),
+      replaceLeftFg: ref.watch(replaceLeftFgProvider),
+      replaceRightBg: ref.watch(replaceRightBgProvider),
+      replaceRightFg: ref.watch(replaceRightFgProvider),
+      charDeleteBg: ref.watch(charDeleteBgProvider),
+      charDeleteFg: ref.watch(charDeleteFgProvider),
+      charInsertBg: ref.watch(charInsertBgProvider),
+      charInsertFg: ref.watch(charInsertFgProvider),
+    );
+
+/// Color → "#RRGGBB"（大写）。
+String colorToHex(Color c) {
+  final v = c.toARGB32() & 0xFFFFFF;
+  return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+}
+
+/// "#RRGGBB" → Color。格式错误返回 null。
+Color? hexToColor(String s) {
+  if (s.length != 7 || !s.startsWith('#')) return null;
+  final v = int.tryParse(s.substring(1), radix: 16);
+  if (v == null) return null;
+  return Color(0xFF000000 | v);
+}
