@@ -322,6 +322,8 @@ void dispose() {
   void _openDisplaySettings() {
     showModalBottomSheet<void>(
       context: context,
+      
+    isScrollControlled: true,
       builder: (_) => const _DisplaySettingsSheet(),
     );
   }
