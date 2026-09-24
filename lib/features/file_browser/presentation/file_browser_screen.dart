@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-
+import '../../preprocessing/domain/encoding_type.dart';
 // 新（对）
 import '../../parser/application/document_parser.dart';
 import '../../import/presentation/providers/import_providers.dart';
