@@ -42,13 +42,28 @@ class _EntryInfo {
 }
 
 class _SearchHit {
-  const _SearchHit({required this.path, required this.name});
+  _SearchHit({
+    required this.path,
+    required this.name,
+    this.size,
+    this.modified,
+  });
   final String path;
   final String name;
+  final int? size;
+  final DateTime? modified;
 }
 
 class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   static const String _rootPath = '/storage/emulated/0';
+
+  // 弹窗统一参数：几乎铺满屏，间距最小
+  static const EdgeInsets _dlgInset = EdgeInsets.all(4);
+  static const EdgeInsets _dlgTitlePad =
+      EdgeInsets.fromLTRB(12, 8, 12, 0);
+  static const EdgeInsets _dlgContentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
+  static const EdgeInsets _dlgActionsPad =
+      EdgeInsets.fromLTRB(4, 0, 4, 4);
 
   late String _currentPath;
   List<_EntryInfo>? _entries;
@@ -111,9 +126,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           final st = await e.stat();
           modified = st.modified;
           if (!isDir) size = st.size;
-        } catch (_) {
-          // 忽略
-        }
+        } catch (_) {}
         return _EntryInfo(
           entity: e,
           name: name,
@@ -221,7 +234,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   // ==================== 搜索 ====================
 
   void _onSearchChanged(String v) {
-    setState(() {}); // 让 clear 按钮显隐
+    setState(() {});
   }
 
   void _doSearch() {
@@ -257,12 +270,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
 
     final value = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(
-        pos.dx,
-        pos.dy + size.height,
-        0,
-        0,
-      ),
+      position: RelativeRect.fromLTRB(pos.dx, pos.dy + size.height, 0, 0),
       items: [
         CheckedPopupMenuItem<String>(
           value: 'current',
@@ -384,7 +392,19 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         } else if (e is File) {
           final name = e.path.split('/').last;
           if (name.toLowerCase().contains(lowerQuery)) {
-            results.add(_SearchHit(path: e.path, name: name));
+            int? size;
+            DateTime? modified;
+            try {
+              final st = await e.stat();
+              size = st.size;
+              modified = st.modified;
+            } catch (_) {}
+            results.add(_SearchHit(
+              path: e.path,
+              name: name,
+              size: size,
+              modified: modified,
+            ));
             final now = DateTime.now();
             if (mounted &&
                 now.difference(_lastUiRefresh).inMilliseconds > 100) {
@@ -394,14 +414,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           }
         }
       }
-    } catch (_) {
-      // 权限不够或目录读取失败，忽略
-    }
+    } catch (_) {}
   }
 
   Future<void> _showSearchFolderPicker() async {
     final result = await showDialog<List<String>>(
       context: context,
+      barrierDismissible: false,
       builder: (_) => _SearchFolderPickerDialog(
         rootPath: _rootPath,
         initialPath: _currentPath,
@@ -535,39 +554,49 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       await showDialog<void>(
         context: context,
         builder: (c) => AlertDialog(
+          insetPadding: _dlgInset,
+          titlePadding: _dlgTitlePad,
+          contentPadding: _dlgContentPad,
+          actionsPadding: _dlgActionsPad,
           title: const Text('MD5 对比'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name1,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                SelectableText(
-                  h1,
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 12),
-                ),
-                const SizedBox(height: 14),
-                Text(name2,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                SelectableText(
-                  h2,
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 12),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  same ? '相同' : '不同',
-                  style: TextStyle(
-                    color: same ? Colors.red : Colors.green,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name1,
+                      style:
+                          const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    h1,
+                    style: const TextStyle(
+                        fontFamily: 'monospace', fontSize: 12),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 14),
+                  Text(name2,
+                      style:
+                          const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    h2,
+                    style: const TextStyle(
+                        fontFamily: 'monospace', fontSize: 12),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    same ? '相同' : '不同',
+                    style: TextStyle(
+                      color: same ? Colors.red : Colors.green,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -600,14 +629,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       accessed = st.accessed;
       size = st.size;
       isDir = st.type == FileSystemEntityType.directory;
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
 
     if (!mounted) return;
 
     Widget row(String label, String value) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.only(bottom: 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -621,20 +648,30 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     await showDialog<void>(
       context: context,
       builder: (c) => AlertDialog(
+        insetPadding: _dlgInset,
+        titlePadding: _dlgTitlePad,
+        contentPadding: _dlgContentPad,
+        actionsPadding: _dlgActionsPad,
         title: const Text('属性'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              row('名称', name),
-              row('路径', path),
-              row('类型', isDir ? '文件夹' : '文件'),
-              row('大小',
-                  isDir ? '—' : (size == null ? '—' : _formatSize(size))),
-              if (modified != null) row('修改时间', _formatTimeFull(modified)),
-              if (accessed != null) row('访问时间', _formatTimeFull(accessed)),
-            ],
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                row('名称', name),
+                row('路径', path),
+                row('类型', isDir ? '文件夹' : '文件'),
+                row('大小',
+                    isDir ? '—' : (size == null ? '—' : _formatSize(size))),
+                if (modified != null)
+                  row('修改时间', _formatTimeFull(modified)),
+                if (accessed != null)
+                  row('访问时间', _formatTimeFull(accessed)),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -680,34 +717,48 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (c, setState) => AlertDialog(
+          insetPadding: _dlgInset,
+          titlePadding: _dlgTitlePad,
+          contentPadding: _dlgContentPad,
+          actionsPadding: _dlgActionsPad,
           title: const Text('排序方式'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final f in _SortField.values)
-                RadioListTile<_SortField>(
-                  dense: true,
-                  title: Text(_sortLabel(f)),
-                  value: f,
-                  groupValue: tmpField,
-                  onChanged: (v) => setState(() => tmpField = v ?? tmpField),
-                ),
-              const Divider(),
-              RadioListTile<bool>(
-                dense: true,
-                title: const Text('升序'),
-                value: true,
-                groupValue: tmpAsc,
-                onChanged: (_) => setState(() => tmpAsc = true),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final f in _SortField.values)
+                    RadioListTile<_SortField>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(_sortLabel(f)),
+                      value: f,
+                      groupValue: tmpField,
+                      onChanged: (v) =>
+                          setState(() => tmpField = v ?? tmpField),
+                    ),
+                  const Divider(),
+                  RadioListTile<bool>(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('升序'),
+                    value: true,
+                    groupValue: tmpAsc,
+                    onChanged: (_) => setState(() => tmpAsc = true),
+                  ),
+                  RadioListTile<bool>(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('降序'),
+                    value: false,
+                    groupValue: tmpAsc,
+                    onChanged: (_) => setState(() => tmpAsc = false),
+                  ),
+                ],
               ),
-              RadioListTile<bool>(
-                dense: true,
-                title: const Text('降序'),
-                value: false,
-                groupValue: tmpAsc,
-                onChanged: (_) => setState(() => tmpAsc = false),
-              ),
-            ],
+            ),
           ),
           actions: [
             TextButton(
@@ -751,23 +802,26 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     final picked = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
+        insetPadding: _dlgInset,
+        titlePadding: _dlgTitlePad,
+        contentPadding: _dlgContentPad,
+        actionsPadding: _dlgActionsPad,
         title: const Text('已收藏目录'),
         content: SizedBox(
           width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.85,
           child: ListView.builder(
-            shrinkWrap: true,
             itemCount: _favorites.length,
             itemBuilder: (ctx, i) {
               final p = _favorites[i];
               return ListTile(
                 dense: true,
+                contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.folder, color: Colors.amber),
                 title: Text(p.split('/').last),
                 subtitle: Text(
                   p,
                   style: const TextStyle(fontSize: 11),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
                 onTap: () => Navigator.pop(c, p),
                 trailing: IconButton(
@@ -815,6 +869,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
+        insetPadding: _dlgInset,
+        titlePadding: _dlgTitlePad,
+        contentPadding: _dlgContentPad,
+        actionsPadding: _dlgActionsPad,
         title: Text(title),
         content: Text(message),
         actions: [
@@ -990,40 +1048,41 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     }
   }
 
-  /// 长按标题 → 弹跳转目录对话框。
   Future<void> _showJumpToPathDialog() async {
     final ctrl = TextEditingController();
     final path = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
+        insetPadding: _dlgInset,
+        titlePadding: _dlgTitlePad,
+        contentPadding: _dlgContentPad,
+        actionsPadding: _dlgActionsPad,
         title: const Text('跳转到目录'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '输入或粘贴完整路径：',
-              style: TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                hintText: '/storage/emulated/0/xxx',
-                border: OutlineInputBorder(),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('输入或粘贴完整路径：',
+                  style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '/storage/emulated/0/xxx',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (v) => Navigator.pop(c, v),
               ),
-              onSubmitted: (v) => Navigator.pop(c, v),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '若粘贴的是文件路径，会跳到该文件所在目录',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade600,
+              const SizedBox(height: 8),
+              Text(
+                '若粘贴的是文件路径，会跳到该文件所在目录',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -1421,6 +1480,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // 第一行：对比 / 属性 / 复制路径
             Row(
               children: [
                 Expanded(
@@ -1428,14 +1488,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
                     icon: const Icon(Icons.compare_arrows, size: 18),
                     label: const Text('对比'),
                     onPressed: canCompare ? _startCompare : null,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    icon: const Icon(Icons.fingerprint, size: 18),
-                    label: const Text('MD5'),
-                    onPressed: canMd5 ? _md5Compare : null,
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -1457,8 +1509,16 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               ],
             ),
             const SizedBox(height: 4),
+            // 第二行：MD5 / 重命名 / 移动 / 复制 / 删除
             Row(
               children: [
+                Expanded(
+                  child: _wideAction(
+                    icon: Icons.fingerprint,
+                    label: 'MD5',
+                    onPressed: canMd5 ? _md5Compare : null,
+                  ),
+                ),
                 Expanded(
                   child: _wideAction(
                     icon: Icons.drive_file_rename_outline,
@@ -1503,7 +1563,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     Color? color,
   }) {
     final disabled = onPressed == null;
-    final c = disabled ? Colors.grey : (color ?? Colors.black87);
+    final c = disabled
+        ? Theme.of(context).disabledColor
+        : (color ?? Theme.of(context).colorScheme.onSurface);
     return InkWell(
       onTap: onPressed,
       child: Padding(
@@ -1535,8 +1597,14 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         itemBuilder: (ctx, i) {
           final hit = _searchResults[i];
           final selected = _selectedPaths.contains(hit.path);
+          final metaLine = [
+            _formatSize(hit.size),
+            _formatTime(hit.modified),
+          ].where((s) => s.isNotEmpty).join(' · ');
           return ListTile(
             dense: true,
+            isThreeLine: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
             selected: selected,
             selectedTileColor: Theme.of(context)
                 .colorScheme
@@ -1553,13 +1621,25 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            subtitle: Text(
-              _relPath(hit.path),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (metaLine.isNotEmpty)
+                  Text(
+                    metaLine,
+                    style: Theme.of(context).textTheme.labelSmall,
                   ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+                Text(
+                  hit.path,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                  softWrap: true,
+                ),
+              ],
             ),
             onTap: () {
               if (_selectionMode) {
@@ -1686,6 +1766,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
 
 // ==================== 辅助 Widget ====================
 
+const EdgeInsets _dlgInsetG = EdgeInsets.all(4);
+const EdgeInsets _dlgTitlePadG = EdgeInsets.fromLTRB(12, 8, 12, 0);
+const EdgeInsets _dlgContentPadG = EdgeInsets.fromLTRB(8, 4, 8, 4);
+const EdgeInsets _dlgActionsPadG = EdgeInsets.fromLTRB(4, 0, 4, 4);
+
 class _TextInputDialog extends StatefulWidget {
   const _TextInputDialog({
     required this.title,
@@ -1717,6 +1802,10 @@ class _TextInputDialogState extends State<_TextInputDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      insetPadding: _dlgInsetG,
+      titlePadding: _dlgTitlePadG,
+      contentPadding: _dlgContentPadG,
+      actionsPadding: _dlgActionsPadG,
       title: Text(widget.title),
       content: TextField(
         controller: _ctrl,
@@ -1739,7 +1828,6 @@ class _TextInputDialogState extends State<_TextInputDialog> {
 }
 
 /// 只显示目录的路径选择器。用于"移动到 / 复制到"。
-/// 顶部有跳转输入框，可粘贴路径直接跳转。
 class _DirectoryPickerDialog extends StatefulWidget {
   const _DirectoryPickerDialog({
     required this.title,
@@ -1838,16 +1926,19 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
         : '~${_path.substring(widget.rootPath.length)}';
 
     return AlertDialog(
+      insetPadding: _dlgInsetG,
+      titlePadding: _dlgTitlePadG,
+      contentPadding: EdgeInsets.zero,
+      actionsPadding: _dlgActionsPadG,
       title: Text(widget.title),
-      contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
       content: SizedBox(
         width: double.maxFinite,
-        height: MediaQuery.of(context).size.height * 0.7,
+        height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
               child: Row(
                 children: [
                   Expanded(
@@ -1857,11 +1948,13 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
                         hintText: '粘贴路径跳转',
                         isDense: true,
                         border: OutlineInputBorder(),
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                       ),
                       onSubmitted: (v) => _jumpToPath(v.trim()),
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
                   IconButton(
                     icon: const Icon(Icons.arrow_forward),
                     tooltip: '跳转',
@@ -1870,23 +1963,26 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
                 ],
               ),
             ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_upward),
-                  onPressed: _canGoUp ? _goUp : null,
-                  tooltip: '上一级',
-                ),
-                Expanded(
-                  child: Text(
-                    relPath,
-                    style: Theme.of(context).textTheme.labelSmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_upward),
+                    onPressed: _canGoUp ? _goUp : null,
+                    tooltip: '上一级',
+                    visualDensity: VisualDensity.compact,
                   ),
-                ),
-              ],
+                  Expanded(
+                    child: Text(
+                      relPath,
+                      style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const Divider(height: 1),
             Expanded(
@@ -1901,6 +1997,8 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
                             final name = d.path.split('/').last;
                             return ListTile(
                               dense: true,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
                               leading: const Icon(Icons.folder,
                                   color: Colors.amber),
                               title: Text(name),
@@ -2009,24 +2107,27 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
       context: context,
       builder: (outerContext) => StatefulBuilder(
         builder: (innerContext, setInnerState) => AlertDialog(
+          insetPadding: _dlgInsetG,
+          titlePadding: _dlgTitlePadG,
+          contentPadding: _dlgContentPadG,
+          actionsPadding: _dlgActionsPadG,
           title: const Text('已勾选文件夹'),
           content: SizedBox(
             width: double.maxFinite,
+            height: MediaQuery.of(innerContext).size.height * 0.85,
             child: _selected.isEmpty
                 ? const Text('还没有勾选任何文件夹')
                 : ListView.builder(
-                    shrinkWrap: true,
                     itemCount: _selected.length,
                     itemBuilder: (ctx, i) {
                       final p = _selected[i];
                       return ListTile(
                         dense: true,
+                        contentPadding: EdgeInsets.zero,
                         title: Text(p.split('/').last),
                         subtitle: Text(
                           p,
                           style: const TextStyle(fontSize: 11),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         trailing: IconButton(
                           icon: const Icon(Icons.close, size: 18),
@@ -2058,30 +2159,37 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
         : '~${_path.substring(widget.rootPath.length)}';
 
     return AlertDialog(
+      insetPadding: _dlgInsetG,
+      titlePadding: _dlgTitlePadG,
+      contentPadding: EdgeInsets.zero,
+      actionsPadding: _dlgActionsPadG,
       title: const Text('选择搜索文件夹'),
-      contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
       content: SizedBox(
         width: double.maxFinite,
-        height: 420,
+        height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_upward),
-                  onPressed: _canGoUp ? _goUp : null,
-                  tooltip: '上一级',
-                ),
-                Expanded(
-                  child: Text(
-                    relPath,
-                    style: Theme.of(context).textTheme.labelSmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_upward),
+                    onPressed: _canGoUp ? _goUp : null,
+                    tooltip: '上一级',
+                    visualDensity: VisualDensity.compact,
                   ),
-                ),
-              ],
+                  Expanded(
+                    child: Text(
+                      relPath,
+                      style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const Divider(height: 1),
             Expanded(
@@ -2143,7 +2251,7 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
             ),
             const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+              padding: const EdgeInsets.fromLTRB(8, 2, 4, 2),
               child: Row(
                 children: [
                   Text(
