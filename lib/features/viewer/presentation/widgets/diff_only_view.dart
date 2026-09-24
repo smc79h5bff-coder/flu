@@ -6,11 +6,6 @@ import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
 import 'side_by_side_view.dart' show AlignedRow, computeAlignedRows;
 
-/// Only entries with differences are rendered, laid out side-by-side so the
-/// user can see at a glance what was removed (left, original) vs added
-/// (right, modified). Each diff entry renders as ONE aligned row (left:
-/// delete / replace-old, right: insert / replace-new), so both columns stay
-/// vertically in sync — in portrait and landscape alike. PRD §2 Module 6.
 class DiffOnlyView extends StatelessWidget {
   const DiffOnlyView({
     required this.result,
@@ -19,6 +14,9 @@ class DiffOnlyView extends StatelessWidget {
     this.controller,
     this.findQuery = '',
     this.rowKeysByEntry,
+    this.showLineNumbers = true,
+    this.bodyFontSize = 14.0,
+    this.gutterFontSize = 11.0,
     super.key,
   });
 
@@ -28,6 +26,9 @@ class DiffOnlyView extends StatelessWidget {
   final ScrollController? controller;
   final String findQuery;
   final Map<int, GlobalKey>? rowKeysByEntry;
+  final bool showLineNumbers;
+  final double bodyFontSize;
+  final double gutterFontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -108,6 +109,9 @@ class DiffOnlyView extends StatelessWidget {
             bg: null,
             findQuery: findQuery,
             charDiff: _CharDiff(before: del.text, after: ins.text, side: false),
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -120,27 +124,33 @@ class DiffOnlyView extends StatelessWidget {
             bg: null,
             findQuery: findQuery,
             charDiff: _CharDiff(before: del.text, after: ins.text, side: true),
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
       ],
     );
   }
 
-  Widget _alignedRow(BuildContext context, DiffEntry e, ({int orig, int mod}) m) {
+  Widget _alignedRow(
+      BuildContext context, DiffEntry e, ({int orig, int mod}) m) {
     final s = Theme.of(context).colorScheme;
 
     final (String leftText, String leftSym, Color? leftColor) =
         switch (e.operation) {
       DiffOperation.delete => (e.text, '−', s.error),
       DiffOperation.insert => ('', '', null),
-      DiffOperation.replace => (e.oldText.isEmpty ? e.text : e.oldText, '~', s.tertiary),
+      DiffOperation.replace =>
+        (e.oldText.isEmpty ? e.text : e.oldText, '~', s.tertiary),
       DiffOperation.equal => (e.text, '', null),
     };
     final (String rightText, String rightSym, Color? rightColor) =
         switch (e.operation) {
       DiffOperation.insert => (e.text, '+', s.error),
       DiffOperation.delete => ('', '', null),
-      DiffOperation.replace => (e.newText.isEmpty ? e.text : e.newText, '~', s.tertiary),
+      DiffOperation.replace =>
+        (e.newText.isEmpty ? e.text : e.newText, '~', s.tertiary),
       DiffOperation.equal => (e.text, '', null),
     };
 
@@ -171,6 +181,9 @@ class DiffOnlyView extends StatelessWidget {
             bg: leftColor == null ? s.surfaceVariant : null,
             findQuery: findQuery,
             charDiff: leftCharDiff,
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -183,19 +196,15 @@ class DiffOnlyView extends StatelessWidget {
             bg: rightColor == null ? s.surface : null,
             findQuery: findQuery,
             charDiff: rightCharDiff,
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
           ),
         ),
       ],
     );
   }
 
-  /// “仅差异”专用：先按块级对齐（复用 side_by_side 的实现），再跳过
-  /// 完全不涉及差异的行（即两个 entry 都是 equal 的情况，实际上对齐后
-  /// equal 行只会作为单行出现，del/ins 至少一个非 null 才是差异行）。
-  ///
-  /// 注意：equal 行在对齐结果里是 `(del: i, ins: null)`，其 entry 类型是
-  /// equal。所以要按 entry 的 operation 过滤，而不是按 del/ins 是否为 null
-  /// 过滤——后者的判据会把 equal 行误留。
   List<AlignedRow> _computeDiffOnlyRows(List<DiffEntry> entries) {
     final all = computeAlignedRows(entries);
     final out = <AlignedRow>[];
@@ -211,9 +220,9 @@ class DiffOnlyView extends StatelessWidget {
   }
 }
 
-/// Holds the two texts + which side to render for a character-level diff cell.
 class _CharDiff {
-  const _CharDiff({required this.before, required this.after, required this.side});
+  const _CharDiff(
+      {required this.before, required this.after, required this.side});
 
   final String before;
   final String after;
@@ -229,6 +238,9 @@ class _DiffCell extends StatelessWidget {
     required this.findQuery,
     this.bg,
     this.charDiff,
+    this.showLineNumbers = true,
+    this.bodyFontSize = 14.0,
+    this.gutterFontSize = 11.0,
   });
 
   final String text;
@@ -238,10 +250,16 @@ class _DiffCell extends StatelessWidget {
   final String findQuery;
   final Color? bg;
   final _CharDiff? charDiff;
+  final bool showLineNumbers;
+  final double bodyFontSize;
+  final double gutterFontSize;
 
   @override
   Widget build(BuildContext context) {
-    final body = Theme.of(context).textTheme.bodyMedium;
+    final body = Theme.of(context)
+        .textTheme
+        .bodyMedium
+        ?.copyWith(fontSize: bodyFontSize);
     final outline = Theme.of(context).colorScheme.outline;
 
     Widget content;
@@ -265,17 +283,20 @@ class _DiffCell extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 26,
-            child: Text(
-              line < 0 ? '' : '$line',
-              textAlign: TextAlign.end,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: outline),
+          if (showLineNumbers)
+            SizedBox(
+              width: 30,
+              child: Text(
+                line < 0 ? '' : '$line',
+                textAlign: TextAlign.end,
+                style: TextStyle(fontSize: gutterFontSize, color: outline),
+              ),
             ),
-          ),
           if (symbol.isNotEmpty) ...[
             const SizedBox(width: 4),
-            Text(symbol, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+            Text(symbol,
+                style: TextStyle(
+                    color: color, fontWeight: FontWeight.bold, fontSize: bodyFontSize)),
           ],
           const SizedBox(width: 6),
           Expanded(child: content),
@@ -338,7 +359,8 @@ class _PaneHeader extends StatelessWidget {
         fileName,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+        style:
+            TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }
