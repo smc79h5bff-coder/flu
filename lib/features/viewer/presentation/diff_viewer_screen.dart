@@ -1,9 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../diff/application/diff_cache.dart';
 import '../../diff/domain/diff_entry.dart';
 import '../../diff/domain/diff_operation.dart';
 import '../../diff/domain/diff_result.dart';
@@ -49,22 +53,22 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
-@override
-void initState() {
-  super.initState();
-  // 每次进入对比页都从"仅差异"开始，不继承上次的选择。
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (!mounted) return;
-    ref.read(viewModeProvider.notifier).state = ViewMode.diffOnly;
-  });
-}
+  @override
+  void initState() {
+    super.initState();
+    // 每次进入对比页都从"仅差异"开始，不继承上次的选择。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(viewModeProvider.notifier).state = ViewMode.diffOnly;
+    });
+  }
 
-@override
-void dispose() {
-  _findController.dispose();
-  _scrollController.dispose();
-  super.dispose();
-}
+  @override
+  void dispose() {
+    _findController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
 
@@ -322,10 +326,143 @@ void dispose() {
   void _openDisplaySettings() {
     showModalBottomSheet<void>(
       context: context,
-      
-    isScrollControlled: true,
+      isScrollControlled: true,
       builder: (_) => const _DisplaySettingsSheet(),
     );
+  }
+
+  // ==================== 导出差异 ====================
+
+  /// 收集差异，拆成左右两段。
+  ///
+  /// 规则：
+  ///   - 配对删除行 vs 新增行做字符级 diff
+  ///   - 左边有独有内容 → 左独有归左段，右独有归右段
+  ///   - 左边无独有内容（纯追加）→ 右独有归左段
+  ///   - 多出的整行：delete 归左段，insert 归左段
+  ({List<String> left, List<String> right}) _collectDiffParts(
+      DiffResult diff) {
+    final leftParts = <String>[];
+    final rightParts = <String>[];
+
+    final entries = diff.entries;
+    var i = 0;
+    while (i < entries.length) {
+      if (entries[i].operation == DiffOperation.equal) {
+        i++;
+        continue;
+      }
+      final delLines = <String>[];
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.delete) {
+        delLines.add(entries[i].text);
+        i++;
+      }
+      final insLines = <String>[];
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.insert) {
+        insLines.add(entries[i].text);
+        i++;
+      }
+
+      final pairs = delLines.length < insLines.length
+          ? delLines.length
+          : insLines.length;
+
+      for (var k = 0; k < pairs; k++) {
+        final segs =
+            DiffCache.instance.charSegments(delLines[k], insLines[k]);
+        final leftOnly = <String>[];
+        final rightOnly = <String>[];
+        for (final (op, text) in segs) {
+          if (text.isEmpty) continue;
+          if (op == -1) leftOnly.add(text);
+          if (op == 1) rightOnly.add(text);
+        }
+        if (leftOnly.isEmpty) {
+          leftParts.addAll(rightOnly);
+        } else {
+          leftParts.addAll(leftOnly);
+          rightParts.addAll(rightOnly);
+        }
+      }
+
+      for (var k = pairs; k < delLines.length; k++) {
+        leftParts.add(delLines[k]);
+      }
+      for (var k = pairs; k < insLines.length; k++) {
+        leftParts.add(insLines[k]);
+      }
+    }
+
+    return (left: leftParts, right: rightParts);
+  }
+
+  /// 弹出选择：导出左边还是右边。选完弹系统保存框。
+  Future<void> _exportDiff() async {
+    final diff = _diff;
+    if (diff == null) return;
+
+    final side = await showModalBottomSheet<String>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Text('导出哪一侧的差异？',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.arrow_back),
+              title: const Text('导出左边文件的差异处'),
+              onTap: () => Navigator.pop(c, 'left'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.arrow_forward),
+              title: const Text('导出右边文件的差异处'),
+              onTap: () => Navigator.pop(c, 'right'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('取消'),
+              onTap: () => Navigator.pop(c),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || side == null) return;
+
+    final isLeft = side == 'left';
+    final parts = _collectDiffParts(diff);
+    final list = isLeft ? parts.left : parts.right;
+
+    if (list.isEmpty) {
+      _toast('这一侧没有差异可导出');
+      return;
+    }
+
+    final buf = StringBuffer();
+    for (final p in list) {
+      buf.writeln(p);
+    }
+    final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
+    final out = await FilePicker.saveFile(
+      fileName:
+          'docdiff-${isLeft ? "left" : "right"}-${DateTime.now().millisecondsSinceEpoch}.txt',
+      bytes: bytes,
+      mimeType: 'text/plain',
+      dialogTitle: isLeft ? '导出左边文件差异' : '导出右边文件差异',
+      type: FileType.custom,
+      allowedExtensions: ['txt'],
+    );
+    if (out != null && mounted) {
+      _toast('差异已导出');
+    }
   }
 
   // ==================== 长按：复制 / 就地编辑 ====================
@@ -858,12 +995,11 @@ void dispose() {
     final currentPos = _currentDiffPos >= 0 ? _currentDiffPos + 1 : 0;
 
     return Scaffold(
-      
-appBar: AppBar(
-  title: const Text(
-    '对比结果',
-    style: TextStyle(fontSize: 11),
-  ),
+      appBar: AppBar(
+        title: const Text(
+          '对比结果',
+          style: TextStyle(fontSize: 11),
+        ),
         actions: [
           // 计数器
           Center(
@@ -906,6 +1042,8 @@ appBar: AppBar(
             onSelected: (v) {
               if (v == 'edit') {
                 _openEdit();
+              } else if (v == 'exportDiff') {
+                _exportDiff();
               } else if (v == 'delOriginal') {
                 _deleteSide(isOriginal: true);
               } else if (v == 'delModified') {
@@ -930,6 +1068,16 @@ appBar: AppBar(
                     Icon(Icons.edit),
                     SizedBox(width: 10),
                     Text('编辑对比中的2个文档'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'exportDiff',
+                child: Row(
+                  children: [
+                    Icon(Icons.ios_share),
+                    SizedBox(width: 10),
+                    Text('导出差异为 txt'),
                   ],
                 ),
               ),
@@ -1305,30 +1453,30 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 4),
-_colorRow(context, ref, '左文件独有行 · 整行底色',
-    deleteRowBgProvider),
-_colorRow(context, ref, '左文件独有行 · 文字颜色',
-    deleteRowFgProvider),
-_colorRow(context, ref, '右文件独有行 · 整行底色',
-    insertRowBgProvider),
-_colorRow(context, ref, '右文件独有行 · 文字颜色',
-    insertRowFgProvider),
-_colorRow(context, ref, '被改行（左）· 整行底色',
-    replaceLeftBgProvider),
-_colorRow(context, ref, '被改行（左）· 文字颜色',
-    replaceLeftFgProvider),
-_colorRow(context, ref, '被改行（右）· 整行底色',
-    replaceRightBgProvider),
-_colorRow(context, ref, '被改行（右）· 文字颜色',
-    replaceRightFgProvider),
-_colorRow(context, ref, '行内删掉的字 · 底色',
-    charDeleteBgProvider),
-_colorRow(context, ref, '行内删掉的字 · 文字颜色',
-    charDeleteFgProvider),
-_colorRow(context, ref, '行内新增的字 · 底色',
-    charInsertBgProvider),
-_colorRow(context, ref, '行内新增的字 · 文字颜色',
-    charInsertFgProvider),
+                    _colorRow(context, ref, '左文件独有行 · 整行底色',
+                        deleteRowBgProvider),
+                    _colorRow(context, ref, '左文件独有行 · 文字颜色',
+                        deleteRowFgProvider),
+                    _colorRow(context, ref, '右文件独有行 · 整行底色',
+                        insertRowBgProvider),
+                    _colorRow(context, ref, '右文件独有行 · 文字颜色',
+                        insertRowFgProvider),
+                    _colorRow(context, ref, '被改行（左）· 整行底色',
+                        replaceLeftBgProvider),
+                    _colorRow(context, ref, '被改行（左）· 文字颜色',
+                        replaceLeftFgProvider),
+                    _colorRow(context, ref, '被改行（右）· 整行底色',
+                        replaceRightBgProvider),
+                    _colorRow(context, ref, '被改行（右）· 文字颜色',
+                        replaceRightFgProvider),
+                    _colorRow(context, ref, '行内删掉的字 · 底色',
+                        charDeleteBgProvider),
+                    _colorRow(context, ref, '行内删掉的字 · 文字颜色',
+                        charDeleteFgProvider),
+                    _colorRow(context, ref, '行内新增的字 · 底色',
+                        charInsertBgProvider),
+                    _colorRow(context, ref, '行内新增的字 · 文字颜色',
+                        charInsertFgProvider),
                     const SizedBox(height: 24),
                   ],
                 ),
