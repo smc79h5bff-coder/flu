@@ -6,12 +6,14 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
+import 'line_height_calculator.dart';
 import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
 
 class DiffOnlyView extends ConsumerWidget {
   const DiffOnlyView({
     required this.result,
+    required this.heightTable,
     this.originalFileName,
     this.modifiedFileName,
     this.controller,
@@ -21,13 +23,12 @@ class DiffOnlyView extends ConsumerWidget {
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
     this.noWrap = false,
-    this.preciseAnchorEntry,
-    this.preciseAnchorKey,
     this.onLongPressEntry,
     super.key,
   });
 
   final DiffResult result;
+  final LineHeightTable heightTable;
   final String? originalFileName;
   final String? modifiedFileName;
   final ScrollController? controller;
@@ -37,11 +38,6 @@ class DiffOnlyView extends ConsumerWidget {
   final double bodyFontSize;
   final double gutterFontSize;
   final bool noWrap;
-
-  /// 切视图时用：目标 entry 那一行会挂上 [preciseAnchorKey]。
-  final int? preciseAnchorEntry;
-  final GlobalKey? preciseAnchorKey;
-
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -86,7 +82,7 @@ class DiffOnlyView extends ConsumerWidget {
             ),
             child: Scrollbar(
               controller: controller,
-              interactive: false,
+              interactive: true,
               child: ListView.builder(
                 key: const Key('diff-only-list'),
                 controller: controller,
@@ -94,6 +90,8 @@ class DiffOnlyView extends ConsumerWidget {
                 addRepaintBoundaries: false,
                 cacheExtent: 100,
                 itemCount: rows.length,
+                itemExtentBuilder: (index, dimensions) =>
+                    heightTable.heightOf(index),
                 itemBuilder: (ctx, i) {
                   final spec = rows[i];
                   final isCurrent = currentMatchEntry != null &&
@@ -133,18 +131,6 @@ class DiffOnlyView extends ConsumerWidget {
                   } else {
                     out = row;
                   }
-
-                  // 精准落点：目标 entry 匹配（del 或 ins 任一是它）就挂临时 key。
-                  if (preciseAnchorEntry != null &&
-                      preciseAnchorKey != null &&
-                      (spec.del == preciseAnchorEntry ||
-                          spec.ins == preciseAnchorEntry)) {
-                    return KeyedSubtree(
-                      key: preciseAnchorKey,
-                      child: out,
-                    );
-                  }
-
                   final key = spec.del != null && spec.ins != null
                       ? ValueKey<String>('${spec.del}-${spec.ins}')
                       : ValueKey<int>(spec.del ?? spec.ins!);
@@ -355,13 +341,6 @@ DiffResult? _lastDiffOnlyRowsFor;
 List<AlignedRow>? _lastDiffOnlyRows;
 
 /// 仅差异视图的行：差异行 + 前后各 2 行上下文。
-///
-/// 实现：
-///   1. 在完整对齐行 [cachedAlignedRows] 里找出所有"差异行"的下标
-///   2. 每个差异行下标往前 2、往后 2 全部加入 Set<int>（去重）
-///   3. Set 按升序排，输出对应的 AlignedRow
-///
-/// 结果里既有差异行，也有 equal 行。渲染时 _alignedRow 的 equal 分支会处理。
 List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
   if (identical(_lastDiffOnlyRowsFor, result) && _lastDiffOnlyRows != null) {
     return _lastDiffOnlyRows!;
@@ -369,7 +348,6 @@ List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
   const contextLines = 2;
   final all = cachedAlignedRows(result);
 
-  // 第一步：差异行下标
   final diffRowIndices = <int>[];
   for (var i = 0; i < all.length; i++) {
     final r = all[i];
@@ -380,7 +358,6 @@ List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
     if (!onlyEqual) diffRowIndices.add(i);
   }
 
-  // 第二步：±2 上下文的并集
   final keep = <int>{};
   for (final di in diffRowIndices) {
     final lo = di - contextLines;
@@ -390,7 +367,6 @@ List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
     }
   }
 
-  // 第三步：按升序输出
   final sorted = keep.toList()..sort();
   final out = <AlignedRow>[];
   for (final i in sorted) {
