@@ -73,8 +73,9 @@ class LineHeightTable {
     return LineHeightTable._(h, ps, sum);
   }
 
-  static final LineHeightTable empty = LineHeightTable.fromHeights(const []);
-
+  static final LineHeightTable empty =
+    LineHeightTable.fromHeights(const <double>[]);
+  
   /// 内存占用（估算，用于缓存淘汰策略）。
   int get approxByteSize => _heights.lengthInBytes + _prefixSum.lengthInBytes;
 }
