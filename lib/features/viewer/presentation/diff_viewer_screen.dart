@@ -75,6 +75,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int> _matchEntries = const <int>[];
   int _matchPos = -1;
 
+  /// 差异类视图里搜不到、但全量里有命中时显示的提示。
+  String? _noResultHint;
+
   bool _regexEnable = false;
   bool _caseInsensitive = false;
   bool _wholeWord = false;
@@ -133,7 +136,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return _matchEntries[_matchPos];
   }
 
-  /// 是否属于"只显示差异行"的视图（两种都算）。
+  /// 是否属于"只显示差异相关行"的视图。
   bool _isDiffOnlyMode(ViewMode m) =>
       m == ViewMode.diffOnly || m == ViewMode.diffOnlyPlain;
 
@@ -199,6 +202,37 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return e.text;
   }
 
+  /// 当前视图列表里实际会显示的行对应的 entry 下标集合。
+  Set<int> _visibleEntriesFor(ViewMode mode, DiffResult diff) {
+    final s = <int>{};
+    switch (mode) {
+      case ViewMode.diffOnly:
+        for (final spec in cachedDiffOnlyRows(diff)) {
+          if (spec.del != null) s.add(spec.del!);
+          if (spec.ins != null) s.add(spec.ins!);
+        }
+        break;
+      case ViewMode.diffOnlyPlain:
+        for (final spec in cachedDiffOnlyPlainRows(diff)) {
+          if (spec.del != null) s.add(spec.del!);
+          if (spec.ins != null) s.add(spec.ins!);
+        }
+        break;
+      case ViewMode.sideBySide:
+        for (final spec in cachedAlignedRows(diff)) {
+          if (spec.del != null) s.add(spec.del!);
+          if (spec.ins != null) s.add(spec.ins!);
+        }
+        break;
+      case ViewMode.merged:
+        for (final ei in cachedMergedOrder(diff)) {
+          s.add(ei);
+        }
+        break;
+    }
+    return s;
+  }
+
   void _onFindInput(String q) {
     _findDebounce?.cancel();
     _findDebounce = Timer(const Duration(milliseconds: 250), () {
@@ -207,17 +241,28 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     });
   }
 
+  /// 搜索范围 = 当前视图列表里实际显示的行。
+  ///
+  /// 屏幕上"能滚到"的行才参与搜索；列表外的行不算命中、也不计数。
+  /// 这样"共 N 处"= 用户实际能跳到的次数。
+  ///
+  /// 若差异类视图搜不到，但全量里有命中，弹提示引导用户切视图。
   void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
     final diff = _diff;
     final matches = <int>[];
+    var hasGlobalHits = false;
+    String? hint;
+
     if (q.isNotEmpty && diff != null) {
       final p = _buildFindPattern();
       final mode = ref.read(viewModeProvider);
-      final isDiffOnly = _isDiffOnlyMode(mode);
+
+      // 1. 只扫当前视图列表里会显示的行。
+      final visible = _visibleEntriesFor(mode, diff);
       for (var i = 0; i < diff.entries.length; i++) {
+        if (!visible.contains(i)) continue;
         final e = diff.entries[i];
-        if (isDiffOnly && e.operation == DiffOperation.equal) continue;
         var hit = false;
         if (_entryMatchesOnLeft(e) &&
             p.allMatches(_entryLeftText(e)).isNotEmpty) {
@@ -230,10 +275,28 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         }
         if (hit) matches.add(i);
       }
+
+      // 2. 差异类视图搜不到时，看看全量里有没有命中。
+      //    有 → 提示用户切视图。
+      if (matches.isEmpty && _isDiffOnlyMode(mode)) {
+        for (var i = 0; i < diff.entries.length; i++) {
+          final e = diff.entries[i];
+          if (p.allMatches(_entryLeftText(e)).isNotEmpty ||
+              p.allMatches(_entryRightText(e)).isNotEmpty) {
+            hasGlobalHits = true;
+            break;
+          }
+        }
+        if (hasGlobalHits) {
+          hint = '本视图搜不到，切到「并排」或「合并」试试';
+        }
+      }
     }
+
     setState(() {
       _matchEntries = matches;
       _matchPos = matches.isEmpty ? -1 : 0;
+      _noResultHint = hint;
     });
     if (autoScroll && matches.isNotEmpty) _scrollToEntry(matches.first);
   }
@@ -404,6 +467,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       _findQuery = '';
       _matchEntries = const [];
       _matchPos = -1;
+      _noResultHint = null;
     });
   }
 
@@ -596,11 +660,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
     }
 
-    // 差异上下文行 或 纯差异：两者结构一样，只是行集合不同。
     final isPlain = mode == ViewMode.diffOnlyPlain;
-    final rows = isPlain
-        ? cachedDiffOnlyPlainRows(diff)
-        : cachedDiffOnlyRows(diff);
+    final rows =
+        isPlain ? cachedDiffOnlyPlainRows(diff) : cachedDiffOnlyRows(diff);
     final panelW = (viewportW - 1) / 2;
     final contentW = panelW - 52.0;
     final k = cacheKey(isPlain ? 'diff_only_plain' : 'diff_only');
@@ -1372,6 +1434,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }) {
     _matchEntries = const <int>[];
     _matchPos = -1;
+    _noResultHint = null;
     _cachedDiffIndices = null;
     _cachedDiffIndicesFor = null;
     _entryToRowMap = null;
@@ -2088,6 +2151,35 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ),
               ],
             ),
+            // 差异类视图搜不到、全量有结果时的提示条。
+            if (_noResultHint != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 4, bottom: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  border: Border.all(color: Colors.orange.shade200),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 14, color: Colors.orange.shade800),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _noResultHint!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               children: [
                 const SizedBox(width: 48),
