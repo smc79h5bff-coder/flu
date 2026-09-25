@@ -12,6 +12,7 @@ import '../../preprocessing/domain/encoding_type.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../viewer/presentation/diff_viewer_screen.dart';
 import 'comparison_settings_screen.dart';
+import 'providers/file_browser_providers.dart';
 import 'text_preview_screen.dart';
 
 class FileBrowserScreen extends ConsumerStatefulWidget {
@@ -20,10 +21,6 @@ class FileBrowserScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
-
-enum _SortField { name, modified, size }
-
-enum _SearchScope { currentRecursive, custom }
 
 class _EntryInfo {
   _EntryInfo({
@@ -76,14 +73,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
-  _SortField _sortField = _SortField.name;
-  bool _sortAsc = true;
-
-  final List<String> _favorites = <String>[];
-
-  // ===== 搜索相关 =====
-  _SearchScope _searchScope = _SearchScope.currentRecursive;
-  final List<String> _customSearchFolders = <String>[];
+  // 搜索运行时状态（不持久化）
   List<_SearchHit> _searchResults = <_SearchHit>[];
   bool _searching = false;
   bool _searchActive = false;
@@ -93,8 +83,17 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   @override
   void initState() {
     super.initState();
-    _currentPath = _rootPath;
+    final saved = ref.read(lastPathProvider);
+    _currentPath = _resolveInitialPath(saved);
     _load();
+  }
+
+  /// 启动时决定的初始路径：无效/空/超范围 → 回到根目录。
+  String _resolveInitialPath(String saved) {
+    if (saved.isEmpty) return _rootPath;
+    if (!saved.startsWith(_rootPath)) return _rootPath;
+    if (!Directory(saved).existsSync()) return _rootPath;
+    return saved;
   }
 
   @override
@@ -136,22 +135,25 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         );
       }));
 
+      final sortField = ref.read(sortFieldProvider);
+      final sortAsc = ref.read(sortAscProvider);
+
       infos.sort((a, b) {
         if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
         int cmp;
-        switch (_sortField) {
-          case _SortField.name:
+        switch (sortField) {
+          case SortField.name:
             cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-          case _SortField.modified:
+          case SortField.modified:
             final at = a.modified?.millisecondsSinceEpoch ?? 0;
             final bt = b.modified?.millisecondsSinceEpoch ?? 0;
             cmp = at.compareTo(bt);
-          case _SortField.size:
+          case SortField.size:
             final as = a.size ?? 0;
             final bs = b.size ?? 0;
             cmp = as.compareTo(bs);
         }
-        return _sortAsc ? cmp : -cmp;
+        return sortAsc ? cmp : -cmp;
       });
 
       if (!mounted) return;
@@ -173,6 +175,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     _clearSelection();
     _searchCtrl.clear();
     _searchTaskId++;
+    ref.read(lastPathProvider.notifier).update(path);
     setState(() {
       _currentPath = path;
       _searchResults = [];
@@ -268,24 +271,27 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     final Offset pos = box.localToGlobal(Offset.zero);
     final size = box.size;
 
+    final scope = ref.read(searchScopeProvider);
+    final customFolders = ref.read(customSearchFoldersProvider);
+
     final value = await showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy + size.height, 0, 0),
       items: [
         CheckedPopupMenuItem<String>(
           value: 'current',
-          checked: _searchScope == _SearchScope.currentRecursive,
+          checked: scope == SearchScope.currentRecursive,
           child: const Text('当前目录及子目录'),
         ),
         CheckedPopupMenuItem<String>(
           value: 'custom',
-          checked: _searchScope == _SearchScope.custom,
-          child: Text('自定义范围（${_customSearchFolders.length}）'),
+          checked: scope == SearchScope.custom,
+          child: Text('自定义范围（${customFolders.length}）'),
         ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: 'manage',
-          enabled: _searchScope == _SearchScope.custom,
+          enabled: scope == SearchScope.custom,
           child: const Row(
             children: [
               Icon(Icons.edit_location_alt, size: 18),
@@ -300,12 +306,14 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     if (!mounted || value == null) return;
 
     if (value == 'current') {
-      setState(() => _searchScope = _SearchScope.currentRecursive);
+      ref
+          .read(searchScopeProvider.notifier)
+          .update(SearchScope.currentRecursive);
       if (_searchActive && _searchCtrl.text.isNotEmpty) {
         _startSearch(_searchCtrl.text);
       }
     } else if (value == 'custom') {
-      setState(() => _searchScope = _SearchScope.custom);
+      ref.read(searchScopeProvider.notifier).update(SearchScope.custom);
       if (_searchActive && _searchCtrl.text.isNotEmpty) {
         _startSearch(_searchCtrl.text);
       }
@@ -340,16 +348,19 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     });
     _lastUiRefresh = DateTime.now();
 
+    final scope = ref.read(searchScopeProvider);
+    final customFolders = ref.read(customSearchFoldersProvider);
+
     final roots = <String>[];
-    if (_searchScope == _SearchScope.currentRecursive) {
+    if (scope == SearchScope.currentRecursive) {
       roots.add(_currentPath);
     } else {
-      if (_customSearchFolders.isEmpty) {
+      if (customFolders.isEmpty) {
         _toast('请先长按搜索按钮 → 管理已勾选文件夹');
         if (mounted) setState(() => _searching = false);
         return;
       }
-      roots.addAll(_dedupFolders(_customSearchFolders));
+      roots.addAll(_dedupFolders(customFolders));
     }
 
     final lowerQuery = query.toLowerCase();
@@ -418,21 +429,18 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   }
 
   Future<void> _showSearchFolderPicker() async {
+    final current = ref.read(customSearchFoldersProvider);
     final result = await showDialog<List<String>>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _SearchFolderPickerDialog(
         rootPath: _rootPath,
         initialPath: _currentPath,
-        initialSelected: _customSearchFolders,
+        initialSelected: current,
       ),
     );
     if (result != null && mounted) {
-      setState(() {
-        _customSearchFolders
-          ..clear()
-          ..addAll(result);
-      });
+      ref.read(customSearchFoldersProvider.notifier).setAll(result);
       if (_searchActive && _searchCtrl.text.isNotEmpty) {
         _startSearch(_searchCtrl.text);
       }
@@ -699,20 +707,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
 
   // ==================== 排序 / 收藏 ====================
 
-  String _sortLabel(_SortField f) {
+  String _sortLabel(SortField f) {
     switch (f) {
-      case _SortField.name:
+      case SortField.name:
         return '名称';
-      case _SortField.modified:
+      case SortField.modified:
         return '修改时间';
-      case _SortField.size:
+      case SortField.size:
         return '大小';
     }
   }
 
   Future<void> _showSortDialog() async {
-    var tmpField = _sortField;
-    var tmpAsc = _sortAsc;
+    var tmpField = ref.read(sortFieldProvider);
+    var tmpAsc = ref.read(sortAscProvider);
     final result = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(
@@ -729,8 +737,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  for (final f in _SortField.values)
-                    RadioListTile<_SortField>(
+                  for (final f in SortField.values)
+                    RadioListTile<SortField>(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       title: Text(_sortLabel(f)),
@@ -774,28 +782,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       ),
     );
     if (result == true && mounted) {
-      setState(() {
-        _sortField = tmpField;
-        _sortAsc = tmpAsc;
-      });
+      ref.read(sortFieldProvider.notifier).update(tmpField);
+      ref.read(sortAscProvider.notifier).update(tmpAsc);
       _load();
     }
   }
 
   void _toggleFavorite() {
-    setState(() {
-      if (_favorites.contains(_currentPath)) {
-        _favorites.remove(_currentPath);
-        _toast('已取消收藏');
-      } else {
-        _favorites.add(_currentPath);
-        _toast('已收藏当前目录');
-      }
-    });
+    final favs = ref.read(favoritesProvider);
+    final wasFav = favs.contains(_currentPath);
+    ref.read(favoritesProvider.notifier).toggle(_currentPath);
+    _toast(wasFav ? '已取消收藏' : '已收藏当前目录');
   }
 
   Future<void> _showFavorites() async {
-    if (_favorites.isEmpty) {
+    final favorites = ref.read(favoritesProvider);
+    if (favorites.isEmpty) {
       _toast('还没有收藏任何目录');
       return;
     }
@@ -811,9 +813,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
           width: double.maxFinite,
           height: MediaQuery.of(context).size.height * 0.85,
           child: ListView.builder(
-            itemCount: _favorites.length,
+            itemCount: favorites.length,
             itemBuilder: (ctx, i) {
-              final p = _favorites[i];
+              final p = favorites[i];
               return ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
@@ -828,7 +830,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
                   icon: const Icon(Icons.delete_outline, size: 20),
                   tooltip: '移除收藏',
                   onPressed: () {
-                    setState(() => _favorites.removeAt(i));
+                    ref.read(favoritesProvider.notifier).remove(p);
                     Navigator.pop(c);
                     _showFavorites();
                   },
@@ -850,7 +852,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         _navigateTo(picked);
       } else {
         _toast('该目录已不存在');
-        setState(() => _favorites.remove(picked));
+        ref.read(favoritesProvider.notifier).remove(picked);
       }
     }
   }
@@ -1249,7 +1251,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   }
 
   PreferredSizeWidget _buildNormalAppBar() {
-    final isFav = _favorites.contains(_currentPath);
+    final favorites = ref.watch(favoritesProvider);
+    final isFav = favorites.contains(_currentPath);
     return AppBar(
       title: GestureDetector(
         onLongPress: _showJumpToPathDialog,
@@ -1329,7 +1332,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
                 children: [
                   const Icon(Icons.bookmarks_outlined),
                   const SizedBox(width: 10),
-                  Text('已收藏目录 (${_favorites.length})'),
+                  Text('已收藏目录 (${favorites.length})'),
                 ],
               ),
             ),
@@ -1352,7 +1355,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   // ==================== 搜索栏 UI ====================
 
   Widget _buildSearchBar() {
-    final isCustom = _searchScope == _SearchScope.custom;
+    final isCustom = ref.watch(searchScopeProvider) == SearchScope.custom;
+    final customFolders = ref.watch(customSearchFoldersProvider);
     final hasText = _searchCtrl.text.isNotEmpty;
 
     return Padding(
@@ -1387,7 +1391,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: isCustom && _customSearchFolders.isEmpty
+                hintText: isCustom && customFolders.isEmpty
                     ? '长按左侧设置搜索范围'
                     : '输入关键词',
                 isDense: true,
@@ -1480,7 +1484,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 第一行：对比 / 属性 / 复制路径
             Row(
               children: [
                 Expanded(
@@ -1509,7 +1512,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               ],
             ),
             const SizedBox(height: 4),
-            // 第二行：MD5 / 重命名 / 移动 / 复制 / 删除
             Row(
               children: [
                 Expanded(
