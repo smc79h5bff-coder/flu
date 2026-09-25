@@ -126,6 +126,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
+int? get _currentMatchEntry {
+  if (_matchEntries.isEmpty) return null;
+  if (_matchPos < 0 || _matchPos >= _matchEntries.length) return null;
+  return _matchEntries[_matchPos];
+    }
 
   // ==================== 查找 / 替换基础逻辑 ====================
 
