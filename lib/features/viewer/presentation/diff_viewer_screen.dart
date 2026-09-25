@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/storage/persistent_notifier.dart';
@@ -28,6 +29,9 @@ class DiffViewerScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<DiffViewerScreen> createState() => _DiffViewerScreenState();
 }
+
+/// 切视图时用户选择的跳转目标。
+enum _SwitchTarget { match, top, anchor }
 
 class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final ScrollController _scrollController = ScrollController();
@@ -158,14 +162,17 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return e.text;
   }
 
-  void _findChanged(String q) {
+  void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
     final diff = _diff;
     final matches = <int>[];
     if (q.isNotEmpty && diff != null) {
       final p = _buildFindPattern();
+      // 仅差异视图只统计非 equal 行，保证命中的一定是屏幕上能看见的。
+      final diffOnly = ref.read(viewModeProvider) == ViewMode.diffOnly;
       for (var i = 0; i < diff.entries.length; i++) {
         final e = diff.entries[i];
+        if (diffOnly && e.operation == DiffOperation.equal) continue;
         var hit = false;
         if (_entryMatchesOnLeft(e) &&
             p.allMatches(_entryLeftText(e)).isNotEmpty) {
@@ -183,7 +190,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       _matchEntries = matches;
       _matchPos = matches.isEmpty ? -1 : 0;
     });
-    if (matches.isNotEmpty) _scrollToEntry(matches.first);
+    if (autoScroll && matches.isNotEmpty) _scrollToEntry(matches.first);
   }
 
   // ==================== 替换 ====================
@@ -368,9 +375,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final ctx = _rowKeysByEntry[entryIndex]?.currentContext;
       if (ctx != null) {
         await Scrollable.ensureVisible(
-  ctx,
-  duration: Duration.zero,
-  alignment: 0.25,
+          ctx,
+          duration: Duration.zero,
+          alignment: 0.25,
         );
         return;
       }
@@ -393,7 +400,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
       target = target.clamp(0.0, maxExtent);
       if ((pos.pixels - target).abs() < 1.0) return;
-   pos.jumpTo(target);
+      pos.jumpTo(target);
       await Future<void>.delayed(const Duration(milliseconds: 40));
       await locate(round + 1);
     }
@@ -549,19 +556,123 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return lo;
   }
 
-  void _switchView(ViewMode newMode) {
+  Future<void> _switchView(ViewMode newMode) async {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
+
     _captureTimer?.cancel();
     _captureAnchorNow();
     final anchor = _anchorEntryIndex;
+    final searchEntry = _currentMatchEntry;
+    final hasSearch = _findQuery.isNotEmpty && _matchEntries.isNotEmpty;
+
+    // ===== 方向一：并排/合并 → 仅差异：不弹框，直接切，跳顶部 =====
+    if (newMode == ViewMode.diffOnly) {
+      ref.read(viewModeProvider.notifier).state = newMode;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (hasSearch) {
+          _findChanged(_findQuery, autoScroll: false);
+        }
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      });
+      return;
+    }
+
+    // ===== 方向二：仅差异 → 并排/合并，且有查找词时弹框三选一 =====
+    // ===== 并排 ⇄ 合并：不弹框，保持原有 anchor 行为 =====
+    _SwitchTarget? choice;
+    if (current == ViewMode.diffOnly && hasSearch) {
+      choice = await _showSwitchViewDialog(newMode);
+      if (!mounted || choice == null) return;
+    }
+
     ref.read(viewModeProvider.notifier).state = newMode;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (anchor != null) {
-        _scrollToEntry(anchor);
+
+      if (!hasSearch) {
+        if (anchor != null) _scrollToEntry(anchor);
+        return;
+      }
+
+      // 仅差异 → 并排/合并 需要重搜（可见行集合变了）。
+      // 并排 ⇄ 合并 可见行集合相同，不用重搜。
+      if (current == ViewMode.diffOnly) {
+        _findChanged(_findQuery, autoScroll: false);
+      }
+
+      switch (choice ?? _SwitchTarget.anchor) {
+        case _SwitchTarget.match:
+          if (_matchEntries.isEmpty) return;
+          // 三层兜底：精确 → 最近 → 第一个
+          var bestPos = -1;
+          if (searchEntry != null) {
+            bestPos = _matchEntries.indexOf(searchEntry);
+            if (bestPos < 0) {
+              var bestDiff = 1 << 30;
+              for (var i = 0; i < _matchEntries.length; i++) {
+                final d = (_matchEntries[i] - searchEntry).abs();
+                if (d < bestDiff) {
+                  bestDiff = d;
+                  bestPos = i;
+                }
+              }
+            }
+          }
+          if (bestPos < 0) bestPos = 0;
+          setState(() => _matchPos = bestPos);
+          _scrollToEntry(_matchEntries[bestPos]);
+          break;
+        case _SwitchTarget.top:
+          if (_scrollController.hasClients) _scrollController.jumpTo(0);
+          break;
+        case _SwitchTarget.anchor:
+          if (anchor != null) _scrollToEntry(anchor);
+          break;
       }
     });
+  }
+
+  Future<_SwitchTarget?> _showSwitchViewDialog(ViewMode newMode) {
+    final modeName = switch (newMode) {
+      ViewMode.sideBySide => '并排',
+      ViewMode.merged => '合并',
+      ViewMode.diffOnly => '仅差异',
+    };
+    return showDialog<_SwitchTarget>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: Text('切换到$modeName视图'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text(
+              '切换后会按新视图重新搜索。请选择要跳转到的位置：',
+              style: Theme.of(c).textTheme.bodySmall,
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.search),
+            title: const Text('跳到当前搜索词所在的那一行'),
+            onTap: () => Navigator.pop(c, _SwitchTarget.match),
+          ),
+          ListTile(
+            leading: const Icon(Icons.vertical_align_top),
+            title: const Text('跳到文件最开头'),
+            onTap: () => Navigator.pop(c, _SwitchTarget.top),
+          ),
+          ListTile(
+            leading: const Icon(Icons.my_location),
+            title: const Text('跳到屏幕最上面那行对应位置'),
+            onTap: () => Navigator.pop(c, _SwitchTarget.anchor),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _toggleOrientation() async {
@@ -1439,6 +1550,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                       result: diff,
                       controller: _scrollController,
                       findQuery: _findQuery,
+                      currentMatchEntry: _currentMatchEntry,
                       rowKeysByEntry: _rowKeysByEntry,
                       showLineNumbers: ref.watch(showLineNumbersProvider),
                       bodyFontSize: ref.watch(bodyFontSizeProvider),
@@ -1451,6 +1563,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                       modifiedFileName: modName,
                       controller: _scrollController,
                       findQuery: _findQuery,
+                      currentMatchEntry: _currentMatchEntry,
                       rowKeysByEntry: _rowKeysByEntry,
                       showLineNumbers: ref.watch(showLineNumbersProvider),
                       bodyFontSize: ref.watch(bodyFontSizeProvider),
@@ -1944,37 +2057,56 @@ class _DisplaySettingsSheet extends ConsumerWidget {
     String label,
     NotifierProvider<ColorPrefNotifier, Color> provider,
   ) async {
-    final controller =
-        TextEditingController(text: colorToHex(ref.read(provider)));
-    String? error;
+    var picked = ref.read(provider);
+    final controller = TextEditingController(text: colorToHex(picked));
+
     await showDialog<void>(
       context: context,
       builder: (c) => StatefulBuilder(
-        builder: (c, setState) => AlertDialog(
+        builder: (c, setDialogState) => AlertDialog(
           title: Text(label),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: '#RRGGBB',
-                  errorText: error,
-                  border: const OutlineInputBorder(),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 拖动选择任意颜色的色板
+                ColorPicker(
+                  pickerColor: picked,
+                  onColorChanged: (color) {
+                    picked = color;
+                    controller.text = colorToHex(color);
+                  },
+                  enableAlpha: false,
+                  labelTypes: const [],
+                  pickerAreaHeightPercent: 0.7,
+                  displayThumbColor: true,
+                  portraitOnly: true,
                 ),
-                onChanged: (_) => setState(() => error = null),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: hexToColor(controller.text) ?? ref.read(provider),
-                  border: Border.all(color: Theme.of(c).colorScheme.outline),
+                const SizedBox(height: 12),
+                // 仍然保留手动输入 #RRGGBB 的入口，方便精确输入
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    hintText: '#RRGGBB',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onSubmitted: (v) {
+                    final parsed = hexToColor(v.trim());
+                    if (parsed != null) {
+                      picked = parsed;
+                      setDialogState(() {});
+                    }
+                  },
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  '拖动上面的色板选颜色，或手动输入 #RRGGBB',
+                  style: Theme.of(c).textTheme.labelSmall,
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -1983,12 +2115,7 @@ class _DisplaySettingsSheet extends ConsumerWidget {
             ),
             FilledButton(
               onPressed: () {
-                final parsed = hexToColor(controller.text);
-                if (parsed == null) {
-                  setState(() => error = '格式错误，需要 #RRGGBB');
-                  return;
-                }
-                ref.read(provider.notifier).update(parsed);
+                ref.read(provider.notifier).update(picked);
                 Navigator.pop(c);
               },
               child: const Text('确定'),
