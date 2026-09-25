@@ -11,7 +11,13 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../../../import/presentation/providers/import_providers.dart';
 
-enum ViewMode { merged, sideBySide, diffOnly }
+/// 4 种视图：
+/// - merged          合并
+/// - sideBySide      并排
+/// - diffOnly        差异 + 上下各 2 行上下文
+/// - diffOnlyPlain   纯差异，无上下文
+enum ViewMode { merged, sideBySide, diffOnly, diffOnlyPlain }
+
 
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 
