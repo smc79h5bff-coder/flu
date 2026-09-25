@@ -94,6 +94,9 @@ class DiffScrollHelper {
 
   /// 挑一个"行号离目标最近、且已经构建"的 entry，
   /// 用它当前的实际像素位置推算「像素/行」。
+  ///
+  /// 遍历时顺手把已经失效（currentContext 为 null）的 key 从 map 里删掉，
+  /// 避免滚动一段时间后 map 膨胀到几万条，每次跳转都 O(n) 遍历一次。
   double? _measurePxPerRow(int targetRow) {
     if (!scrollController.hasClients) return null;
     final pixelsAtTop = scrollController.position.pixels;
@@ -101,12 +104,19 @@ class DiffScrollHelper {
     int? bestRow;
     double? bestPx;
     double bestDist = double.infinity;
+    final stale = <int>[];
 
     for (final e in rowKeysByEntry.entries) {
       final ctx = e.value.currentContext;
-      if (ctx == null) continue;
+      if (ctx == null) {
+        stale.add(e.key);
+        continue;
+      }
       final box = ctx.findRenderObject() as RenderBox?;
-      if (box == null || !box.attached) continue;
+      if (box == null || !box.attached) {
+        stale.add(e.key);
+        continue;
+      }
 
       final row = entryToRow(e.key);
       if (row <= 0) continue;
@@ -121,6 +131,10 @@ class DiffScrollHelper {
         bestRow = row;
         bestPx = px;
       }
+    }
+
+    for (final k in stale) {
+      rowKeysByEntry.remove(k);
     }
 
     if (bestRow == null || bestPx == null || bestRow == 0) return null;
