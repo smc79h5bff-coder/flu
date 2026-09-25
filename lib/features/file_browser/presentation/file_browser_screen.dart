@@ -371,13 +371,36 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       await _scanDir(root, lowerQuery, results, taskId);
     }
 
-    if (taskId != _searchTaskId) return;
-    if (!mounted) return;
-    setState(() {
-      _searching = false;
-      _searchResults = List.from(results);
-    });
-  }
+  if (taskId != _searchTaskId) return;
+  if (!mounted) return;
+
+  // 按用户当前的排序方式排搜索结果。
+  // 搜索结果全是文件（扫描只收集 File，不收集 Directory），
+  // 所以不用像目录列表那样"文件夹优先"，直接按字段排。
+  final sortField = ref.read(sortFieldProvider);
+  final sortAsc = ref.read(sortAscProvider);
+  results.sort((a, b) {
+    int cmp;
+    switch (sortField) {
+      case SortField.name:
+        cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      case SortField.modified:
+        final at = a.modified?.millisecondsSinceEpoch ?? 0;
+        final bt = b.modified?.millisecondsSinceEpoch ?? 0;
+        cmp = at.compareTo(bt);
+      case SortField.size:
+        final as = a.size ?? 0;
+        final bs = b.size ?? 0;
+        cmp = as.compareTo(bs);
+    }
+    return sortAsc ? cmp : -cmp;
+  });
+
+  setState(() {
+    _searching = false;
+    _searchResults = List.from(results);
+  });
+}
 
   Future<void> _scanDir(
     String dirPath,
