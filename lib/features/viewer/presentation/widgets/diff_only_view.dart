@@ -38,13 +38,13 @@ class DiffOnlyView extends ConsumerWidget {
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
-  static const Color _matchOrange = Color(0xFFFF9800);
+  static const Color _matchPink = Color(0xFFFF4081);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = watchDiffColors(ref);
     final meta = cachedLineMeta(result);
-    final rows = _computeDiffOnlyRows(result);
+    final rows = cachedDiffOnlyRows(result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -164,7 +164,7 @@ class DiffOnlyView extends ConsumerWidget {
             findQuery: findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchPink: _matchPink,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -190,7 +190,7 @@ class DiffOnlyView extends ConsumerWidget {
             findQuery: findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchPink: _matchPink,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -295,7 +295,7 @@ class DiffOnlyView extends ConsumerWidget {
             findQuery: findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchPink: _matchPink,
             charDiff: leftCharDiff,
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
@@ -313,7 +313,7 @@ class DiffOnlyView extends ConsumerWidget {
             findQuery: findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: _matchYellow,
-            matchOrange: _matchOrange,
+            matchPink: _matchPink,
             charDiff: rightCharDiff,
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
@@ -323,20 +323,32 @@ class DiffOnlyView extends ConsumerWidget {
       ],
     );
   }
+}
 
-  List<AlignedRow> _computeDiffOnlyRows(DiffResult result) {
-    final all = cachedAlignedRows(result);
-    final out = <AlignedRow>[];
-    for (final r in all) {
-      final delOp = r.del == null ? null : result.entries[r.del!].operation;
-      final insOp = r.ins == null ? null : result.entries[r.ins!].operation;
-      final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
-          (insOp == null || insOp == DiffOperation.equal);
-      if (onlyEqual) continue;
-      out.add(r);
-    }
-    return out;
+// ========== 派生数据缓存 ==========
+
+DiffResult? _lastDiffOnlyRowsFor;
+List<AlignedRow>? _lastDiffOnlyRows;
+
+/// 仅差异视图的行（从对齐行里过滤掉纯 equal 行）。按 diff 实例缓存，
+/// 避免每次 build 都 O(n) 重筛一遍。
+List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
+  if (identical(_lastDiffOnlyRowsFor, result) && _lastDiffOnlyRows != null) {
+    return _lastDiffOnlyRows!;
   }
+  final all = cachedAlignedRows(result);
+  final out = <AlignedRow>[];
+  for (final r in all) {
+    final delOp = r.del == null ? null : result.entries[r.del!].operation;
+    final insOp = r.ins == null ? null : result.entries[r.ins!].operation;
+    final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
+        (insOp == null || insOp == DiffOperation.equal);
+    if (onlyEqual) continue;
+    out.add(r);
+  }
+  _lastDiffOnlyRows = out;
+  _lastDiffOnlyRowsFor = result;
+  return out;
 }
 
 class _CharDiff {
@@ -369,7 +381,7 @@ class _DiffCell extends StatelessWidget {
     required this.findQuery,
     required this.isCurrentMatch,
     required this.matchYellow,
-    required this.matchOrange,
+    required this.matchPink,
     this.charDiff,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
@@ -384,7 +396,7 @@ class _DiffCell extends StatelessWidget {
   final String findQuery;
   final bool isCurrentMatch;
   final Color matchYellow;
-  final Color matchOrange;
+  final Color matchPink;
   final _CharDiff? charDiff;
   final bool showLineNumbers;
   final double bodyFontSize;
@@ -451,7 +463,7 @@ class _DiffCell extends StatelessWidget {
 
   List<InlineSpan> _spans(String text) {
     final q = findQuery;
-    final bg = isCurrentMatch ? matchOrange : matchYellow;
+    final bg = isCurrentMatch ? matchPink : matchYellow;
     final spans = <InlineSpan>[];
     var start = 0;
     int idx;
