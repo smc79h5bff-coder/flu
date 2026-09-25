@@ -1506,6 +1506,7 @@ actions: [
             Row(
               children: [
                 Expanded(
+                  flex: 2,
                   child: FilledButton.icon(
                     icon: const Icon(Icons.compare_arrows, size: 18),
                     label: const Text('对比'),
@@ -1514,6 +1515,7 @@ actions: [
                 ),
                 const SizedBox(width: 6),
                 Expanded(
+                  flex: 1,
                   child: FilledButton.tonalIcon(
                     icon: const Icon(Icons.info_outline, size: 18),
                     label: const Text('属性'),
@@ -1522,6 +1524,7 @@ actions: [
                 ),
                 const SizedBox(width: 6),
                 Expanded(
+                  flex: 1,
                   child: FilledButton.tonalIcon(
                     icon: const Icon(Icons.link, size: 18),
                     label: const Text('复制路径'),
