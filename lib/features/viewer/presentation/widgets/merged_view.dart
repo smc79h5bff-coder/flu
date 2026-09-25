@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
+import 'line_height_calculator.dart';
 
 /// Merged single-pane view: original + modified interleaved.
 class MergedView extends ConsumerWidget {
   const MergedView({
     required this.result,
-    required this.itemScrollController,
-    required this.itemPositionsListener,
+    required this.heightTable,
+    this.controller,
     this.lineNumbers = true,
     this.findQuery = '',
     this.currentMatchEntry,
@@ -26,8 +26,12 @@ class MergedView extends ConsumerWidget {
   });
 
   final DiffResult result;
-  final ItemScrollController itemScrollController;
-  final ItemPositionsListener itemPositionsListener;
+
+  /// 每项精确高度表。ListView 用它做 itemExtent，
+  /// 滚动条 / 跳转都因此变成 100% 准。
+  final LineHeightTable heightTable;
+
+  final ScrollController? controller;
   final bool lineNumbers;
   final String findQuery;
   final int? currentMatchEntry;
@@ -44,38 +48,59 @@ class MergedView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final meta = cachedMergedMeta(result);
     final order = cachedMergedOrder(result);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final thumbColor = (isDark ? Colors.white : Colors.black)
+        .withValues(alpha: 0.42);
 
-    return ScrollablePositionedList.builder(
-      itemScrollController: itemScrollController,
-      itemPositionsListener: itemPositionsListener,
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      itemCount: order.length,
-      itemBuilder: (ctx, i) {
-        final ei = order[i];
-        final e = result.entries[ei];
-        final isCurrent =
-            currentMatchEntry != null && ei == currentMatchEntry;
-        final tile = _EntryTile(
-          entry: e,
-          lineNumber: lineNumbers ? meta[ei].orig : 0,
-          findQuery: findQuery,
-          isCurrentMatch: isCurrent,
-          matchYellow: _matchYellow,
-          matchPink: _matchPink,
-          showLineNumbers: showLineNumbers,
-          bodyFontSize: bodyFontSize,
-          gutterFontSize: gutterFontSize,
-          noWrap: noWrap,
-        );
-        final wrapped = onLongPressEntry == null
-            ? tile
-            : GestureDetector(
-                onLongPress: () => onLongPressEntry!(ei),
-                behavior: HitTestBehavior.opaque,
-                child: tile,
-              );
-        return KeyedSubtree(key: ValueKey<int>(ei), child: wrapped);
-      },
+    return ScrollbarTheme(
+      data: ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll(thumbColor),
+        thickness: const WidgetStatePropertyAll(12),
+        radius: const Radius.circular(6),
+        trackVisibility: const WidgetStatePropertyAll(false),
+      ),
+      child: Scrollbar(
+        controller: controller,
+        interactive: true,
+        child: ListView.builder(
+          controller: controller,
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          itemCount: order.length,
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: false,
+          cacheExtent: 100,
+          // 有了它，ListView 知道每项确切多高，不再估算 maxScrollExtent。
+          itemExtentBuilder: (index, dimensions) {
+            return heightTable.heightOf(index);
+          },
+          itemBuilder: (ctx, i) {
+            final ei = order[i];
+            final e = result.entries[ei];
+            final isCurrent =
+                currentMatchEntry != null && ei == currentMatchEntry;
+            final tile = _EntryTile(
+              entry: e,
+              lineNumber: lineNumbers ? meta[ei].orig : 0,
+              findQuery: findQuery,
+              isCurrentMatch: isCurrent,
+              matchYellow: _matchYellow,
+              matchPink: _matchPink,
+              showLineNumbers: showLineNumbers,
+              bodyFontSize: bodyFontSize,
+              gutterFontSize: gutterFontSize,
+              noWrap: noWrap,
+            );
+            final wrapped = onLongPressEntry == null
+                ? tile
+                : GestureDetector(
+                    onLongPress: () => onLongPressEntry!(ei),
+                    behavior: HitTestBehavior.opaque,
+                    child: tile,
+                  );
+            return KeyedSubtree(key: ValueKey<int>(ei), child: wrapped);
+          },
+        ),
+      ),
     );
   }
 }
