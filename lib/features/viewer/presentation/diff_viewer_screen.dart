@@ -23,6 +23,7 @@ import 'line_height_cache.dart';
 import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'regex_help_screen.dart';
+import 'widgets/diff_only_plain_view.dart';
 import 'widgets/diff_only_view.dart';
 import 'widgets/merged_view.dart';
 import 'widgets/side_by_side_view.dart';
@@ -53,6 +54,7 @@ class _HeightBundle {
     this.sbsLeft,
     this.sbsRight,
     this.diffOnly,
+    this.diffOnlyPlain,
   });
 
   final LineHeightTable? merged;
@@ -60,6 +62,7 @@ class _HeightBundle {
   final LineHeightTable? sbsLeft;
   final LineHeightTable? sbsRight;
   final LineHeightTable? diffOnly;
+  final LineHeightTable? diffOnlyPlain;
 }
 
 class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
@@ -92,17 +95,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   DiffResult? _entryToRowMapFor;
   ViewMode? _entryToRowMapMode;
 
-  // 高度表缓存（最近一次算好的那套）。
   Future<_HeightBundle>? _heightFuture;
   DiffResult? _heightFutureFor;
   ViewMode? _heightFutureMode;
 
-  // 当前实际可用的高度表（供跳转用）。
   _HeightBundle? _activeHeights;
   ViewMode? _activeHeightsMode;
 
-  // 切视图后要执行的跳转目标。等到高度表就绪后触发。
-  int? _pendingJumpEntry; // -1 = 跳到顶部
+  int? _pendingJumpEntry;
   bool _pendingJumpQueued = false;
 
   Timer? _findDebounce;
@@ -126,11 +126,16 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
-int? get _currentMatchEntry {
-  if (_matchEntries.isEmpty) return null;
-  if (_matchPos < 0 || _matchPos >= _matchEntries.length) return null;
-  return _matchEntries[_matchPos];
-    }
+
+  int? get _currentMatchEntry {
+    if (_matchEntries.isEmpty) return null;
+    if (_matchPos < 0 || _matchPos >= _matchEntries.length) return null;
+    return _matchEntries[_matchPos];
+  }
+
+  /// 是否属于"只显示差异行"的视图（两种都算）。
+  bool _isDiffOnlyMode(ViewMode m) =>
+      m == ViewMode.diffOnly || m == ViewMode.diffOnlyPlain;
 
   // ==================== 查找 / 替换基础逻辑 ====================
 
@@ -208,10 +213,11 @@ int? get _currentMatchEntry {
     final matches = <int>[];
     if (q.isNotEmpty && diff != null) {
       final p = _buildFindPattern();
-      final diffOnly = ref.read(viewModeProvider) == ViewMode.diffOnly;
+      final mode = ref.read(viewModeProvider);
+      final isDiffOnly = _isDiffOnlyMode(mode);
       for (var i = 0; i < diff.entries.length; i++) {
         final e = diff.entries[i];
-        if (diffOnly && e.operation == DiffOperation.equal) continue;
+        if (isDiffOnly && e.operation == DiffOperation.equal) continue;
         var hit = false;
         if (_entryMatchesOnLeft(e) &&
             p.allMatches(_entryLeftText(e)).isNotEmpty) {
@@ -406,6 +412,9 @@ int? get _currentMatchEntry {
   int _renderedRows(DiffResult diff, ViewMode mode) {
     if (mode == ViewMode.merged) return cachedMergedOrder(diff).length;
     if (mode == ViewMode.sideBySide) return cachedAlignedRows(diff).length;
+    if (mode == ViewMode.diffOnlyPlain) {
+      return cachedDiffOnlyPlainRows(diff).length;
+    }
     return cachedDiffOnlyRows(diff).length;
   }
 
@@ -423,6 +432,13 @@ int? get _currentMatchEntry {
       }
     } else if (mode == ViewMode.sideBySide) {
       final rows = cachedAlignedRows(diff);
+      for (var r = 0; r < rows.length; r++) {
+        final spec = rows[r];
+        if (spec.del != null) map.putIfAbsent(spec.del!, () => r);
+        if (spec.ins != null) map.putIfAbsent(spec.ins!, () => r);
+      }
+    } else if (mode == ViewMode.diffOnlyPlain) {
+      final rows = cachedDiffOnlyPlainRows(diff);
       for (var r = 0; r < rows.length; r++) {
         final spec = rows[r];
         if (spec.del != null) map.putIfAbsent(spec.del!, () => r);
@@ -580,13 +596,20 @@ int? get _currentMatchEntry {
       }
     }
 
-    // diffOnly
-    final rows = cachedDiffOnlyRows(diff);
+    // 差异上下文行 或 纯差异：两者结构一样，只是行集合不同。
+    final isPlain = mode == ViewMode.diffOnlyPlain;
+    final rows = isPlain
+        ? cachedDiffOnlyPlainRows(diff)
+        : cachedDiffOnlyRows(diff);
     final panelW = (viewportW - 1) / 2;
     final contentW = panelW - 52.0;
-    final k = cacheKey('diff_only');
+    final k = cacheKey(isPlain ? 'diff_only_plain' : 'diff_only');
     final cached = LineHeightCache.instance.get(k);
-    if (cached != null) return _HeightBundle(diffOnly: cached);
+    if (cached != null) {
+      return isPlain
+          ? _HeightBundle(diffOnlyPlain: cached)
+          : _HeightBundle(diffOnly: cached);
+    }
     final table = await computeLineHeightsForTwoPane(
       itemCount: rows.length,
       leftWidth: contentW,
@@ -619,10 +642,11 @@ int? get _currentMatchEntry {
       extraVerticalPadding: 12,
     );
     LineHeightCache.instance.put(k, table);
-    return _HeightBundle(diffOnly: table);
+    return isPlain
+        ? _HeightBundle(diffOnlyPlain: table)
+        : _HeightBundle(diffOnly: table);
   }
 
-  /// 当前视图实际使用的高度表。
   LineHeightTable? _activeTableFor(ViewMode mode) {
     final h = _activeHeights;
     if (h == null) return null;
@@ -633,6 +657,8 @@ int? get _currentMatchEntry {
         return h.sbsSync ?? h.sbsLeft;
       case ViewMode.diffOnly:
         return h.diffOnly;
+      case ViewMode.diffOnlyPlain:
+        return h.diffOnlyPlain;
     }
   }
 
@@ -699,7 +725,6 @@ int? get _currentMatchEntry {
     return list;
   }
 
-  /// 当前屏幕上第一行的 row index。
   int? _currentTopRow() {
     final diff = _diff;
     if (diff == null) return null;
@@ -721,7 +746,6 @@ int? get _currentMatchEntry {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
 
-    // 找第一个 row > currentRow 的差异项。
     for (final ei in indices) {
       final r = map[ei];
       if (r != null && r > currentRow) {
@@ -729,7 +753,6 @@ int? get _currentMatchEntry {
         return;
       }
     }
-    // 到底了，回到第一个差异。
     _scrollToEntry(indices.first);
   }
 
@@ -744,7 +767,6 @@ int? get _currentMatchEntry {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
 
-    // 找最后一个 row < currentRow 的差异项。
     for (var i = indices.length - 1; i >= 0; i--) {
       final ei = indices[i];
       final r = map[ei];
@@ -753,7 +775,6 @@ int? get _currentMatchEntry {
         return;
       }
     }
-    // 到顶了，回到最后一个差异。
     _scrollToEntry(indices.last);
   }
 
@@ -775,8 +796,6 @@ int? get _currentMatchEntry {
 
     ref.read(viewModeProvider.notifier).state = newMode;
 
-    // 等一帧让 FutureBuilder 重新算高度表；然后把跳转挂起，
-    // 等高度表就绪后由 build 里触发。
     final target = choice.isTop ? -1 : (choice.targetEntry ?? -1);
     _pendingJumpEntry = target;
     _pendingJumpQueued = false;
@@ -791,15 +810,13 @@ int? get _currentMatchEntry {
     final modeName = switch (newMode) {
       ViewMode.sideBySide => '并排',
       ViewMode.merged => '合并',
-      ViewMode.diffOnly => '仅差异',
+      ViewMode.diffOnly => '差异上下文行',
+      ViewMode.diffOnlyPlain => '纯差异',
     };
 
-    // 用精确行号估算 5 个选项。
     final diff = _diff;
     final mode = ref.read(viewModeProvider);
-    final map = diff == null
-        ? <int, int>{}
-        : _entryToRowMapOf(diff, mode);
+    final map = diff == null ? <int, int>{} : _entryToRowMapOf(diff, mode);
     final topRow = _currentTopRow();
 
     int? entryAtRowDelta(int delta) {
@@ -1593,7 +1610,6 @@ int? get _currentMatchEntry {
         _activeHeights = heights;
         _activeHeightsMode = viewMode;
 
-        // 如果切视图时挂了跳转，现在高度表就绪了，执行它。
         if (_pendingJumpEntry != null && !_pendingJumpQueued) {
           _pendingJumpQueued = true;
           final target = _pendingJumpEntry!;
@@ -1821,7 +1837,14 @@ int? get _currentMatchEntry {
           if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
           SegmentedButton<ViewMode>(
             segments: const [
-              ButtonSegment(value: ViewMode.diffOnly, label: Text('仅差异')),
+              ButtonSegment(
+                value: ViewMode.diffOnly,
+                label: Text('差异上下文行'),
+              ),
+              ButtonSegment(
+                value: ViewMode.diffOnlyPlain,
+                label: Text('纯差异'),
+              ),
               ButtonSegment(value: ViewMode.sideBySide, label: Text('并排')),
               ButtonSegment(value: ViewMode.merged, label: Text('合并')),
             ],
@@ -1862,6 +1885,21 @@ int? get _currentMatchEntry {
               ViewMode.diffOnly => DiffOnlyView(
                   result: diff,
                   heightTable: heights.diffOnly ?? LineHeightTable.empty,
+                  originalFileName: origName,
+                  modifiedFileName: modName,
+                  controller: _scrollController,
+                  findQuery: _findQuery,
+                  currentMatchEntry: _currentMatchEntry,
+                  showLineNumbers: ref.watch(showLineNumbersProvider),
+                  bodyFontSize: ref.watch(bodyFontSizeProvider),
+                  gutterFontSize: ref.watch(gutterFontSizeProvider),
+                  noWrap: noWrap,
+                  onLongPressEntry: _onRowLongPress,
+                ),
+              ViewMode.diffOnlyPlain => DiffOnlyPlainView(
+                  result: diff,
+                  heightTable:
+                      heights.diffOnlyPlain ?? LineHeightTable.empty,
                   originalFileName: origName,
                   modifiedFileName: modName,
                   controller: _scrollController,
