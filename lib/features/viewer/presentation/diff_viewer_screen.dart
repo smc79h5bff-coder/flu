@@ -801,7 +801,24 @@ Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
     _cachedDiffIndicesFor = diff;
     return list;
   }
+/// "处"的计数：连续的差异行算 1 处。
+int _diffBlockCount(DiffResult diff) {
+  var count = 0;
+  var inBlock = false;
+  for (final e in diff.entries) {
+    final isDiff = e.operation != DiffOperation.equal;
+    if (isDiff && !inBlock) {
+      count++;
+      inBlock = true;
+    } else if (!isDiff) {
+      inBlock = false;
+    }
+  }
+  return count;
+}
 
+
+    
   int? _currentTopRow() {
     final diff = _diff;
     if (diff == null) return null;
@@ -1688,22 +1705,37 @@ body: const Center(
         _activeHeights = heights;
         _activeHeightsMode = viewMode;
 
-        if (_pendingJumpEntry != null && !_pendingJumpQueued) {
-          _pendingJumpQueued = true;
-          final target = _pendingJumpEntry!;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            _pendingJumpEntry = null;
-            _pendingJumpQueued = false;
-            if (target < 0) {
-              if (_scrollController.hasClients) {
-                _scrollController.jumpTo(0);
-              }
-            } else {
-              _scrollToEntry(target);
-            }
-          });
-        }
+if (_pendingJumpEntry != null && !_pendingJumpQueued) {
+  _pendingJumpQueued = true;
+  final target = _pendingJumpEntry!;
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    if (!mounted) return;
+    _pendingJumpEntry = null;
+    _pendingJumpQueued = false;
+
+    // 等 ListView 完成第一次 measure（maxScrollExtent 才有真实值）。
+    for (var attempt = 0; attempt < 5; attempt++) {
+      if (!mounted) return;
+      if (!_scrollController.hasClients) {
+        await WidgetsBinding.instance.endOfFrame;
+        continue;
+      }
+      if (_scrollController.position.maxScrollExtent > 0 || attempt >= 4) {
+        break;
+      }
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!mounted) return;
+
+    if (target < 0) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    } else {
+      _scrollToEntry(target);
+    }
+  });
+}
 
         return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
       },
@@ -1718,7 +1750,8 @@ body: const Center(
     _HeightBundle heights,
   ) {
     final noWrap = ref.watch(noWrapProvider);
-
+final diffBlocks = _diffBlockCount(diff);
+      
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -1911,6 +1944,7 @@ body: const Center(
         children: [
           if (_originalDeleted || _modifiedDeleted) _buildDeletedBanner(),
           _buildEncodingBanner(),
+            if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
           if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
           SegmentedButton<ViewMode>(
@@ -2048,7 +2082,33 @@ body: const Center(
       ),
     );
   }
+Widget _buildFewDiffsBanner(int blocks) {
+  return Container(
+    width: double.infinity,
+    color: Colors.pink.shade50,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    child: Row(
+      children: [
+        Icon(Icons.check_circle_outline,
+            size: 16, color: Colors.pink.shade900),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            blocks == 0
+                ? '两份文档完全相同'
+                : '共 $blocks 处差异，已全部显示',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.pink.shade900,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
+    
   Widget _buildPerfOverlay() {
     final perf = ref.watch(lastDiffPerfProvider);
     if (perf == null) return const SizedBox.shrink();
