@@ -30,7 +30,7 @@ class InlineCharDiff extends StatelessWidget {
   final TextStyle? style;
   final String findQuery;
 
-  /// 是否是"当前停留的匹配项"。为 true 时，命中的查找词用橙色高亮，
+  /// 是否是"当前停留的匹配项"。为 true 时，命中的查找词用粉色高亮，
   /// 其它匹配仍用黄色。
   final bool isCurrentMatch;
 
@@ -42,8 +42,8 @@ class InlineCharDiff extends StatelessWidget {
   /// 普通匹配：浅黄。
   static const Color _matchYellow = Color(0xFFFFF59D);
 
-  /// 当前匹配：橙色。
-  static const Color _matchOrange = Color(0xFFFF9800);
+  /// 当前匹配：粉色。
+  static const Color _matchPink = Color(0xFFFF4081);
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +58,7 @@ class InlineCharDiff extends StatelessWidget {
       backgroundColor: removedBg ?? Colors.red.withValues(alpha: .18),
     );
 
-    final matchBg = isCurrentMatch ? _matchOrange : _matchYellow;
+    final matchBg = isCurrentMatch ? _matchPink : _matchYellow;
 
     final spans = <TextSpan>[];
     for (final (op, text) in segs) {
