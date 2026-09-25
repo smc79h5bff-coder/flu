@@ -19,6 +19,9 @@ class SideBySideView extends ConsumerStatefulWidget {
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
     this.syncScroll = true,
+    this.noWrap = false,
+    this.preciseAnchorEntry,
+    this.preciseAnchorKey,
     this.onLongPressEntry,
     super.key,
   });
@@ -33,6 +36,12 @@ class SideBySideView extends ConsumerStatefulWidget {
   final double bodyFontSize;
   final double gutterFontSize;
   final bool syncScroll;
+  final bool noWrap;
+
+  /// 精准落点：仅在 [syncScroll] 为 true 时生效。
+  final int? preciseAnchorEntry;
+  final GlobalKey? preciseAnchorKey;
+
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -43,7 +52,6 @@ class SideBySideView extends ConsumerStatefulWidget {
 }
 
 class _SideBySideViewState extends ConsumerState<SideBySideView> {
-  // 独立滚动模式：左右各自 controller。
   final ScrollController _leftCtrl = ScrollController();
   final ScrollController _rightCtrl = ScrollController();
 
@@ -54,7 +62,6 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     super.dispose();
   }
 
-  /// 统一滚动条样式：粗一点、半透明、闲置隐藏、可拖拽。
   Widget _scrollbar({
     required BuildContext context,
     required ScrollController? controller,
@@ -72,7 +79,6 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       ),
       child: Scrollbar(
         controller: controller,
-        // 不拖动滚动条 → 关掉它挂的手势处理器。
         interactive: false,
         child: child,
       ),
@@ -161,7 +167,18 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                 } else {
                   out = row;
                 }
-                // ValueKey：合并行的左右下标拼起来当 key，防止撞车。
+
+                // 精准落点：目标 entry 匹配（del 或 ins 任一是它）就挂临时 key。
+                if (widget.preciseAnchorEntry != null &&
+                    widget.preciseAnchorKey != null &&
+                    (spec.del == widget.preciseAnchorEntry ||
+                        spec.ins == widget.preciseAnchorEntry)) {
+                  return KeyedSubtree(
+                    key: widget.preciseAnchorKey,
+                    child: out,
+                  );
+                }
+
                 final key = spec.del != null && spec.ins != null
                     ? ValueKey<String>('${spec.del}-${spec.ins}')
                     : ValueKey<int>(spec.del ?? spec.ins!);
@@ -348,6 +365,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       showLineNumbers: widget.showLineNumbers,
       bodyFontSize: widget.bodyFontSize,
       gutterFontSize: widget.gutterFontSize,
+      noWrap: widget.noWrap,
     );
   }
 
@@ -390,6 +408,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             showLineNumbers: widget.showLineNumbers,
             bodyFontSize: widget.bodyFontSize,
             gutterFontSize: widget.gutterFontSize,
+            noWrap: widget.noWrap,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -416,6 +435,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             showLineNumbers: widget.showLineNumbers,
             bodyFontSize: widget.bodyFontSize,
             gutterFontSize: widget.gutterFontSize,
+            noWrap: widget.noWrap,
           ),
         ),
       ],
@@ -513,6 +533,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             showLineNumbers: widget.showLineNumbers,
             bodyFontSize: widget.bodyFontSize,
             gutterFontSize: widget.gutterFontSize,
+            noWrap: widget.noWrap,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -531,6 +552,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             showLineNumbers: widget.showLineNumbers,
             bodyFontSize: widget.bodyFontSize,
             gutterFontSize: widget.gutterFontSize,
+            noWrap: widget.noWrap,
           ),
         ),
       ],
@@ -575,7 +597,8 @@ List<InlineSpan> _cachedSpans(
   final hit = _spansCache[key];
   if (hit != null) return hit;
 
-  final spans = _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
+  final spans =
+      _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
   if (_spansCache.length >= _spansCacheCap) {
     _spansCache.clear();
   }
@@ -625,6 +648,7 @@ class _Cell extends StatelessWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+    this.noWrap = false,
   });
 
   final String text;
@@ -640,6 +664,7 @@ class _Cell extends StatelessWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+  final bool noWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -667,10 +692,18 @@ class _Cell extends StatelessWidget {
     } else {
       final spans = _cachedSpans(
           text, findQuery, isCurrentMatch, matchYellow, matchPink);
-      content = Text.rich(TextSpan(style: body, children: spans));
+      if (noWrap) {
+        content = Text.rich(
+          TextSpan(style: body, children: spans),
+          softWrap: false,
+          overflow: TextOverflow.clip,
+          maxLines: 1,
+        );
+      } else {
+        content = Text.rich(TextSpan(style: body, children: spans));
+      }
     }
 
-    // Container + BoxDecoration → ColoredBox，省一层。
     return ColoredBox(
       color: bg,
       child: Padding(
