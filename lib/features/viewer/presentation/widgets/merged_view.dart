@@ -28,7 +28,7 @@ class MergedView extends ConsumerWidget {
   final bool lineNumbers;
   final String findQuery;
 
-  /// 当前停留的匹配项对应的 entry 下标；用于橙色高亮。
+  /// 当前停留的匹配项对应的 entry 下标；用于粉色高亮。
   final int? currentMatchEntry;
 
   final Map<int, GlobalKey>? rowKeysByEntry;
@@ -38,21 +38,12 @@ class MergedView extends ConsumerWidget {
   final void Function(int entryIndex)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
-  static const Color _matchOrange = Color(0xFFFF9800);
+  static const Color _matchPink = Color(0xFFFF4081);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final meta = <({int orig, int mod})>[];
-    var o = 0, m = 0;
-    for (final e in result.entries) {
-      meta.add((orig: o, mod: m));
-      if (e.operation == DiffOperation.equal ||
-          e.operation == DiffOperation.delete) o++;
-      if (e.operation == DiffOperation.equal ||
-          e.operation == DiffOperation.insert) m++;
-    }
-
-    final order = _mergedOrder(result.entries);
+    final meta = cachedMergedMeta(result);
+    final order = cachedMergedOrder(result);
 
     // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏。
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -83,7 +74,7 @@ class MergedView extends ConsumerWidget {
               findQuery: findQuery,
               isCurrentMatch: isCurrent,
               matchYellow: _matchYellow,
-              matchOrange: _matchOrange,
+              matchPink: _matchPink,
               showLineNumbers: showLineNumbers,
               bodyFontSize: bodyFontSize,
               gutterFontSize: gutterFontSize,
@@ -103,6 +94,43 @@ class MergedView extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ========== 派生数据缓存（避免每次 rebuild 全量重算） ==========
+
+DiffResult? _lastMergedMetaFor;
+List<({int orig, int mod})>? _lastMergedMeta;
+
+/// 每行对应的原文行号 / 修改版行号。按 diff 实例缓存。
+List<({int orig, int mod})> cachedMergedMeta(DiffResult result) {
+  if (identical(_lastMergedMetaFor, result) && _lastMergedMeta != null) {
+    return _lastMergedMeta!;
+  }
+  final meta = <({int orig, int mod})>[];
+  var o = 0, m = 0;
+  for (final e in result.entries) {
+    meta.add((orig: o, mod: m));
+    if (e.operation == DiffOperation.equal ||
+        e.operation == DiffOperation.delete) o++;
+    if (e.operation == DiffOperation.equal ||
+        e.operation == DiffOperation.insert) m++;
+  }
+  _lastMergedMeta = meta;
+  _lastMergedMetaFor = result;
+  return meta;
+}
+
+DiffResult? _lastMergedOrderFor;
+List<int>? _lastMergedOrder;
+
+/// 合并视图的渲染顺序（删除/新增交替）。按 diff 实例缓存。
+List<int> cachedMergedOrder(DiffResult result) {
+  if (identical(_lastMergedOrderFor, result) && _lastMergedOrder != null) {
+    return _lastMergedOrder!;
+  }
+  _lastMergedOrder = _mergedOrder(result.entries);
+  _lastMergedOrderFor = result;
+  return _lastMergedOrder!;
 }
 
 List<int> _mergedOrder(List<DiffEntry> entries) {
@@ -154,7 +182,7 @@ class _EntryTile extends StatelessWidget {
     required this.findQuery,
     required this.isCurrentMatch,
     required this.matchYellow,
-    required this.matchOrange,
+    required this.matchPink,
     required this.showLineNumbers,
     required this.bodyFontSize,
     required this.gutterFontSize,
@@ -165,7 +193,7 @@ class _EntryTile extends StatelessWidget {
   final String findQuery;
   final bool isCurrentMatch;
   final Color matchYellow;
-  final Color matchOrange;
+  final Color matchPink;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
@@ -293,7 +321,7 @@ class _EntryTile extends StatelessWidget {
   List<InlineSpan> _spans(String text) {
     final q = findQuery;
     if (q.isEmpty || text.isEmpty) return [TextSpan(text: text)];
-    final bg = isCurrentMatch ? matchOrange : matchYellow;
+    final bg = isCurrentMatch ? matchPink : matchYellow;
     final spans = <InlineSpan>[];
     var start = 0;
     int idx;
