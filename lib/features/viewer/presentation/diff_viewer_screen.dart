@@ -374,43 +374,21 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return n;
   }
 
-  void _scrollToEntry(int entryIndex) {
-    Future<void> locate(int round) async {
-      final ctx = _rowKeysByEntry[entryIndex]?.currentContext;
-      if (ctx != null) {
-        await Scrollable.ensureVisible(
-          ctx,
-          duration: Duration.zero,
-          alignment: 0.25,
-        );
-        return;
-      }
-      if (round > 10) return;
-      final diff = _diff;
-      final mode = ref.read(viewModeProvider);
-      if (diff == null || !_scrollController.hasClients) return;
-      final targetRow = _entryToRow(diff, entryIndex, mode);
-      final pos = _scrollController.position;
-      final maxExtent = pos.maxScrollExtent;
-      if (targetRow < 0 || maxExtent <= 0) return;
-      final rowsCount = _renderedRows(diff, mode);
-      if (rowsCount <= 0) return;
-      final viewport = pos.viewportDimension;
-      var target = maxExtent * ((targetRow + 1) / rowsCount);
-      if (round > 0) {
-        final curRow = pos.pixels / maxExtent * rowsCount;
-        final dir = (targetRow + 0.5) >= curRow ? 1 : -1;
-        target += dir * round * viewport * 0.7;
-      }
-      target = target.clamp(0.0, maxExtent);
-      if ((pos.pixels - target).abs() < 1.0) return;
-      pos.jumpTo(target);
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-      await locate(round + 1);
-    }
 
-    locate(0);
-  }
+
+    void _scrollToEntry(int entryIndex) {
+  final diff = _diff;
+  if (diff == null) return;
+  final mode = ref.read(viewModeProvider);
+
+  final helper = DiffScrollHelper(
+    scrollController: _scrollController,
+    rowKeysByEntry: _rowKeysByEntry,
+    totalRows: () => _renderedRows(diff, mode),
+    entryToRow: (ei) => _entryToRow(diff, ei, mode),
+  );
+  helper.scrollToEntry(entryIndex);
+    }
 
   int _entryToRow(DiffResult diff, int entryIndex, ViewMode mode) {
     if (mode == ViewMode.merged) return entryIndex;
