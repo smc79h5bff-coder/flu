@@ -27,12 +27,12 @@ android {
         create("prod") {
             dimension = "app"
             applicationId = "com.example.docdiff"
-            resValue("string", "app_name", "DocDiff")
+            manifestPlaceholders["appName"] = "DocDiff"
         }
         create("coexist") {
             dimension = "app"
             applicationId = "com.txtdifferent.compare"
-            resValue("string", "app_name", "TXT对比")
+            manifestPlaceholders["appName"] = "TXT对比"
         }
     }
 
