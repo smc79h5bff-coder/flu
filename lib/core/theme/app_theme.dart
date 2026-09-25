@@ -16,8 +16,8 @@ class AppTheme {
       ),
       scaffoldBackgroundColor: Colors.white,
       textTheme: base.textTheme.apply(
-        bodyColor: Colors.black87,
-        displayColor: Colors.black87,
+        bodyColor: Colors.black,
+        displayColor: Colors.black,
       ),
     );
   }
