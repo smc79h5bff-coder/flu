@@ -6,7 +6,7 @@ import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
-import 'line_height_calculator.dart';
+import '../line_height_calculator.dart';
 
 /// Merged single-pane view: original + modified interleaved.
 class MergedView extends ConsumerWidget {
