@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/storage/persistent_notifier.dart';
 import '../../import/presentation/providers/import_providers.dart';
 
 /// 关键词 / 正则 替换规则的编辑器页。
@@ -29,7 +30,9 @@ class _ReplaceRulesScreenState extends ConsumerState<ReplaceRulesScreen> {
 
   String get _title => widget.isRegex ? '正则规则' : '关键词规则';
 
-  StateProvider<String> get _provider =>
+  /// 两个 provider 现在都是 `NotifierProvider<XxxNotifier, String>`，
+  /// 公共超类型是 `NotifierProvider<StringPrefNotifier, String>`。
+  NotifierProvider<StringPrefNotifier, String> get _provider =>
       widget.isRegex ? regexRulesTextProvider : keywordRulesTextProvider;
 
   @override
@@ -48,7 +51,7 @@ class _ReplaceRulesScreenState extends ConsumerState<ReplaceRulesScreen> {
   }
 
   void _save() {
-    ref.read(_provider.notifier).state = _ctrl.text;
+    ref.read(_provider.notifier).update(_ctrl.text);
     setState(() => _dirty = false);
     ref.read(importRevisionProvider.notifier).state++;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -104,13 +107,13 @@ class _ReplaceRulesScreenState extends ConsumerState<ReplaceRulesScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Text(
                 widget.isRegex
-                    ? '每行一条正则。用 ->=> 分隔“匹配”和“替换”：\n'
-                        r'  \d+->=>数字      把连续数字换成“数字”' '\n'
+                    ? '每行一条正则。用 ->=> 分隔"匹配"和"替换"：\n'
+                        r'  \d+->=>数字      把连续数字换成"数字"' '\n'
                         r'  \d+              删除连续数字' '\n'
                         '  非法正则会被跳过，不影响其它行。'
-                    : '每行一条。用 ->=> 分隔“匹配”和“替换”：\n'
-                        '  xx小说网->=>起点      把“xx小说网”换成“起点”\n'
-                        '  xx小说网             删除“xx小说网”\n'
+                    : '每行一条。用 ->=> 分隔"匹配"和"替换"：\n'
+                        '  xx小说网->=>起点      把"xx小说网"换成"起点"\n'
+                        '  xx小说网             删除"xx小说网"\n'
                         '  特殊字符（. * + ? 等）按普通文字处理。',
                 style: TextStyle(
                   fontSize: 12,
