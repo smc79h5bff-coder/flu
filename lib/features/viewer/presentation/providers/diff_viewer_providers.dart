@@ -20,6 +20,10 @@ final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 /// 计时面板开关。**不持久化**，固定关闭。
 final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
 
+/// 不换行模式：长行不折行，横向内容被裁掉，一行只占一屏高。
+/// **不持久化**，每次进对比页默认关闭。
+final noWrapProvider = StateProvider<bool>((ref) => false);
+
 // ==================== 显示设置（持久化） ====================
 
 /// 对比页显示行号。
@@ -100,10 +104,7 @@ class DiffPerfStats {
 final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
 
 // ==================== 忽略开关（暂未持久化，下一步改） ====================
-// 这 8 个开关和 import_providers.dart 关系更紧，放一起改更顺。
 
-/// 忽略空白符号：比较前去掉水平空白字符（空格、制表符）。
-/// 注意用 `[ \t]+` 而非 `\s`，因为 `\s` 会把换行也吃掉、导致整篇并成一行。
 final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
 final ignoreWhitespaceProvider = StateProvider<bool>((ref) => true);
 
@@ -128,8 +129,7 @@ final ignoreNumbersProvider = StateProvider<bool>((ref) => false);
 /// 忽略不可见字符（零宽、方向控制、BOM、软连字符、NBSP 等）。
 final ignoreInvisibleProvider = StateProvider<bool>((ref) => true);
 
-/// 不可见字符正则。只列"纯控制/零宽/方向"类，不含普通空格、Tab、换行、
-/// 全角空格（这些有独立开关或语义）。
+/// 不可见字符正则。
 final RegExp _invisibleChars = RegExp(
   r'[\u00A0\u00AD'
   r'\u200B-\u200F'
@@ -462,13 +462,6 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
 });
 
 // ==================== 差异颜色（持久化） ====================
-//
-// 12 个颜色项，分三组：
-//   1) 纯删除 / 纯新增行的整行颜色（正红 / 正绿）
-//   2) 修改行的整行颜色（浅粉 / 浅绿）+ 字体色
-//   3) 字符级差异（深红 / 深绿）+ 字体色
-//
-// 存成 "#RRGGBB" 字符串，从 provider 读，改动立即生效。
 
 /// 颜色专用持久化 Notifier：内存里是 Color，磁盘上是 "#RRGGBB"。
 class ColorPrefNotifier extends PersistentNotifier<Color> {
