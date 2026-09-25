@@ -1287,81 +1287,77 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
               onPressed: _goUp,
             )
           : null,
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.tune),
-          tooltip: '比较设置',
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const ComparisonSettingsScreen(),
-              ),
-            );
-          },
+actions: [
+  // 收藏/取消收藏
+  IconButton(
+    icon: Icon(
+      isFav ? Icons.star : Icons.star_border,
+      color: isFav ? Colors.amber : null,
+    ),
+    tooltip: isFav ? '取消收藏此目录' : '收藏此目录',
+    onPressed: _toggleFavorite,
+  ),
+  // 比较设置
+  IconButton(
+    icon: const Icon(Icons.tune),
+    tooltip: '比较设置',
+    onPressed: () {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const ComparisonSettingsScreen(),
         ),
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
-          tooltip: '更多',
-          onSelected: (v) {
-            switch (v) {
-              case 'refresh':
-                _load();
-              case 'sort':
-                _showSortDialog();
-              case 'fav':
-                _toggleFavorite();
-              case 'favorites':
-                _showFavorites();
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem<String>(
-              value: 'refresh',
-              child: Row(
-                children: [
-                  Icon(Icons.refresh),
-                  SizedBox(width: 10),
-                  Text('刷新'),
-                ],
-              ),
-            ),
-            const PopupMenuItem<String>(
-              value: 'sort',
-              child: Row(
-                children: [
-                  Icon(Icons.sort),
-                  SizedBox(width: 10),
-                  Text('排序方式'),
-                ],
-              ),
-            ),
-            const PopupMenuDivider(),
-            PopupMenuItem<String>(
-              value: 'fav',
-              child: Row(
-                children: [
-                  Icon(
-                    isFav ? Icons.star : Icons.star_border,
-                    color: isFav ? Colors.amber : null,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(isFav ? '取消收藏此目录' : '收藏此目录'),
-                ],
-              ),
-            ),
-            PopupMenuItem<String>(
-              value: 'favorites',
-              child: Row(
-                children: [
-                  const Icon(Icons.bookmarks_outlined),
-                  const SizedBox(width: 10),
-                  Text('已收藏目录 (${favorites.length})'),
-                ],
-              ),
-            ),
+      );
+    },
+  ),
+  // 更多菜单（刷新 + 排序 + 已收藏目录）
+  PopupMenuButton<String>(
+    icon: const Icon(Icons.more_vert),
+    tooltip: '更多',
+    onSelected: (v) {
+      switch (v) {
+        case 'refresh':
+          _load();
+        case 'sort':
+          _showSortDialog();
+        case 'favorites':
+          _showFavorites();
+      }
+    },
+    itemBuilder: (context) => [
+      const PopupMenuItem<String>(
+        value: 'refresh',
+        child: Row(
+          children: [
+            Icon(Icons.refresh),
+            SizedBox(width: 10),
+            Text('刷新'),
           ],
         ),
-      ],
+      ),
+      const PopupMenuItem<String>(
+        value: 'sort',
+        child: Row(
+          children: [
+            Icon(Icons.sort),
+            SizedBox(width: 10),
+            Text('排序方式'),
+          ],
+        ),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem<String>(
+        value: 'favorites',
+        child: Row(
+          children: [
+            const Icon(Icons.bookmarks_outlined),
+            const SizedBox(width: 10),
+            Text('已收藏目录 (${_favorites.length})'),
+          ],
+        ),
+      ),
+    ],
+  ),
+],
     );
   }
 
