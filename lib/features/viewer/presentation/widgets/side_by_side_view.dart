@@ -38,7 +38,7 @@ class SideBySideView extends ConsumerStatefulWidget {
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
-  static const Color _matchOrange = Color(0xFFFF9800);
+  static const Color _matchPink = Color(0xFFFF4081);
 
   @override
   ConsumerState<SideBySideView> createState() => _SideBySideViewState();
@@ -330,7 +330,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       findQuery: widget.findQuery,
       isCurrentMatch: isCurrentMatch,
       matchYellow: SideBySideView._matchYellow,
-      matchOrange: SideBySideView._matchOrange,
+      matchPink: SideBySideView._matchPink,
       charDiff: null,
       showLineNumbers: widget.showLineNumbers,
       bodyFontSize: widget.bodyFontSize,
@@ -364,7 +364,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: SideBySideView._matchYellow,
-            matchOrange: SideBySideView._matchOrange,
+            matchPink: SideBySideView._matchPink,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -390,7 +390,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: SideBySideView._matchYellow,
-            matchOrange: SideBySideView._matchOrange,
+            matchPink: SideBySideView._matchPink,
             charDiff: _CharDiff(
               before: leftText,
               after: rightText,
@@ -495,7 +495,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: SideBySideView._matchYellow,
-            matchOrange: SideBySideView._matchOrange,
+            matchPink: SideBySideView._matchPink,
             charDiff: leftCharDiff,
             showLineNumbers: widget.showLineNumbers,
             bodyFontSize: widget.bodyFontSize,
@@ -513,7 +513,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             findQuery: widget.findQuery,
             isCurrentMatch: isCurrentMatch,
             matchYellow: SideBySideView._matchYellow,
-            matchOrange: SideBySideView._matchOrange,
+            matchPink: SideBySideView._matchPink,
             charDiff: rightCharDiff,
             showLineNumbers: widget.showLineNumbers,
             bodyFontSize: widget.bodyFontSize,
@@ -555,7 +555,7 @@ class _Cell extends StatelessWidget {
     required this.findQuery,
     required this.isCurrentMatch,
     required this.matchYellow,
-    required this.matchOrange,
+    required this.matchPink,
     this.charDiff,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
@@ -570,7 +570,7 @@ class _Cell extends StatelessWidget {
   final String findQuery;
   final bool isCurrentMatch;
   final Color matchYellow;
-  final Color matchOrange;
+  final Color matchPink;
   final _CharDiff? charDiff;
   final bool showLineNumbers;
   final double bodyFontSize;
@@ -637,7 +637,7 @@ class _Cell extends StatelessWidget {
 
   List<InlineSpan> _spans(String text) {
     final q = findQuery;
-    final bg = isCurrentMatch ? matchOrange : matchYellow;
+    final bg = isCurrentMatch ? matchPink : matchYellow;
     final spans = <InlineSpan>[];
     var start = 0;
     int idx;
