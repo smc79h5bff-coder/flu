@@ -17,7 +17,6 @@ class DiffOnlyView extends ConsumerWidget {
     this.controller,
     this.findQuery = '',
     this.currentMatchEntry,
-    this.rowKeysByEntry,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
@@ -31,7 +30,6 @@ class DiffOnlyView extends ConsumerWidget {
   final ScrollController? controller;
   final String findQuery;
   final int? currentMatchEntry;
-  final Map<int, GlobalKey>? rowKeysByEntry;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
@@ -79,10 +77,13 @@ class DiffOnlyView extends ConsumerWidget {
             ),
             child: Scrollbar(
               controller: controller,
-              interactive: true,
+              interactive: false,
               child: ListView.builder(
                 key: const Key('diff-only-list'),
                 controller: controller,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: false,
+                cacheExtent: 100,
                 itemCount: rows.length,
                 itemBuilder: (ctx, i) {
                   final spec = rows[i];
@@ -113,22 +114,20 @@ class DiffOnlyView extends ConsumerWidget {
                         ctx, result.entries[ei], meta[ei], c, isCurrent);
                     keyOwners = <int>[ei];
                   }
-                  Widget out = row;
-                  if (rowKeysByEntry != null) {
-                    for (final k in keyOwners) {
-                      final key =
-                          rowKeysByEntry!.putIfAbsent(k, () => GlobalKey());
-                      out = KeyedSubtree(key: key, child: out);
-                    }
-                  }
+                  final Widget out;
                   if (onLongPressEntry != null) {
                     out = GestureDetector(
                       onLongPress: () => onLongPressEntry!(keyOwners),
                       behavior: HitTestBehavior.opaque,
-                      child: out,
+                      child: row,
                     );
+                  } else {
+                    out = row;
                   }
-                  return out;
+                  final key = spec.del != null && spec.ins != null
+                      ? ValueKey<String>('${spec.del}-${spec.ins}')
+                      : ValueKey<int>(spec.del ?? spec.ins!);
+                  return KeyedSubtree(key: key, child: out);
                 },
               ),
             ),
@@ -330,8 +329,7 @@ class DiffOnlyView extends ConsumerWidget {
 DiffResult? _lastDiffOnlyRowsFor;
 List<AlignedRow>? _lastDiffOnlyRows;
 
-/// 仅差异视图的行（从对齐行里过滤掉纯 equal 行）。按 diff 实例缓存，
-/// 避免每次 build 都 O(n) 重筛一遍。
+/// 仅差异视图的行（从对齐行里过滤掉纯 equal 行）。按 diff 实例缓存。
 List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
   if (identical(_lastDiffOnlyRowsFor, result) && _lastDiffOnlyRows != null) {
     return _lastDiffOnlyRows!;
@@ -371,6 +369,58 @@ class _CharDiff {
   final Color addedFg;
 }
 
+// ========== 查找高亮 spans 的 LRU 缓存 ==========
+
+const int _spansCacheCap = 512;
+final Map<String, List<InlineSpan>> _spansCache =
+    <String, List<InlineSpan>>{};
+
+List<InlineSpan> _cachedSpans(
+  String text,
+  String findQuery,
+  bool isCurrentMatch,
+  Color matchYellow,
+  Color matchPink,
+) {
+  final key = '$text\u0000$findQuery\u0000${isCurrentMatch ? 1 : 0}';
+  final hit = _spansCache[key];
+  if (hit != null) return hit;
+
+  final spans = _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
+  if (_spansCache.length >= _spansCacheCap) {
+    _spansCache.clear();
+  }
+  _spansCache[key] = spans;
+  return spans;
+}
+
+List<InlineSpan> _buildSpans(
+  String text,
+  String findQuery,
+  bool isCurrentMatch,
+  Color matchYellow,
+  Color matchPink,
+) {
+  final q = findQuery;
+  if (q.isEmpty || text.isEmpty) {
+    return <InlineSpan>[TextSpan(text: text.isEmpty ? ' ' : text)];
+  }
+  final bg = isCurrentMatch ? matchPink : matchYellow;
+  final spans = <InlineSpan>[];
+  var start = 0;
+  int idx;
+  while ((idx = text.indexOf(q, start)) != -1) {
+    if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
+    spans.add(TextSpan(
+      text: q,
+      style: TextStyle(backgroundColor: bg, fontWeight: FontWeight.bold),
+    ));
+    start = idx + q.length;
+  }
+  if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
+  return spans.isEmpty ? <InlineSpan>[TextSpan(text: ' ')] : spans;
+}
+
 class _DiffCell extends StatelessWidget {
   const _DiffCell({
     required this.text,
@@ -404,13 +454,14 @@ class _DiffCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final body = Theme.of(context)
-        .textTheme
-        .bodyMedium
-        ?.copyWith(fontSize: bodyFontSize, color: fg);
+    final body = TextStyle(
+      fontSize: bodyFontSize,
+      color: fg,
+      height: 1.35,
+    );
     final outline = Theme.of(context).colorScheme.outline;
 
-    Widget content;
+    final Widget content;
     if (charDiff != null) {
       content = InlineCharDiff(
         before: charDiff!.before,
@@ -424,62 +475,46 @@ class _DiffCell extends StatelessWidget {
         removedFg: charDiff!.removedFg,
         removedBg: charDiff!.removedBg,
       );
-    } else if (findQuery.isEmpty || !text.contains(findQuery)) {
-      content = Text(text.isEmpty ? ' ' : text, style: body, softWrap: true);
     } else {
-      content = RichText(text: TextSpan(style: body, children: _spans(text)));
+      final spans = _cachedSpans(
+          text, findQuery, isCurrentMatch, matchYellow, matchPink);
+      content = Text.rich(TextSpan(style: body, children: spans));
     }
 
-    return Container(
+    return ColoredBox(
       color: bg,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showLineNumbers) ...[
-            SizedBox(
-              width: 30,
-              child: Text(
-                line < 0 ? '' : '$line',
-                textAlign: TextAlign.end,
-                style: TextStyle(fontSize: gutterFontSize, color: outline),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showLineNumbers) ...[
+              SizedBox(
+                width: 30,
+                child: Text(
+                  line < 0 ? '' : '$line',
+                  textAlign: TextAlign.end,
+                  style: TextStyle(fontSize: gutterFontSize, color: outline),
+                ),
               ),
-            ),
-            if (symbol.isNotEmpty) ...[
-              const SizedBox(width: 4),
-              Text(symbol,
+              if (symbol.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Text(
+                  symbol,
                   style: TextStyle(
-                      color: fg,
-                      fontWeight: FontWeight.bold,
-                      fontSize: bodyFontSize)),
+                    color: fg,
+                    fontWeight: FontWeight.bold,
+                    fontSize: bodyFontSize,
+                  ),
+                ),
+              ],
             ],
+            const SizedBox(width: 6),
+            Expanded(child: content),
           ],
-          const SizedBox(width: 6),
-          Expanded(child: content),
-        ],
+        ),
       ),
     );
-  }
-
-  List<InlineSpan> _spans(String text) {
-    final q = findQuery;
-    final bg = isCurrentMatch ? matchPink : matchYellow;
-    final spans = <InlineSpan>[];
-    var start = 0;
-    int idx;
-    while ((idx = text.indexOf(q, start)) != -1) {
-      if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
-      spans.add(TextSpan(
-        text: q,
-        style: TextStyle(
-          backgroundColor: bg,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      start = idx + q.length;
-    }
-    if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
-    return spans;
   }
 }
 
