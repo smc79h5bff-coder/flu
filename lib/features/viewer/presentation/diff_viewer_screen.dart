@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/storage/persistent_notifier.dart';
 import '../../diff/application/diff_cache.dart';
 import '../../diff/domain/diff_entry.dart';
 import '../../diff/domain/diff_operation.dart';
@@ -88,7 +89,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
 
-  /// 当前停留的匹配项对应的 entry 下标（用于"仅差异"视图橙色高亮）。
+  /// 当前停留的匹配项对应的 entry 下标。
   int? get _currentMatchEntry {
     if (_matchEntries.isEmpty) return null;
     if (_matchPos < 0 || _matchPos >= _matchEntries.length) return null;
@@ -1285,7 +1286,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ref.read(showPerfOverlayProvider.notifier).state = !cur;
               } else if (v == 'syncScroll') {
                 final cur = ref.read(syncScrollProvider);
-                ref.read(syncScrollProvider.notifier).state = !cur;
+                ref.read(syncScrollProvider.notifier).update(!cur);
               } else if (v == 'displaySettings') {
                 _openDisplaySettings();
               } else if (v == 'comparisonSettings') {
@@ -1831,8 +1832,9 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('显示行号'),
                       value: showLine,
-                      onChanged: (v) =>
-                          ref.read(showLineNumbersProvider.notifier).state = v,
+                      onChanged: (v) => ref
+                          .read(showLineNumbersProvider.notifier)
+                          .update(v),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -1845,12 +1847,8 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                       divisions: 18,
                       value: bodySize,
                       label: bodySize.toStringAsFixed(0),
-
-
                       onChanged: (v) =>
-    ref.read(bodyFontSizeProvider.notifier).update(v),
-
-                    
+                          ref.read(bodyFontSizeProvider.notifier).update(v),
                     ),
                     Text(
                       '行号字号：${gutterSize.toStringAsFixed(0)}',
@@ -1862,8 +1860,9 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                       divisions: 12,
                       value: gutterSize,
                       label: gutterSize.toStringAsFixed(0),
-                      onChanged: (v) =>
-                          ref.read(gutterFontSizeProvider.notifier).state = v,
+                      onChanged: (v) => ref
+                          .read(gutterFontSizeProvider.notifier)
+                          .update(v),
                     ),
                     const Divider(height: 32),
                     Text(
@@ -1906,11 +1905,12 @@ class _DisplaySettingsSheet extends ConsumerWidget {
     );
   }
 
+  /// 12 个颜色现在都是 `NotifierProvider<ColorPrefNotifier, Color>`。
   Widget _colorRow(
     BuildContext context,
     WidgetRef ref,
     String label,
-    StateProvider<Color> provider,
+    NotifierProvider<ColorPrefNotifier, Color> provider,
   ) {
     final color = ref.watch(provider);
     return ListTile(
@@ -1951,7 +1951,7 @@ class _DisplaySettingsSheet extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     String label,
-    StateProvider<Color> provider,
+    NotifierProvider<ColorPrefNotifier, Color> provider,
   ) async {
     final controller =
         TextEditingController(text: colorToHex(ref.read(provider)));
@@ -1997,7 +1997,7 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                   setState(() => error = '格式错误，需要 #RRGGBB');
                   return;
                 }
-                ref.read(provider.notifier).state = parsed;
+                ref.read(provider.notifier).update(parsed);
                 Navigator.pop(c);
               },
               child: const Text('确定'),
