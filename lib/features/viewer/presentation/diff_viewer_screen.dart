@@ -1004,7 +1004,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       anchorOrigLine: origLine,
       anchorModLine: modLine,
       anchorOrigText: origAnchorText,
-      anchorModText: anchorModText,
+      anchorModText: modAnchorText,
     );
   }
 
