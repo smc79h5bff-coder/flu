@@ -1,46 +1,125 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/storage/pref_keys.dart';
+import '../../../../core/storage/persistent_notifier.dart';
 import '../../../preprocessing/application/builtin_rules.dart';
 import '../../../preprocessing/application/preprocessing_service.dart';
 import '../../../preprocessing/domain/preprocessing_rule.dart';
 import '../../domain/import_source.dart';
 
 /// Holds the *raw* text imported from a local file / clipboard.
-/// Preprocessing produces the *processed* variant used by diff.
+/// **不持久化**：重启后清空。
 final originalRawTextProvider = StateProvider<String?>((ref) => null);
 final modifiedRawTextProvider = StateProvider<String?>((ref) => null);
 
-/// 导入文件的文件名（用于在导入卡片旁展示）。
+/// 导入文件的文件名（用于在导入卡片旁展示）。**不持久化**。
 final originalFileNameProvider = StateProvider<String?>((ref) => null);
 final modifiedFileNameProvider = StateProvider<String?>((ref) => null);
 
-/// 导入文件的真实磁盘路径（FilePicker 返回，可能为 null）。用于编辑后
-/// “覆盖原文件 + 自动 .bak 备份”；拿不到路径时保存会降级为另存为。
+/// 导入文件的真实磁盘路径。**不持久化**。
 final originalFilePathProvider = StateProvider<String?>((ref) => null);
 final modifiedFilePathProvider = StateProvider<String?>((ref) => null);
 
-/// Encoding label surfaced in the export footer.
+/// Encoding label surfaced in the export footer. **不持久化**。
 final originalEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 final modifiedEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 
 /// Toggles "show processed text" vs "show original text" in the viewer.
-/// PRD §2 Module 3.4 — diff is always computed on processed text.
+/// **不持久化**。
 final showProcessedTextProvider = StateProvider<bool>((ref) => false);
+
+// ==================== 自定义预处理规则（持久化） ====================
 
 /// User-defined preprocessing rules (mutable list).
 final userRulesProvider =
-    StateNotifierProvider<UserRulesNotifier, List<PreprocessingRule>>(
-  (ref) => UserRulesNotifier(),
+    NotifierProvider<UserRulesNotifier, List<PreprocessingRule>>(
+  UserRulesNotifier.new,
 );
 
-/// Built-in rule enabled-states, keyed by rule id. Lets the user select which
-/// built-in rules run during preprocessing (seeded from defaults).
+class UserRulesNotifier extends PersistentNotifier<List<PreprocessingRule>> {
+  @override
+  String get key => PrefKeys.userRules;
+
+  @override
+  List<PreprocessingRule> get defaultValue => const [];
+
+  @override
+  List<PreprocessingRule> decode(String raw) {
+    final list = jsonDecode(raw) as List<dynamic>;
+    return [
+      for (final e in list)
+        PreprocessingRule.fromJson(e as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  String encode(List<PreprocessingRule> value) =>
+      jsonEncode([for (final r in value) r.toJson()]);
+
+  void add(PreprocessingRule rule) => update([...state, rule]);
+
+  /// 注意：这里叫 updateRule，因为基类已占用 `update` 这个名字（改值+写盘）。
+  void updateRule(PreprocessingRule rule) => update([
+        for (final r in state)
+          if (r.id == rule.id) rule else r,
+      ]);
+
+  void remove(String id) =>
+      update(state.where((r) => r.id != id).toList());
+
+  void toggle(String id) => update([
+        for (final r in state)
+          if (r.id == id) r.copyWith(enabled: !r.enabled) else r,
+      ]);
+
+  void importFromJson(List<Map<String, dynamic>> json) =>
+      update(json.map(PreprocessingRule.fromJson).toList());
+}
+
+// ==================== 内置规则启用状态（持久化） ====================
+
+/// Built-in rule enabled-states, keyed by rule id.
 final builtinRuleEnablesProvider =
-    StateProvider<Map<String, bool>>((ref) {
-  return <String, bool>{
-    for (final r in BuiltinRules.all()) r.id: r.enabled,
-  };
-});
+    NotifierProvider<BuiltinRuleEnablesNotifier, Map<String, bool>>(
+  BuiltinRuleEnablesNotifier.new,
+);
+
+class BuiltinRuleEnablesNotifier
+    extends PersistentNotifier<Map<String, bool>> {
+  @override
+  String get key => PrefKeys.builtinRuleEnables;
+
+  @override
+  Map<String, bool> get defaultValue => <String, bool>{
+        for (final r in BuiltinRules.all()) r.id: r.enabled,
+      };
+
+  @override
+  Map<String, bool> decode(String raw) {
+    final saved = jsonDecode(raw) as Map<String, dynamic>;
+    // 从当前默认值起步：这样新增的内置规则自动用默认状态，
+    // 已经删掉的旧规则 id 也不会被当成有效项保留。
+    final out = <String, bool>{
+      for (final r in BuiltinRules.all()) r.id: r.enabled,
+    };
+    for (final e in saved.entries) {
+      if (out.containsKey(e.key)) {
+        out[e.key] = e.value == true;
+      }
+    }
+    return out;
+  }
+
+  @override
+  String encode(Map<String, bool> value) => jsonEncode(value);
+
+  /// 便捷方法：单个规则开关。
+  void setOne(String id, bool enabled) {
+    update({...state, id: enabled});
+  }
+}
 
 /// Built-in rules resolved against the user-selected enabled-states.
 final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
@@ -51,29 +130,7 @@ final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
   ];
 });
 
-class UserRulesNotifier extends StateNotifier<List<PreprocessingRule>> {
-  UserRulesNotifier() : super(const []);
-
-  void add(PreprocessingRule rule) => state = [...state, rule];
-
-  void update(PreprocessingRule rule) => state = [
-        for (final r in state)
-          if (r.id == rule.id) rule else r,
-      ];
-
-  void remove(String id) =>
-      state = state.where((r) => r.id != id).toList();
-
-  void toggle(String id) => state = [
-        for (final r in state)
-          if (r.id == id) r.copyWith(enabled: !r.enabled) else r,
-      ];
-
-  void importFromJson(List<Map<String, dynamic>> json) =>
-      state = json.map(PreprocessingRule.fromJson).toList();
-}
-
-// ==================== 关键词 / 正则替换规则 ====================
+// ==================== 关键词 / 正则替换规则（持久化） ====================
 //
 // 两段纯文本，一行一条规则：
 //   xxx               → 删掉 xxx
@@ -81,20 +138,30 @@ class UserRulesNotifier extends StateNotifier<List<PreprocessingRule>> {
 //
 // 替换串支持转义：\n \r \t \\ \0
 //   xxx->=>a\nb       → 把 xxx 换成 "a 换行 b"
-//
-// 关键词规则里 xxx / yyy 都是普通文字（特殊字符自动转义）。
-// 正则规则里 xxx 是正则，yyy 是普通替换串（$1 $2 是捕获组）。
 
 /// 关键词规则原文。
-final keywordRulesTextProvider = StateProvider<String>((ref) => '');
+final keywordRulesTextProvider =
+    NotifierProvider<KeywordRulesTextNotifier, String>(
+  KeywordRulesTextNotifier.new,
+);
+
+class KeywordRulesTextNotifier extends StringPrefNotifier {
+  KeywordRulesTextNotifier() : super(key: PrefKeys.keywordRulesText);
+}
 
 /// 正则规则原文。
-final regexRulesTextProvider = StateProvider<String>((ref) => '');
+final regexRulesTextProvider =
+    NotifierProvider<RegexRulesTextNotifier, String>(
+  RegexRulesTextNotifier.new,
+);
+
+class RegexRulesTextNotifier extends StringPrefNotifier {
+  RegexRulesTextNotifier() : super(key: PrefKeys.regexRulesText);
+}
 
 /// 把替换串里的转义序列（\n \r \t \\ \0）转成真正的控制字符。
-/// 这样用户能在编辑器里写 `->=>a\nb` 表示"替换成 a 换行 b"。
 String _unescapeReplacement(String s) {
-  if (!s.contains(r'\')) return s; // 没有反斜杠，直接返回，零开销
+  if (!s.contains(r'\')) return s;
   final sb = StringBuffer();
   for (var i = 0; i < s.length; i++) {
     final c = s[i];
@@ -129,8 +196,6 @@ String _unescapeReplacement(String s) {
 }
 
 /// 应用关键词规则到 [text]。
-///
-/// 删除项会合并成一个正则一次扫完；替换项逐条 replaceAll。
 String applyKeywordRules(String text, String rulesText) {
   if (text.isEmpty || rulesText.isEmpty) return text;
 
@@ -154,9 +219,7 @@ String applyKeywordRules(String text, String rulesText) {
 
   var out = text;
 
-  // 删除：合并成一个正则，一次扫描。
   if (deletions.isNotEmpty) {
-    // 长的排前面，避免短词先命中把长词切碎。
     deletions.sort((a, b) => b.length.compareTo(a.length));
     try {
       final pattern = deletions.map(RegExp.escape).join('|');
@@ -168,7 +231,6 @@ String applyKeywordRules(String text, String rulesText) {
     }
   }
 
-  // 替换：逐条（替换串支持转义）。
   for (final r in replacements) {
     final repl = _unescapeReplacement(r.replace);
     try {
@@ -234,10 +296,9 @@ final preprocessedModifiedProvider = Provider<String>((ref) {
   return out;
 });
 
-/// Bumped whenever a new import succeeds — used by the viewer to know
-/// a recomputation is needed.
+/// Bumped whenever a new import succeeds. **不持久化**。
 final importRevisionProvider = StateProvider<int>((ref) => 0);
 
-/// Currently selected import source (for UI affordances).
+/// Currently selected import source. **不持久化**。
 final selectedSourceProvider =
     StateProvider<ImportSource?>((ref) => null);
