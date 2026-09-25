@@ -15,7 +15,6 @@ class MergedView extends ConsumerWidget {
     this.lineNumbers = true,
     this.findQuery = '',
     this.currentMatchEntry,
-    this.rowKeysByEntry,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
@@ -31,7 +30,6 @@ class MergedView extends ConsumerWidget {
   /// 当前停留的匹配项对应的 entry 下标；用于粉色高亮。
   final int? currentMatchEntry;
 
-  final Map<int, GlobalKey>? rowKeysByEntry;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
@@ -44,25 +42,31 @@ class MergedView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final meta = cachedMergedMeta(result);
     final order = cachedMergedOrder(result);
-
-    // 滚动条：粗一点、半透明、可拖拽、闲置自动隐藏。
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final thumbColor = (isDark ? Colors.white : Colors.black)
+        .withValues(alpha: 0.42);
+
     return ScrollbarTheme(
       data: ScrollbarThemeData(
-        thumbColor: WidgetStatePropertyAll(
-          (isDark ? Colors.white : Colors.black).withValues(alpha: 0.42),
-        ),
+        thumbColor: WidgetStatePropertyAll(thumbColor),
         thickness: const WidgetStatePropertyAll(12),
         radius: const Radius.circular(6),
         trackVisibility: const WidgetStatePropertyAll(false),
       ),
       child: Scrollbar(
         controller: controller,
-        interactive: true,
+        // 不需要拖动滚动条 → 关掉它挂的手势处理器，滚动路径少一层。
+        interactive: false,
         child: ListView.builder(
           controller: controller,
           padding: const EdgeInsets.symmetric(vertical: 2),
           itemCount: order.length,
+          // 行内没状态要保活，关掉省一层 KeepAlive 通知。
+          addAutomaticKeepAlives: false,
+          // 每行都很轻，多一层 RepaintBoundary 是纯负担，关掉。
+          addRepaintBoundaries: false,
+          // 缩小屏幕外预构建范围。
+          cacheExtent: 100,
           itemBuilder: (ctx, i) {
             final ei = order[i];
             final e = result.entries[ei];
@@ -86,9 +90,8 @@ class MergedView extends ConsumerWidget {
                     behavior: HitTestBehavior.opaque,
                     child: tile,
                   );
-            if (rowKeysByEntry == null) return wrapped;
-            final key = rowKeysByEntry!.putIfAbsent(ei, () => GlobalKey());
-            return KeyedSubtree(key: key, child: wrapped);
+            // 用 ValueKey 代替 GlobalKey：不参与全局注册表，recycle 便宜得多。
+            return KeyedSubtree(key: ValueKey<int>(ei), child: wrapped);
           },
         ),
       ),
@@ -175,6 +178,58 @@ List<int> _mergedOrder(List<DiffEntry> entries) {
   return order;
 }
 
+// ========== 查找高亮 spans 的 LRU 缓存 ==========
+
+const int _spansCacheCap = 512;
+final Map<String, List<InlineSpan>> _spansCache =
+    <String, List<InlineSpan>>{};
+
+List<InlineSpan> _cachedSpans(
+  String text,
+  String findQuery,
+  bool isCurrentMatch,
+  Color matchYellow,
+  Color matchPink,
+) {
+  final key = '$text\u0000$findQuery\u0000${isCurrentMatch ? 1 : 0}';
+  final hit = _spansCache[key];
+  if (hit != null) return hit;
+
+  final spans = _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
+  if (_spansCache.length >= _spansCacheCap) {
+    _spansCache.clear();
+  }
+  _spansCache[key] = spans;
+  return spans;
+}
+
+List<InlineSpan> _buildSpans(
+  String text,
+  String findQuery,
+  bool isCurrentMatch,
+  Color matchYellow,
+  Color matchPink,
+) {
+  final q = findQuery;
+  if (q.isEmpty || text.isEmpty) {
+    return <InlineSpan>[TextSpan(text: text)];
+  }
+  final bg = isCurrentMatch ? matchPink : matchYellow;
+  final spans = <InlineSpan>[];
+  var start = 0;
+  int idx;
+  while (start <= text.length && (idx = text.indexOf(q, start)) != -1) {
+    if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
+    spans.add(TextSpan(
+      text: q,
+      style: TextStyle(backgroundColor: bg, fontWeight: FontWeight.bold),
+    ));
+    start = idx + q.length;
+  }
+  if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
+  return spans.isEmpty ? <InlineSpan>[TextSpan(text: text)] : spans;
+}
+
 class _EntryTile extends StatelessWidget {
   const _EntryTile({
     required this.entry,
@@ -200,11 +255,14 @@ class _EntryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final row = switch (entry.operation) {
+    final defaultFg = Theme.of(context).textTheme.bodyMedium?.color;
+    final outline = Theme.of(context).colorScheme.outline;
+
+    final Widget row = switch (entry.operation) {
       DiffOperation.equal => _plain(
           context,
           text: entry.text,
-          color: Theme.of(context).textTheme.bodyMedium?.color,
+          color: defaultFg,
         ),
       DiffOperation.insert => _highlighted(
           context,
@@ -217,7 +275,6 @@ class _EntryTile extends StatelessWidget {
           text: entry.text,
           color: AppColors.deletedOf(context),
           symbol: '-',
-          strikeThrough: true,
         ),
       DiffOperation.replace => _highlighted(
           context,
@@ -230,37 +287,41 @@ class _EntryTile extends StatelessWidget {
         ),
     };
 
+    if (!showLineNumbers || lineNumber <= 0) return row;
+
+    // 行号在左侧固定宽度栏里；内容行本身已经压扁，不再套外层 Container。
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (showLineNumbers && lineNumber > 0)
-          Container(
-            width: 26,
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            alignment: Alignment.topCenter,
+        SizedBox(
+          width: 30,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 6, right: 4),
             child: Text(
               '$lineNumber',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: gutterFontSize,
-                color: Theme.of(context).colorScheme.outline,
-              ),
+              textAlign: TextAlign.end,
+              style: TextStyle(fontSize: gutterFontSize, color: outline),
             ),
           ),
+        ),
         Expanded(child: row),
       ],
     );
   }
 
   Widget _plain(BuildContext context, {required String text, Color? color}) {
+    final style = TextStyle(
+      fontSize: bodyFontSize,
+      color: color,
+      height: 1.35,
+    );
+    final spans = findQuery.isEmpty
+        ? <InlineSpan>[TextSpan(text: text.isEmpty ? ' ' : text)]
+        : _cachedSpans(
+            text, findQuery, isCurrentMatch, matchYellow, matchPink);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: RichText(
-        text: TextSpan(
-          style: TextStyle(fontSize: bodyFontSize, color: color, height: 1.1),
-          children: _spans(text),
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Text.rich(TextSpan(style: style, children: spans)),
     );
   }
 
@@ -269,7 +330,6 @@ class _EntryTile extends StatelessWidget {
     required String text,
     required Color color,
     required String symbol,
-    bool strikeThrough = false,
     String? charDiffBefore,
     String? charDiffAfter,
     bool charDiffSide = true,
@@ -277,66 +337,58 @@ class _EntryTile extends StatelessWidget {
     final style = TextStyle(
       fontSize: bodyFontSize,
       color: color,
-      height: 1.2,
-      decoration: strikeThrough ? TextDecoration.lineThrough : null,
+      height: 1.35,
     );
-    final Widget content = (charDiffAfter != null && charDiffBefore != null)
-        ? InlineCharDiff(
-            before: charDiffBefore,
-            after: charDiffAfter,
-            side: charDiffSide,
-            style: style,
-            findQuery: findQuery,
-            isCurrentMatch: isCurrentMatch,
-          )
-        : RichText(
-            text: TextSpan(style: style, children: _spans(text)),
-          );
 
-    return Container(
-      margin: const EdgeInsets.only(right: 2, top: 2, bottom: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.25),
-        border: Border(left: BorderSide(color: color, width: 2)),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showLineNumbers && symbol.isNotEmpty) ...[
-            Text(symbol,
-                style: TextStyle(
+    final Widget content =
+        (charDiffAfter != null && charDiffBefore != null)
+            ? InlineCharDiff(
+                before: charDiffBefore,
+                after: charDiffAfter,
+                side: charDiffSide,
+                style: style,
+                findQuery: findQuery,
+                isCurrentMatch: isCurrentMatch,
+              )
+            : Text.rich(TextSpan(
+                style: style,
+                children: _cachedSpans(
+                    text, findQuery, isCurrentMatch, matchYellow, matchPink),
+              ));
+
+    // 整行背景改用 ColoredBox（比 Container + BoxDecoration 便宜）。
+    // 左侧那条竖线用 Container 的 border 改成 3px 宽的纯色块贴在最前。
+    return Padding(
+      padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
+      child: ColoredBox(
+        color: color.withValues(alpha: 0.18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 3, color: color),
+            const SizedBox(width: 4),
+            if (showLineNumbers && symbol.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(
+                  symbol,
+                  style: TextStyle(
                     color: color,
                     fontWeight: FontWeight.bold,
-                    fontSize: bodyFontSize)),
-            const SizedBox(width: 8),
+                    fontSize: bodyFontSize,
+                  ),
+                ),
+              ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: content,
+              ),
+            ),
           ],
-          Expanded(child: content),
-        ],
+        ),
       ),
     );
-  }
-
-  List<InlineSpan> _spans(String text) {
-    final q = findQuery;
-    if (q.isEmpty || text.isEmpty) return [TextSpan(text: text)];
-    final bg = isCurrentMatch ? matchPink : matchYellow;
-    final spans = <InlineSpan>[];
-    var start = 0;
-    int idx;
-    while (start <= text.length && (idx = text.indexOf(q, start)) != -1) {
-      if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
-      spans.add(TextSpan(
-        text: q,
-        style: TextStyle(
-          backgroundColor: bg,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      start = idx + q.length;
-    }
-    if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
-    return spans.isEmpty ? [TextSpan(text: text)] : spans;
   }
 }
