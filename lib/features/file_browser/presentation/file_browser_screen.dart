@@ -1386,16 +1386,16 @@ actions: [
         ),
       ),
       const PopupMenuDivider(),
-      PopupMenuItem<String>(
-        value: 'favorites',
-        child: Row(
-          children: [
-            const Icon(Icons.bookmarks_outlined),
-            const SizedBox(width: 10),
-            Text('已收藏目录 (${_favorites.length})'),
-          ],
-        ),
-      ),
+PopupMenuItem<String>(
+  value: 'favorites',
+  child: Row(
+    children: [
+      const Icon(Icons.bookmarks_outlined),
+      const SizedBox(width: 10),
+      Text('已收藏目录 (${favorites.length})'),
+    ],
+  ),
+),
     ],
   ),
 ],
