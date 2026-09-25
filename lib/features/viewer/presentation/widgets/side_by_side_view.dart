@@ -316,7 +316,9 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     required DiffColors c,
   }) {
     final s = Theme.of(context).colorScheme;
-    final plainBg = s.surface;
+    final plainBg = Theme.of(context).brightness == Brightness.dark
+    ? s.surface
+    : Colors.white;
     
     String text;
     String symbol;
@@ -450,8 +452,10 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     bool isCurrentMatch,
   ) {
     final s = Theme.of(context).colorScheme;
-final plainLeftBg = s.surface;
-final plainRightBg = s.surface;
+final isDark = Theme.of(context).brightness == Brightness.dark;
+final plainBg = isDark ? s.surface : Colors.white;
+final plainLeftBg = plainBg;
+final plainRightBg = plainBg;
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white
