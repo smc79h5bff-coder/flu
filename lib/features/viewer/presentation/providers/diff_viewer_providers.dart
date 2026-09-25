@@ -26,7 +26,6 @@ final noWrapProvider = StateProvider<bool>((ref) => false);
 
 // ==================== 显示设置（持久化） ====================
 
-/// 对比页显示行号。
 final showLineNumbersProvider =
     NotifierProvider<ShowLineNumbersNotifier, bool>(
   ShowLineNumbersNotifier.new,
@@ -37,7 +36,6 @@ class ShowLineNumbersNotifier extends BoolPrefNotifier {
       : super(key: PrefKeys.showLineNumbers, initial: true);
 }
 
-/// 对比页正文字号。
 final bodyFontSizeProvider =
     NotifierProvider<BodyFontSizeNotifier, double>(BodyFontSizeNotifier.new);
 
@@ -46,7 +44,6 @@ class BodyFontSizeNotifier extends DoublePrefNotifier {
       : super(key: PrefKeys.bodyFontSize, initial: 14.0);
 }
 
-/// 对比页行号字号。
 final gutterFontSizeProvider =
     NotifierProvider<GutterFontSizeNotifier, double>(
   GutterFontSizeNotifier.new,
@@ -57,7 +54,6 @@ class GutterFontSizeNotifier extends DoublePrefNotifier {
       : super(key: PrefKeys.gutterFontSize, initial: 11.0);
 }
 
-/// 并排视图两栏同步滚动。关闭后左右独立滚动。
 final syncScrollProvider =
     NotifierProvider<SyncScrollNotifier, bool>(SyncScrollNotifier.new);
 
@@ -65,7 +61,6 @@ class SyncScrollNotifier extends BoolPrefNotifier {
   SyncScrollNotifier() : super(key: PrefKeys.syncScroll, initial: true);
 }
 
-/// 最近一次 diff 各阶段耗时（毫秒）。调试用，显示在对比页顶部。
 class DiffPerfStats {
   const DiffPerfStats({
     required this.prepMs,
@@ -100,36 +95,20 @@ class DiffPerfStats {
       '| lineCount=$lineCount origLen=$origLen modLen=$modLen';
 }
 
-/// 最近一次 diff 的性能数据。对比页读取它来显示顶部面板。
 final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
 
-// ==================== 忽略开关（暂未持久化，下一步改） ====================
+// ==================== 忽略开关 ====================
 
 final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
 final ignoreWhitespaceProvider = StateProvider<bool>((ref) => true);
-
-/// 忽略空行：比较前删除空白/空行。
 final ignoreEmptyLinesProvider = StateProvider<bool>((ref) => true);
-
-/// 忽略换行符：比较前统一换行格式（\r\n / \r / \n），避免换行符差异误报。
 final ignoreLineEndingsProvider = StateProvider<bool>((ref) => true);
-
-/// 统一编码 ANSI 对比。
 final unifyAnsiProvider = StateProvider<bool>((ref) => false);
-
-/// 忽略大小写：A 和 a 视为相同。
 final ignoreCaseProvider = StateProvider<bool>((ref) => false);
-
-/// 忽略中英文逗号：去掉 , 和 ， 后对比。
 final ignoreCommasProvider = StateProvider<bool>((ref) => false);
-
-/// 忽略纯数字：连续的 [0-9]+ 整体替换成 <NUM> 占位符。
 final ignoreNumbersProvider = StateProvider<bool>((ref) => false);
-
-/// 忽略不可见字符（零宽、方向控制、BOM、软连字符、NBSP 等）。
 final ignoreInvisibleProvider = StateProvider<bool>((ref) => true);
 
-/// 不可见字符正则。
 final RegExp _invisibleChars = RegExp(
   r'[\u00A0\u00AD'
   r'\u200B-\u200F'
@@ -140,14 +119,11 @@ final RegExp _invisibleChars = RegExp(
   r'\uFEFF]',
 );
 
-/// ANSI 编码（中文 Windows 环境下通常即 GBK / GB2312 / CP936）。
 String unifyToAnsi(String text) {
   try {
     final bytes = gbk.encode(text);
     if (gbk.decode(bytes) == text) return text;
-  } catch (_) {
-    // 整体编码失败（存在无法表示字符），走逐字符删除路径。
-  }
+  } catch (_) {}
   final sb = StringBuffer();
   for (final rune in text.runes) {
     final ch = String.fromCharCode(rune);
@@ -155,14 +131,11 @@ String unifyToAnsi(String text) {
       final bytes = gbk.encode(ch);
       if (gbk.decode(bytes) != ch) continue;
       sb.write(ch);
-    } catch (_) {
-      // 无法转换 → 删除
-    }
+    } catch (_) {}
   }
   return sb.toString();
 }
 
-/// 按三个"忽略"开关对文本做比较前预处理。
 String applyDiffIgnores(
   String text, {
   bool whitespace = false,
@@ -184,10 +157,7 @@ String applyDiffIgnores(
     out = out.replaceAll(_horizontalWhitespace, '');
   }
   if (emptyLines) {
-    out = out
-        .split('\n')
-        .where((l) => l.trim().isNotEmpty)
-        .join('\n');
+    out = out.split('\n').where((l) => l.trim().isNotEmpty).join('\n');
   }
   if (ignoreCommas) {
     out = out.replaceAll(',', '').replaceAll('，', '');
@@ -201,7 +171,6 @@ String applyDiffIgnores(
   return out;
 }
 
-/// 传给后台 isolate 的入参（record 可跨 isolate 传输）。
 typedef _DiffRequest =
     ({
       String original,
@@ -209,7 +178,6 @@ typedef _DiffRequest =
       bool unifyAnsi,
     });
 
-/// isolate 返回值：展开好的每行 diff + 各阶段耗时。
 typedef _DiffPayload =
     ({
       List<(int, String)> entries,
@@ -220,14 +188,12 @@ typedef _DiffPayload =
       int expandMs,
     });
 
-/// dmp 的 op 常量映射到 [DiffOperation] 的 index。
 int _dmpOpToIndex(int op) {
   if (op == DIFF_EQUAL) return DiffOperation.equal.index;
   if (op == DIFF_INSERT) return DiffOperation.insert.index;
   return DiffOperation.delete.index;
 }
 
-/// 按 '\n' 切分，保留空行（与 split('\n') 语义一致）。
 List<String> _splitLines(String text) {
   final out = <String>[];
   var start = 0;
@@ -243,13 +209,15 @@ List<String> _splitLines(String text) {
   return out;
 }
 
-/// 检测文本是否含 Unicode Private Use Area 字符（U+E000..U+F8FF）。
 bool _containsPua(String s) {
   for (final r in s.runes) {
     if (r >= 0xE000 && r <= 0xF8FF) return true;
   }
   return false;
 }
+
+/// PUA 安全上限。超过这个数就不能再用"一行一个 PUA 字符"的编码。
+const int _puaLimit = 6000;
 
 /// 在后台 isolate 中执行 diff 计算。
 _DiffPayload _computeInWorker(_DiffRequest req) {
@@ -270,6 +238,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
     );
   }
 
+  // 原文含 PUA 字符 → 编码会撞车，直接对原始文本做字符级 diff。
   if (_containsPua(original) || _containsPua(modified)) {
     final dmp = DiffMatchPatch();
     final raw = dmp.diff(original, modified);
@@ -292,6 +261,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final linesB = _splitLines(modified);
   final tSplit = sw.elapsedMilliseconds;
 
+  // ---- 1. 剪掉公共前后缀 ----
   final minLen =
       linesA.length < linesB.length ? linesA.length : linesB.length;
 
@@ -314,54 +284,89 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final midBStart = commonPrefix;
   final midBEnd = linesB.length - commonSuffix;
 
-  final lineToCode = <String, int>{};
-  final codeToLine = <int, String>{};
-  var nextCode = 0xE000;
+  // ---- 2. 把中间部分的行转成整数 id（去重用）----
+  final lineToId = <String, int>{};
+  final idToLine = <int, String>{};
+  var nextId = 0;
 
-  String encode(List<String> lines, int start, int end) {
-    final sb = StringBuffer();
+  List<int> encodeIds(List<String> lines, int start, int end) {
+    final ids = <int>[];
     for (var i = start; i < end; i++) {
       final line = lines[i];
-      var code = lineToCode[line];
-      if (code == null) {
-        code = nextCode++;
-        lineToCode[line] = code;
-        codeToLine[code] = line;
+      var id = lineToId[line];
+      if (id == null) {
+        id = nextId++;
+        lineToId[line] = id;
+        idToLine[id] = line;
       }
-      sb.writeCharCode(code);
+      ids.add(id);
     }
-    return sb.toString();
+    return ids;
   }
 
-  final encA = encode(linesA, midAStart, midAEnd);
-  final encB = encode(linesB, midBStart, midBEnd);
+  final idsA = encodeIds(linesA, midAStart, midAEnd);
+  final idsB = encodeIds(linesB, midBStart, midBEnd);
   final tEncode = sw.elapsedMilliseconds;
 
-  final dmp = DiffMatchPatch();
-  final diffs = dmp.diff(encA, encB);
-  final tDiff = sw.elapsedMilliseconds;
-
+  final uniqueCount = idToLine.length;
   final out = <(int, String)>[];
 
-  for (var i = 0; i < commonPrefix; i++) {
-    out.add((DiffOperation.equal.index, linesA[i]));
-  }
-
-  for (final d in diffs) {
-    final opIndex = _dmpOpToIndex(d.operation);
-    for (final rune in d.text.runes) {
-      final line = codeToLine[rune];
-      if (line != null) {
-        out.add((opIndex, line));
+  // ---- 3. diff ----
+  if (uniqueCount <= _puaLimit) {
+    // 快速路径：PUA 编码 + diff_match_patch。
+    final codeToLine = <int, String>{};
+    var nextCode = 0xE000;
+    for (final e in idToLine.entries) {
+      codeToLine[nextCode] = e.value;
+      nextCode++;
+    }
+    // 反向查：id → code
+    final idToCode = <int, int>{};
+    var c = 0xE000;
+    for (final id in idToLine.keys) {
+      idToCode[id] = c;
+      c++;
+    }
+    final sbA = StringBuffer();
+    for (final id in idsA) {
+      sbA.writeCharCode(idToCode[id]!);
+    }
+    final sbB = StringBuffer();
+    for (final id in idsB) {
+      sbB.writeCharCode(idToCode[id]!);
+    }
+    final dmp = DiffMatchPatch();
+    final diffs = dmp.diff(sbA.toString(), sbB.toString());
+    for (var i = 0; i < commonPrefix; i++) {
+      out.add((DiffOperation.equal.index, linesA[i]));
+    }
+    for (final d in diffs) {
+      final opIndex = _dmpOpToIndex(d.operation);
+      for (final rune in d.text.runes) {
+        final line = codeToLine[rune];
+        if (line != null) out.add((opIndex, line));
       }
     }
+    for (var i = linesA.length - commonSuffix; i < linesA.length; i++) {
+      out.add((DiffOperation.equal.index, linesA[i]));
+    }
+  } else {
+    // 慢速路径：唯一行数太多，PUA 装不下。
+    // 用自己实现的 Myers 行级 diff，直接对 id 序列做，不经过字符编码。
+    final ops = _myersDiff(idsA, idsB);
+    for (var i = 0; i < commonPrefix; i++) {
+      out.add((DiffOperation.equal.index, linesA[i]));
+    }
+    for (final (op, id) in ops) {
+      final line = idToLine[id];
+      if (line != null) out.add((op, line));
+    }
+    for (var i = linesA.length - commonSuffix; i < linesA.length; i++) {
+      out.add((DiffOperation.equal.index, linesA[i]));
+    }
   }
-
-  for (var i = linesA.length - commonSuffix; i < linesA.length; i++) {
-    out.add((DiffOperation.equal.index, linesA[i]));
-  }
-
-  final tExpand = sw.elapsedMilliseconds;
+  final tDiff = sw.elapsedMilliseconds;
+  final tExpand = tDiff;
 
   return (
     entries: out,
@@ -371,6 +376,110 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
     diffMs: tDiff - tEncode,
     expandMs: tExpand - tDiff,
   );
+}
+
+// ==================== Myers 行级 diff ====================
+//
+// O(ND) 算法。对"差异少"的场景很快；差异多时 O((N+M)²) 会变慢，
+// 但因为我们只处理剪掉公共前后缀后的中间部分，实际 D 通常很小。
+//
+// 输出 (op, id) 序列。op 用 DiffOperation 的 index：
+//   0=equal, 1=insert, 2=delete
+
+List<(int, int)> _myersDiff(List<int> a, List<int> b) {
+  final n = a.length;
+  final m = b.length;
+  if (n == 0 && m == 0) return const [];
+  if (n == 0) return [for (final id in b) (DiffOperation.insert.index, id)];
+  if (m == 0) return [for (final id in a) (DiffOperation.delete.index, id)];
+
+  final maxD = n + m;
+  final offset = maxD;
+  final v = List<int>.filled(2 * maxD + 1, 0);
+  // trace[d] 存第 d 步的 v 快照，用于回溯。
+  final trace = <List<int>>[];
+
+  int idx(int k) => k + offset;
+
+  var foundD = -1;
+  outer:
+  for (var d = 0; d <= maxD; d++) {
+    trace.add(List<int>.from(v));
+    for (var k = -d; k <= d; k += 2) {
+      int x;
+      if (k == -d || (k != d && v[idx(k - 1)] < v[idx(k + 1)])) {
+        x = v[idx(k + 1)];
+      } else {
+        x = v[idx(k - 1)] + 1;
+      }
+      var y = x - k;
+      while (x < n && y < m && a[x] == b[y]) {
+        x++;
+        y++;
+      }
+      v[idx(k)] = x;
+      if (x >= n && y >= m) {
+        foundD = d;
+        break outer;
+      }
+    }
+  }
+  if (foundD < 0) {
+    // 理论不会到这里。安全兜底：整块 delete + insert。
+    return [
+      for (final id in a) (DiffOperation.delete.index, id),
+      for (final id in b) (DiffOperation.insert.index, id),
+    ];
+  }
+
+  // ---- 回溯 ----
+  final rev = <(int, int)>[];
+  var x = n;
+  var y = m;
+  for (var d = foundD; d > 0; d--) {
+    final vPrev = trace[d];
+    final k = x - y;
+    int prevK;
+    if (k == -d || (k != d && vPrev[idx(k - 1)] < vPrev[idx(k + 1)])) {
+      prevK = k + 1;
+    } else {
+      prevK = k - 1;
+    }
+    final prevX = vPrev[idx(prevK)];
+    final prevY = prevX - prevK;
+
+    // 对角线（相等部分）
+    while (x > prevX && y > prevY) {
+      x--;
+      y--;
+      rev.add((DiffOperation.equal.index, a[x]));
+    }
+    if (x == prevX) {
+      // 纵向移动 = 插入 b[y-1]
+      y--;
+      rev.add((DiffOperation.insert.index, b[y]));
+    } else {
+      // 横向移动 = 删除 a[x-1]
+      x--;
+      rev.add((DiffOperation.delete.index, a[x]));
+    }
+  }
+  // 剩下的开头等号
+  while (x > 0 && y > 0) {
+    x--;
+    y--;
+    rev.add((DiffOperation.equal.index, a[x]));
+  }
+  while (x > 0) {
+    x--;
+    rev.add((DiffOperation.delete.index, a[x]));
+  }
+  while (y > 0) {
+    y--;
+    rev.add((DiffOperation.insert.index, b[y]));
+  }
+
+  return rev.reversed.toList();
 }
 
 DiffEntry _mkEntry(DiffOperation op, String line) {
@@ -463,7 +572,6 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
 
 // ==================== 差异颜色（持久化） ====================
 
-/// 颜色专用持久化 Notifier：内存里是 Color，磁盘上是 "#RRGGBB"。
 class ColorPrefNotifier extends PersistentNotifier<Color> {
   ColorPrefNotifier({required this.key, required Color initial})
       : _initial = initial;
@@ -486,7 +594,6 @@ class ColorPrefNotifier extends PersistentNotifier<Color> {
   String encode(Color value) => colorToHex(value);
 }
 
-/// 纯删除行整行背景（左侧独有行）。
 final deleteRowBgProvider =
     NotifierProvider<DeleteRowBgNotifier, Color>(DeleteRowBgNotifier.new);
 
@@ -498,7 +605,6 @@ class DeleteRowBgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 纯删除行整行字体。
 final deleteRowFgProvider =
     NotifierProvider<DeleteRowFgNotifier, Color>(DeleteRowFgNotifier.new);
 
@@ -510,7 +616,6 @@ class DeleteRowFgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 纯新增行整行背景（右侧独有行）。
 final insertRowBgProvider =
     NotifierProvider<InsertRowBgNotifier, Color>(InsertRowBgNotifier.new);
 
@@ -522,7 +627,6 @@ class InsertRowBgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 纯新增行整行字体。
 final insertRowFgProvider =
     NotifierProvider<InsertRowFgNotifier, Color>(InsertRowFgNotifier.new);
 
@@ -534,7 +638,6 @@ class InsertRowFgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 修改行左侧（原文件侧）整行背景。
 final replaceLeftBgProvider =
     NotifierProvider<ReplaceLeftBgNotifier, Color>(
   ReplaceLeftBgNotifier.new,
@@ -548,7 +651,6 @@ class ReplaceLeftBgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 修改行左侧整行字体。
 final replaceLeftFgProvider =
     NotifierProvider<ReplaceLeftFgNotifier, Color>(
   ReplaceLeftFgNotifier.new,
@@ -562,7 +664,6 @@ class ReplaceLeftFgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 修改行右侧（修改版侧）整行背景。
 final replaceRightBgProvider =
     NotifierProvider<ReplaceRightBgNotifier, Color>(
   ReplaceRightBgNotifier.new,
@@ -576,7 +677,6 @@ class ReplaceRightBgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 修改行右侧整行字体。
 final replaceRightFgProvider =
     NotifierProvider<ReplaceRightFgNotifier, Color>(
   ReplaceRightFgNotifier.new,
@@ -590,7 +690,6 @@ class ReplaceRightFgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 字符级删除（左侧行内被删的字）背景。
 final charDeleteBgProvider =
     NotifierProvider<CharDeleteBgNotifier, Color>(CharDeleteBgNotifier.new);
 
@@ -602,7 +701,6 @@ class CharDeleteBgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 字符级删除字体。
 final charDeleteFgProvider =
     NotifierProvider<CharDeleteFgNotifier, Color>(CharDeleteFgNotifier.new);
 
@@ -614,7 +712,6 @@ class CharDeleteFgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 字符级新增（右侧行内新增的字）背景。
 final charInsertBgProvider =
     NotifierProvider<CharInsertBgNotifier, Color>(CharInsertBgNotifier.new);
 
@@ -626,7 +723,6 @@ class CharInsertBgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 字符级新增字体。
 final charInsertFgProvider =
     NotifierProvider<CharInsertFgNotifier, Color>(CharInsertFgNotifier.new);
 
@@ -638,7 +734,6 @@ class CharInsertFgNotifier extends ColorPrefNotifier {
         );
 }
 
-/// 一次性从 ref 读 12 个颜色的辅助类型。
 typedef DiffColors = ({
   Color deleteRowBg,
   Color deleteRowFg,
@@ -669,13 +764,11 @@ DiffColors watchDiffColors(WidgetRef ref) => (
       charInsertFg: ref.watch(charInsertFgProvider),
     );
 
-/// Color → "#RRGGBB"（大写）。
 String colorToHex(Color c) {
   final v = c.toARGB32() & 0xFFFFFF;
   return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
 }
 
-/// "#RRGGBB" → Color。格式错误返回 null。
 Color? hexToColor(String s) {
   if (s.length != 7 || !s.startsWith('#')) return null;
   final v = int.tryParse(s.substring(1), radix: 16);
@@ -683,7 +776,6 @@ Color? hexToColor(String s) {
   return Color(0xFF000000 | v);
 }
 
-/// 把"预处理后的行号"映射回 raw 文本中的行号。
 int? rawLineForNormalizedLine(
   String raw, {
   required int normalizedLine,
