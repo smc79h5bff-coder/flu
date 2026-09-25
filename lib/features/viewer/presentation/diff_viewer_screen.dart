@@ -756,9 +756,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       for (var k = pairs; k < delLines.length; k++) {
         leftParts.add(delLines[k]);
       }
-      for (var k = pairs; k < insLines.length; k++) {
-        leftParts.add(insLines[k]);
-      }
+for (var k = pairs; k < insLines.length; k++) {
+  rightParts.add(insLines[k]);  
+}
     }
 
     return (left: leftParts, right: rightParts);
