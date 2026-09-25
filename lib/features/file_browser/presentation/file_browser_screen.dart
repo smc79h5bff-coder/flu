@@ -956,44 +956,55 @@ Future<void> _showFavorites() async {
     return ok == true;
   }
 
-  Future<void> _rename() async {
-    if (_selectedPaths.length != 1) {
-      _toast('重命名一次只能操作一个');
-      return;
-    }
-    final oldPath = _selectedPaths.first;
-    final oldName = oldPath.split('/').last;
-
-    final newName = await showDialog<String>(
-      context: context,
-      builder: (_) => _TextInputDialog(
-        title: '重命名',
-        initialValue: oldName,
-      ),
-    );
-    if (newName == null || newName.isEmpty || newName == oldName) return;
-
-    final parent = File(oldPath).parent.path;
-    final newPath = '$parent/$newName';
-
-    if (FileSystemEntity.typeSync(newPath) != FileSystemEntityType.notFound) {
-      _toast('目标已存在：$newName');
-      return;
-    }
-
-    try {
-      if (Directory(oldPath).existsSync()) {
-        await Directory(oldPath).rename(newPath);
-      } else {
-        await File(oldPath).rename(newPath);
-      }
-      _clearSelection();
-      _load();
-      _toast('已重命名为 $newName');
-    } catch (e) {
-      _toast('重命名失败：$e');
-    }
+Future<void> _rename() async {
+  if (_selectedPaths.length != 1) {
+    _toast('重命名一次只能操作一个');
+    return;
   }
+  final oldPath = _selectedPaths.first;
+  final oldName = oldPath.split('/').last;
+
+  final newName = await showDialog<String>(
+    context: context,
+    builder: (_) => _TextInputDialog(
+      title: '重命名',
+      initialValue: oldName,
+    ),
+  );
+  if (newName == null) return;
+
+  final trimmed = newName.trim();
+  if (trimmed.isEmpty || trimmed == oldName) return;
+  if (trimmed.contains('/') || trimmed.contains('\\')) {
+    _toast('名称不能包含斜杠');
+    return;
+  }
+  if (trimmed == '.' || trimmed == '..') {
+    _toast('名称无效');
+    return;
+  }
+
+  final parent = File(oldPath).parent.path;
+  final newPath = '$parent/$trimmed';
+
+  if (FileSystemEntity.typeSync(newPath) != FileSystemEntityType.notFound) {
+    _toast('目标已存在：$trimmed');
+    return;
+  }
+
+  try {
+    if (Directory(oldPath).existsSync()) {
+      await Directory(oldPath).rename(newPath);
+    } else {
+      await File(oldPath).rename(newPath);
+    }
+    _clearSelection();
+    _load();
+    _toast('已重命名为 $trimmed');
+  } catch (e) {
+    _toast('重命名失败：$e');
+  }
+}
 
   Future<void> _move() async {
     if (_selectedPaths.isEmpty) return;
@@ -1090,29 +1101,44 @@ Future<void> _showFavorites() async {
     _toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
 
-  Future<void> _newFolder() async {
-    final name = await showDialog<String>(
-      context: context,
-      builder: (_) => const _TextInputDialog(
-        title: '新建文件夹',
-        initialValue: '新建文件夹',
-      ),
-    );
-    if (name == null || name.trim().isEmpty) return;
+Future<void> _newFolder() async {
+  final name = await showDialog<String>(
+    context: context,
+    builder: (_) => const _TextInputDialog(
+      title: '新建文件夹',
+      initialValue: '新建文件夹',
+    ),
+  );
+  if (name == null) return;
 
-    final path = '$_currentPath/${name.trim()}';
-    if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) {
-      _toast('同名文件或文件夹已存在');
-      return;
-    }
-    try {
-      await Directory(path).create();
-      _load();
-      _toast('已新建 ${name.trim()}');
-    } catch (e) {
-      _toast('新建失败：$e');
-    }
+  final trimmed = name.trim();
+  // 校验：非空、不含 /、不是 . 或 ..
+  if (trimmed.isEmpty) {
+    _toast('名称不能为空');
+    return;
   }
+  if (trimmed.contains('/') || trimmed.contains('\\')) {
+    _toast('名称不能包含斜杠');
+    return;
+  }
+  if (trimmed == '.' || trimmed == '..') {
+    _toast('名称无效');
+    return;
+  }
+
+  final path = '$_currentPath/$trimmed';
+  if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) {
+    _toast('同名文件或文件夹已存在');
+    return;
+  }
+  try {
+    await Directory(path).create();
+    _load();
+    _toast('已新建 $trimmed');
+  } catch (e) {
+    _toast('新建失败：$e');
+  }
+}
 
   Future<void> _showJumpToPathDialog() async {
     final ctrl = TextEditingController();
