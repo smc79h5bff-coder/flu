@@ -1,31 +1,39 @@
+import 'package:charset/charset.dart';
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/foundation.dart';
-import 'package:charset/charset.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../../core/storage/pref_keys.dart';
+import '../../../../core/storage/persistent_notifier.dart';
 import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../../../import/presentation/providers/import_providers.dart';
-// diff_viewer_providers.dart 里三个都要 import 时：
-
-import '../../../../core/storage/persistent_notifier.dart';
-import '../../../../core/storage/pref_keys.dart';
-
 
 /// View mode in the diff viewer. PRD §2 Module 6.
 enum ViewMode { merged, sideBySide, diffOnly }
 
+/// **不持久化**：每次打开对比页回默认"仅差异"。
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 
-/// 计时面板开关。默认打开（调试用）。发布时把默认值改成 false。
+/// 计时面板开关。**不持久化**，固定关闭。
 final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
 
+// ==================== 显示设置（持久化） ====================
+
 /// 对比页显示行号。
-final showLineNumbersProvider = StateProvider<bool>((ref) => true);
+final showLineNumbersProvider =
+    NotifierProvider<ShowLineNumbersNotifier, bool>(
+  ShowLineNumbersNotifier.new,
+);
+
+class ShowLineNumbersNotifier extends BoolPrefNotifier {
+  ShowLineNumbersNotifier()
+      : super(key: PrefKeys.showLineNumbers, initial: true);
+}
 
 /// 对比页正文字号。
-
 final bodyFontSizeProvider =
     NotifierProvider<BodyFontSizeNotifier, double>(BodyFontSizeNotifier.new);
 
@@ -34,13 +42,24 @@ class BodyFontSizeNotifier extends DoublePrefNotifier {
       : super(key: PrefKeys.bodyFontSize, initial: 14.0);
 }
 
-
 /// 对比页行号字号。
-final gutterFontSizeProvider = StateProvider<double>((ref) => 11.0);
+final gutterFontSizeProvider =
+    NotifierProvider<GutterFontSizeNotifier, double>(
+  GutterFontSizeNotifier.new,
+);
+
+class GutterFontSizeNotifier extends DoublePrefNotifier {
+  GutterFontSizeNotifier()
+      : super(key: PrefKeys.gutterFontSize, initial: 11.0);
+}
 
 /// 并排视图两栏同步滚动。关闭后左右独立滚动。
-final syncScrollProvider = StateProvider<bool>((ref) => true);
+final syncScrollProvider =
+    NotifierProvider<SyncScrollNotifier, bool>(SyncScrollNotifier.new);
 
+class SyncScrollNotifier extends BoolPrefNotifier {
+  SyncScrollNotifier() : super(key: PrefKeys.syncScroll, initial: true);
+}
 
 /// 最近一次 diff 各阶段耗时（毫秒）。调试用，显示在对比页顶部。
 class DiffPerfStats {
@@ -80,6 +99,9 @@ class DiffPerfStats {
 /// 最近一次 diff 的性能数据。对比页读取它来显示顶部面板。
 final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
 
+// ==================== 忽略开关（暂未持久化，下一步改） ====================
+// 这 8 个开关和 import_providers.dart 关系更紧，放一起改更顺。
+
 /// 忽略空白符号：比较前去掉水平空白字符（空格、制表符）。
 /// 注意用 `[ \t]+` 而非 `\s`，因为 `\s` 会把换行也吃掉、导致整篇并成一行。
 final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
@@ -101,14 +123,12 @@ final ignoreCaseProvider = StateProvider<bool>((ref) => false);
 final ignoreCommasProvider = StateProvider<bool>((ref) => false);
 
 /// 忽略纯数字：连续的 [0-9]+ 整体替换成 <NUM> 占位符。
-/// 例：abc123 和 abc456 视为相同。
 final ignoreNumbersProvider = StateProvider<bool>((ref) => false);
+
 /// 忽略不可见字符（零宽、方向控制、BOM、软连字符、NBSP 等）。
-/// 这些字符肉眼看不见，但会让"看起来一样"的两行被判为不同。
-/// 默认开启。
 final ignoreInvisibleProvider = StateProvider<bool>((ref) => true);
 
-/// 不可见字符正则。只列“纯控制/零宽/方向”类，不含普通空格、Tab、换行、
+/// 不可见字符正则。只列"纯控制/零宽/方向"类，不含普通空格、Tab、换行、
 /// 全角空格（这些有独立开关或语义）。
 final RegExp _invisibleChars = RegExp(
   r'[\u00A0\u00AD'
@@ -119,6 +139,7 @@ final RegExp _invisibleChars = RegExp(
   r'\u2066-\u2069'
   r'\uFEFF]',
 );
+
 /// ANSI 编码（中文 Windows 环境下通常即 GBK / GB2312 / CP936）。
 String unifyToAnsi(String text) {
   try {
@@ -141,7 +162,7 @@ String unifyToAnsi(String text) {
   return sb.toString();
 }
 
-/// 按三个“忽略”开关对文本做比较前预处理。
+/// 按三个"忽略"开关对文本做比较前预处理。
 String applyDiffIgnores(
   String text, {
   bool whitespace = false,
@@ -157,8 +178,6 @@ String applyDiffIgnores(
     out = out.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   }
   if (ignoreInvisible) {
-    // 先删不可见字符，再处理空白/空行。否则 ZWSP 可能让一行“看起来是空行”
-    // 但其实不是，导致忽略空行的判定失效。
     out = out.replaceAll(_invisibleChars, '');
   }
   if (whitespace) {
@@ -202,8 +221,6 @@ typedef _DiffPayload =
     });
 
 /// dmp 的 op 常量映射到 [DiffOperation] 的 index。
-///   dmp:           DIFF_DELETE = -1, DIFF_EQUAL = 0, DIFF_INSERT = 1
-///   DiffOperation: equal = 0, insert = 1, delete = 2, replace = 3
 int _dmpOpToIndex(int op) {
   if (op == DIFF_EQUAL) return DiffOperation.equal.index;
   if (op == DIFF_INSERT) return DiffOperation.insert.index;
@@ -227,7 +244,6 @@ List<String> _splitLines(String text) {
 }
 
 /// 检测文本是否含 Unicode Private Use Area 字符（U+E000..U+F8FF）。
-/// 若含，则不能用 PUA 编码做行映射（会冲突），退化到字符级 diff。
 bool _containsPua(String s) {
   for (final r in s.runes) {
     if (r >= 0xE000 && r <= 0xF8FF) return true;
@@ -236,18 +252,6 @@ bool _containsPua(String s) {
 }
 
 /// 在后台 isolate 中执行 diff 计算。
-///
-/// **行级 diff 的实现方式**（绕开 dmp 0.4.1 缺失的 diffLinesToChars 等 API）：
-///   1. 按 '\n' 切分两份文本为行列表
-///   2. 把每个不同的行唯一映射到一个 Unicode PUA 码点（U+E000 起）
-///      —— 每行对应 1 个字符
-///   3. 把两串 PUA 字符交给 `dmp.diff()`，它内部是 Myers O(ND)，
-///      因为字符数 == 行数，等价于对行做 Myers diff
-///   4. 把结果的每个 PUA 字符还原成对应的行文本
-///
-/// 复杂度：O(行数 + D²)，D 是差异块数。几万行文档、几百处差异，
-/// 在 Dart 上 < 100ms。
-
 _DiffPayload _computeInWorker(_DiffRequest req) {
   final sw = Stopwatch()..start();
 
@@ -266,7 +270,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
     );
   }
 
-  // 退化路径：输入含 PUA 字符时，做字符级 diff。
   if (_containsPua(original) || _containsPua(modified)) {
     final dmp = DiffMatchPatch();
     final raw = dmp.diff(original, modified);
@@ -289,11 +292,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final linesB = _splitLines(modified);
   final tSplit = sw.elapsedMilliseconds;
 
-  // ========== 前后缀剥离 ==========
-  // 剥掉开头相同的行和结尾相同的行，只对中间不同的部分做 diff。
-  // Git / xdiff / GNU diff 默认都做这一步，dmp 不做，所以要手动补。
-  // A 6000 行 vs B 前 1500 行时，剥离后只剩 4500 行 vs 空做 diff，
-  // 输出 1 个 delete chunk，而不是几十个小 chunk。
   final minLen =
       linesA.length < linesB.length ? linesA.length : linesB.length;
 
@@ -304,7 +302,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   }
 
   var commonSuffix = 0;
-  final maxSuffix = minLen - commonPrefix; // 后缀不与前缀重叠
+  final maxSuffix = minLen - commonPrefix;
   while (commonSuffix < maxSuffix &&
       linesA[linesA.length - 1 - commonSuffix] ==
           linesB[linesB.length - 1 - commonSuffix]) {
@@ -316,7 +314,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final midBStart = commonPrefix;
   final midBEnd = linesB.length - commonSuffix;
 
-  // ========== PUA 编码 + diff（只对中间段） ==========
   final lineToCode = <String, int>{};
   final codeToLine = <int, String>{};
   var nextCode = 0xE000;
@@ -344,15 +341,12 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final diffs = dmp.diff(encA, encB);
   final tDiff = sw.elapsedMilliseconds;
 
-  // ========== 拼回：前缀 + 中间 diff + 后缀 ==========
   final out = <(int, String)>[];
 
-  // 前缀（都是 equal）
   for (var i = 0; i < commonPrefix; i++) {
     out.add((DiffOperation.equal.index, linesA[i]));
   }
 
-  // 中间 diff
   for (final d in diffs) {
     final opIndex = _dmpOpToIndex(d.operation);
     for (final rune in d.text.runes) {
@@ -363,7 +357,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
     }
   }
 
-  // 后缀（都是 equal）
   for (var i = linesA.length - commonSuffix; i < linesA.length; i++) {
     out.add((DiffOperation.equal.index, linesA[i]));
   }
@@ -401,33 +394,33 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final modified = ref.watch(preprocessedModifiedProvider);
   if (original.isEmpty || modified.isEmpty) return null;
 
-final ignoreWs = ref.watch(ignoreWhitespaceProvider);
-final ignoreEmpty = ref.watch(ignoreEmptyLinesProvider);
-final ignoreNl = ref.watch(ignoreLineEndingsProvider);
-final ignoreCase = ref.watch(ignoreCaseProvider);
-final ignoreCommas = ref.watch(ignoreCommasProvider);
-final ignoreNumbers = ref.watch(ignoreNumbersProvider);
-final ignoreInvisible = ref.watch(ignoreInvisibleProvider);
-final origNorm = applyDiffIgnores(
-  original,
-  whitespace: ignoreWs,
-  emptyLines: ignoreEmpty,
-  lineEndings: ignoreNl,
-  ignoreCase: ignoreCase,
-  ignoreCommas: ignoreCommas,
-  ignoreNumbers: ignoreNumbers,
-  ignoreInvisible: ignoreInvisible,
-);
-final modNorm = applyDiffIgnores(
-  modified,
-  whitespace: ignoreWs,
-  emptyLines: ignoreEmpty,
-  lineEndings: ignoreNl,
-  ignoreCase: ignoreCase,
-  ignoreCommas: ignoreCommas,
-  ignoreNumbers: ignoreNumbers,
-  ignoreInvisible: ignoreInvisible,
-);
+  final ignoreWs = ref.watch(ignoreWhitespaceProvider);
+  final ignoreEmpty = ref.watch(ignoreEmptyLinesProvider);
+  final ignoreNl = ref.watch(ignoreLineEndingsProvider);
+  final ignoreCase = ref.watch(ignoreCaseProvider);
+  final ignoreCommas = ref.watch(ignoreCommasProvider);
+  final ignoreNumbers = ref.watch(ignoreNumbersProvider);
+  final ignoreInvisible = ref.watch(ignoreInvisibleProvider);
+  final origNorm = applyDiffIgnores(
+    original,
+    whitespace: ignoreWs,
+    emptyLines: ignoreEmpty,
+    lineEndings: ignoreNl,
+    ignoreCase: ignoreCase,
+    ignoreCommas: ignoreCommas,
+    ignoreNumbers: ignoreNumbers,
+    ignoreInvisible: ignoreInvisible,
+  );
+  final modNorm = applyDiffIgnores(
+    modified,
+    whitespace: ignoreWs,
+    emptyLines: ignoreEmpty,
+    lineEndings: ignoreNl,
+    ignoreCase: ignoreCase,
+    ignoreCommas: ignoreCommas,
+    ignoreNumbers: ignoreNumbers,
+    ignoreInvisible: ignoreInvisible,
+  );
   if (origNorm.isEmpty || modNorm.isEmpty) return null;
 
   ref.watch(importRevisionProvider);
@@ -468,62 +461,189 @@ final modNorm = applyDiffIgnores(
   return DiffResult(entries: entries, engineType: DiffEngineType.line);
 });
 
-// ==================== 差异颜色 ====================
+// ==================== 差异颜色（持久化） ====================
 //
 // 12 个颜色项，分三组：
 //   1) 纯删除 / 纯新增行的整行颜色（正红 / 正绿）
 //   2) 修改行的整行颜色（浅粉 / 浅绿）+ 字体色
 //   3) 字符级差异（深红 / 深绿）+ 字体色
 //
-// 全部从 provider 读，改动立即生效，不做持久化（持久化阶段统一做）。
+// 存成 "#RRGGBB" 字符串，从 provider 读，改动立即生效。
+
+/// 颜色专用持久化 Notifier：内存里是 Color，磁盘上是 "#RRGGBB"。
+class ColorPrefNotifier extends PersistentNotifier<Color> {
+  ColorPrefNotifier({required this.key, required Color initial})
+      : _initial = initial;
+
+  @override
+  final String key;
+  final Color _initial;
+
+  @override
+  Color get defaultValue => _initial;
+
+  @override
+  Color decode(String raw) {
+    final c = hexToColor(raw);
+    if (c == null) throw const FormatException('Invalid color string');
+    return c;
+  }
+
+  @override
+  String encode(Color value) => colorToHex(value);
+}
 
 /// 纯删除行整行背景（左侧独有行）。
 final deleteRowBgProvider =
-    StateProvider<Color>((ref) => const Color(0xFFFF0000));
+    NotifierProvider<DeleteRowBgNotifier, Color>(DeleteRowBgNotifier.new);
+
+class DeleteRowBgNotifier extends ColorPrefNotifier {
+  DeleteRowBgNotifier()
+      : super(
+          key: PrefKeys.colorDeleteRowBg,
+          initial: const Color(0xFFFF0000),
+        );
+}
 
 /// 纯删除行整行字体。
 final deleteRowFgProvider =
-    StateProvider<Color>((ref) => const Color(0xFF000000));
+    NotifierProvider<DeleteRowFgNotifier, Color>(DeleteRowFgNotifier.new);
+
+class DeleteRowFgNotifier extends ColorPrefNotifier {
+  DeleteRowFgNotifier()
+      : super(
+          key: PrefKeys.colorDeleteRowFg,
+          initial: const Color(0xFF000000),
+        );
+}
 
 /// 纯新增行整行背景（右侧独有行）。
 final insertRowBgProvider =
-    StateProvider<Color>((ref) => const Color(0xFF00FF00));
+    NotifierProvider<InsertRowBgNotifier, Color>(InsertRowBgNotifier.new);
+
+class InsertRowBgNotifier extends ColorPrefNotifier {
+  InsertRowBgNotifier()
+      : super(
+          key: PrefKeys.colorInsertRowBg,
+          initial: const Color(0xFF00FF00),
+        );
+}
 
 /// 纯新增行整行字体。
 final insertRowFgProvider =
-    StateProvider<Color>((ref) => const Color(0xFF000000));
+    NotifierProvider<InsertRowFgNotifier, Color>(InsertRowFgNotifier.new);
+
+class InsertRowFgNotifier extends ColorPrefNotifier {
+  InsertRowFgNotifier()
+      : super(
+          key: PrefKeys.colorInsertRowFg,
+          initial: const Color(0xFF000000),
+        );
+}
 
 /// 修改行左侧（原文件侧）整行背景。
 final replaceLeftBgProvider =
-    StateProvider<Color>((ref) => const Color(0xFFFFCDD2));
+    NotifierProvider<ReplaceLeftBgNotifier, Color>(
+  ReplaceLeftBgNotifier.new,
+);
+
+class ReplaceLeftBgNotifier extends ColorPrefNotifier {
+  ReplaceLeftBgNotifier()
+      : super(
+          key: PrefKeys.colorReplaceLeftBg,
+          initial: const Color(0xFFFFCDD2),
+        );
+}
 
 /// 修改行左侧整行字体。
 final replaceLeftFgProvider =
-    StateProvider<Color>((ref) => const Color(0xFF000000));
+    NotifierProvider<ReplaceLeftFgNotifier, Color>(
+  ReplaceLeftFgNotifier.new,
+);
+
+class ReplaceLeftFgNotifier extends ColorPrefNotifier {
+  ReplaceLeftFgNotifier()
+      : super(
+          key: PrefKeys.colorReplaceLeftFg,
+          initial: const Color(0xFF000000),
+        );
+}
 
 /// 修改行右侧（修改版侧）整行背景。
 final replaceRightBgProvider =
-    StateProvider<Color>((ref) => const Color(0xFFC8E6C9));
+    NotifierProvider<ReplaceRightBgNotifier, Color>(
+  ReplaceRightBgNotifier.new,
+);
+
+class ReplaceRightBgNotifier extends ColorPrefNotifier {
+  ReplaceRightBgNotifier()
+      : super(
+          key: PrefKeys.colorReplaceRightBg,
+          initial: const Color(0xFFC8E6C9),
+        );
+}
 
 /// 修改行右侧整行字体。
 final replaceRightFgProvider =
-    StateProvider<Color>((ref) => const Color(0xFF000000));
+    NotifierProvider<ReplaceRightFgNotifier, Color>(
+  ReplaceRightFgNotifier.new,
+);
+
+class ReplaceRightFgNotifier extends ColorPrefNotifier {
+  ReplaceRightFgNotifier()
+      : super(
+          key: PrefKeys.colorReplaceRightFg,
+          initial: const Color(0xFF000000),
+        );
+}
 
 /// 字符级删除（左侧行内被删的字）背景。
 final charDeleteBgProvider =
-    StateProvider<Color>((ref) => const Color(0xFFB71C1C));
+    NotifierProvider<CharDeleteBgNotifier, Color>(CharDeleteBgNotifier.new);
+
+class CharDeleteBgNotifier extends ColorPrefNotifier {
+  CharDeleteBgNotifier()
+      : super(
+          key: PrefKeys.colorCharDeleteBg,
+          initial: const Color(0xFFB71C1C),
+        );
+}
 
 /// 字符级删除字体。
 final charDeleteFgProvider =
-    StateProvider<Color>((ref) => const Color(0xFFFFFFFF));
+    NotifierProvider<CharDeleteFgNotifier, Color>(CharDeleteFgNotifier.new);
+
+class CharDeleteFgNotifier extends ColorPrefNotifier {
+  CharDeleteFgNotifier()
+      : super(
+          key: PrefKeys.colorCharDeleteFg,
+          initial: const Color(0xFFFFFFFF),
+        );
+}
 
 /// 字符级新增（右侧行内新增的字）背景。
 final charInsertBgProvider =
-    StateProvider<Color>((ref) => const Color(0xFF1B5E20));
+    NotifierProvider<CharInsertBgNotifier, Color>(CharInsertBgNotifier.new);
+
+class CharInsertBgNotifier extends ColorPrefNotifier {
+  CharInsertBgNotifier()
+      : super(
+          key: PrefKeys.colorCharInsertBg,
+          initial: const Color(0xFF1B5E20),
+        );
+}
 
 /// 字符级新增字体。
 final charInsertFgProvider =
-    StateProvider<Color>((ref) => const Color(0xFFFFFFFF));
+    NotifierProvider<CharInsertFgNotifier, Color>(CharInsertFgNotifier.new);
+
+class CharInsertFgNotifier extends ColorPrefNotifier {
+  CharInsertFgNotifier()
+      : super(
+          key: PrefKeys.colorCharInsertFg,
+          initial: const Color(0xFFFFFFFF),
+        );
+}
 
 /// 一次性从 ref 读 12 个颜色的辅助类型。
 typedef DiffColors = ({
@@ -571,13 +691,6 @@ Color? hexToColor(String s) {
 }
 
 /// 把"预处理后的行号"映射回 raw 文本中的行号。
-///
-/// 目前只有 `ignoreEmptyLines` 会改变行数（删空行），其余忽略项
-/// 都只做行内替换，不增删行。所以要精确定位 raw 行，只需复现
-/// "哪些行会被 emptyLines 保留"这一条判断。
-///
-/// 注意：自定义预处理规则如果跨行匹配（如把两行合成一行），行数
-/// 也会变，本函数覆盖不到。那种情况就地编辑会定位不准，属于已知限制。
 int? rawLineForNormalizedLine(
   String raw, {
   required int normalizedLine,
@@ -593,8 +706,6 @@ int? rawLineForNormalizedLine(
     return normalizedLine < lines.length ? normalizedLine : null;
   }
 
-  // 复现 applyDiffIgnores 里 emptyLines 那一步的判定顺序：
-  // invisible → whitespace → trim().isNotEmpty
   var count = 0;
   for (var i = 0; i < lines.length; i++) {
     var s = lines[i];
