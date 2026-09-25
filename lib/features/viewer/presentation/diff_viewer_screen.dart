@@ -19,6 +19,7 @@ import '../../edit/presentation/edit_screen.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'diff_scroll_helper.dart';
+import 'diff_text_index.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'regex_help_screen.dart';
 import 'widgets/diff_only_view.dart';
@@ -71,10 +72,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
-
-  // 文本 → 第一个 entry 下标的缓存。编辑后按内容定位时用它代替 O(n) 线性搜索。
-  DiffResult? _textIndexFor;
-  Map<String, int>? _textIndex;
 
   /// 滚动结束防抖定时器。
   Timer? _captureTimer;
@@ -482,21 +479,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _cachedDiffIndices = list;
     _cachedDiffIndicesFor = diff;
     return list;
-  }
-
-  /// 文本 → 第一个匹配 entry 下标的索引。按 diff 实例缓存，避免重复构建。
-  Map<String, int> _textIndexOf(DiffResult diff) {
-    if (identical(_textIndexFor, diff) && _textIndex != null) {
-      return _textIndex!;
-    }
-    final map = <String, int>{};
-    for (var i = 0; i < diff.entries.length; i++) {
-      final t = diff.entries[i].text;
-      if (t.isNotEmpty) map.putIfAbsent(t, () => i);
-    }
-    _textIndex = map;
-    _textIndexFor = diff;
-    return map;
   }
 
   void _jumpToNextDiff() {
@@ -1022,7 +1004,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       anchorOrigLine: origLine,
       anchorModLine: modLine,
       anchorOrigText: origAnchorText,
-      anchorModText: modAnchorText,
+      anchorModText: anchorModText,
     );
   }
 
@@ -1147,8 +1129,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _rowKeysByEntry.clear();
     _cachedDiffIndices = null;
     _cachedDiffIndicesFor = null;
-    _textIndex = null;
-    _textIndexFor = null;
+    DiffTextIndex.invalidate();
     setState(() {});
 
     final hasAnchor = anchorOrigLine != null ||
@@ -1183,15 +1164,15 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final diff = _diff;
       if (diff != null) {
         // 用文本索引 O(1) 命中，替代原来的 O(n) 线性搜索。
-        final idx = _textIndexOf(diff);
+        final idx = DiffTextIndex.of(diff);
         int? hitEntry;
         if (origAnchorText != null && origAnchorText.isNotEmpty) {
-          hitEntry = idx[origAnchorText];
+          hitEntry = idx.firstEntryOf(origAnchorText);
         }
         if (hitEntry == null &&
             modAnchorText != null &&
             modAnchorText.isNotEmpty) {
-          hitEntry = idx[modAnchorText];
+          hitEntry = idx.firstEntryOf(modAnchorText);
         }
         if (hitEntry != null) {
           final target = hitEntry + 1 < diff.entries.length
