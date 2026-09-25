@@ -41,9 +41,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final TextEditingController _findController = TextEditingController();
   final TextEditingController _replaceController = TextEditingController();
 
-  final Map<int, GlobalKey> _rowKeysByEntry = <int, GlobalKey>{};
-
-  int _currentDiffPos = -1;
+  /// 当前差异位置（在差异列表里的索引）。
+  /// 用 ValueNotifier 独立出来：滚动时只让 AppBar 里那个计数器重画，
+  /// 不再触发整页 setState。
+  final ValueNotifier<int> _currentDiffPos = ValueNotifier<int>(-1);
 
   /// 最近一次程序化跳转（点上一处/下一处）的时间戳。
   int _lastJumpAtMs = 0;
@@ -76,7 +77,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   /// 滚动结束防抖定时器。
   Timer? _captureTimer;
 
-  /// 查找输入防抖：用户连续打字时只在停顿后触发一次全量扫描。
+  /// 查找输入防抖。
   Timer? _findDebounce;
 
   @override
@@ -95,12 +96,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _findController.dispose();
     _replaceController.dispose();
     _scrollController.dispose();
+    _currentDiffPos.dispose();
     super.dispose();
   }
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
 
-  /// 当前停留的匹配项对应的 entry 下标。
   int? get _currentMatchEntry {
     if (_matchEntries.isEmpty) return null;
     if (_matchPos < 0 || _matchPos >= _matchEntries.length) return null;
@@ -169,8 +170,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return e.text;
   }
 
-  /// 查找框输入变化：先防抖，用户停顿 250ms 后再做全量扫描。
-  /// 避免每敲一个键就 O(n) 扫一遍所有 entry，大文件下会掉帧。
   void _onFindInput(String q) {
     _findDebounce?.cancel();
     _findDebounce = Timer(const Duration(milliseconds: 250), () {
@@ -179,14 +178,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     });
   }
 
-  /// 立即执行一次查找。防抖外的调用点（切换左右、切正则等）直接走它。
   void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
     final diff = _diff;
     final matches = <int>[];
     if (q.isNotEmpty && diff != null) {
       final p = _buildFindPattern();
-      // 仅差异视图只统计非 equal 行，保证命中的一定是屏幕上能看见的。
       final diffOnly = ref.read(viewModeProvider) == ViewMode.diffOnly;
       for (var i = 0; i < diff.entries.length; i++) {
         final e = diff.entries[i];
@@ -211,8 +208,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (autoScroll && matches.isNotEmpty) _scrollToEntry(matches.first);
   }
 
-  /// 如果防抖还在计时，说明用户还没停手；此时如果用户点了“下一个/上一个/替换”，
-  /// 要先把最新的输入立即搜一遍，避免用到过期的 `_matchEntries`。
   void _ensureFindApplied() {
     if (_findDebounce?.isActive ?? false) {
       _findDebounce!.cancel();
@@ -407,7 +402,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     final helper = DiffScrollHelper(
       scrollController: _scrollController,
-      rowKeysByEntry: _rowKeysByEntry,
       totalRows: () => _renderedRows(diff, mode),
       entryToRow: (ei) => _entryToRow(diff, ei, mode),
     );
@@ -484,7 +478,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _jumpToNextDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    final current = _currentDiffPos < 0 ? -1 : _currentDiffPos;
+    final current = _currentDiffPos.value;
     final next = (current + 1) % indices.length;
     _jumpToDiffPos(next);
   }
@@ -492,7 +486,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _jumpToPrevDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    final current = _currentDiffPos < 0 ? 0 : _currentDiffPos;
+    final current = _currentDiffPos.value < 0 ? 0 : _currentDiffPos.value;
     final prev = (current - 1 + indices.length) % indices.length;
     _jumpToDiffPos(prev);
   }
@@ -501,79 +495,59 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final indices = _diffIndices();
     if (pos < 0 || pos >= indices.length) return;
     _lastJumpAtMs = DateTime.now().millisecondsSinceEpoch;
-    setState(() => _currentDiffPos = pos);
+    _currentDiffPos.value = pos;
     _scrollToEntry(indices[pos]);
   }
 
-  /// 找屏幕上最靠上的那个已构建行。
-  /// 遍历时顺手把已失效的 key 从 map 里删掉，避免滚动一段时间后 map 膨胀到几万条，
-  /// 每次滚动结束都要 O(n) 遍历一次。
-  int? _findFirstVisibleDiffEntry() {
-    if (_rowKeysByEntry.isEmpty) return null;
-    int? best;
-    double bestTop = double.infinity;
-    final stale = <int>[];
-    for (final e in _rowKeysByEntry.entries) {
-      final ctx = e.value.currentContext;
-      if (ctx == null) {
-        stale.add(e.key);
-        continue;
-      }
-      final box = ctx.findRenderObject() as RenderBox?;
-      if (box == null || !box.attached) {
-        stale.add(e.key);
-        continue;
-      }
-      final top = box.localToGlobal(Offset.zero).dy;
-      if (top + box.size.height > 0 && top < bestTop) {
-        bestTop = top;
-        best = e.key;
-      }
-    }
-    for (final k in stale) {
-      _rowKeysByEntry.remove(k);
-    }
-    return best;
-  }
-
-  /// 防抖入口：滚动结束时调用，250ms 内只真正执行一次。
+  /// 防抖入口：滚动结束时调用，150ms 内只真正执行一次。
   void _captureAnchor() {
     _captureTimer?.cancel();
-    _captureTimer = Timer(const Duration(milliseconds: 250), () {
+    _captureTimer = Timer(const Duration(milliseconds: 150), () {
       if (mounted) _captureAnchorNow();
     });
   }
 
-  /// 立即执行锚点捕获（切视图等场景需要同步结果）。
+  /// 用 scrollController 的像素位置估算当前屏幕上方的差异处。
+  /// **不再依赖 GlobalKey**：按 maxScrollExtent 比例换算成行号，
+  /// 再在差异列表里二分/线性找最近的差异。
   void _captureAnchorNow() {
     if (!mounted) return;
-    final anchorEntry = _findFirstVisibleDiffEntry();
-    if (anchorEntry == null) return;
-    _anchorEntryIndex = anchorEntry;
+    final diff = _diff;
+    if (diff == null) return;
+    if (!_scrollController.hasClients) return;
+
+    final mode = ref.read(viewModeProvider);
+    final totalRows = _renderedRows(diff, mode);
+    if (totalRows <= 0) return;
+
+    final pos = _scrollController.position;
+    final maxExtent = pos.maxScrollExtent;
+    final currentRow = maxExtent <= 0
+        ? 0
+        : (pos.pixels / maxExtent * totalRows).round();
+
+    final indices = _diffIndices();
+    if (indices.isEmpty) return;
+
+    // 找第一个 row >= currentRow 的差异；没有就用最后一个。
+    var bestPos = indices.length - 1;
+    for (var i = 0; i < indices.length; i++) {
+      final row = _entryToRow(diff, indices[i], mode);
+      if (row < 0) continue;
+      if (row >= currentRow) {
+        bestPos = i;
+        break;
+      }
+    }
+
+    _anchorEntryIndex = indices[bestPos];
 
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastJumpAtMs < 800) return;
 
-    final indices = _diffIndices();
-    if (indices.isEmpty) return;
-    final pos = _lowerBound(indices, anchorEntry);
-    if (pos >= indices.length) return;
-    if (pos != _currentDiffPos) {
-      setState(() => _currentDiffPos = pos);
+    if (bestPos != _currentDiffPos.value) {
+      _currentDiffPos.value = bestPos;
     }
-  }
-
-  int _lowerBound(List<int> indices, int value) {
-    var lo = 0, hi = indices.length;
-    while (lo < hi) {
-      final mid = (lo + hi) >> 1;
-      if (indices[mid] < value) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
-      }
-    }
-    return lo;
   }
 
   Future<void> _switchView(ViewMode newMode) async {
@@ -602,7 +576,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
 
     // ===== 方向二：仅差异 → 并排/合并，且有查找词时弹框三选一 =====
-    // ===== 并排 ⇄ 合并：不弹框，保持原有 anchor 行为 =====
     _SwitchTarget? choice;
     if (current == ViewMode.diffOnly && hasSearch) {
       choice = await _showSwitchViewDialog(newMode);
@@ -619,8 +592,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         return;
       }
 
-      // 仅差异 → 并排/合并 需要重搜（可见行集合变了）。
-      // 并排 ⇄ 合并 可见行集合相同，不用重搜。
       if (current == ViewMode.diffOnly) {
         _findChanged(_findQuery, autoScroll: false);
       }
@@ -628,7 +599,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       switch (choice ?? _SwitchTarget.anchor) {
         case _SwitchTarget.match:
           if (_matchEntries.isEmpty) return;
-          // 三层兜底：精确 → 最近 → 第一个
           var bestPos = -1;
           if (searchEntry != null) {
             bestPos = _matchEntries.indexOf(searchEntry);
@@ -1122,11 +1092,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? anchorModText,
   }) {
     _captureTimer?.cancel();
-    _currentDiffPos = -1;
+    _currentDiffPos.value = -1;
     _anchorEntryIndex = null;
     _matchEntries = const <int>[];
     _matchPos = -1;
-    _rowKeysByEntry.clear();
     _cachedDiffIndices = null;
     _cachedDiffIndicesFor = null;
     DiffTextIndex.invalidate();
@@ -1163,7 +1132,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       if (!mounted) return;
       final diff = _diff;
       if (diff != null) {
-        // 用文本索引 O(1) 命中，替代原来的 O(n) 线性搜索。
         final idx = DiffTextIndex.of(diff);
         int? hitEntry;
         if (origAnchorText != null && origAnchorText.isNotEmpty) {
@@ -1340,7 +1308,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? modName,
   ) {
     final totalDiffs = _diffIndices().length;
-    final currentPos = _currentDiffPos >= 0 ? _currentDiffPos + 1 : 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -1349,13 +1316,20 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           style: TextStyle(fontSize: 11),
         ),
         actions: [
+          // 计数器单独订阅 _currentDiffPos，滚动时不重建其它部分。
           Center(
             key: const Key('diff-position'),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                '$currentPos/$totalDiffs',
-                style: Theme.of(context).textTheme.labelLarge,
+              child: ValueListenableBuilder<int>(
+                valueListenable: _currentDiffPos,
+                builder: (_, pos, __) {
+                  final currentPos = pos >= 0 ? pos + 1 : 0;
+                  return Text(
+                    '$currentPos/$totalDiffs',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  );
+                },
               ),
             ),
           ),
@@ -1548,57 +1522,45 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 _captureAnchor();
                 return false;
               },
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onHorizontalDragEnd: (details) {
-                  final velocity = details.primaryVelocity ?? 0;
-                  if (velocity < -300) {
-                    _jumpToNextDiff();
-                  } else if (velocity > 300) {
-                    _jumpToPrevDiff();
-                  }
-                },
-                child: switch (viewMode) {
-                  ViewMode.merged => MergedView(
-                      result: diff,
-                      controller: _scrollController,
-                      findQuery: _findQuery,
-                      currentMatchEntry: _currentMatchEntry,
-                      rowKeysByEntry: _rowKeysByEntry,
-                      showLineNumbers: ref.watch(showLineNumbersProvider),
-                      bodyFontSize: ref.watch(bodyFontSizeProvider),
-                      gutterFontSize: ref.watch(gutterFontSizeProvider),
-                      onLongPressEntry: (i) => _onRowLongPress([i]),
-                    ),
-                  ViewMode.sideBySide => SideBySideView(
-                      result: diff,
-                      originalFileName: origName,
-                      modifiedFileName: modName,
-                      controller: _scrollController,
-                      findQuery: _findQuery,
-                      currentMatchEntry: _currentMatchEntry,
-                      rowKeysByEntry: _rowKeysByEntry,
-                      showLineNumbers: ref.watch(showLineNumbersProvider),
-                      bodyFontSize: ref.watch(bodyFontSizeProvider),
-                      gutterFontSize: ref.watch(gutterFontSizeProvider),
-                      syncScroll: ref.watch(syncScrollProvider),
-                      onLongPressEntry: _onRowLongPress,
-                    ),
-                  ViewMode.diffOnly => DiffOnlyView(
-                      result: diff,
-                      originalFileName: origName,
-                      modifiedFileName: modName,
-                      controller: _scrollController,
-                      findQuery: _findQuery,
-                      currentMatchEntry: _currentMatchEntry,
-                      rowKeysByEntry: _rowKeysByEntry,
-                      showLineNumbers: ref.watch(showLineNumbersProvider),
-                      bodyFontSize: ref.watch(bodyFontSizeProvider),
-                      gutterFontSize: ref.watch(gutterFontSizeProvider),
-                      onLongPressEntry: _onRowLongPress,
-                    ),
-                },
-              ),
+              // 去掉外层 GestureDetector：它会跟 ListView 的竖直拖动抢手势。
+              // 左右滑切差异改用 AppBar 里的上/下按钮。
+              child: switch (viewMode) {
+                ViewMode.merged => MergedView(
+                    result: diff,
+                    controller: _scrollController,
+                    findQuery: _findQuery,
+                    currentMatchEntry: _currentMatchEntry,
+                    showLineNumbers: ref.watch(showLineNumbersProvider),
+                    bodyFontSize: ref.watch(bodyFontSizeProvider),
+                    gutterFontSize: ref.watch(gutterFontSizeProvider),
+                    onLongPressEntry: (i) => _onRowLongPress([i]),
+                  ),
+                ViewMode.sideBySide => SideBySideView(
+                    result: diff,
+                    originalFileName: origName,
+                    modifiedFileName: modName,
+                    controller: _scrollController,
+                    findQuery: _findQuery,
+                    currentMatchEntry: _currentMatchEntry,
+                    showLineNumbers: ref.watch(showLineNumbersProvider),
+                    bodyFontSize: ref.watch(bodyFontSizeProvider),
+                    gutterFontSize: ref.watch(gutterFontSizeProvider),
+                    syncScroll: ref.watch(syncScrollProvider),
+                    onLongPressEntry: _onRowLongPress,
+                  ),
+                ViewMode.diffOnly => DiffOnlyView(
+                    result: diff,
+                    originalFileName: origName,
+                    modifiedFileName: modName,
+                    controller: _scrollController,
+                    findQuery: _findQuery,
+                    currentMatchEntry: _currentMatchEntry,
+                    showLineNumbers: ref.watch(showLineNumbersProvider),
+                    bodyFontSize: ref.watch(bodyFontSizeProvider),
+                    gutterFontSize: ref.watch(gutterFontSizeProvider),
+                    onLongPressEntry: _onRowLongPress,
+                  ),
+              },
             ),
           ),
         ],
@@ -2022,7 +1984,6 @@ class _DisplaySettingsSheet extends ConsumerWidget {
     );
   }
 
-  /// 12 个颜色现在都是 `NotifierProvider<ColorPrefNotifier, Color>`。
   Widget _colorRow(
     BuildContext context,
     WidgetRef ref,
@@ -2083,7 +2044,6 @@ class _DisplaySettingsSheet extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 拖动选择任意颜色的色板
                 ColorPicker(
                   pickerColor: picked,
                   onColorChanged: (color) {
@@ -2097,7 +2057,6 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                   portraitOnly: true,
                 ),
                 const SizedBox(height: 12),
-                // 仍然保留手动输入 #RRGGBB 的入口，方便精确输入
                 TextField(
                   controller: controller,
                   decoration: const InputDecoration(
