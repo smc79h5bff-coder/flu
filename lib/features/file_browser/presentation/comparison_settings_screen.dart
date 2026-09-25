@@ -197,10 +197,10 @@ class ComparisonSettingsScreen extends ConsumerWidget {
             onChanged: builtin
                 ? (v) => ref
                     .read(builtinRuleEnablesProvider.notifier)
-                    .update((prev) => {...prev, rule.id: v})
+                    .setOne(rule.id, v)
                 : (v) => ref
                     .read(userRulesProvider.notifier)
-                    .update(rule.copyWith(enabled: v)),
+                    .updateRule(rule.copyWith(enabled: v)),
           ),
           if (!builtin)
             IconButton(
@@ -241,8 +241,7 @@ class ComparisonSettingsScreen extends ConsumerWidget {
   }
 }
 
-/// 新建规则对话框。从 rules_management_screen.dart 复制过来，
-/// 保持和原来一致的行为。
+/// 新建规则对话框。
 class _RuleEditorDialog extends StatefulWidget {
   const _RuleEditorDialog();
 
