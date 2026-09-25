@@ -818,67 +818,108 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     _toast(wasFav ? '已取消收藏' : '已收藏当前目录');
   }
 
-  Future<void> _showFavorites() async {
-    final favorites = ref.read(favoritesProvider);
-    if (favorites.isEmpty) {
-      _toast('还没有收藏任何目录');
-      return;
-    }
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: _dlgInset,
-        titlePadding: _dlgTitlePad,
-        contentPadding: _dlgContentPad,
-        actionsPadding: _dlgActionsPad,
-        title: const Text('已收藏目录'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(context).size.height * 0.85,
-          child: ListView.builder(
-            itemCount: favorites.length,
-            itemBuilder: (ctx, i) {
-              final p = favorites[i];
-              return ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.folder, color: Colors.amber),
-                title: Text(p.split('/').last),
-                subtitle: Text(
-                  p,
-                  style: const TextStyle(fontSize: 11),
-                ),
-                onTap: () => Navigator.pop(c, p),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  tooltip: '移除收藏',
-                  onPressed: () {
-                    ref.read(favoritesProvider.notifier).remove(p);
-                    Navigator.pop(c);
-                    _showFavorites();
+Future<void> _showFavorites() async {
+  final picked = await showDialog<String>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, setInnerState) {
+        final favorites = ref.watch(favoritesProvider);
+        final isFav = favorites.contains(_currentPath);
+
+        return AlertDialog(
+          insetPadding: _dlgInset,
+          titlePadding: _dlgTitlePad,
+          contentPadding: _dlgContentPad,
+          actionsPadding: _dlgActionsPad,
+          title: const Text('已收藏目录'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Column(
+              children: [
+                // 顶部：收藏/取消收藏当前目录
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    isFav ? Icons.star : Icons.star_border,
+                    color: isFav ? Colors.amber : null,
+                  ),
+                  title: Text(
+                    isFav ? '取消收藏当前目录' : '收藏当前目录',
+                  ),
+                  subtitle: Text(
+                    _currentPath,
+                    style: const TextStyle(fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () {
+                    ref
+                        .read(favoritesProvider.notifier)
+                        .toggle(_currentPath);
+                    setInnerState(() {});
                   },
                 ),
-              );
-            },
+                const Divider(height: 1),
+                // 收藏列表
+                Expanded(
+                  child: favorites.isEmpty
+                      ? const Center(child: Text('还没有收藏任何目录'))
+                      : ListView.builder(
+                          itemCount: favorites.length,
+                          itemBuilder: (ctx, i) {
+                            final p = favorites[i];
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.folder,
+                                  color: Colors.amber),
+                              title: Text(p.split('/').last),
+                              subtitle: Text(
+                                p,
+                                style: const TextStyle(fontSize: 11),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () => Navigator.pop(c, p),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline,
+                                    size: 20),
+                                tooltip: '移除收藏',
+                                onPressed: () {
+                                  ref
+                                      .read(favoritesProvider.notifier)
+                                      .remove(p);
+                                  setInnerState(() {});
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-    if (picked != null && mounted) {
-      if (Directory(picked).existsSync()) {
-        _navigateTo(picked);
-      } else {
-        _toast('该目录已不存在');
-        ref.read(favoritesProvider.notifier).remove(picked);
-      }
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  if (picked != null && mounted) {
+    if (Directory(picked).existsSync()) {
+      _navigateTo(picked);
+    } else {
+      _toast('该目录已不存在');
+      ref.read(favoritesProvider.notifier).remove(picked);
     }
   }
+}
 
   // ==================== 文件操作 ====================
 
