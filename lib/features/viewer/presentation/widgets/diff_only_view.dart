@@ -6,7 +6,7 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
-import 'line_height_calculator.dart';
+import '../line_height_calculator.dart';
 import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
 
