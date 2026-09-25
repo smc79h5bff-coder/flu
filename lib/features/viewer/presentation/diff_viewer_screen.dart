@@ -6,11 +6,8 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'diff_scroll_helper.dart';
-
 import 'package:flutter_colorpicker/flutter_colorpicker.dart'
     hide colorToHex, hexToColor;
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/storage/persistent_notifier.dart';
@@ -21,6 +18,7 @@ import '../../diff/domain/diff_result.dart';
 import '../../edit/presentation/edit_screen.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
+import 'diff_scroll_helper.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'regex_help_screen.dart';
 import 'widgets/diff_only_view.dart';
@@ -74,8 +72,15 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
+  // 文本 → 第一个 entry 下标的缓存。编辑后按内容定位时用它代替 O(n) 线性搜索。
+  DiffResult? _textIndexFor;
+  Map<String, int>? _textIndex;
+
   /// 滚动结束防抖定时器。
   Timer? _captureTimer;
+
+  /// 查找输入防抖：用户连续打字时只在停顿后触发一次全量扫描。
+  Timer? _findDebounce;
 
   @override
   void initState() {
@@ -89,6 +94,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   @override
   void dispose() {
     _captureTimer?.cancel();
+    _findDebounce?.cancel();
     _findController.dispose();
     _replaceController.dispose();
     _scrollController.dispose();
@@ -166,6 +172,17 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return e.text;
   }
 
+  /// 查找框输入变化：先防抖，用户停顿 250ms 后再做全量扫描。
+  /// 避免每敲一个键就 O(n) 扫一遍所有 entry，大文件下会掉帧。
+  void _onFindInput(String q) {
+    _findDebounce?.cancel();
+    _findDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      _findChanged(q);
+    });
+  }
+
+  /// 立即执行一次查找。防抖外的调用点（切换左右、切正则等）直接走它。
   void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
     final diff = _diff;
@@ -197,9 +214,19 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (autoScroll && matches.isNotEmpty) _scrollToEntry(matches.first);
   }
 
+  /// 如果防抖还在计时，说明用户还没停手；此时如果用户点了“下一个/上一个/替换”，
+  /// 要先把最新的输入立即搜一遍，避免用到过期的 `_matchEntries`。
+  void _ensureFindApplied() {
+    if (_findDebounce?.isActive ?? false) {
+      _findDebounce!.cancel();
+      _findChanged(_findController.text, autoScroll: false);
+    }
+  }
+
   // ==================== 替换 ====================
 
   void _replaceCurrentInline() {
+    _ensureFindApplied();
     if (_findQuery.isEmpty || _matchEntries.isEmpty || _matchPos < 0) {
       _toast('没有可替换的内容');
       return;
@@ -208,6 +235,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _replaceAllInline() {
+    _ensureFindApplied();
     if (_findQuery.isEmpty || _matchEntries.isEmpty) {
       _toast('没有可替换的内容');
       return;
@@ -346,6 +374,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
 
     if (!mounted) return;
+    _findDebounce?.cancel();
     _findController.clear();
     _replaceController.clear();
     setState(() {
@@ -374,21 +403,19 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return n;
   }
 
+  void _scrollToEntry(int entryIndex) {
+    final diff = _diff;
+    if (diff == null) return;
+    final mode = ref.read(viewModeProvider);
 
-
-    void _scrollToEntry(int entryIndex) {
-  final diff = _diff;
-  if (diff == null) return;
-  final mode = ref.read(viewModeProvider);
-
-  final helper = DiffScrollHelper(
-    scrollController: _scrollController,
-    rowKeysByEntry: _rowKeysByEntry,
-    totalRows: () => _renderedRows(diff, mode),
-    entryToRow: (ei) => _entryToRow(diff, ei, mode),
-  );
-  helper.scrollToEntry(entryIndex);
-    }
+    final helper = DiffScrollHelper(
+      scrollController: _scrollController,
+      rowKeysByEntry: _rowKeysByEntry,
+      totalRows: () => _renderedRows(diff, mode),
+      entryToRow: (ei) => _entryToRow(diff, ei, mode),
+    );
+    helper.scrollToEntry(entryIndex);
+  }
 
   int _entryToRow(DiffResult diff, int entryIndex, ViewMode mode) {
     if (mode == ViewMode.merged) return entryIndex;
@@ -415,6 +442,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _nextMatch() {
+    _ensureFindApplied();
     if (_matchEntries.isEmpty) return;
     final next = (_matchPos + 1) % _matchEntries.length;
     setState(() => _matchPos = next);
@@ -422,6 +450,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _prevMatch() {
+    _ensureFindApplied();
     if (_matchEntries.isEmpty) return;
     final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
     setState(() => _matchPos = prev);
@@ -455,6 +484,21 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return list;
   }
 
+  /// 文本 → 第一个匹配 entry 下标的索引。按 diff 实例缓存，避免重复构建。
+  Map<String, int> _textIndexOf(DiffResult diff) {
+    if (identical(_textIndexFor, diff) && _textIndex != null) {
+      return _textIndex!;
+    }
+    final map = <String, int>{};
+    for (var i = 0; i < diff.entries.length; i++) {
+      final t = diff.entries[i].text;
+      if (t.isNotEmpty) map.putIfAbsent(t, () => i);
+    }
+    _textIndex = map;
+    _textIndexFor = diff;
+    return map;
+  }
+
   void _jumpToNextDiff() {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
@@ -479,21 +523,33 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollToEntry(indices[pos]);
   }
 
-  /// 找屏幕上最靠上的那个已构建行。O(可见行数)，不做排序。
+  /// 找屏幕上最靠上的那个已构建行。
+  /// 遍历时顺手把已失效的 key 从 map 里删掉，避免滚动一段时间后 map 膨胀到几万条，
+  /// 每次滚动结束都要 O(n) 遍历一次。
   int? _findFirstVisibleDiffEntry() {
     if (_rowKeysByEntry.isEmpty) return null;
     int? best;
     double bestTop = double.infinity;
+    final stale = <int>[];
     for (final e in _rowKeysByEntry.entries) {
       final ctx = e.value.currentContext;
-      if (ctx == null) continue;
+      if (ctx == null) {
+        stale.add(e.key);
+        continue;
+      }
       final box = ctx.findRenderObject() as RenderBox?;
-      if (box == null || !box.attached) continue;
+      if (box == null || !box.attached) {
+        stale.add(e.key);
+        continue;
+      }
       final top = box.localToGlobal(Offset.zero).dy;
       if (top + box.size.height > 0 && top < bestTop) {
         bestTop = top;
         best = e.key;
       }
+    }
+    for (final k in stale) {
+      _rowKeysByEntry.remove(k);
     }
     return best;
   }
@@ -735,9 +791,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       for (var k = pairs; k < delLines.length; k++) {
         leftParts.add(delLines[k]);
       }
-for (var k = pairs; k < insLines.length; k++) {
-  rightParts.add(insLines[k]);  
-}
+      for (var k = pairs; k < insLines.length; k++) {
+        rightParts.add(insLines[k]);
+      }
     }
 
     return (left: leftParts, right: rightParts);
@@ -1091,6 +1147,8 @@ for (var k = pairs; k < insLines.length; k++) {
     _rowKeysByEntry.clear();
     _cachedDiffIndices = null;
     _cachedDiffIndicesFor = null;
+    _textIndex = null;
+    _textIndexFor = null;
     setState(() {});
 
     final hasAnchor = anchorOrigLine != null ||
@@ -1124,24 +1182,16 @@ for (var k = pairs; k < insLines.length; k++) {
       if (!mounted) return;
       final diff = _diff;
       if (diff != null) {
+        // 用文本索引 O(1) 命中，替代原来的 O(n) 线性搜索。
+        final idx = _textIndexOf(diff);
         int? hitEntry;
         if (origAnchorText != null && origAnchorText.isNotEmpty) {
-          for (var i = 0; i < diff.entries.length; i++) {
-            if (diff.entries[i].text == origAnchorText) {
-              hitEntry = i;
-              break;
-            }
-          }
+          hitEntry = idx[origAnchorText];
         }
         if (hitEntry == null &&
             modAnchorText != null &&
             modAnchorText.isNotEmpty) {
-          for (var i = 0; i < diff.entries.length; i++) {
-            if (diff.entries[i].text == modAnchorText) {
-              hitEntry = i;
-              break;
-            }
-          }
+          hitEntry = idx[modAnchorText];
         }
         if (hitEntry != null) {
           final target = hitEntry + 1 < diff.entries.length
@@ -1739,7 +1789,7 @@ for (var k = pairs; k < insLines.length; k++) {
                       isDense: true,
                       border: InputBorder.none,
                     ),
-                    onChanged: _findChanged,
+                    onChanged: _onFindInput,
                     onSubmitted: (_) => _nextMatch(),
                   ),
                 ),
