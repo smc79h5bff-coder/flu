@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 
 /// Light / Dark theme for DocDiff.
-/// PRD §4.3: follow system, brand green #2ECC71, dark bg #121212.
+/// PRD §4.3: follow system, brand green #6AE8C1, dark bg #121212.
 class AppTheme {
   const AppTheme._();
 
