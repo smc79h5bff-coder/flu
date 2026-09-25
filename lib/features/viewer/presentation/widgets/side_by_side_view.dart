@@ -6,10 +6,14 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
+import 'line_height_calculator.dart';
 
 class SideBySideView extends ConsumerStatefulWidget {
   const SideBySideView({
     required this.result,
+    required this.syncHeightTable,
+    required this.leftHeightTable,
+    required this.rightHeightTable,
     this.originalFileName,
     this.modifiedFileName,
     this.controller,
@@ -20,13 +24,21 @@ class SideBySideView extends ConsumerStatefulWidget {
     this.gutterFontSize = 11.0,
     this.syncScroll = true,
     this.noWrap = false,
-    this.preciseAnchorEntry,
-    this.preciseAnchorKey,
     this.onLongPressEntry,
     super.key,
   });
 
   final DiffResult result;
+
+  /// 同步滚动模式：每一行取左右栏较高值的高度表。
+  final LineHeightTable syncHeightTable;
+
+  /// 独立滚动模式：左栏高度表。
+  final LineHeightTable leftHeightTable;
+
+  /// 独立滚动模式：右栏高度表。
+  final LineHeightTable rightHeightTable;
+
   final String? originalFileName;
   final String? modifiedFileName;
   final ScrollController? controller;
@@ -37,11 +49,6 @@ class SideBySideView extends ConsumerStatefulWidget {
   final double gutterFontSize;
   final bool syncScroll;
   final bool noWrap;
-
-  /// 精准落点：仅在 [syncScroll] 为 true 时生效。
-  final int? preciseAnchorEntry;
-  final GlobalKey? preciseAnchorKey;
-
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -62,11 +69,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     super.dispose();
   }
 
-  Widget _scrollbar({
-    required BuildContext context,
-    required ScrollController? controller,
-    required Widget child,
-  }) {
+  Widget _scrollbarTheme({required Widget child}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return ScrollbarTheme(
       data: ScrollbarThemeData(
@@ -77,11 +80,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
         radius: const Radius.circular(6),
         trackVisibility: const WidgetStatePropertyAll(false),
       ),
-      child: Scrollbar(
-        controller: controller,
-        interactive: false,
-        child: child,
-      ),
+      child: child,
     );
   }
 
@@ -97,6 +96,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
   Widget _buildSynced(BuildContext context, DiffColors c) {
     final meta = cachedLineMeta(widget.result);
     final rows = cachedAlignedRows(widget.result);
+    final table = widget.syncHeightTable;
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
@@ -118,72 +118,64 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
           ],
         ),
         Expanded(
-          child: _scrollbar(
-            context: context,
-            controller: widget.controller,
-            child: ListView.builder(
-              key: const Key('side-by-side-list'),
+          child: _scrollbarTheme(
+            child: Scrollbar(
               controller: widget.controller,
-              addAutomaticKeepAlives: false,
-              addRepaintBoundaries: false,
-              cacheExtent: 100,
-              itemCount: rows.length,
-              itemBuilder: (ctx, i) {
-                final spec = rows[i];
-                final isCurrent = widget.currentMatchEntry != null &&
-                    (spec.del == widget.currentMatchEntry ||
-                        spec.ins == widget.currentMatchEntry);
-                final Widget row;
-                final List<int> keyOwners;
-                if (spec.del != null && spec.ins != null) {
-                  row = _comboRow(
-                    context,
-                    widget.result.entries[spec.del!],
-                    widget.result.entries[spec.ins!],
-                    meta[spec.del!],
-                    meta[spec.ins!],
-                    c,
-                    isCurrent,
-                  );
-                  keyOwners = <int>[spec.del!, spec.ins!];
-                } else if (spec.del != null) {
-                  final ei = spec.del!;
-                  row = _alignedRow(
-                      ctx, widget.result.entries[ei], meta[ei], c, isCurrent);
-                  keyOwners = <int>[ei];
-                } else {
-                  final ei = spec.ins!;
-                  row = _alignedRow(
-                      ctx, widget.result.entries[ei], meta[ei], c, isCurrent);
-                  keyOwners = <int>[ei];
-                }
-                final Widget out;
-                if (widget.onLongPressEntry != null) {
-                  out = GestureDetector(
-                    onLongPress: () => widget.onLongPressEntry!(keyOwners),
-                    behavior: HitTestBehavior.opaque,
-                    child: row,
-                  );
-                } else {
-                  out = row;
-                }
-
-                // 精准落点：目标 entry 匹配（del 或 ins 任一是它）就挂临时 key。
-                if (widget.preciseAnchorEntry != null &&
-                    widget.preciseAnchorKey != null &&
-                    (spec.del == widget.preciseAnchorEntry ||
-                        spec.ins == widget.preciseAnchorEntry)) {
-                  return KeyedSubtree(
-                    key: widget.preciseAnchorKey,
-                    child: out,
-                  );
-                }
-
-                final key = spec.del != null && spec.ins != null
-                    ? ValueKey<String>('${spec.del}-${spec.ins}')
-                    : ValueKey<int>(spec.del ?? spec.ins!);
-                return KeyedSubtree(key: key, child: out);
-              },
+              interactive: true,
+              child: ListView.builder(
+                key: const Key('side-by-side-list'),
+                controller: widget.controller,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: false,
+                cacheExtent: 100,
+                itemCount: rows.length,
+                itemExtentBuilder: (index, dimensions) =>
+                    table.heightOf(index),
+                itemBuilder: (ctx, i) {
+                  final spec = rows[i];
+                  final isCurrent = widget.currentMatchEntry != null &&
+                      (spec.del == widget.currentMatchEntry ||
+                          spec.ins == widget.currentMatchEntry);
+                  final Widget row;
+                  final List<int> keyOwners;
+                  if (spec.del != null && spec.ins != null) {
+                    row = _comboRow(
+                      context,
+                      widget.result.entries[spec.del!],
+                      widget.result.entries[spec.ins!],
+                      meta[spec.del!],
+                      meta[spec.ins!],
+                      c,
+                      isCurrent,
+                    );
+                    keyOwners = <int>[spec.del!, spec.ins!];
+                  } else if (spec.del != null) {
+                    final ei = spec.del!;
+                    row = _alignedRow(ctx, widget.result.entries[ei],
+                        meta[ei], c, isCurrent);
+                    keyOwners = <int>[ei];
+                  } else {
+                    final ei = spec.ins!;
+                    row = _alignedRow(ctx, widget.result.entries[ei],
+                        meta[ei], c, isCurrent);
+                    keyOwners = <int>[ei];
+                  }
+                  final Widget out;
+                  if (widget.onLongPressEntry != null) {
+                    out = GestureDetector(
+                      onLongPress: () => widget.onLongPressEntry!(keyOwners),
+                      behavior: HitTestBehavior.opaque,
+                      child: row,
+                    );
+                  } else {
+                    out = row;
+                  }
+                  final key = spec.del != null && spec.ins != null
+                      ? ValueKey<String>('${spec.del}-${spec.ins}')
+                      : ValueKey<int>(spec.del ?? spec.ins!);
+                  return KeyedSubtree(key: key, child: out);
+                },
+              ),
             ),
           ),
         ),
@@ -226,77 +218,85 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: _scrollbar(
-                  context: context,
-                  controller: _leftCtrl,
-                  child: ListView.builder(
-                    key: const Key('sbs-left-list'),
+                child: _scrollbarTheme(
+                  child: Scrollbar(
                     controller: _leftCtrl,
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: false,
-                    cacheExtent: 100,
-                    itemCount: leftIndices.length,
-                    itemBuilder: (ctx, i) {
-                      final ei = leftIndices[i];
-                      final isCurrent = widget.currentMatchEntry != null &&
-                          ei == widget.currentMatchEntry;
-                      final tile = _singleSideTile(
-                        context,
-                        widget.result.entries[ei],
-                        meta[ei].orig,
-                        isLeft: true,
-                        isCurrentMatch: isCurrent,
-                        c: c,
-                      );
-                      final out = widget.onLongPressEntry == null
-                          ? tile
-                          : GestureDetector(
-                              onLongPress: () =>
-                                  widget.onLongPressEntry!(<int>[ei]),
-                              behavior: HitTestBehavior.opaque,
-                              child: tile,
-                            );
-                      return KeyedSubtree(
-                          key: ValueKey<int>(ei), child: out);
-                    },
+                    interactive: true,
+                    child: ListView.builder(
+                      key: const Key('sbs-left-list'),
+                      controller: _leftCtrl,
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: false,
+                      cacheExtent: 100,
+                      itemCount: leftIndices.length,
+                      itemExtentBuilder: (index, dimensions) =>
+                          widget.leftHeightTable.heightOf(index),
+                      itemBuilder: (ctx, i) {
+                        final ei = leftIndices[i];
+                        final isCurrent = widget.currentMatchEntry != null &&
+                            ei == widget.currentMatchEntry;
+                        final tile = _singleSideTile(
+                          context,
+                          widget.result.entries[ei],
+                          meta[ei].orig,
+                          isLeft: true,
+                          isCurrentMatch: isCurrent,
+                          c: c,
+                        );
+                        final out = widget.onLongPressEntry == null
+                            ? tile
+                            : GestureDetector(
+                                onLongPress: () =>
+                                    widget.onLongPressEntry!(<int>[ei]),
+                                behavior: HitTestBehavior.opaque,
+                                child: tile,
+                              );
+                        return KeyedSubtree(
+                            key: ValueKey<int>(ei), child: out);
+                      },
+                    ),
                   ),
                 ),
               ),
               divider,
               Expanded(
-                child: _scrollbar(
-                  context: context,
-                  controller: _rightCtrl,
-                  child: ListView.builder(
-                    key: const Key('sbs-right-list'),
+                child: _scrollbarTheme(
+                  child: Scrollbar(
                     controller: _rightCtrl,
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: false,
-                    cacheExtent: 100,
-                    itemCount: rightIndices.length,
-                    itemBuilder: (ctx, i) {
-                      final ei = rightIndices[i];
-                      final isCurrent = widget.currentMatchEntry != null &&
-                          ei == widget.currentMatchEntry;
-                      final tile = _singleSideTile(
-                        context,
-                        widget.result.entries[ei],
-                        meta[ei].mod,
-                        isLeft: false,
-                        isCurrentMatch: isCurrent,
-                        c: c,
-                      );
-                      final out = widget.onLongPressEntry == null
-                          ? tile
-                          : GestureDetector(
-                              onLongPress: () =>
-                                  widget.onLongPressEntry!(<int>[ei]),
-                              behavior: HitTestBehavior.opaque,
-                              child: tile,
-                            );
-                      return KeyedSubtree(
-                          key: ValueKey<int>(ei), child: out);
-                    },
+                    interactive: true,
+                    child: ListView.builder(
+                      key: const Key('sbs-right-list'),
+                      controller: _rightCtrl,
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: false,
+                      cacheExtent: 100,
+                      itemCount: rightIndices.length,
+                      itemExtentBuilder: (index, dimensions) =>
+                          widget.rightHeightTable.heightOf(index),
+                      itemBuilder: (ctx, i) {
+                        final ei = rightIndices[i];
+                        final isCurrent = widget.currentMatchEntry != null &&
+                            ei == widget.currentMatchEntry;
+                        final tile = _singleSideTile(
+                          context,
+                          widget.result.entries[ei],
+                          meta[ei].mod,
+                          isLeft: false,
+                          isCurrentMatch: isCurrent,
+                          c: c,
+                        );
+                        final out = widget.onLongPressEntry == null
+                            ? tile
+                            : GestureDetector(
+                                onLongPress: () =>
+                                    widget.onLongPressEntry!(<int>[ei]),
+                                behavior: HitTestBehavior.opaque,
+                                child: tile,
+                              );
+                        return KeyedSubtree(
+                            key: ValueKey<int>(ei), child: out);
+                      },
+                    ),
                   ),
                 ),
               ),
