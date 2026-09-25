@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../diff/domain/diff_entry.dart';
@@ -11,7 +12,8 @@ import 'inline_char_diff.dart';
 class MergedView extends ConsumerWidget {
   const MergedView({
     required this.result,
-    this.controller,
+    required this.itemScrollController,
+    required this.itemPositionsListener,
     this.lineNumbers = true,
     this.findQuery = '',
     this.currentMatchEntry,
@@ -19,30 +21,20 @@ class MergedView extends ConsumerWidget {
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
     this.noWrap = false,
-    this.preciseAnchorEntry,
-    this.preciseAnchorKey,
     this.onLongPressEntry,
     super.key,
   });
 
   final DiffResult result;
-  final ScrollController? controller;
+  final ItemScrollController itemScrollController;
+  final ItemPositionsListener itemPositionsListener;
   final bool lineNumbers;
   final String findQuery;
-
-  /// 当前停留的匹配项对应的 entry 下标；用于粉色高亮。
   final int? currentMatchEntry;
-
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
   final bool noWrap;
-
-  /// 切视图时用：目标 entry 那一行会挂上 [preciseAnchorKey]，
-  /// 供 DiffScrollHelper.jumpToEntryPrecise 精确定位。
-  final int? preciseAnchorEntry;
-  final GlobalKey? preciseAnchorKey;
-
   final void Function(int entryIndex)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -52,64 +44,38 @@ class MergedView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final meta = cachedMergedMeta(result);
     final order = cachedMergedOrder(result);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final thumbColor = (isDark ? Colors.white : Colors.black)
-        .withValues(alpha: 0.42);
 
-    return ScrollbarTheme(
-      data: ScrollbarThemeData(
-        thumbColor: WidgetStatePropertyAll(thumbColor),
-        thickness: const WidgetStatePropertyAll(12),
-        radius: const Radius.circular(6),
-        trackVisibility: const WidgetStatePropertyAll(false),
-      ),
-      child: Scrollbar(
-        controller: controller,
-        interactive: false,
-        child: ListView.builder(
-          controller: controller,
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          itemCount: order.length,
-          addAutomaticKeepAlives: false,
-          addRepaintBoundaries: false,
-          cacheExtent: 100,
-          itemBuilder: (ctx, i) {
-            final ei = order[i];
-            final e = result.entries[ei];
-            final isCurrent =
-                currentMatchEntry != null && ei == currentMatchEntry;
-            final tile = _EntryTile(
-              entry: e,
-              lineNumber: lineNumbers ? meta[ei].orig : 0,
-              findQuery: findQuery,
-              isCurrentMatch: isCurrent,
-              matchYellow: _matchYellow,
-              matchPink: _matchPink,
-              showLineNumbers: showLineNumbers,
-              bodyFontSize: bodyFontSize,
-              gutterFontSize: gutterFontSize,
-              noWrap: noWrap,
-            );
-            final wrapped = onLongPressEntry == null
-                ? tile
-                : GestureDetector(
-                    onLongPress: () => onLongPressEntry!(ei),
-                    behavior: HitTestBehavior.opaque,
-                    child: tile,
-                  );
-            // 精准落点：只给目标 entry 挂临时 key。滚动路径上其余行零开销。
-            if (preciseAnchorEntry != null &&
-                preciseAnchorKey != null &&
-                ei == preciseAnchorEntry) {
-              return KeyedSubtree(
-                key: preciseAnchorKey,
-                child: wrapped,
+    return ScrollablePositionedList.builder(
+      itemScrollController: itemScrollController,
+      itemPositionsListener: itemPositionsListener,
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      itemCount: order.length,
+      itemBuilder: (ctx, i) {
+        final ei = order[i];
+        final e = result.entries[ei];
+        final isCurrent =
+            currentMatchEntry != null && ei == currentMatchEntry;
+        final tile = _EntryTile(
+          entry: e,
+          lineNumber: lineNumbers ? meta[ei].orig : 0,
+          findQuery: findQuery,
+          isCurrentMatch: isCurrent,
+          matchYellow: _matchYellow,
+          matchPink: _matchPink,
+          showLineNumbers: showLineNumbers,
+          bodyFontSize: bodyFontSize,
+          gutterFontSize: gutterFontSize,
+          noWrap: noWrap,
+        );
+        final wrapped = onLongPressEntry == null
+            ? tile
+            : GestureDetector(
+                onLongPress: () => onLongPressEntry!(ei),
+                behavior: HitTestBehavior.opaque,
+                child: tile,
               );
-            }
-            return KeyedSubtree(key: ValueKey<int>(ei), child: wrapped);
-          },
-        ),
-      ),
+        return KeyedSubtree(key: ValueKey<int>(ei), child: wrapped);
+      },
     );
   }
 }
