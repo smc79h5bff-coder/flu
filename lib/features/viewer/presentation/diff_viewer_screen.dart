@@ -97,10 +97,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   Map<int, int>? _entryToRowMap;
   DiffResult? _entryToRowMapFor;
   ViewMode? _entryToRowMapMode;
-
-  Future<_HeightBundle>? _heightFuture;
-  DiffResult? _heightFutureFor;
-  ViewMode? _heightFutureMode;
+final Map<ViewMode, Future<_HeightBundle>> _heightFutures = {};
+DiffResult? _heightFuturesFor;
+String? _heightFuturesConfigKey;
 
   _HeightBundle? _activeHeights;
   ViewMode? _activeHeightsMode;
@@ -524,17 +523,33 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 高度表 ====================
 
-  Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
-    if (identical(_heightFutureFor, diff) &&
-        _heightFutureMode == mode &&
-        _heightFuture != null) {
-      return _heightFuture!;
-    }
-    _heightFutureFor = diff;
-    _heightFutureMode = mode;
-    _heightFuture = _computeHeightBundle(diff, mode);
-    return _heightFuture!;
+Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
+  final mq = MediaQuery.of(context);
+  final configKey = '${mq.size.width}|'
+      '${ref.read(bodyFontSizeProvider)}|'
+      '${ref.read(noWrapProvider)}|'
+      '${ref.read(showLineNumbersProvider)}|'
+      '${ref.read(importRevisionProvider)}|'
+      '${ref.read(syncScrollProvider)}';
+
+  // diff 变了，或显示配置变了 → 全部作废，重新算。
+  if (!identical(_heightFuturesFor, diff) ||
+      _heightFuturesConfigKey != configKey) {
+    _heightFutures.clear();
+    _heightFuturesFor = diff;
+    _heightFuturesConfigKey = configKey;
   }
+
+  // 该视图已算过 → 直接返回同一个 future，不重算。
+  final existing = _heightFutures[mode];
+  if (existing != null) return existing;
+
+  // 没算过 → 创建。
+  final f = _computeHeightBundle(diff, mode);
+  _heightFutures[mode] = f;
+  return f;
+}
+    
 
   Future<_HeightBundle> _computeHeightBundle(
     DiffResult diff,
@@ -1440,9 +1455,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _entryToRowMap = null;
     _entryToRowMapFor = null;
     _entryToRowMapMode = null;
-    _heightFuture = null;
-    _heightFutureFor = null;
-    _heightFutureMode = null;
+_heightFutures.clear();
+_heightFuturesFor = null;
+_heightFuturesConfigKey = null;
     DiffTextIndex.invalidate();
     setState(() {});
 
@@ -1657,16 +1672,16 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         if (!snapshot.hasData) {
           return Scaffold(
             appBar: AppBar(title: const Text('对比结果')),
-            body: const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('正在计算显示布局…'),
-                ],
-              ),
-            ),
+body: const Center(
+  child: Padding(
+    padding: EdgeInsets.all(24),
+    child: Text(
+      '正在计算显示布局…',
+      style: TextStyle(fontSize: 16),
+      textAlign: TextAlign.center,
+    ),
+  ),
+),
           );
         }
         final heights = snapshot.data!;
