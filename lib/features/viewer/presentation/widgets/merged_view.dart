@@ -18,6 +18,9 @@ class MergedView extends ConsumerWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+    this.noWrap = false,
+    this.preciseAnchorEntry,
+    this.preciseAnchorKey,
     this.onLongPressEntry,
     super.key,
   });
@@ -33,6 +36,13 @@ class MergedView extends ConsumerWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+  final bool noWrap;
+
+  /// 切视图时用：目标 entry 那一行会挂上 [preciseAnchorKey]，
+  /// 供 DiffScrollHelper.jumpToEntryPrecise 精确定位。
+  final int? preciseAnchorEntry;
+  final GlobalKey? preciseAnchorKey;
+
   final void Function(int entryIndex)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -55,17 +65,13 @@ class MergedView extends ConsumerWidget {
       ),
       child: Scrollbar(
         controller: controller,
-        // 不需要拖动滚动条 → 关掉它挂的手势处理器，滚动路径少一层。
         interactive: false,
         child: ListView.builder(
           controller: controller,
           padding: const EdgeInsets.symmetric(vertical: 2),
           itemCount: order.length,
-          // 行内没状态要保活，关掉省一层 KeepAlive 通知。
           addAutomaticKeepAlives: false,
-          // 每行都很轻，多一层 RepaintBoundary 是纯负担，关掉。
           addRepaintBoundaries: false,
-          // 缩小屏幕外预构建范围。
           cacheExtent: 100,
           itemBuilder: (ctx, i) {
             final ei = order[i];
@@ -82,6 +88,7 @@ class MergedView extends ConsumerWidget {
               showLineNumbers: showLineNumbers,
               bodyFontSize: bodyFontSize,
               gutterFontSize: gutterFontSize,
+              noWrap: noWrap,
             );
             final wrapped = onLongPressEntry == null
                 ? tile
@@ -90,7 +97,15 @@ class MergedView extends ConsumerWidget {
                     behavior: HitTestBehavior.opaque,
                     child: tile,
                   );
-            // 用 ValueKey 代替 GlobalKey：不参与全局注册表，recycle 便宜得多。
+            // 精准落点：只给目标 entry 挂临时 key。滚动路径上其余行零开销。
+            if (preciseAnchorEntry != null &&
+                preciseAnchorKey != null &&
+                ei == preciseAnchorEntry) {
+              return KeyedSubtree(
+                key: preciseAnchorKey,
+                child: wrapped,
+              );
+            }
             return KeyedSubtree(key: ValueKey<int>(ei), child: wrapped);
           },
         ),
@@ -99,12 +114,11 @@ class MergedView extends ConsumerWidget {
   }
 }
 
-// ========== 派生数据缓存（避免每次 rebuild 全量重算） ==========
+// ========== 派生数据缓存 ==========
 
 DiffResult? _lastMergedMetaFor;
 List<({int orig, int mod})>? _lastMergedMeta;
 
-/// 每行对应的原文行号 / 修改版行号。按 diff 实例缓存。
 List<({int orig, int mod})> cachedMergedMeta(DiffResult result) {
   if (identical(_lastMergedMetaFor, result) && _lastMergedMeta != null) {
     return _lastMergedMeta!;
@@ -126,7 +140,6 @@ List<({int orig, int mod})> cachedMergedMeta(DiffResult result) {
 DiffResult? _lastMergedOrderFor;
 List<int>? _lastMergedOrder;
 
-/// 合并视图的渲染顺序（删除/新增交替）。按 diff 实例缓存。
 List<int> cachedMergedOrder(DiffResult result) {
   if (identical(_lastMergedOrderFor, result) && _lastMergedOrder != null) {
     return _lastMergedOrder!;
@@ -195,7 +208,8 @@ List<InlineSpan> _cachedSpans(
   final hit = _spansCache[key];
   if (hit != null) return hit;
 
-  final spans = _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
+  final spans =
+      _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
   if (_spansCache.length >= _spansCacheCap) {
     _spansCache.clear();
   }
@@ -241,6 +255,7 @@ class _EntryTile extends StatelessWidget {
     required this.showLineNumbers,
     required this.bodyFontSize,
     required this.gutterFontSize,
+    required this.noWrap,
   });
 
   final DiffEntry entry;
@@ -252,6 +267,7 @@ class _EntryTile extends StatelessWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+  final bool noWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -289,7 +305,6 @@ class _EntryTile extends StatelessWidget {
 
     if (!showLineNumbers || lineNumber <= 0) return row;
 
-    // 行号在左侧固定宽度栏里；内容行本身已经压扁，不再套外层 Container。
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -321,7 +336,14 @@ class _EntryTile extends StatelessWidget {
             text, findQuery, isCurrentMatch, matchYellow, matchPink);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      child: Text.rich(TextSpan(style: style, children: spans)),
+      child: noWrap
+          ? Text.rich(
+              TextSpan(style: style, children: spans),
+              softWrap: false,
+              overflow: TextOverflow.clip,
+              maxLines: 1,
+            )
+          : Text.rich(TextSpan(style: style, children: spans)),
     );
   }
 
@@ -350,14 +372,23 @@ class _EntryTile extends StatelessWidget {
                 findQuery: findQuery,
                 isCurrentMatch: isCurrentMatch,
               )
-            : Text.rich(TextSpan(
-                style: style,
-                children: _cachedSpans(
-                    text, findQuery, isCurrentMatch, matchYellow, matchPink),
-              ));
+            : (noWrap
+                ? Text.rich(
+                    TextSpan(
+                      style: style,
+                      children: _cachedSpans(text, findQuery, isCurrentMatch,
+                          matchYellow, matchPink),
+                    ),
+                    softWrap: false,
+                    overflow: TextOverflow.clip,
+                    maxLines: 1,
+                  )
+                : Text.rich(TextSpan(
+                    style: style,
+                    children: _cachedSpans(text, findQuery, isCurrentMatch,
+                        matchYellow, matchPink),
+                  )));
 
-    // 整行背景改用 ColoredBox（比 Container + BoxDecoration 便宜）。
-    // 左侧那条竖线用 Container 的 border 改成 3px 宽的纯色块贴在最前。
     return Padding(
       padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
       child: ColoredBox(
