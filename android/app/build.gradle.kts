@@ -61,27 +61,20 @@ flutter {
     source = "../.."
 }
 
-// ===== 把带 flavor 的 APK 复制到 Flutter 期望的目录 =====
-val flutterApkDir = file("${buildDir}/outputs/flutter-apk")
-val cliApkDir = file("${rootProject.projectDir.parentFile}/build/app/outputs/flutter-apk")
-
-tasks.register<Copy>("syncFlutterApks") {
-    // 关键：源目录改成真正的 APK 输出目录（apk/prod/release 等）
-    android.applicationVariants.all {
-        val variantName = name // 例如 prodRelease
-        val flavorName = productFlavors.first().name // prod 或 coexist
-        from("${buildDir}/outputs/apk/$flavorName/release") {
-            include("*.apk")
-            rename { "app-$flavorName-release.apk" }
-        }
-    }
-    into(cliApkDir)
-    doFirst {
-        cliApkDir.mkdirs()
-        println("[patch] syncFlutterApks -> ${cliApkDir.absolutePath}")
-    }
+// ===== 把 APK 复制到 Flutter 期望的目录 =====
+tasks.register("syncFlutterApks") {
     doLast {
-        println("[patch] syncFlutterApks done")
+        val cliApkDir = file("${rootProject.projectDir.parentFile}/build/app/outputs/flutter-apk")
+        cliApkDir.mkdirs()
+        listOf("prod", "coexist").forEach { flavor ->
+            val src = file("${buildDir}/outputs/apk/$flavor/release/app-$flavor-release.apk")
+            if (src.exists()) {
+                src.copyTo(File(cliApkDir, "app-$flavor-release.apk"), overwrite = true)
+                println("[patch] copied ${src.name}")
+            } else {
+                println("[patch] missing ${src.absolutePath}")
+            }
+        }
     }
 }
 
