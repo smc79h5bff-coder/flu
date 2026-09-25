@@ -4,17 +4,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 /// 每项的高度表 + 前缀和，用于精确滚动定位。
-///
-/// 有了它：
-///   - ListView 可以精确知道每项多高 → 滚动条 thumb 位置准确
-///   - 跳转到第 N 项 → 直接查前缀和，offset 精确到像素
-///   - 从 pixels 反查"现在屏幕顶上是第几项" → 二分查找，不再估算
 class LineHeightTable {
   LineHeightTable._(this._heights, this._prefixSum, this._totalHeight);
 
   final Float64List _heights;
-  /// prefixSum[i] = sum(heights[0..i-1])，prefixSum[0] = 0
-  /// 长度 = heights.length + 1
   final Float64List _prefixSum;
   final double _totalHeight;
 
@@ -26,19 +19,16 @@ class LineHeightTable {
     return _heights[index];
   }
 
-  /// 第 index 项在滚动坐标里的起始 offset。
   double offsetOf(int index) {
     if (index <= 0) return 0;
     if (index >= _prefixSum.length) return _totalHeight;
     return _prefixSum[index];
   }
 
-  /// 给定滚动 offset，返回所在项的 index（二分查找）。
   int indexAt(double offset) {
     if (_heights.isEmpty) return 0;
     if (offset <= 0) return 0;
     if (offset >= _totalHeight) return _heights.length - 1;
-
     var lo = 0;
     var hi = _heights.length - 1;
     while (lo < hi) {
@@ -55,11 +45,7 @@ class LineHeightTable {
   factory LineHeightTable.fromHeights(List<double> heights) {
     final n = heights.length;
     if (n == 0) {
-      return LineHeightTable._(
-        Float64List(0),
-        Float64List(1),
-        0.0,
-      );
+      return LineHeightTable._(Float64List(0), Float64List(1), 0.0);
     }
     final h = Float64List(n);
     final ps = Float64List(n + 1);
@@ -74,11 +60,15 @@ class LineHeightTable {
   }
 
   static final LineHeightTable empty =
-    LineHeightTable.fromHeights(const <double>[]);
-  
-  /// 内存占用（估算，用于缓存淘汰策略）。
-  int get approxByteSize => _heights.lengthInBytes + _prefixSum.lengthInBytes;
+      LineHeightTable.fromHeights(const <double>[]);
+
+  int get approxByteSize =>
+      _heights.lengthInBytes + _prefixSum.lengthInBytes;
 }
+
+// ========== TextPainter 单例（复用同一个，避免每行创建对象） ==========
+
+final TextPainter _tp = TextPainter(textDirection: ui.TextDirection.ltr);
 
 /// 单行文本折行后的高度（像素）。
 double measureTextHeight({
@@ -90,28 +80,34 @@ double measureTextHeight({
   double extraVerticalPadding = 0,
 }) {
   if (maxWidth <= 0) return 0;
-  final tp = TextPainter(
-    text: TextSpan(
-      text: text.isEmpty ? ' ' : text,
-      style: style,
-    ),
-    textDirection: ui.TextDirection.ltr,
-    textScaler: textScaler,
-    maxLines: noWrap ? 1 : null,
-    ellipsis: noWrap ? '\u2026' : null,
-  );
-  tp.layout(maxWidth: maxWidth);
-  final h = tp.height + extraVerticalPadding;
-  tp.dispose();
+  final effective = text.isEmpty ? ' ' : text;
+
+  _tp.text = TextSpan(text: effective, style: style);
+  _tp.textScaler = textScaler;
+  _tp.maxLines = noWrap ? 1 : null;
+  _tp.ellipsis = noWrap ? '\u2026' : null;
+
+  _tp.layout(maxWidth: maxWidth);
+  final h = _tp.height + extraVerticalPadding;
   return h;
 }
 
+/// 单行高度：所有行显示 1 行时的固定高度。
+double _singleLineHeight(TextStyle style, TextScaler textScaler) {
+  final fs = style.fontSize ?? 14.0;
+  final lh = style.height ?? 1.0;
+  return textScaler.scale(fs) * lh;
+}
+
+/// 主线程让出的安全阈值。累计计算超过这个时长就让出一次，防止 ANR。
+/// Android 5 秒判定无响应，我们提前到 4 秒。
+const int _yieldThresholdMs = 4000;
+
 /// 分帧计算一批文本的高度表。
 ///
-/// 每帧算 [chunkSize] 项，然后让出主线程一次，避免长任务卡 UI。
-/// 1 万行大约 300~500ms 完成，期间 UI 不会卡（只是慢一点）。
-///
-/// 返回的 Future 完成时返回最终的 [LineHeightTable]。
+/// **方案乙**：全程跑完只在超过 [_yieldThresholdMs] 时让出一次主线程，
+/// 让出后计时归零。小文件（1~3 万行）几乎不让出，一次算完最快；
+/// 大文件也不至于 ANR。
 Future<LineHeightTable> computeLineHeights({
   required int itemCount,
   required double Function(int index) widthForItem,
@@ -120,26 +116,51 @@ Future<LineHeightTable> computeLineHeights({
   required TextScaler textScaler,
   bool noWrap = false,
   double extraVerticalPadding = 0,
-  int chunkSize = 300,
   void Function(int done, int total)? onProgress,
 }) async {
-  final heights = List<double>.filled(itemCount, 0);
-  for (var start = 0; start < itemCount; start += chunkSize) {
-    final end = start + chunkSize < itemCount ? start + chunkSize : itemCount;
-    for (var i = start; i < end; i++) {
-      heights[i] = measureTextHeight(
-        text: textForItem(i),
-        maxWidth: widthForItem(i),
-        style: style,
-        textScaler: textScaler,
-        noWrap: noWrap,
-        extraVerticalPadding: extraVerticalPadding,
-      );
-    }
-    onProgress?.call(end, itemCount);
-    // 让出主线程一帧，避免长任务卡住手势和动画。
-    await Future<void>.delayed(Duration.zero);
+  if (itemCount == 0) return LineHeightTable.empty;
+
+  // 不换行模式：所有行高度一样，O(1)。
+  if (noWrap) {
+    final w = widthForItem(0);
+    final h = _singleLineHeight(style, textScaler) + extraVerticalPadding;
+    final measured = measureTextHeight(
+      text: 'M',
+      maxWidth: w,
+      style: style,
+      textScaler: textScaler,
+      noWrap: true,
+      extraVerticalPadding: extraVerticalPadding,
+    );
+    final finalH = measured > 0 ? measured : h;
+    final heights = List<double>.filled(itemCount, finalH);
+    onProgress?.call(itemCount, itemCount);
+    return LineHeightTable.fromHeights(heights);
   }
+
+  final heights = List<double>.filled(itemCount, 0);
+  final sw = Stopwatch()..start();
+  final w = widthForItem(0);
+
+  for (var i = 0; i < itemCount; i++) {
+    heights[i] = measureTextHeight(
+      text: textForItem(i),
+      maxWidth: w,
+      style: style,
+      textScaler: textScaler,
+      noWrap: false,
+      extraVerticalPadding: extraVerticalPadding,
+    );
+
+    // 每 500 行检查一次计时器，避免每行都查（查也有一点开销）。
+    if ((i & 0x1FF) == 0x1FF && sw.elapsedMilliseconds >= _yieldThresholdMs) {
+      onProgress?.call(i + 1, itemCount);
+      await Future<void>.delayed(Duration.zero);
+      sw.reset();
+    }
+  }
+
+  onProgress?.call(itemCount, itemCount);
   return LineHeightTable.fromHeights(heights);
 }
 
@@ -154,33 +175,76 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
   required TextScaler textScaler,
   bool noWrap = false,
   double extraVerticalPadding = 0,
-  int chunkSize = 300,
   void Function(int done, int total)? onProgress,
 }) async {
+  if (itemCount == 0) return LineHeightTable.empty;
+
+  if (noWrap) {
+    final hL = measureTextHeight(
+      text: 'M',
+      maxWidth: leftWidth,
+      style: style,
+      textScaler: textScaler,
+      noWrap: true,
+      extraVerticalPadding: extraVerticalPadding,
+    );
+    final hR = measureTextHeight(
+      text: 'M',
+      maxWidth: rightWidth,
+      style: style,
+      textScaler: textScaler,
+      noWrap: true,
+      extraVerticalPadding: extraVerticalPadding,
+    );
+    final h = hL > hR ? hL : hR;
+    final heights = List<double>.filled(itemCount, h);
+    onProgress?.call(itemCount, itemCount);
+    return LineHeightTable.fromHeights(heights);
+  }
+
   final heights = List<double>.filled(itemCount, 0);
-  for (var start = 0; start < itemCount; start += chunkSize) {
-    final end = start + chunkSize < itemCount ? start + chunkSize : itemCount;
-    for (var i = start; i < end; i++) {
-      final hL = measureTextHeight(
-        text: leftTextForItem(i),
+  final sw = Stopwatch()..start();
+
+  for (var i = 0; i < itemCount; i++) {
+    final lt = leftTextForItem(i);
+    final rt = rightTextForItem(i);
+
+    if (lt == rt) {
+      heights[i] = measureTextHeight(
+        text: lt,
         maxWidth: leftWidth,
         style: style,
         textScaler: textScaler,
-        noWrap: noWrap,
+        noWrap: false,
+        extraVerticalPadding: extraVerticalPadding,
+      );
+    } else {
+      final hL = measureTextHeight(
+        text: lt,
+        maxWidth: leftWidth,
+        style: style,
+        textScaler: textScaler,
+        noWrap: false,
         extraVerticalPadding: extraVerticalPadding,
       );
       final hR = measureTextHeight(
-        text: rightTextForItem(i),
+        text: rt,
         maxWidth: rightWidth,
         style: style,
         textScaler: textScaler,
-        noWrap: noWrap,
+        noWrap: false,
         extraVerticalPadding: extraVerticalPadding,
       );
       heights[i] = hL > hR ? hL : hR;
     }
-    onProgress?.call(end, itemCount);
-    await Future<void>.delayed(Duration.zero);
+
+    if ((i & 0x1FF) == 0x1FF && sw.elapsedMilliseconds >= _yieldThresholdMs) {
+      onProgress?.call(i + 1, itemCount);
+      await Future<void>.delayed(Duration.zero);
+      sw.reset();
+    }
   }
+
+  onProgress?.call(itemCount, itemCount);
   return LineHeightTable.fromHeights(heights);
 }
