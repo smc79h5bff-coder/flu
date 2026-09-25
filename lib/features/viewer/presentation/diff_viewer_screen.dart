@@ -393,15 +393,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
       target = target.clamp(0.0, maxExtent);
       if ((pos.pixels - target).abs() < 1.0) return;
-      if ((pos.pixels - target).abs() > viewport * 3) {
-        pos.jumpTo(target);
-      } else {
-        await pos.animateTo(
-          target,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeInOut,
-        );
-      }
+   pos.jumpTo(target);
       await Future<void>.delayed(const Duration(milliseconds: 40));
       await locate(round + 1);
     }
