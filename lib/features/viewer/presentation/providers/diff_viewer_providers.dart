@@ -69,7 +69,6 @@ class DiffPerfStats {
     required this.lineCount,
     required this.origLen,
     required this.modLen,
-    // === 诊断字段 ===
     required this.origLines,
     required this.modLines,
     required this.uniqueLines,
@@ -87,17 +86,9 @@ class DiffPerfStats {
   final int lineCount;
   final int origLen;
   final int modLen;
-
-  /// 预处理后原文的行数（\n 切分）。
   final int origLines;
-
-  /// 预处理后修改版的行数。
   final int modLines;
-
-  /// diff 中间部分（去掉公共前后缀后）有多少个不重复行。
   final int uniqueLines;
-
-  /// 是否走了 Myers 兜底路径。
   final bool usedMyers;
 
   String get oneLine =>
@@ -227,13 +218,6 @@ List<String> _splitLines(String text) {
   return out;
 }
 
-bool _containsPua(String s) {
-  for (final r in s.runes) {
-    if (r >= 0xE000 && r <= 0xF8FF) return true;
-  }
-  return false;
-}
-
 const int _puaLimit = 6000;
 
 _DiffPayload _computeInWorker(_DiffRequest req) {
@@ -254,28 +238,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       origLines: 0,
       modLines: 0,
       uniqueLines: 0,
-      usedMyers: false,
-    );
-  }
-
-  if (_containsPua(original) || _containsPua(modified)) {
-    final dmp = DiffMatchPatch();
-    final raw = dmp.diff(original, modified);
-    final out = <(int, String)>[];
-    for (final d in raw) {
-      out.add((_dmpOpToIndex(d.operation), d.text));
-    }
-    final t0 = sw.elapsedMilliseconds;
-    return (
-      entries: out,
-      ansiMs: tAnsi,
-      splitMs: 0,
-      encodeMs: 0,
-      diffMs: t0 - tAnsi,
-      expandMs: 0,
-      origLines: _splitLines(original).length,
-      modLines: _splitLines(modified).length,
-      uniqueLines: -1,
       usedMyers: false,
     );
   }
@@ -334,6 +296,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   var usedMyers = false;
 
   if (uniqueCount <= _puaLimit) {
+    // PUA 编码路径（快）
     final codeToLine = <int, String>{};
     var nextCode = 0xE000;
     for (final e in idToLine.entries) {
@@ -370,6 +333,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       out.add((DiffOperation.equal.index, linesA[i]));
     }
   } else {
+    // Myers 行级 diff 路径（唯一行超过 PUA 上限）
     usedMyers = true;
     final ops = _myersDiff(idsA, idsB);
     for (var i = 0; i < commonPrefix; i++) {
@@ -402,6 +366,10 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
 
 // ==================== Myers 行级 diff ====================
 
+/// Myers O(ND) 行级 diff。d 超过 [_myersMaxD] 就用简单兜底，
+/// 防止极端场景内存爆掉。
+const int _myersMaxD = 5000;
+
 List<(int, int)> _myersDiff(List<int> a, List<int> b) {
   final n = a.length;
   final m = b.length;
@@ -419,6 +387,13 @@ List<(int, int)> _myersDiff(List<int> a, List<int> b) {
   var foundD = -1;
   outer:
   for (var d = 0; d <= maxD; d++) {
+    if (d > _myersMaxD) {
+      // 差异太大，退化为整块 delete + insert（罕见场景）。
+      return [
+        for (final id in a) (DiffOperation.delete.index, id),
+        for (final id in b) (DiffOperation.insert.index, id),
+      ];
+    }
     trace.add(List<int>.from(v));
     for (var k = -d; k <= d; k += 2) {
       int x;
