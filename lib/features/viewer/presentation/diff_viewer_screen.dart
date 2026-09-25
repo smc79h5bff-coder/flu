@@ -18,8 +18,9 @@ import '../../diff/domain/diff_result.dart';
 import '../../edit/presentation/edit_screen.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
-import 'diff_scroll_helper.dart';
 import 'diff_text_index.dart';
+import 'line_height_cache.dart';
+import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'regex_help_screen.dart';
 import 'widgets/diff_only_view.dart';
@@ -33,7 +34,7 @@ class DiffViewerScreen extends ConsumerStatefulWidget {
   ConsumerState<DiffViewerScreen> createState() => _DiffViewerScreenState();
 }
 
-/// 切视图时用户选择的跳转目标。
+/// 切视图时用户选择的目标。
 class _SwitchChoice {
   const _SwitchChoice.top()
       : targetEntry = null,
@@ -44,22 +45,27 @@ class _SwitchChoice {
   final bool isTop;
 }
 
+/// 一次 view build 需要的高度表集合。
+class _HeightBundle {
+  const _HeightBundle({
+    this.merged,
+    this.sbsSync,
+    this.sbsLeft,
+    this.sbsRight,
+    this.diffOnly,
+  });
+
+  final LineHeightTable? merged;
+  final LineHeightTable? sbsSync;
+  final LineHeightTable? sbsLeft;
+  final LineHeightTable? sbsRight;
+  final LineHeightTable? diffOnly;
+}
+
 class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _findController = TextEditingController();
   final TextEditingController _replaceController = TextEditingController();
-
-  /// 当前差异位置（在差异列表里的索引）。
-  final ValueNotifier<int> _currentDiffPos = ValueNotifier<int>(-1);
-
-  /// 最近一次程序化跳转的时间戳。
-  int _lastJumpAtMs = 0;
-  int? _anchorEntryIndex;
-
-  /// 切视图的精准落点：目标 entry 及它的临时 GlobalKey。
-  /// 只在切视图那一两帧存在，不进滚动路径。
-  int? _preciseAnchorEntry;
-  GlobalKey? _preciseAnchorKey;
 
   bool _showFind = false;
   String _findQuery = '';
@@ -82,13 +88,23 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
-  /// entry → row 的预建映射。按 (diff, mode) 缓存。
-  /// 用于把 O(m×n) 的 anchor 计算降到 O(m)。
   Map<int, int>? _entryToRowMap;
   DiffResult? _entryToRowMapFor;
   ViewMode? _entryToRowMapMode;
 
-  Timer? _captureTimer;
+  // 高度表缓存（最近一次算好的那套）。
+  Future<_HeightBundle>? _heightFuture;
+  DiffResult? _heightFutureFor;
+  ViewMode? _heightFutureMode;
+
+  // 当前实际可用的高度表（供跳转用）。
+  _HeightBundle? _activeHeights;
+  ViewMode? _activeHeightsMode;
+
+  // 切视图后要执行的跳转目标。等到高度表就绪后触发。
+  int? _pendingJumpEntry; // -1 = 跳到顶部
+  bool _pendingJumpQueued = false;
+
   Timer? _findDebounce;
 
   @override
@@ -102,22 +118,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   @override
   void dispose() {
-    _captureTimer?.cancel();
     _findDebounce?.cancel();
     _findController.dispose();
     _replaceController.dispose();
     _scrollController.dispose();
-    _currentDiffPos.dispose();
     super.dispose();
   }
 
   DiffResult? get _diff => ref.read(diffResultProvider).value;
-
-  int? get _currentMatchEntry {
-    if (_matchEntries.isEmpty) return null;
-    if (_matchPos < 0 || _matchPos >= _matchEntries.length) return null;
-    return _matchEntries[_matchPos];
-  }
 
   // ==================== 查找 / 替换基础逻辑 ====================
 
@@ -391,13 +399,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   // ==================== 行数 / 行映射 ====================
 
   int _renderedRows(DiffResult diff, ViewMode mode) {
-    if (mode == ViewMode.merged) return diff.entries.length;
+    if (mode == ViewMode.merged) return cachedMergedOrder(diff).length;
     if (mode == ViewMode.sideBySide) return cachedAlignedRows(diff).length;
-    // diffOnly 现在是 ±2 上下文，不是纯差异行。
     return cachedDiffOnlyRows(diff).length;
   }
 
-  /// entry → row 映射。按 (diff, mode) 缓存，O(1) 查询。
   Map<int, int> _entryToRowMapOf(DiffResult diff, ViewMode mode) {
     if (identical(_entryToRowMapFor, diff) &&
         _entryToRowMapMode == mode &&
@@ -406,8 +412,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
     final map = <int, int>{};
     if (mode == ViewMode.merged) {
-      for (var i = 0; i < diff.entries.length; i++) {
-        map[i] = i;
+      final order = cachedMergedOrder(diff);
+      for (var r = 0; r < order.length; r++) {
+        map[order[r]] = r;
       }
     } else if (mode == ViewMode.sideBySide) {
       final rows = cachedAlignedRows(diff);
@@ -430,68 +437,198 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return map;
   }
 
-  int _entryToRow(DiffResult diff, int entryIndex, ViewMode mode) {
-    final map = _entryToRowMapOf(diff, mode);
-    return map[entryIndex] ?? -1;
+  // ==================== 高度表 ====================
+
+  Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
+    if (identical(_heightFutureFor, diff) &&
+        _heightFutureMode == mode &&
+        _heightFuture != null) {
+      return _heightFuture!;
+    }
+    _heightFutureFor = diff;
+    _heightFutureMode = mode;
+    _heightFuture = _computeHeightBundle(diff, mode);
+    return _heightFuture!;
   }
 
-  /// 当前屏幕顶部对应哪个 entry（估算）。
-  int? _screenTopEntry() {
-    final diff = _diff;
-    if (diff == null) return null;
-    if (!_scrollController.hasClients) return null;
-    final mode = ref.read(viewModeProvider);
-    final totalRows = _renderedRows(diff, mode);
-    if (totalRows <= 0) return null;
-    final pos = _scrollController.position;
-    final maxExtent = pos.maxScrollExtent;
-    final currentRow = maxExtent <= 0
-        ? 0
-        : (pos.pixels / maxExtent * totalRows).round();
+  Future<_HeightBundle> _computeHeightBundle(
+    DiffResult diff,
+    ViewMode mode,
+  ) async {
+    final mq = MediaQuery.of(context);
+    final viewportW = mq.size.width;
+    final dpr = mq.devicePixelRatio;
+    final scaler = mq.textScaler;
 
-    // 从映射表里找 row 最接近 currentRow 的 entry。
-    final map = _entryToRowMapOf(diff, mode);
-    int? best;
-    var bestDist = 1 << 30;
-    for (final e in map.entries) {
-      final d = (e.value - currentRow).abs();
-      if (d < bestDist) {
-        bestDist = d;
-        best = e.key;
+    final noWrap = ref.read(noWrapProvider);
+    final showLine = ref.read(showLineNumbersProvider);
+    final bodySize = ref.read(bodyFontSizeProvider);
+    final style = TextStyle(fontSize: bodySize, height: 1.35);
+
+    final fp = contentFingerprint(
+      ref.read(originalRawTextProvider) ?? '',
+      ref.read(modifiedRawTextProvider) ?? '',
+    );
+    final rev = ref.read(importRevisionProvider);
+
+    String cacheKey(String name) => buildLineHeightCacheKey(
+          contentFingerprint: fp,
+          importRevision: rev,
+          viewModeName: name,
+          viewportWidth: viewportW,
+          bodyFontSize: bodySize,
+          showLineNumbers: showLine,
+          noWrap: noWrap,
+          devicePixelRatio: dpr,
+        );
+
+    if (mode == ViewMode.merged) {
+      final order = cachedMergedOrder(diff);
+      final rowW = showLine ? viewportW - 50.0 : viewportW - 16.0;
+      final k = cacheKey('merged');
+      final cached = LineHeightCache.instance.get(k);
+      if (cached != null) return _HeightBundle(merged: cached);
+      final table = await computeLineHeights(
+        itemCount: order.length,
+        widthForItem: (_) => rowW,
+        textForItem: (i) => diff.entries[order[i]].text,
+        style: style,
+        textScaler: scaler,
+        noWrap: noWrap,
+        extraVerticalPadding: 8,
+      );
+      LineHeightCache.instance.put(k, table);
+      return _HeightBundle(merged: table);
+    }
+
+    if (mode == ViewMode.sideBySide) {
+      if (ref.read(syncScrollProvider)) {
+        final rows = cachedAlignedRows(diff);
+        final panelW = (viewportW - 1) / 2;
+        final contentW = panelW - 52.0;
+        final k = cacheKey('sbs_sync');
+        final cached = LineHeightCache.instance.get(k);
+        if (cached != null) return _HeightBundle(sbsSync: cached);
+        final table = await computeLineHeightsForTwoPane(
+          itemCount: rows.length,
+          leftWidth: contentW,
+          rightWidth: contentW,
+          leftTextForItem: (i) {
+            final spec = rows[i];
+            if (spec.del != null) return diff.entries[spec.del!].text;
+            return '';
+          },
+          rightTextForItem: (i) {
+            final spec = rows[i];
+            if (spec.ins != null) return diff.entries[spec.ins!].text;
+            return '';
+          },
+          style: style,
+          textScaler: scaler,
+          noWrap: noWrap,
+          extraVerticalPadding: 12,
+        );
+        LineHeightCache.instance.put(k, table);
+        return _HeightBundle(sbsSync: table);
+      } else {
+        final entries = diff.entries;
+        final leftIndices = <int>[];
+        final rightIndices = <int>[];
+        for (var i = 0; i < entries.length; i++) {
+          final op = entries[i].operation;
+          if (op != DiffOperation.insert) leftIndices.add(i);
+          if (op != DiffOperation.delete) rightIndices.add(i);
+        }
+        final panelW = (viewportW - 1) / 2;
+        final contentW = panelW - 52.0;
+
+        final lk = cacheKey('sbs_left');
+        final rk = cacheKey('sbs_right');
+        final cachedL = LineHeightCache.instance.get(lk);
+        final cachedR = LineHeightCache.instance.get(rk);
+
+        final leftTable = cachedL ??
+            await computeLineHeights(
+              itemCount: leftIndices.length,
+              widthForItem: (_) => contentW,
+              textForItem: (i) => entries[leftIndices[i]].text,
+              style: style,
+              textScaler: scaler,
+              noWrap: noWrap,
+              extraVerticalPadding: 12,
+            );
+        if (cachedL == null) LineHeightCache.instance.put(lk, leftTable);
+
+        final rightTable = cachedR ??
+            await computeLineHeights(
+              itemCount: rightIndices.length,
+              widthForItem: (_) => contentW,
+              textForItem: (i) => entries[rightIndices[i]].text,
+              style: style,
+              textScaler: scaler,
+              noWrap: noWrap,
+              extraVerticalPadding: 12,
+            );
+        if (cachedR == null) LineHeightCache.instance.put(rk, rightTable);
+
+        return _HeightBundle(sbsLeft: leftTable, sbsRight: rightTable);
       }
     }
-    return best;
+
+    // diffOnly
+    final rows = cachedDiffOnlyRows(diff);
+    final panelW = (viewportW - 1) / 2;
+    final contentW = panelW - 52.0;
+    final k = cacheKey('diff_only');
+    final cached = LineHeightCache.instance.get(k);
+    if (cached != null) return _HeightBundle(diffOnly: cached);
+    final table = await computeLineHeightsForTwoPane(
+      itemCount: rows.length,
+      leftWidth: contentW,
+      rightWidth: contentW,
+      leftTextForItem: (i) {
+        final spec = rows[i];
+        if (spec.del != null) {
+          final e = diff.entries[spec.del!];
+          if (e.operation == DiffOperation.replace && e.oldText.isNotEmpty) {
+            return e.oldText;
+          }
+          return e.text;
+        }
+        return '';
+      },
+      rightTextForItem: (i) {
+        final spec = rows[i];
+        if (spec.ins != null) {
+          final e = diff.entries[spec.ins!];
+          if (e.operation == DiffOperation.replace && e.newText.isNotEmpty) {
+            return e.newText;
+          }
+          return e.text;
+        }
+        return '';
+      },
+      style: style,
+      textScaler: scaler,
+      noWrap: noWrap,
+      extraVerticalPadding: 12,
+    );
+    LineHeightCache.instance.put(k, table);
+    return _HeightBundle(diffOnly: table);
   }
 
-  /// 当前屏幕顶部再往上 (delta 为负) / 往下 (delta 为正) 的 entry。
-  /// delta == 0 就是屏幕第一行。
-  int? _screenEntryAtDelta(int delta) {
-    final diff = _diff;
-    if (diff == null) return null;
-    if (!_scrollController.hasClients) return null;
-    final mode = ref.read(viewModeProvider);
-    final totalRows = _renderedRows(diff, mode);
-    if (totalRows <= 0) return null;
-    final pos = _scrollController.position;
-    final maxExtent = pos.maxScrollExtent;
-    final currentRow = maxExtent <= 0
-        ? 0
-        : (pos.pixels / maxExtent * totalRows).round();
-    var targetRow = currentRow + delta;
-    if (targetRow < 0) targetRow = 0;
-    if (targetRow >= totalRows) targetRow = totalRows - 1;
-
-    final map = _entryToRowMapOf(diff, mode);
-    int? best;
-    var bestDist = 1 << 30;
-    for (final e in map.entries) {
-      final d = (e.value - targetRow).abs();
-      if (d < bestDist) {
-        bestDist = d;
-        best = e.key;
-      }
+  /// 当前视图实际使用的高度表。
+  LineHeightTable? _activeTableFor(ViewMode mode) {
+    final h = _activeHeights;
+    if (h == null) return null;
+    switch (mode) {
+      case ViewMode.merged:
+        return h.merged;
+      case ViewMode.sideBySide:
+        return h.sbsSync ?? h.sbsLeft;
+      case ViewMode.diffOnly:
+        return h.diffOnly;
     }
-    return best;
   }
 
   // ==================== 滚动 / 跳转 ====================
@@ -500,14 +637,18 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final diff = _diff;
     if (diff == null) return;
     final mode = ref.read(viewModeProvider);
+    final table = _activeTableFor(mode);
+    if (table == null) return;
+    if (!_scrollController.hasClients) return;
 
-    final helper = DiffScrollHelper(
-      scrollController: _scrollController,
-      totalRows: () => _renderedRows(diff, mode),
-      entryToRow: (ei) => _entryToRow(diff, ei, mode),
-    );
-    // 无动画、瞬时到位。
-    helper.jumpToEntry(entryIndex);
+    final map = _entryToRowMapOf(diff, mode);
+    final row = map[entryIndex];
+    if (row == null) return;
+
+    final offset = table.offsetOf(row);
+    final max = _scrollController.position.maxScrollExtent;
+    final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
+    _scrollController.jumpTo(clamped);
   }
 
   void _nextMatch() {
@@ -553,81 +694,62 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return list;
   }
 
+  /// 当前屏幕上第一行的 row index。
+  int? _currentTopRow() {
+    final diff = _diff;
+    if (diff == null) return null;
+    final mode = ref.read(viewModeProvider);
+    final table = _activeTableFor(mode);
+    if (table == null) return null;
+    if (!_scrollController.hasClients) return null;
+    return table.indexAt(_scrollController.position.pixels);
+  }
+
   void _jumpToNextDiff() {
+    final diff = _diff;
+    if (diff == null) return;
+    final mode = ref.read(viewModeProvider);
+    final map = _entryToRowMapOf(diff, mode);
+    final currentRow = _currentTopRow();
+    if (currentRow == null) return;
+
     final indices = _diffIndices();
     if (indices.isEmpty) return;
-    final current = _currentDiffPos.value;
-    final next = (current + 1) % indices.length;
-    _jumpToDiffPos(next);
+
+    // 找第一个 row > currentRow 的差异项。
+    for (final ei in indices) {
+      final r = map[ei];
+      if (r != null && r > currentRow) {
+        _scrollToEntry(ei);
+        return;
+      }
+    }
+    // 到底了，回到第一个差异。
+    _scrollToEntry(indices.first);
   }
 
   void _jumpToPrevDiff() {
-    final indices = _diffIndices();
-    if (indices.isEmpty) return;
-    final current = _currentDiffPos.value < 0 ? 0 : _currentDiffPos.value;
-    final prev = (current - 1 + indices.length) % indices.length;
-    _jumpToDiffPos(prev);
-  }
-
-  void _jumpToDiffPos(int pos) {
-    final indices = _diffIndices();
-    if (pos < 0 || pos >= indices.length) return;
-    _lastJumpAtMs = DateTime.now().millisecondsSinceEpoch;
-    _currentDiffPos.value = pos;
-    _scrollToEntry(indices[pos]);
-  }
-
-  /// 防抖入口：滚动结束时调用，150ms 内只真正执行一次。
-  void _captureAnchor() {
-    _captureTimer?.cancel();
-    _captureTimer = Timer(const Duration(milliseconds: 150), () {
-      if (mounted) _captureAnchorNow();
-    });
-  }
-
-  /// 用像素比例估算当前屏幕顶部对应哪个差异 entry。
-  /// **不再依赖 GlobalKey**，也不再 O(m×n)：靠 _entryToRowMap 的 O(1) 查询。
-  void _captureAnchorNow() {
-    if (!mounted) return;
     final diff = _diff;
     if (diff == null) return;
-    if (!_scrollController.hasClients) return;
-
     final mode = ref.read(viewModeProvider);
-    final totalRows = _renderedRows(diff, mode);
-    if (totalRows <= 0) return;
-
-    final pos = _scrollController.position;
-    final maxExtent = pos.maxScrollExtent;
-    final currentRow = maxExtent <= 0
-        ? 0
-        : (pos.pixels / maxExtent * totalRows).round();
+    final map = _entryToRowMapOf(diff, mode);
+    final currentRow = _currentTopRow();
+    if (currentRow == null) return;
 
     final indices = _diffIndices();
     if (indices.isEmpty) return;
 
-    // 预建映射，O(1) 查询。
-    final map = _entryToRowMapOf(diff, mode);
-
-    // 找第一个 row >= currentRow 的差异；没有就用最后一个。
-    var bestPos = indices.length - 1;
-    for (var i = 0; i < indices.length; i++) {
-      final row = map[indices[i]];
-      if (row == null) continue;
-      if (row >= currentRow) {
-        bestPos = i;
-        break;
+    // 找最后一个 row < currentRow 的差异项。
+    for (var i = indices.length - 1; i >= 0; i--) {
+      final ei = indices[i];
+      final r = map[ei];
+      if (r != null && r < currentRow) {
+        _scrollToEntry(ei);
+        return;
       }
     }
-
-    _anchorEntryIndex = indices[bestPos];
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastJumpAtMs < 800) return;
-
-    if (bestPos != _currentDiffPos.value) {
-      _currentDiffPos.value = bestPos;
-    }
+    // 到顶了，回到最后一个差异。
+    _scrollToEntry(indices.last);
   }
 
   // ==================== 切视图 ====================
@@ -636,96 +758,30 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
 
-    _captureTimer?.cancel();
-    _captureAnchorNow();
-
-    final anchor = _anchorEntryIndex;
     final searchEntry = _currentMatchEntry;
     final hasSearch = _findQuery.isNotEmpty && _matchEntries.isNotEmpty;
 
-    // 弹窗：有没有查找词，选项不同。
     final choice = await _showSwitchChoiceDialog(
       newMode: newMode,
       hasSearch: hasSearch,
       searchEntry: searchEntry,
-      anchorEntry: anchor,
     );
     if (!mounted || choice == null) return;
 
-    // 切换视图状态。
     ref.read(viewModeProvider.notifier).state = newMode;
 
-    // 用 postFrame 让新视图完成第一次 build 后再做精准跳转。
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-
-      // 有查找词 → 重搜一次（可见行集合变了）。
-      if (hasSearch && current == ViewMode.diffOnly) {
-        _findChanged(_findQuery, autoScroll: false);
-      }
-
-      // 去顶部：直接 jumpTo(0)。
-      if (choice.isTop) {
-        _setPreciseAnchor(null);
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(0);
-        }
-        return;
-      }
-
-      // 有目标 entry：走精准落点。
-      final target = choice.targetEntry;
-      if (target == null) return;
-      await _preciseJumpToEntry(target);
-    });
+    // 等一帧让 FutureBuilder 重新算高度表；然后把跳转挂起，
+    // 等高度表就绪后由 build 里触发。
+    final target = choice.isTop ? -1 : (choice.targetEntry ?? -1);
+    _pendingJumpEntry = target;
+    _pendingJumpQueued = false;
+    setState(() {});
   }
 
-  /// 精准跳转流程：
-  ///   1. 挂临时 GlobalKey 到目标 entry
-  ///   2. 触发一次 setState 让视图 rebuild（key 生效）
-  ///   3. postFrame 后调 jumpToEntryPrecise
-  ///   4. 完成后撤销 key
-  Future<void> _preciseJumpToEntry(int entryIndex) async {
-    final diff = _diff;
-    if (diff == null) return;
-    final mode = ref.read(viewModeProvider);
-
-    _setPreciseAnchor(entryIndex);
-    // 等一帧让视图挂上 key。
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) return;
-    if (_preciseAnchorEntry != entryIndex) return;
-
-    final helper = DiffScrollHelper(
-      scrollController: _scrollController,
-      totalRows: () => _renderedRows(diff, mode),
-      entryToRow: (ei) => _entryToRow(diff, ei, mode),
-    );
-    await helper.jumpToEntryPrecise(
-      entryIndex,
-      anchorKey: () => _preciseAnchorKey,
-    );
-
-    // 撤销临时 key。
-    if (!mounted) return;
-    _setPreciseAnchor(null);
-  }
-
-  void _setPreciseAnchor(int? entryIndex) {
-    setState(() {
-      _preciseAnchorEntry = entryIndex;
-      _preciseAnchorKey = entryIndex == null ? null : GlobalKey();
-    });
-  }
-
-  /// 切视图弹窗。
-  /// - 有查找词：3 选项（跳我搜的词 / 去顶部 / 停在当前位置）
-  /// - 无查找词：5 选项（停在第 1/2/3 行 + 屏幕上边那行 + 去顶部）
   Future<_SwitchChoice?> _showSwitchChoiceDialog({
     required ViewMode newMode,
     required bool hasSearch,
     required int? searchEntry,
-    required int? anchorEntry,
   }) async {
     final modeName = switch (newMode) {
       ViewMode.sideBySide => '并排',
@@ -733,13 +789,34 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       ViewMode.diffOnly => '仅差异',
     };
 
-    // 计算 5 个选项各自的目标 entry。
-    final entryAt0 = _screenEntryAtDelta(0); // 屏幕第 1 行
-    final entryAt1 = _screenEntryAtDelta(1); // 屏幕第 2 行
-    final entryAt2 = _screenEntryAtDelta(2); // 屏幕第 3 行
-    final entryAtNeg = _screenEntryAtDelta(-1); // 屏幕顶部之上那行
-
+    // 用精确行号估算 5 个选项。
     final diff = _diff;
+    final mode = ref.read(viewModeProvider);
+    final map = diff == null
+        ? <int, int>{}
+        : _entryToRowMapOf(diff, mode);
+    final topRow = _currentTopRow();
+
+    int? entryAtRowDelta(int delta) {
+      if (diff == null || topRow == null || map.isEmpty) return null;
+      var target = topRow + delta;
+      if (target < 0) target = 0;
+      int? best;
+      var bestDist = 1 << 30;
+      for (final e in map.entries) {
+        final d = (e.value - target).abs();
+        if (d < bestDist) {
+          bestDist = d;
+          best = e.key;
+        }
+      }
+      return best;
+    }
+
+    final entry0 = entryAtRowDelta(0);
+    final entry1 = entryAtRowDelta(1);
+    final entry2 = entryAtRowDelta(2);
+    final entryNeg = entryAtRowDelta(-1);
 
     String preview(int? entryIndex) {
       if (diff == null || entryIndex == null) return '';
@@ -786,42 +863,40 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             onTap: () => Navigator.pop(c, _SwitchChoice.entry(searchEntry)),
           ));
         } else {
-          // 无查找词：显示 4 个位置选项。
-          if (entryAt0 != null) {
+          if (entry0 != null) {
             children.add(choiceTile(
               icon: Icons.looks_one,
               title: '停在我现在看的地方（屏幕第 1 行）',
-              subtitle: preview(entryAt0),
-              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAt0)),
+              subtitle: preview(entry0),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entry0)),
             ));
           }
-          if (entryAt1 != null) {
+          if (entry1 != null) {
             children.add(choiceTile(
               icon: Icons.looks_two,
               title: '停在我现在看的地方（屏幕第 2 行）',
-              subtitle: preview(entryAt1),
-              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAt1)),
+              subtitle: preview(entry1),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entry1)),
             ));
           }
-          if (entryAt2 != null) {
+          if (entry2 != null) {
             children.add(choiceTile(
               icon: Icons.looks_3,
               title: '停在我现在看的地方（屏幕第 3 行）',
-              subtitle: preview(entryAt2),
-              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAt2)),
+              subtitle: preview(entry2),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entry2)),
             ));
           }
-          if (entryAtNeg != null) {
+          if (entryNeg != null) {
             children.add(choiceTile(
               icon: Icons.expand_less,
               title: '屏幕顶部再往上一点',
-              subtitle: preview(entryAtNeg),
-              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAtNeg)),
+              subtitle: preview(entryNeg),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryNeg)),
             ));
           }
         }
 
-        // "跳到文件最开头" 始终有。
         children.add(const Divider(height: 1));
         children.add(choiceTile(
           icon: Icons.vertical_align_top,
@@ -1273,9 +1348,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? anchorOrigText,
     String? anchorModText,
   }) {
-    _captureTimer?.cancel();
-    _currentDiffPos.value = -1;
-    _anchorEntryIndex = null;
     _matchEntries = const <int>[];
     _matchPos = -1;
     _cachedDiffIndices = null;
@@ -1283,6 +1355,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _entryToRowMap = null;
     _entryToRowMapFor = null;
     _entryToRowMapMode = null;
+    _heightFuture = null;
+    _heightFutureFor = null;
+    _heightFutureMode = null;
     DiffTextIndex.invalidate();
     setState(() {});
 
@@ -1312,11 +1387,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? origAnchorText,
     String? modAnchorText,
   ) async {
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await Future<void>.delayed(const Duration(milliseconds: 400));
     for (var attempt = 0; attempt < 30; attempt++) {
       if (!mounted) return;
       final diff = _diff;
-      if (diff != null) {
+      if (diff != null && _activeHeights != null) {
         final idx = DiffTextIndex.of(diff);
         int? hitEntry;
         if (origAnchorText != null && origAnchorText.isNotEmpty) {
@@ -1383,9 +1458,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final st = await File(path).stat();
       size = st.size;
       modified = st.modified;
-    } catch (_) {
-      // 文件可能已经不存在
-    }
+    } catch (_) {}
 
     if (!mounted) return false;
     final ok = await showDialog<bool>(
@@ -1481,7 +1554,59 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             body: const Center(child: Text('请先导入两份文档')),
           );
         }
-        return _buildDiffScaffold(diff, viewMode, origName, modName);
+        return _buildWithHeights(diff, viewMode, origName, modName);
+      },
+    );
+  }
+
+  Widget _buildWithHeights(
+    DiffResult diff,
+    ViewMode viewMode,
+    String? origName,
+    String? modName,
+  ) {
+    final future = _getHeightFuture(diff, viewMode);
+    return FutureBuilder<_HeightBundle>(
+      future: future,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('对比结果')),
+            body: const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('正在计算显示布局…'),
+                ],
+              ),
+            ),
+          );
+        }
+        final heights = snapshot.data!;
+        _activeHeights = heights;
+        _activeHeightsMode = viewMode;
+
+        // 如果切视图时挂了跳转，现在高度表就绪了，执行它。
+        if (_pendingJumpEntry != null && !_pendingJumpQueued) {
+          _pendingJumpQueued = true;
+          final target = _pendingJumpEntry!;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _pendingJumpEntry = null;
+            _pendingJumpQueued = false;
+            if (target < 0) {
+              if (_scrollController.hasClients) {
+                _scrollController.jumpTo(0);
+              }
+            } else {
+              _scrollToEntry(target);
+            }
+          });
+        }
+
+        return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
       },
     );
   }
@@ -1491,11 +1616,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     ViewMode viewMode,
     String? origName,
     String? modName,
+    _HeightBundle heights,
   ) {
-    final totalDiffs = _diffIndices().length;
     final noWrap = ref.watch(noWrapProvider);
-    final preciseEntry = _preciseAnchorEntry;
-    final preciseKey = _preciseAnchorKey;
 
     return Scaffold(
       appBar: AppBar(
@@ -1504,22 +1627,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           style: TextStyle(fontSize: 11),
         ),
         actions: [
-          Center(
-            key: const Key('diff-position'),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: ValueListenableBuilder<int>(
-                valueListenable: _currentDiffPos,
-                builder: (_, pos, __) {
-                  final currentPos = pos >= 0 ? pos + 1 : 0;
-                  return Text(
-                    '$currentPos/$totalDiffs',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  );
-                },
-              ),
-            ),
-          ),
           IconButton(
             key: const Key('prev-diff'),
             icon: const Icon(Icons.arrow_upward),
@@ -1643,9 +1750,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 value: 'noWrap',
                 child: Row(
                   children: [
-                    Icon(noWrap
-                        ? Icons.wrap_text
-                        : Icons.notes),
+                    Icon(noWrap ? Icons.wrap_text : Icons.notes),
                     const SizedBox(width: 10),
                     Text(noWrap ? '关闭不换行' : '开启不换行'),
                   ],
@@ -1719,58 +1824,51 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             onSelectionChanged: (s) => _switchView(s.first),
           ),
           Expanded(
-            child: NotificationListener<ScrollEndNotification>(
-              onNotification: (_) {
-                _captureAnchor();
-                return false;
-              },
-              child: switch (viewMode) {
-                ViewMode.merged => MergedView(
-                    result: diff,
-                    controller: _scrollController,
-                    findQuery: _findQuery,
-                    currentMatchEntry: _currentMatchEntry,
-                    showLineNumbers: ref.watch(showLineNumbersProvider),
-                    bodyFontSize: ref.watch(bodyFontSizeProvider),
-                    gutterFontSize: ref.watch(gutterFontSizeProvider),
-                    noWrap: noWrap,
-                    preciseAnchorEntry: preciseEntry,
-                    preciseAnchorKey: preciseKey,
-                    onLongPressEntry: (i) => _onRowLongPress([i]),
-                  ),
-                ViewMode.sideBySide => SideBySideView(
-                    result: diff,
-                    originalFileName: origName,
-                    modifiedFileName: modName,
-                    controller: _scrollController,
-                    findQuery: _findQuery,
-                    currentMatchEntry: _currentMatchEntry,
-                    showLineNumbers: ref.watch(showLineNumbersProvider),
-                    bodyFontSize: ref.watch(bodyFontSizeProvider),
-                    gutterFontSize: ref.watch(gutterFontSizeProvider),
-                    syncScroll: ref.watch(syncScrollProvider),
-                    noWrap: noWrap,
-                    preciseAnchorEntry: preciseEntry,
-                    preciseAnchorKey: preciseKey,
-                    onLongPressEntry: _onRowLongPress,
-                  ),
-                ViewMode.diffOnly => DiffOnlyView(
-                    result: diff,
-                    originalFileName: origName,
-                    modifiedFileName: modName,
-                    controller: _scrollController,
-                    findQuery: _findQuery,
-                    currentMatchEntry: _currentMatchEntry,
-                    showLineNumbers: ref.watch(showLineNumbersProvider),
-                    bodyFontSize: ref.watch(bodyFontSizeProvider),
-                    gutterFontSize: ref.watch(gutterFontSizeProvider),
-                    noWrap: noWrap,
-                    preciseAnchorEntry: preciseEntry,
-                    preciseAnchorKey: preciseKey,
-                    onLongPressEntry: _onRowLongPress,
-                  ),
-              },
-            ),
+            child: switch (viewMode) {
+              ViewMode.merged => MergedView(
+                  result: diff,
+                  heightTable: heights.merged ?? LineHeightTable.empty,
+                  controller: _scrollController,
+                  findQuery: _findQuery,
+                  currentMatchEntry: _currentMatchEntry,
+                  showLineNumbers: ref.watch(showLineNumbersProvider),
+                  bodyFontSize: ref.watch(bodyFontSizeProvider),
+                  gutterFontSize: ref.watch(gutterFontSizeProvider),
+                  noWrap: noWrap,
+                  onLongPressEntry: (i) => _onRowLongPress([i]),
+                ),
+              ViewMode.sideBySide => SideBySideView(
+                  result: diff,
+                  syncHeightTable: heights.sbsSync ?? LineHeightTable.empty,
+                  leftHeightTable: heights.sbsLeft ?? LineHeightTable.empty,
+                  rightHeightTable: heights.sbsRight ?? LineHeightTable.empty,
+                  originalFileName: origName,
+                  modifiedFileName: modName,
+                  controller: _scrollController,
+                  findQuery: _findQuery,
+                  currentMatchEntry: _currentMatchEntry,
+                  showLineNumbers: ref.watch(showLineNumbersProvider),
+                  bodyFontSize: ref.watch(bodyFontSizeProvider),
+                  gutterFontSize: ref.watch(gutterFontSizeProvider),
+                  syncScroll: ref.watch(syncScrollProvider),
+                  noWrap: noWrap,
+                  onLongPressEntry: _onRowLongPress,
+                ),
+              ViewMode.diffOnly => DiffOnlyView(
+                  result: diff,
+                  heightTable: heights.diffOnly ?? LineHeightTable.empty,
+                  originalFileName: origName,
+                  modifiedFileName: modName,
+                  controller: _scrollController,
+                  findQuery: _findQuery,
+                  currentMatchEntry: _currentMatchEntry,
+                  showLineNumbers: ref.watch(showLineNumbersProvider),
+                  bodyFontSize: ref.watch(bodyFontSizeProvider),
+                  gutterFontSize: ref.watch(gutterFontSizeProvider),
+                  noWrap: noWrap,
+                  onLongPressEntry: _onRowLongPress,
+                ),
+            },
           ),
         ],
       ),
