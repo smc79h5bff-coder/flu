@@ -20,6 +20,9 @@ class DiffOnlyView extends ConsumerWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+    this.noWrap = false,
+    this.preciseAnchorEntry,
+    this.preciseAnchorKey,
     this.onLongPressEntry,
     super.key,
   });
@@ -33,6 +36,12 @@ class DiffOnlyView extends ConsumerWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+  final bool noWrap;
+
+  /// 切视图时用：目标 entry 那一行会挂上 [preciseAnchorKey]。
+  final int? preciseAnchorEntry;
+  final GlobalKey? preciseAnchorKey;
+
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -124,6 +133,18 @@ class DiffOnlyView extends ConsumerWidget {
                   } else {
                     out = row;
                   }
+
+                  // 精准落点：目标 entry 匹配（del 或 ins 任一是它）就挂临时 key。
+                  if (preciseAnchorEntry != null &&
+                      preciseAnchorKey != null &&
+                      (spec.del == preciseAnchorEntry ||
+                          spec.ins == preciseAnchorEntry)) {
+                    return KeyedSubtree(
+                      key: preciseAnchorKey,
+                      child: out,
+                    );
+                  }
+
                   final key = spec.del != null && spec.ins != null
                       ? ValueKey<String>('${spec.del}-${spec.ins}')
                       : ValueKey<int>(spec.del ?? spec.ins!);
@@ -176,6 +197,7 @@ class DiffOnlyView extends ConsumerWidget {
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
+            noWrap: noWrap,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -202,6 +224,7 @@ class DiffOnlyView extends ConsumerWidget {
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
+            noWrap: noWrap,
           ),
         ),
       ],
@@ -299,6 +322,7 @@ class DiffOnlyView extends ConsumerWidget {
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
+            noWrap: noWrap,
           ),
         ),
         Container(width: 1, color: s.outlineVariant),
@@ -317,6 +341,7 @@ class DiffOnlyView extends ConsumerWidget {
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
             gutterFontSize: gutterFontSize,
+            noWrap: noWrap,
           ),
         ),
       ],
@@ -329,21 +354,49 @@ class DiffOnlyView extends ConsumerWidget {
 DiffResult? _lastDiffOnlyRowsFor;
 List<AlignedRow>? _lastDiffOnlyRows;
 
-/// 仅差异视图的行（从对齐行里过滤掉纯 equal 行）。按 diff 实例缓存。
+/// 仅差异视图的行：差异行 + 前后各 2 行上下文。
+///
+/// 实现：
+///   1. 在完整对齐行 [cachedAlignedRows] 里找出所有"差异行"的下标
+///   2. 每个差异行下标往前 2、往后 2 全部加入 Set<int>（去重）
+///   3. Set 按升序排，输出对应的 AlignedRow
+///
+/// 结果里既有差异行，也有 equal 行。渲染时 _alignedRow 的 equal 分支会处理。
 List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
   if (identical(_lastDiffOnlyRowsFor, result) && _lastDiffOnlyRows != null) {
     return _lastDiffOnlyRows!;
   }
+  const contextLines = 2;
   final all = cachedAlignedRows(result);
-  final out = <AlignedRow>[];
-  for (final r in all) {
+
+  // 第一步：差异行下标
+  final diffRowIndices = <int>[];
+  for (var i = 0; i < all.length; i++) {
+    final r = all[i];
     final delOp = r.del == null ? null : result.entries[r.del!].operation;
     final insOp = r.ins == null ? null : result.entries[r.ins!].operation;
     final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
         (insOp == null || insOp == DiffOperation.equal);
-    if (onlyEqual) continue;
-    out.add(r);
+    if (!onlyEqual) diffRowIndices.add(i);
   }
+
+  // 第二步：±2 上下文的并集
+  final keep = <int>{};
+  for (final di in diffRowIndices) {
+    final lo = di - contextLines;
+    final hi = di + contextLines;
+    for (var k = lo < 0 ? 0 : lo; k <= hi && k < all.length; k++) {
+      keep.add(k);
+    }
+  }
+
+  // 第三步：按升序输出
+  final sorted = keep.toList()..sort();
+  final out = <AlignedRow>[];
+  for (final i in sorted) {
+    out.add(all[i]);
+  }
+
   _lastDiffOnlyRows = out;
   _lastDiffOnlyRowsFor = result;
   return out;
@@ -386,7 +439,8 @@ List<InlineSpan> _cachedSpans(
   final hit = _spansCache[key];
   if (hit != null) return hit;
 
-  final spans = _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
+  final spans =
+      _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
   if (_spansCache.length >= _spansCacheCap) {
     _spansCache.clear();
   }
@@ -436,6 +490,7 @@ class _DiffCell extends StatelessWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+    this.noWrap = false,
   });
 
   final String text;
@@ -451,6 +506,7 @@ class _DiffCell extends StatelessWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+  final bool noWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -478,7 +534,16 @@ class _DiffCell extends StatelessWidget {
     } else {
       final spans = _cachedSpans(
           text, findQuery, isCurrentMatch, matchYellow, matchPink);
-      content = Text.rich(TextSpan(style: body, children: spans));
+      if (noWrap) {
+        content = Text.rich(
+          TextSpan(style: body, children: spans),
+          softWrap: false,
+          overflow: TextOverflow.clip,
+          maxLines: 1,
+        );
+      } else {
+        content = Text.rich(TextSpan(style: body, children: spans));
+      }
     }
 
     return ColoredBox(
