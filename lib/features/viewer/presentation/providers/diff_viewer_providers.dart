@@ -11,17 +11,12 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../../../import/presentation/providers/import_providers.dart';
 
-/// View mode in the diff viewer. PRD §2 Module 6.
 enum ViewMode { merged, sideBySide, diffOnly }
 
-/// **不持久化**：每次打开对比页回默认"仅差异"。
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 
-/// 计时面板开关。**不持久化**，固定关闭。
 final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
 
-/// 不换行模式：长行不折行，横向内容被裁掉，一行只占一屏高。
-/// **不持久化**，每次进对比页默认关闭。
 final noWrapProvider = StateProvider<bool>((ref) => false);
 
 // ==================== 显示设置（持久化） ====================
@@ -74,6 +69,11 @@ class DiffPerfStats {
     required this.lineCount,
     required this.origLen,
     required this.modLen,
+    // === 诊断字段 ===
+    required this.origLines,
+    required this.modLines,
+    required this.uniqueLines,
+    required this.usedMyers,
   });
 
   final int prepMs;
@@ -88,11 +88,25 @@ class DiffPerfStats {
   final int origLen;
   final int modLen;
 
+  /// 预处理后原文的行数（\n 切分）。
+  final int origLines;
+
+  /// 预处理后修改版的行数。
+  final int modLines;
+
+  /// diff 中间部分（去掉公共前后缀后）有多少个不重复行。
+  final int uniqueLines;
+
+  /// 是否走了 Myers 兜底路径。
+  final bool usedMyers;
+
   String get oneLine =>
       'prep=$prepMs isolate=$isolateRoundTripMs expand=$expandMs '
       '| ansi=$ansiMs split=$splitMs encode=$encodeMs '
       'diffMain=$diffMs expandInIso=$isolateExpandMs '
-      '| lineCount=$lineCount origLen=$origLen modLen=$modLen';
+      '| lineCount=$lineCount origLen=$origLen modLen=$modLen '
+      '| origLines=$origLines modLines=$modLines '
+      'uniqueLines=$uniqueLines myers=$usedMyers';
 }
 
 final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
@@ -186,6 +200,10 @@ typedef _DiffPayload =
       int encodeMs,
       int diffMs,
       int expandMs,
+      int origLines,
+      int modLines,
+      int uniqueLines,
+      bool usedMyers,
     });
 
 int _dmpOpToIndex(int op) {
@@ -216,10 +234,8 @@ bool _containsPua(String s) {
   return false;
 }
 
-/// PUA 安全上限。超过这个数就不能再用"一行一个 PUA 字符"的编码。
 const int _puaLimit = 6000;
 
-/// 在后台 isolate 中执行 diff 计算。
 _DiffPayload _computeInWorker(_DiffRequest req) {
   final sw = Stopwatch()..start();
 
@@ -235,10 +251,13 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       encodeMs: 0,
       diffMs: 0,
       expandMs: 0,
+      origLines: 0,
+      modLines: 0,
+      uniqueLines: 0,
+      usedMyers: false,
     );
   }
 
-  // 原文含 PUA 字符 → 编码会撞车，直接对原始文本做字符级 diff。
   if (_containsPua(original) || _containsPua(modified)) {
     final dmp = DiffMatchPatch();
     final raw = dmp.diff(original, modified);
@@ -254,6 +273,10 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       encodeMs: 0,
       diffMs: t0 - tAnsi,
       expandMs: 0,
+      origLines: _splitLines(original).length,
+      modLines: _splitLines(modified).length,
+      uniqueLines: -1,
+      usedMyers: false,
     );
   }
 
@@ -261,7 +284,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final linesB = _splitLines(modified);
   final tSplit = sw.elapsedMilliseconds;
 
-  // ---- 1. 剪掉公共前后缀 ----
   final minLen =
       linesA.length < linesB.length ? linesA.length : linesB.length;
 
@@ -284,7 +306,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   final midBStart = commonPrefix;
   final midBEnd = linesB.length - commonSuffix;
 
-  // ---- 2. 把中间部分的行转成整数 id（去重用）----
   final lineToId = <String, int>{};
   final idToLine = <int, String>{};
   var nextId = 0;
@@ -310,17 +331,15 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
 
   final uniqueCount = idToLine.length;
   final out = <(int, String)>[];
+  var usedMyers = false;
 
-  // ---- 3. diff ----
   if (uniqueCount <= _puaLimit) {
-    // 快速路径：PUA 编码 + diff_match_patch。
     final codeToLine = <int, String>{};
     var nextCode = 0xE000;
     for (final e in idToLine.entries) {
       codeToLine[nextCode] = e.value;
       nextCode++;
     }
-    // 反向查：id → code
     final idToCode = <int, int>{};
     var c = 0xE000;
     for (final id in idToLine.keys) {
@@ -351,8 +370,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       out.add((DiffOperation.equal.index, linesA[i]));
     }
   } else {
-    // 慢速路径：唯一行数太多，PUA 装不下。
-    // 用自己实现的 Myers 行级 diff，直接对 id 序列做，不经过字符编码。
+    usedMyers = true;
     final ops = _myersDiff(idsA, idsB);
     for (var i = 0; i < commonPrefix; i++) {
       out.add((DiffOperation.equal.index, linesA[i]));
@@ -375,16 +393,14 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
     encodeMs: tEncode - tSplit,
     diffMs: tDiff - tEncode,
     expandMs: tExpand - tDiff,
+    origLines: linesA.length,
+    modLines: linesB.length,
+    uniqueLines: uniqueCount,
+    usedMyers: usedMyers,
   );
 }
 
 // ==================== Myers 行级 diff ====================
-//
-// O(ND) 算法。对"差异少"的场景很快；差异多时 O((N+M)²) 会变慢，
-// 但因为我们只处理剪掉公共前后缀后的中间部分，实际 D 通常很小。
-//
-// 输出 (op, id) 序列。op 用 DiffOperation 的 index：
-//   0=equal, 1=insert, 2=delete
 
 List<(int, int)> _myersDiff(List<int> a, List<int> b) {
   final n = a.length;
@@ -396,7 +412,6 @@ List<(int, int)> _myersDiff(List<int> a, List<int> b) {
   final maxD = n + m;
   final offset = maxD;
   final v = List<int>.filled(2 * maxD + 1, 0);
-  // trace[d] 存第 d 步的 v 快照，用于回溯。
   final trace = <List<int>>[];
 
   int idx(int k) => k + offset;
@@ -425,14 +440,12 @@ List<(int, int)> _myersDiff(List<int> a, List<int> b) {
     }
   }
   if (foundD < 0) {
-    // 理论不会到这里。安全兜底：整块 delete + insert。
     return [
       for (final id in a) (DiffOperation.delete.index, id),
       for (final id in b) (DiffOperation.insert.index, id),
     ];
   }
 
-  // ---- 回溯 ----
   final rev = <(int, int)>[];
   var x = n;
   var y = m;
@@ -448,23 +461,19 @@ List<(int, int)> _myersDiff(List<int> a, List<int> b) {
     final prevX = vPrev[idx(prevK)];
     final prevY = prevX - prevK;
 
-    // 对角线（相等部分）
     while (x > prevX && y > prevY) {
       x--;
       y--;
       rev.add((DiffOperation.equal.index, a[x]));
     }
     if (x == prevX) {
-      // 纵向移动 = 插入 b[y-1]
       y--;
       rev.add((DiffOperation.insert.index, b[y]));
     } else {
-      // 横向移动 = 删除 a[x-1]
       x--;
       rev.add((DiffOperation.delete.index, a[x]));
     }
   }
-  // 剩下的开头等号
   while (x > 0 && y > 0) {
     x--;
     y--;
@@ -495,7 +504,6 @@ DiffEntry _mkEntry(DiffOperation op, String line) {
   }
 }
 
-/// Computed diff. Listens to preprocessed text + an import revision counter.
 final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final sw = Stopwatch()..start();
 
@@ -565,6 +573,10 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
     lineCount: payload.entries.length,
     origLen: origNorm.length,
     modLen: modNorm.length,
+    origLines: payload.origLines,
+    modLines: payload.modLines,
+    uniqueLines: payload.uniqueLines,
+    usedMyers: payload.usedMyers,
   );
 
   return DiffResult(entries: entries, engineType: DiffEngineType.line);
