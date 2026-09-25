@@ -6,7 +6,10 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+
+import 'package:flutter_colorpicker/flutter_colorpicker.dart'
+    hide colorToHex, hexToColor;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/storage/persistent_notifier.dart';
