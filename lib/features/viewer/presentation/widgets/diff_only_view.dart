@@ -225,8 +225,8 @@ class DiffOnlyView extends ConsumerWidget {
     bool isCurrentMatch,
   ) {
     final s = Theme.of(context).colorScheme;
-    final plainLeftBg = s.surfaceVariant;
-    final plainRightBg = s.surface;
+final plainLeftBg = s.surface;
+final plainRightBg = s.surface;
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white
