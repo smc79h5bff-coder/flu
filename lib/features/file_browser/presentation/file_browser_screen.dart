@@ -62,6 +62,55 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   static const EdgeInsets _dlgActionsPad =
       EdgeInsets.fromLTRB(4, 0, 4, 4);
 
+  // ==================== 扩展名 → 图标颜色 ====================
+
+  /// 文本类扩展名（与 TextPreviewScreen 保持一致）。
+  static const Set<String> _textExts = {
+    '.txt', '.md', '.markdown', '.log', '.lst', '.diz', '.nfo',
+    '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.conf', '.cfg',
+    '.csv', '.tsv',
+    '.sh', '.bash', '.zsh', '.bat', '.cmd', '.ps1',
+    '.py', '.js', '.ts', '.java', '.kt', '.dart', '.c', '.cpp', '.cc',
+    '.h', '.hpp', '.cs', '.go', '.rs', '.rb', '.php', '.lua', '.smali',
+    '.html', '.htm', '.css', '.scss',
+    '.diff', '.patch',
+  };
+
+  /// 已知的非文本扩展名：媒体 / 图片 / 压缩包 / 文档 / 二进制等。
+  static const Set<String> _binaryExts = {
+    // 视频
+    '.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm', '.m4v',
+    '.3gp', '.mpg', '.mpeg', '.rmvb', '.rm', '.vob',
+    // 音频
+    '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.ape',
+    '.opus',
+    // 图片
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico',
+    '.tif', '.tiff', '.heic', '.raw',
+    // 压缩包 / 镜像 / 安装包
+    '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', '.iso',
+    '.cab', '.lz', '.lzma', '.zst', '.apk', '.apks', '.xapk', '.aab',
+    // 文档
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.odt', '.ods', '.odp', '.epub', '.mobi', '.azw', '.azw3',
+    // 二进制 / 数据库等
+    '.exe', '.dll', '.so', '.bin', '.img', '.db', '.sqlite', '.mdb',
+  };
+
+  static String _extOf(String name) {
+    final i = name.lastIndexOf('.');
+    if (i <= 0 || i == name.length - 1) return '';
+    return name.substring(i).toLowerCase();
+  }
+
+  /// 文本 / 已知非文本 / 未知 → 三种颜色。
+  static Color _fileColor(String name) {
+    final ext = _extOf(name);
+    if (_textExts.contains(ext)) return Colors.blue.shade600;
+    if (_binaryExts.contains(ext)) return Colors.orange.shade700;
+    return Colors.grey.shade600;
+  }
+
   late String _currentPath;
   List<_EntryInfo>? _entries;
   bool _loading = false;
@@ -234,6 +283,37 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     );
   }
 
+  /// 统一构造列表项左侧：可选的复选框 + 文件/文件夹图标。
+  /// 复选框用 SizedBox 收窄，选中时不再替换掉图标。
+  Widget _leading({
+    required bool selectionMode,
+    required bool selected,
+    required bool isDir,
+    required String name,
+    required VoidCallback onToggle,
+  }) {
+    final icon = isDir ? Icons.folder : Icons.insert_drive_file_outlined;
+    final color = isDir ? Colors.amber.shade600 : _fileColor(name);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (selectionMode)
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: Checkbox(
+              value: selected,
+              onChanged: (_) => onToggle(),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        Icon(icon, color: color),
+      ],
+    );
+  }
+
   // ==================== 搜索 ====================
 
   void _onSearchChanged(String v) {
@@ -371,36 +451,36 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       await _scanDir(root, lowerQuery, results, taskId);
     }
 
-  if (taskId != _searchTaskId) return;
-  if (!mounted) return;
+    if (taskId != _searchTaskId) return;
+    if (!mounted) return;
 
-  // 按用户当前的排序方式排搜索结果。
-  // 搜索结果全是文件（扫描只收集 File，不收集 Directory），
-  // 所以不用像目录列表那样"文件夹优先"，直接按字段排。
-  final sortField = ref.read(sortFieldProvider);
-  final sortAsc = ref.read(sortAscProvider);
-  results.sort((a, b) {
-    int cmp;
-    switch (sortField) {
-      case SortField.name:
-        cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      case SortField.modified:
-        final at = a.modified?.millisecondsSinceEpoch ?? 0;
-        final bt = b.modified?.millisecondsSinceEpoch ?? 0;
-        cmp = at.compareTo(bt);
-      case SortField.size:
-        final as = a.size ?? 0;
-        final bs = b.size ?? 0;
-        cmp = as.compareTo(bs);
-    }
-    return sortAsc ? cmp : -cmp;
-  });
+    // 按用户当前的排序方式排搜索结果。
+    // 搜索结果全是文件（扫描只收集 File，不收集 Directory），
+    // 所以不用像目录列表那样"文件夹优先"，直接按字段排。
+    final sortField = ref.read(sortFieldProvider);
+    final sortAsc = ref.read(sortAscProvider);
+    results.sort((a, b) {
+      int cmp;
+      switch (sortField) {
+        case SortField.name:
+          cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case SortField.modified:
+          final at = a.modified?.millisecondsSinceEpoch ?? 0;
+          final bt = b.modified?.millisecondsSinceEpoch ?? 0;
+          cmp = at.compareTo(bt);
+        case SortField.size:
+          final as = a.size ?? 0;
+          final bs = b.size ?? 0;
+          cmp = as.compareTo(bs);
+      }
+      return sortAsc ? cmp : -cmp;
+    });
 
-  setState(() {
-    _searching = false;
-    _searchResults = List.from(results);
-  });
-}
+    setState(() {
+      _searching = false;
+      _searchResults = List.from(results);
+    });
+  }
 
   Future<void> _scanDir(
     String dirPath,
@@ -818,108 +898,108 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     _toast(wasFav ? '已取消收藏' : '已收藏当前目录');
   }
 
-Future<void> _showFavorites() async {
-  final picked = await showDialog<String>(
-    context: context,
-    builder: (c) => StatefulBuilder(
-      builder: (c, setInnerState) {
-        final favorites = ref.watch(favoritesProvider);
-        final isFav = favorites.contains(_currentPath);
+  Future<void> _showFavorites() async {
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setInnerState) {
+          final favorites = ref.watch(favoritesProvider);
+          final isFav = favorites.contains(_currentPath);
 
-        return AlertDialog(
-          insetPadding: _dlgInset,
-          titlePadding: _dlgTitlePad,
-          contentPadding: _dlgContentPad,
-          actionsPadding: _dlgActionsPad,
-          title: const Text('已收藏目录'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Column(
-              children: [
-                // 顶部：收藏/取消收藏当前目录
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    isFav ? Icons.star : Icons.star_border,
-                    color: isFav ? Colors.amber : null,
+          return AlertDialog(
+            insetPadding: _dlgInset,
+            titlePadding: _dlgTitlePad,
+            contentPadding: _dlgContentPad,
+            actionsPadding: _dlgActionsPad,
+            title: const Text('已收藏目录'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.of(context).size.height * 0.7,
+              child: Column(
+                children: [
+                  // 顶部：收藏/取消收藏当前目录
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      isFav ? Icons.star : Icons.star_border,
+                      color: isFav ? Colors.amber : null,
+                    ),
+                    title: Text(
+                      isFav ? '取消收藏当前目录' : '收藏当前目录',
+                    ),
+                    subtitle: Text(
+                      _currentPath,
+                      style: const TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () {
+                      ref
+                          .read(favoritesProvider.notifier)
+                          .toggle(_currentPath);
+                      setInnerState(() {});
+                    },
                   ),
-                  title: Text(
-                    isFav ? '取消收藏当前目录' : '收藏当前目录',
+                  const Divider(height: 1),
+                  // 收藏列表
+                  Expanded(
+                    child: favorites.isEmpty
+                        ? const Center(child: Text('还没有收藏任何目录'))
+                        : ListView.builder(
+                            itemCount: favorites.length,
+                            itemBuilder: (ctx, i) {
+                              final p = favorites[i];
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.folder,
+                                    color: Colors.amber),
+                                title: Text(p.split('/').last),
+                                subtitle: Text(
+                                  p,
+                                  style: const TextStyle(fontSize: 11),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () => Navigator.pop(c, p),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      size: 20),
+                                  tooltip: '移除收藏',
+                                  onPressed: () {
+                                    ref
+                                        .read(favoritesProvider.notifier)
+                                        .remove(p);
+                                    setInnerState(() {});
+                                  },
+                                ),
+                              );
+                            },
+                          ),
                   ),
-                  subtitle: Text(
-                    _currentPath,
-                    style: const TextStyle(fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () {
-                    ref
-                        .read(favoritesProvider.notifier)
-                        .toggle(_currentPath);
-                    setInnerState(() {});
-                  },
-                ),
-                const Divider(height: 1),
-                // 收藏列表
-                Expanded(
-                  child: favorites.isEmpty
-                      ? const Center(child: Text('还没有收藏任何目录'))
-                      : ListView.builder(
-                          itemCount: favorites.length,
-                          itemBuilder: (ctx, i) {
-                            final p = favorites[i];
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.folder,
-                                  color: Colors.amber),
-                              title: Text(p.split('/').last),
-                              subtitle: Text(
-                                p,
-                                style: const TextStyle(fontSize: 11),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              onTap: () => Navigator.pop(c, p),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline,
-                                    size: 20),
-                                tooltip: '移除收藏',
-                                onPressed: () {
-                                  ref
-                                      .read(favoritesProvider.notifier)
-                                      .remove(p);
-                                  setInnerState(() {});
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('关闭'),
-            ),
-          ],
-        );
-      },
-    ),
-  );
-  if (picked != null && mounted) {
-    if (Directory(picked).existsSync()) {
-      _navigateTo(picked);
-    } else {
-      _toast('该目录已不存在');
-      ref.read(favoritesProvider.notifier).remove(picked);
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (picked != null && mounted) {
+      if (Directory(picked).existsSync()) {
+        _navigateTo(picked);
+      } else {
+        _toast('该目录已不存在');
+        ref.read(favoritesProvider.notifier).remove(picked);
+      }
     }
   }
-}
 
   // ==================== 文件操作 ====================
 
@@ -956,55 +1036,56 @@ Future<void> _showFavorites() async {
     return ok == true;
   }
 
-Future<void> _rename() async {
-  if (_selectedPaths.length != 1) {
-    _toast('重命名一次只能操作一个');
-    return;
-  }
-  final oldPath = _selectedPaths.first;
-  final oldName = oldPath.split('/').last;
-
-  final newName = await showDialog<String>(
-    context: context,
-    builder: (_) => _TextInputDialog(
-      title: '重命名',
-      initialValue: oldName,
-    ),
-  );
-  if (newName == null) return;
-
-  final trimmed = newName.trim();
-  if (trimmed.isEmpty || trimmed == oldName) return;
-  if (trimmed.contains('/') || trimmed.contains('\\')) {
-    _toast('名称不能包含斜杠');
-    return;
-  }
-  if (trimmed == '.' || trimmed == '..') {
-    _toast('名称无效');
-    return;
-  }
-
-  final parent = File(oldPath).parent.path;
-  final newPath = '$parent/$trimmed';
-
-  if (FileSystemEntity.typeSync(newPath) != FileSystemEntityType.notFound) {
-    _toast('目标已存在：$trimmed');
-    return;
-  }
-
-  try {
-    if (Directory(oldPath).existsSync()) {
-      await Directory(oldPath).rename(newPath);
-    } else {
-      await File(oldPath).rename(newPath);
+  Future<void> _rename() async {
+    if (_selectedPaths.length != 1) {
+      _toast('重命名一次只能操作一个');
+      return;
     }
-    _clearSelection();
-    _load();
-    _toast('已重命名为 $trimmed');
-  } catch (e) {
-    _toast('重命名失败：$e');
+    final oldPath = _selectedPaths.first;
+    final oldName = oldPath.split('/').last;
+
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (_) => _TextInputDialog(
+        title: '重命名',
+        initialValue: oldName,
+      ),
+    );
+    if (newName == null) return;
+
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty || trimmed == oldName) return;
+    if (trimmed.contains('/') || trimmed.contains('\\')) {
+      _toast('名称不能包含斜杠');
+      return;
+    }
+    if (trimmed == '.' || trimmed == '..') {
+      _toast('名称无效');
+      return;
+    }
+
+    final parent = File(oldPath).parent.path;
+    final newPath = '$parent/$trimmed';
+
+    if (FileSystemEntity.typeSync(newPath) !=
+        FileSystemEntityType.notFound) {
+      _toast('目标已存在：$trimmed');
+      return;
+    }
+
+    try {
+      if (Directory(oldPath).existsSync()) {
+        await Directory(oldPath).rename(newPath);
+      } else {
+        await File(oldPath).rename(newPath);
+      }
+      _clearSelection();
+      _load();
+      _toast('已重命名为 $trimmed');
+    } catch (e) {
+      _toast('重命名失败：$e');
+    }
   }
-}
 
   Future<void> _move() async {
     if (_selectedPaths.isEmpty) return;
@@ -1101,44 +1182,45 @@ Future<void> _rename() async {
     _toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
 
-Future<void> _newFolder() async {
-  final name = await showDialog<String>(
-    context: context,
-    builder: (_) => const _TextInputDialog(
-      title: '新建文件夹',
-      initialValue: '新建文件夹',
-    ),
-  );
-  if (name == null) return;
+  Future<void> _newFolder() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const _TextInputDialog(
+        title: '新建文件夹',
+        initialValue: '新建文件夹',
+      ),
+    );
+    if (name == null) return;
 
-  final trimmed = name.trim();
-  // 校验：非空、不含 /、不是 . 或 ..
-  if (trimmed.isEmpty) {
-    _toast('名称不能为空');
-    return;
-  }
-  if (trimmed.contains('/') || trimmed.contains('\\')) {
-    _toast('名称不能包含斜杠');
-    return;
-  }
-  if (trimmed == '.' || trimmed == '..') {
-    _toast('名称无效');
-    return;
-  }
+    final trimmed = name.trim();
+    // 校验：非空、不含 /、不是 . 或 ..
+    if (trimmed.isEmpty) {
+      _toast('名称不能为空');
+      return;
+    }
+    if (trimmed.contains('/') || trimmed.contains('\\')) {
+      _toast('名称不能包含斜杠');
+      return;
+    }
+    if (trimmed == '.' || trimmed == '..') {
+      _toast('名称无效');
+      return;
+    }
 
-  final path = '$_currentPath/$trimmed';
-  if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) {
-    _toast('同名文件或文件夹已存在');
-    return;
+    final path = '$_currentPath/$trimmed';
+    if (FileSystemEntity.typeSync(path) !=
+        FileSystemEntityType.notFound) {
+      _toast('同名文件或文件夹已存在');
+      return;
+    }
+    try {
+      await Directory(path).create();
+      _load();
+      _toast('已新建 $trimmed');
+    } catch (e) {
+      _toast('新建失败：$e');
+    }
   }
-  try {
-    await Directory(path).create();
-    _load();
-    _toast('已新建 $trimmed');
-  } catch (e) {
-    _toast('新建失败：$e');
-  }
-}
 
   Future<void> _showJumpToPathDialog() async {
     final ctrl = TextEditingController();
@@ -1354,77 +1436,77 @@ Future<void> _newFolder() async {
               onPressed: _goUp,
             )
           : null,
-actions: [
-  // 收藏/取消收藏
-  IconButton(
-    icon: Icon(
-      isFav ? Icons.star : Icons.star_border,
-      color: isFav ? Colors.amber : null,
-    ),
-    tooltip: isFav ? '取消收藏此目录' : '收藏此目录',
-    onPressed: _toggleFavorite,
-  ),
-  // 比较设置
-  IconButton(
-    icon: const Icon(Icons.tune),
-    tooltip: '比较设置',
-    onPressed: () {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const ComparisonSettingsScreen(),
+      actions: [
+        // 收藏/取消收藏
+        IconButton(
+          icon: Icon(
+            isFav ? Icons.star : Icons.star_border,
+            color: isFav ? Colors.amber : null,
+          ),
+          tooltip: isFav ? '取消收藏此目录' : '收藏此目录',
+          onPressed: _toggleFavorite,
         ),
-      );
-    },
-  ),
-  // 更多菜单（刷新 + 排序 + 已收藏目录）
-  PopupMenuButton<String>(
-    icon: const Icon(Icons.more_vert),
-    tooltip: '更多',
-    onSelected: (v) {
-      switch (v) {
-        case 'refresh':
-          _load();
-        case 'sort':
-          _showSortDialog();
-        case 'favorites':
-          _showFavorites();
-      }
-    },
-    itemBuilder: (context) => [
-      const PopupMenuItem<String>(
-        value: 'refresh',
-        child: Row(
-          children: [
-            Icon(Icons.refresh),
-            SizedBox(width: 10),
-            Text('刷新'),
+        // 比较设置
+        IconButton(
+          icon: const Icon(Icons.tune),
+          tooltip: '比较设置',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ComparisonSettingsScreen(),
+              ),
+            );
+          },
+        ),
+        // 更多菜单（刷新 + 排序 + 已收藏目录）
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: '更多',
+          onSelected: (v) {
+            switch (v) {
+              case 'refresh':
+                _load();
+              case 'sort':
+                _showSortDialog();
+              case 'favorites':
+                _showFavorites();
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem<String>(
+              value: 'refresh',
+              child: Row(
+                children: [
+                  Icon(Icons.refresh),
+                  SizedBox(width: 10),
+                  Text('刷新'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'sort',
+              child: Row(
+                children: [
+                  Icon(Icons.sort),
+                  SizedBox(width: 10),
+                  Text('排序方式'),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem<String>(
+              value: 'favorites',
+              child: Row(
+                children: [
+                  const Icon(Icons.bookmarks_outlined),
+                  const SizedBox(width: 10),
+                  Text('已收藏目录 (${favorites.length})'),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
-      const PopupMenuItem<String>(
-        value: 'sort',
-        child: Row(
-          children: [
-            Icon(Icons.sort),
-            SizedBox(width: 10),
-            Text('排序方式'),
-          ],
-        ),
-      ),
-      const PopupMenuDivider(),
-PopupMenuItem<String>(
-  value: 'favorites',
-  child: Row(
-    children: [
-      const Icon(Icons.bookmarks_outlined),
-      const SizedBox(width: 10),
-      Text('已收藏目录 (${favorites.length})'),
-    ],
-  ),
-),
-    ],
-  ),
-],
+      ],
     );
   }
 
@@ -1455,11 +1537,15 @@ PopupMenuItem<String>(
             onLongPress: _showScopeMenu,
             borderRadius: BorderRadius.circular(8),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 color: isCustom
-                    ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
+                    ? Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withOpacity(0.12)
                     : null,
               ),
               child: Icon(
@@ -1590,14 +1676,13 @@ PopupMenuItem<String>(
                   ),
                 ),
                 const SizedBox(width: 6),
-Expanded(
-  flex: 1,
-  child: FilledButton.tonal(
-    onPressed: canProps ? _copyPath : null,
-    child: const Text('复制路径'),
-  ),
-),
-                
+                Expanded(
+                  flex: 1,
+                  child: FilledButton.tonal(
+                    onPressed: canProps ? _copyPath : null,
+                    child: const Text('复制路径'),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 4),
@@ -1701,15 +1786,16 @@ Expanded(
                 .colorScheme
                 .primary
                 .withOpacity(0.12),
-            leading: _selectionMode
-                ? Checkbox(
-                    value: selected,
-                    onChanged: (_) => _toggleSelectionPath(hit.path),
-                  )
-                : const Icon(Icons.insert_drive_file_outlined),
+            leading: _leading(
+              selectionMode: _selectionMode,
+              selected: selected,
+              isDir: false,
+              name: hit.name,
+              onToggle: () => _toggleSelectionPath(hit.path),
+            ),
             title: Text(
               hit.name,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Column(
@@ -1794,27 +1880,22 @@ Expanded(
           final time = _formatTime(info.modified);
           metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
         }
-        final relPath = _relPath(e.path);
 
         return ListTile(
           isThreeLine: true,
           selected: selected,
           selectedTileColor:
               Theme.of(context).colorScheme.primary.withOpacity(0.12),
-          leading: _selectionMode
-              ? Checkbox(
-                  value: selected,
-                  onChanged: (_) => _toggleSelection(e),
-                )
-              : Icon(
-                  info.isDir
-                      ? Icons.folder
-                      : Icons.insert_drive_file_outlined,
-                  color: info.isDir ? Colors.amber.shade600 : null,
-                ),
+          leading: _leading(
+            selectionMode: _selectionMode,
+            selected: selected,
+            isDir: info.isDir,
+            name: info.name,
+            onToggle: () => _toggleSelection(e),
+          ),
           title: Text(
             info.name,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
           subtitle: Column(
@@ -1827,14 +1908,6 @@ Expanded(
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-              Text(
-                relPath,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
             ],
           ),
           onTap: () {
@@ -2310,7 +2383,8 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                                         child: Icon(
                                           selected
                                               ? Icons.check_box
-                                              : Icons.check_box_outline_blank,
+                                              : Icons
+                                                  .check_box_outline_blank,
                                           color: selected
                                               ? Theme.of(context)
                                                   .colorScheme
