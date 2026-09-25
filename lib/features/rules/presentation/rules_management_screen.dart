@@ -22,9 +22,9 @@ class RulesManagementScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
-          _Section(label: '内置规则（可勾选启用）'),
+          const _Section(label: '内置规则（可勾选启用）'),
           for (final r in builtin) _RuleTile(rule: r, builtin: true),
-          _Section(label: '自定义规则'),
+          const _Section(label: '自定义规则'),
           if (userRules.isEmpty)
             const ListTile(title: Text('暂无自定义规则，点击右下新建')),
           for (final r in userRules) _RuleTile(rule: r, builtin: false),
@@ -76,10 +76,10 @@ class _RuleTile extends ConsumerWidget {
             onChanged: builtin
                 ? (v) => ref
                     .read(builtinRuleEnablesProvider.notifier)
-                    .update((prev) => {...prev, rule.id: v})
+                    .setOne(rule.id, v)
                 : (v) => ref
                     .read(userRulesProvider.notifier)
-                    .update(rule.copyWith(enabled: v)),
+                    .updateRule(rule.copyWith(enabled: v)),
           ),
           if (!builtin)
             IconButton(
