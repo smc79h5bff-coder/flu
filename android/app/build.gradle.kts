@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -60,4 +59,29 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// ===== 新增：同步 APK 到 Flutter 期望目录 =====
+val flutterOutDir = file("${buildDir}/outputs/flutter-apk")
+val cliOutDir = file("${rootProject.projectDir.parentFile}/build/app/outputs/flutter-apk")
+
+tasks.register<Copy>("syncFlutterApks") {
+    from(flutterOutDir)
+    into(cliOutDir)
+    doFirst {
+        cliOutDir.mkdirs()
+        println("[patch] syncFlutterApks: from=${flutterOutDir} -> to=${cliOutDir}")
+    }
+    doLast {
+        println("[patch] syncFlutterApks: done")
+    }
+}
+
+android.applicationVariants.all {
+    val cap = name.replaceFirstChar { it.uppercase() }
+    listOf("package$cap", "assemble$cap").forEach { taskName ->
+        tasks.matching { it.name == taskName }.all {
+            finalizedBy("syncFlutterApks")
+        }
+    }
 }
