@@ -61,19 +61,27 @@ flutter {
     source = "../.."
 }
 
-// ===== 新增：同步 APK 到 Flutter 期望目录 =====
-val flutterOutDir = file("${buildDir}/outputs/flutter-apk")
-val cliOutDir = file("${rootProject.projectDir.parentFile}/build/app/outputs/flutter-apk")
+// ===== 把带 flavor 的 APK 复制到 Flutter 期望的目录 =====
+val flutterApkDir = file("${buildDir}/outputs/flutter-apk")
+val cliApkDir = file("${rootProject.projectDir.parentFile}/build/app/outputs/flutter-apk")
 
 tasks.register<Copy>("syncFlutterApks") {
-    from(flutterOutDir)
-    into(cliOutDir)
+    // 关键：源目录改成真正的 APK 输出目录（apk/prod/release 等）
+    android.applicationVariants.all {
+        val variantName = name // 例如 prodRelease
+        val flavorName = productFlavors.first().name // prod 或 coexist
+        from("${buildDir}/outputs/apk/$flavorName/release") {
+            include("*.apk")
+            rename { "app-$flavorName-release.apk" }
+        }
+    }
+    into(cliApkDir)
     doFirst {
-        cliOutDir.mkdirs()
-        println("[patch] syncFlutterApks: from=${flutterOutDir} -> to=${cliOutDir}")
+        cliApkDir.mkdirs()
+        println("[patch] syncFlutterApks -> ${cliApkDir.absolutePath}")
     }
     doLast {
-        println("[patch] syncFlutterApks: done")
+        println("[patch] syncFlutterApks done")
     }
 }
 
