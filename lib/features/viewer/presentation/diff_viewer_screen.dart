@@ -368,10 +368,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final ctx = _rowKeysByEntry[entryIndex]?.currentContext;
       if (ctx != null) {
         await Scrollable.ensureVisible(
-          ctx,
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-          alignment: 0.25,
+  ctx,
+  duration: Duration.zero,
+  alignment: 0.25,
         );
         return;
       }
