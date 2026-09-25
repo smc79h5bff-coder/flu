@@ -1833,9 +1833,9 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
                     Slider(
-                      min: 10,
-                      max: 28,
-                      divisions: 18,
+                      min: 2,
+                      max: 38,
+                      divisions: 36,
                       value: bodySize,
                       label: bodySize.toStringAsFixed(0),
                       onChanged: (v) =>
@@ -1846,9 +1846,9 @@ class _DisplaySettingsSheet extends ConsumerWidget {
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
                     Slider(
-                      min: 8,
-                      max: 20,
-                      divisions: 12,
+                      min: 2,
+                      max: 38,
+                      divisions: 36,
                       value: gutterSize,
                       label: gutterSize.toStringAsFixed(0),
                       onChanged: (v) => ref
