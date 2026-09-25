@@ -15,7 +15,6 @@ class SideBySideView extends ConsumerStatefulWidget {
     this.controller,
     this.findQuery = '',
     this.currentMatchEntry,
-    this.rowKeysByEntry,
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
@@ -30,7 +29,6 @@ class SideBySideView extends ConsumerStatefulWidget {
   final ScrollController? controller;
   final String findQuery;
   final int? currentMatchEntry;
-  final Map<int, GlobalKey>? rowKeysByEntry;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
@@ -74,7 +72,8 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       ),
       child: Scrollbar(
         controller: controller,
-        interactive: true,
+        // 不拖动滚动条 → 关掉它挂的手势处理器。
+        interactive: false,
         child: child,
       ),
     );
@@ -119,6 +118,9 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             child: ListView.builder(
               key: const Key('side-by-side-list'),
               controller: widget.controller,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: false,
+              cacheExtent: 100,
               itemCount: rows.length,
               itemBuilder: (ctx, i) {
                 final spec = rows[i];
@@ -149,22 +151,21 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                       ctx, widget.result.entries[ei], meta[ei], c, isCurrent);
                   keyOwners = <int>[ei];
                 }
-                Widget out = row;
-                if (widget.rowKeysByEntry != null) {
-                  for (final k in keyOwners) {
-                    final key = widget.rowKeysByEntry!
-                        .putIfAbsent(k, () => GlobalKey());
-                    out = KeyedSubtree(key: key, child: out);
-                  }
-                }
+                final Widget out;
                 if (widget.onLongPressEntry != null) {
                   out = GestureDetector(
                     onLongPress: () => widget.onLongPressEntry!(keyOwners),
                     behavior: HitTestBehavior.opaque,
-                    child: out,
+                    child: row,
                   );
+                } else {
+                  out = row;
                 }
-                return out;
+                // ValueKey：合并行的左右下标拼起来当 key，防止撞车。
+                final key = spec.del != null && spec.ins != null
+                    ? ValueKey<String>('${spec.del}-${spec.ins}')
+                    : ValueKey<int>(spec.del ?? spec.ins!);
+                return KeyedSubtree(key: key, child: out);
               },
             ),
           ),
@@ -214,6 +215,9 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                   child: ListView.builder(
                     key: const Key('sbs-left-list'),
                     controller: _leftCtrl,
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: false,
+                    cacheExtent: 100,
                     itemCount: leftIndices.length,
                     itemBuilder: (ctx, i) {
                       final ei = leftIndices[i];
@@ -227,13 +231,16 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                         isCurrentMatch: isCurrent,
                         c: c,
                       );
-                      if (widget.onLongPressEntry == null) return tile;
-                      return GestureDetector(
-                        onLongPress: () =>
-                            widget.onLongPressEntry!(<int>[ei]),
-                        behavior: HitTestBehavior.opaque,
-                        child: tile,
-                      );
+                      final out = widget.onLongPressEntry == null
+                          ? tile
+                          : GestureDetector(
+                              onLongPress: () =>
+                                  widget.onLongPressEntry!(<int>[ei]),
+                              behavior: HitTestBehavior.opaque,
+                              child: tile,
+                            );
+                      return KeyedSubtree(
+                          key: ValueKey<int>(ei), child: out);
                     },
                   ),
                 ),
@@ -246,6 +253,9 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                   child: ListView.builder(
                     key: const Key('sbs-right-list'),
                     controller: _rightCtrl,
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: false,
+                    cacheExtent: 100,
                     itemCount: rightIndices.length,
                     itemBuilder: (ctx, i) {
                       final ei = rightIndices[i];
@@ -259,13 +269,16 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                         isCurrentMatch: isCurrent,
                         c: c,
                       );
-                      if (widget.onLongPressEntry == null) return tile;
-                      return GestureDetector(
-                        onLongPress: () =>
-                            widget.onLongPressEntry!(<int>[ei]),
-                        behavior: HitTestBehavior.opaque,
-                        child: tile,
-                      );
+                      final out = widget.onLongPressEntry == null
+                          ? tile
+                          : GestureDetector(
+                              onLongPress: () =>
+                                  widget.onLongPressEntry!(<int>[ei]),
+                              behavior: HitTestBehavior.opaque,
+                              child: tile,
+                            );
+                      return KeyedSubtree(
+                          key: ValueKey<int>(ei), child: out);
                     },
                   ),
                 ),
@@ -545,6 +558,58 @@ class _CharDiff {
   final Color addedFg;
 }
 
+// ========== 查找高亮 spans 的 LRU 缓存 ==========
+
+const int _spansCacheCap = 512;
+final Map<String, List<InlineSpan>> _spansCache =
+    <String, List<InlineSpan>>{};
+
+List<InlineSpan> _cachedSpans(
+  String text,
+  String findQuery,
+  bool isCurrentMatch,
+  Color matchYellow,
+  Color matchPink,
+) {
+  final key = '$text\u0000$findQuery\u0000${isCurrentMatch ? 1 : 0}';
+  final hit = _spansCache[key];
+  if (hit != null) return hit;
+
+  final spans = _buildSpans(text, findQuery, isCurrentMatch, matchYellow, matchPink);
+  if (_spansCache.length >= _spansCacheCap) {
+    _spansCache.clear();
+  }
+  _spansCache[key] = spans;
+  return spans;
+}
+
+List<InlineSpan> _buildSpans(
+  String text,
+  String findQuery,
+  bool isCurrentMatch,
+  Color matchYellow,
+  Color matchPink,
+) {
+  final q = findQuery;
+  if (q.isEmpty || text.isEmpty) {
+    return <InlineSpan>[TextSpan(text: text.isEmpty ? ' ' : text)];
+  }
+  final bg = isCurrentMatch ? matchPink : matchYellow;
+  final spans = <InlineSpan>[];
+  var start = 0;
+  int idx;
+  while ((idx = text.indexOf(q, start)) != -1) {
+    if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
+    spans.add(TextSpan(
+      text: q,
+      style: TextStyle(backgroundColor: bg, fontWeight: FontWeight.bold),
+    ));
+    start = idx + q.length;
+  }
+  if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
+  return spans.isEmpty ? <InlineSpan>[TextSpan(text: ' ')] : spans;
+}
+
 class _Cell extends StatelessWidget {
   const _Cell({
     required this.text,
@@ -578,13 +643,14 @@ class _Cell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final body = Theme.of(context)
-        .textTheme
-        .bodyMedium
-        ?.copyWith(fontSize: bodyFontSize, color: fg);
+    final body = TextStyle(
+      fontSize: bodyFontSize,
+      color: fg,
+      height: 1.35,
+    );
     final outline = Theme.of(context).colorScheme.outline;
 
-    Widget content;
+    final Widget content;
     if (charDiff != null) {
       content = InlineCharDiff(
         before: charDiff!.before,
@@ -598,62 +664,47 @@ class _Cell extends StatelessWidget {
         removedFg: charDiff!.removedFg,
         removedBg: charDiff!.removedBg,
       );
-    } else if (findQuery.isEmpty || !text.contains(findQuery)) {
-      content = Text(text.isEmpty ? ' ' : text, style: body, softWrap: true);
     } else {
-      content = RichText(text: TextSpan(style: body, children: _spans(text)));
+      final spans = _cachedSpans(
+          text, findQuery, isCurrentMatch, matchYellow, matchPink);
+      content = Text.rich(TextSpan(style: body, children: spans));
     }
 
-    return Container(
+    // Container + BoxDecoration → ColoredBox，省一层。
+    return ColoredBox(
       color: bg,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showLineNumbers) ...[
-            SizedBox(
-              width: 30,
-              child: Text(
-                line < 0 ? '' : '$line',
-                textAlign: TextAlign.end,
-                style: TextStyle(fontSize: gutterFontSize, color: outline),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showLineNumbers) ...[
+              SizedBox(
+                width: 30,
+                child: Text(
+                  line < 0 ? '' : '$line',
+                  textAlign: TextAlign.end,
+                  style: TextStyle(fontSize: gutterFontSize, color: outline),
+                ),
               ),
-            ),
-            if (symbol.isNotEmpty) ...[
-              const SizedBox(width: 4),
-              Text(symbol,
+              if (symbol.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Text(
+                  symbol,
                   style: TextStyle(
-                      color: fg,
-                      fontWeight: FontWeight.bold,
-                      fontSize: bodyFontSize)),
+                    color: fg,
+                    fontWeight: FontWeight.bold,
+                    fontSize: bodyFontSize,
+                  ),
+                ),
+              ],
             ],
+            const SizedBox(width: 6),
+            Expanded(child: content),
           ],
-          const SizedBox(width: 6),
-          Expanded(child: content),
-        ],
+        ),
       ),
     );
-  }
-
-  List<InlineSpan> _spans(String text) {
-    final q = findQuery;
-    final bg = isCurrentMatch ? matchPink : matchYellow;
-    final spans = <InlineSpan>[];
-    var start = 0;
-    int idx;
-    while ((idx = text.indexOf(q, start)) != -1) {
-      if (idx > start) spans.add(TextSpan(text: text.substring(start, idx)));
-      spans.add(TextSpan(
-        text: q,
-        style: TextStyle(
-          backgroundColor: bg,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      start = idx + q.length;
-    }
-    if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
-    return spans;
   }
 }
 
@@ -717,12 +768,11 @@ List<({int orig, int mod})> _lineMeta(DiffResult result) {
   return meta;
 }
 
-// ========== 派生数据缓存（避免每次 rebuild 全量重算） ==========
+// ========== 派生数据缓存 ==========
 
 DiffResult? _lastAlignedRowsFor;
 List<AlignedRow>? _lastAlignedRows;
 
-/// 按 diff 实例缓存对齐行。同一个 DiffResult 反复调用只算一次。
 List<AlignedRow> cachedAlignedRows(DiffResult diff) {
   if (identical(_lastAlignedRowsFor, diff) && _lastAlignedRows != null) {
     return _lastAlignedRows!;
@@ -735,7 +785,6 @@ List<AlignedRow> cachedAlignedRows(DiffResult diff) {
 DiffResult? _lastLineMetaFor;
 List<({int orig, int mod})>? _lastLineMeta;
 
-/// 按 diff 实例缓存行号元数据。
 List<({int orig, int mod})> cachedLineMeta(DiffResult diff) {
   if (identical(_lastLineMetaFor, diff) && _lastLineMeta != null) {
     return _lastLineMeta!;
