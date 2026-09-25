@@ -34,7 +34,15 @@ class DiffViewerScreen extends ConsumerStatefulWidget {
 }
 
 /// 切视图时用户选择的跳转目标。
-enum _SwitchTarget { match, top, anchor }
+class _SwitchChoice {
+  const _SwitchChoice.top()
+      : targetEntry = null,
+        isTop = true;
+  const _SwitchChoice.entry(int this.targetEntry) : isTop = false;
+
+  final int? targetEntry;
+  final bool isTop;
+}
 
 class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final ScrollController _scrollController = ScrollController();
@@ -42,42 +50,45 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final TextEditingController _replaceController = TextEditingController();
 
   /// 当前差异位置（在差异列表里的索引）。
-  /// 用 ValueNotifier 独立出来：滚动时只让 AppBar 里那个计数器重画，
-  /// 不再触发整页 setState。
   final ValueNotifier<int> _currentDiffPos = ValueNotifier<int>(-1);
 
-  /// 最近一次程序化跳转（点上一处/下一处）的时间戳。
+  /// 最近一次程序化跳转的时间戳。
   int _lastJumpAtMs = 0;
   int? _anchorEntryIndex;
+
+  /// 切视图的精准落点：目标 entry 及它的临时 GlobalKey。
+  /// 只在切视图那一两帧存在，不进滚动路径。
+  int? _preciseAnchorEntry;
+  GlobalKey? _preciseAnchorKey;
 
   bool _showFind = false;
   String _findQuery = '';
   List<int> _matchEntries = const <int>[];
   int _matchPos = -1;
 
-  // 查找/替换的高级选项
   bool _regexEnable = false;
   bool _caseInsensitive = false;
   bool _wholeWord = false;
   bool _searchLeft = true;
   bool _searchRight = true;
 
-  // 未应用的替换缓存：key = 预处理后的行号，value = 新的整行文本
   final Map<int, String> _pendingOrigChanges = <int, String>{};
   final Map<int, String> _pendingModChanges = <int, String>{};
 
   bool _landscape = false;
-
   bool _originalDeleted = false;
   bool _modifiedDeleted = false;
 
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
-  /// 滚动结束防抖定时器。
-  Timer? _captureTimer;
+  /// entry → row 的预建映射。按 (diff, mode) 缓存。
+  /// 用于把 O(m×n) 的 anchor 计算降到 O(m)。
+  Map<int, int>? _entryToRowMap;
+  DiffResult? _entryToRowMapFor;
+  ViewMode? _entryToRowMapMode;
 
-  /// 查找输入防抖。
+  Timer? _captureTimer;
   Timer? _findDebounce;
 
   @override
@@ -377,23 +388,113 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     });
   }
 
-  // ==================== 滚动 / 跳转 ====================
+  // ==================== 行数 / 行映射 ====================
 
   int _renderedRows(DiffResult diff, ViewMode mode) {
     if (mode == ViewMode.merged) return diff.entries.length;
-    final rows = cachedAlignedRows(diff);
-    if (mode == ViewMode.sideBySide) return rows.length;
-    var n = 0;
-    for (final r in rows) {
-      final delOp = r.del == null ? null : diff.entries[r.del!].operation;
-      final insOp = r.ins == null ? null : diff.entries[r.ins!].operation;
-      final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
-          (insOp == null || insOp == DiffOperation.equal);
-      if (onlyEqual) continue;
-      n++;
-    }
-    return n;
+    if (mode == ViewMode.sideBySide) return cachedAlignedRows(diff).length;
+    // diffOnly 现在是 ±2 上下文，不是纯差异行。
+    return cachedDiffOnlyRows(diff).length;
   }
+
+  /// entry → row 映射。按 (diff, mode) 缓存，O(1) 查询。
+  Map<int, int> _entryToRowMapOf(DiffResult diff, ViewMode mode) {
+    if (identical(_entryToRowMapFor, diff) &&
+        _entryToRowMapMode == mode &&
+        _entryToRowMap != null) {
+      return _entryToRowMap!;
+    }
+    final map = <int, int>{};
+    if (mode == ViewMode.merged) {
+      for (var i = 0; i < diff.entries.length; i++) {
+        map[i] = i;
+      }
+    } else if (mode == ViewMode.sideBySide) {
+      final rows = cachedAlignedRows(diff);
+      for (var r = 0; r < rows.length; r++) {
+        final spec = rows[r];
+        if (spec.del != null) map.putIfAbsent(spec.del!, () => r);
+        if (spec.ins != null) map.putIfAbsent(spec.ins!, () => r);
+      }
+    } else {
+      final rows = cachedDiffOnlyRows(diff);
+      for (var r = 0; r < rows.length; r++) {
+        final spec = rows[r];
+        if (spec.del != null) map.putIfAbsent(spec.del!, () => r);
+        if (spec.ins != null) map.putIfAbsent(spec.ins!, () => r);
+      }
+    }
+    _entryToRowMap = map;
+    _entryToRowMapFor = diff;
+    _entryToRowMapMode = mode;
+    return map;
+  }
+
+  int _entryToRow(DiffResult diff, int entryIndex, ViewMode mode) {
+    final map = _entryToRowMapOf(diff, mode);
+    return map[entryIndex] ?? -1;
+  }
+
+  /// 当前屏幕顶部对应哪个 entry（估算）。
+  int? _screenTopEntry() {
+    final diff = _diff;
+    if (diff == null) return null;
+    if (!_scrollController.hasClients) return null;
+    final mode = ref.read(viewModeProvider);
+    final totalRows = _renderedRows(diff, mode);
+    if (totalRows <= 0) return null;
+    final pos = _scrollController.position;
+    final maxExtent = pos.maxScrollExtent;
+    final currentRow = maxExtent <= 0
+        ? 0
+        : (pos.pixels / maxExtent * totalRows).round();
+
+    // 从映射表里找 row 最接近 currentRow 的 entry。
+    final map = _entryToRowMapOf(diff, mode);
+    int? best;
+    var bestDist = 1 << 30;
+    for (final e in map.entries) {
+      final d = (e.value - currentRow).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        best = e.key;
+      }
+    }
+    return best;
+  }
+
+  /// 当前屏幕顶部再往上 (delta 为负) / 往下 (delta 为正) 的 entry。
+  /// delta == 0 就是屏幕第一行。
+  int? _screenEntryAtDelta(int delta) {
+    final diff = _diff;
+    if (diff == null) return null;
+    if (!_scrollController.hasClients) return null;
+    final mode = ref.read(viewModeProvider);
+    final totalRows = _renderedRows(diff, mode);
+    if (totalRows <= 0) return null;
+    final pos = _scrollController.position;
+    final maxExtent = pos.maxScrollExtent;
+    final currentRow = maxExtent <= 0
+        ? 0
+        : (pos.pixels / maxExtent * totalRows).round();
+    var targetRow = currentRow + delta;
+    if (targetRow < 0) targetRow = 0;
+    if (targetRow >= totalRows) targetRow = totalRows - 1;
+
+    final map = _entryToRowMapOf(diff, mode);
+    int? best;
+    var bestDist = 1 << 30;
+    for (final e in map.entries) {
+      final d = (e.value - targetRow).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        best = e.key;
+      }
+    }
+    return best;
+  }
+
+  // ==================== 滚动 / 跳转 ====================
 
   void _scrollToEntry(int entryIndex) {
     final diff = _diff;
@@ -405,31 +506,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       totalRows: () => _renderedRows(diff, mode),
       entryToRow: (ei) => _entryToRow(diff, ei, mode),
     );
-    helper.scrollToEntry(entryIndex);
-  }
-
-  int _entryToRow(DiffResult diff, int entryIndex, ViewMode mode) {
-    if (mode == ViewMode.merged) return entryIndex;
-
-    final rows = cachedAlignedRows(diff);
-    if (mode == ViewMode.sideBySide) {
-      for (var r = 0; r < rows.length; r++) {
-        final spec = rows[r];
-        if (spec.del == entryIndex || spec.ins == entryIndex) return r;
-      }
-      return -1;
-    }
-    var row = 0;
-    for (final spec in rows) {
-      final delOp = spec.del == null ? null : diff.entries[spec.del!].operation;
-      final insOp = spec.ins == null ? null : diff.entries[spec.ins!].operation;
-      final onlyEqual = (delOp == null || delOp == DiffOperation.equal) &&
-          (insOp == null || insOp == DiffOperation.equal);
-      if (onlyEqual) continue;
-      if (spec.del == entryIndex || spec.ins == entryIndex) return row;
-      row++;
-    }
-    return -1;
+    // 无动画、瞬时到位。
+    helper.jumpToEntry(entryIndex);
   }
 
   void _nextMatch() {
@@ -507,9 +585,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     });
   }
 
-  /// 用 scrollController 的像素位置估算当前屏幕上方的差异处。
-  /// **不再依赖 GlobalKey**：按 maxScrollExtent 比例换算成行号，
-  /// 再在差异列表里二分/线性找最近的差异。
+  /// 用像素比例估算当前屏幕顶部对应哪个差异 entry。
+  /// **不再依赖 GlobalKey**，也不再 O(m×n)：靠 _entryToRowMap 的 O(1) 查询。
   void _captureAnchorNow() {
     if (!mounted) return;
     final diff = _diff;
@@ -529,11 +606,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final indices = _diffIndices();
     if (indices.isEmpty) return;
 
+    // 预建映射，O(1) 查询。
+    final map = _entryToRowMapOf(diff, mode);
+
     // 找第一个 row >= currentRow 的差异；没有就用最后一个。
     var bestPos = indices.length - 1;
     for (var i = 0; i < indices.length; i++) {
-      final row = _entryToRow(diff, indices[i], mode);
-      if (row < 0) continue;
+      final row = map[indices[i]];
+      if (row == null) continue;
       if (row >= currentRow) {
         bestPos = i;
         break;
@@ -550,118 +630,220 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
+  // ==================== 切视图 ====================
+
   Future<void> _switchView(ViewMode newMode) async {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
 
     _captureTimer?.cancel();
     _captureAnchorNow();
+
     final anchor = _anchorEntryIndex;
     final searchEntry = _currentMatchEntry;
     final hasSearch = _findQuery.isNotEmpty && _matchEntries.isNotEmpty;
 
-    // ===== 方向一：并排/合并 → 仅差异：不弹框，直接切，跳顶部 =====
-    if (newMode == ViewMode.diffOnly) {
-      ref.read(viewModeProvider.notifier).state = newMode;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (hasSearch) {
-          _findChanged(_findQuery, autoScroll: false);
-        }
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(0);
-        }
-      });
-      return;
-    }
+    // 弹窗：有没有查找词，选项不同。
+    final choice = await _showSwitchChoiceDialog(
+      newMode: newMode,
+      hasSearch: hasSearch,
+      searchEntry: searchEntry,
+      anchorEntry: anchor,
+    );
+    if (!mounted || choice == null) return;
 
-    // ===== 方向二：仅差异 → 并排/合并，且有查找词时弹框三选一 =====
-    _SwitchTarget? choice;
-    if (current == ViewMode.diffOnly && hasSearch) {
-      choice = await _showSwitchViewDialog(newMode);
-      if (!mounted || choice == null) return;
-    }
-
+    // 切换视图状态。
     ref.read(viewModeProvider.notifier).state = newMode;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // 用 postFrame 让新视图完成第一次 build 后再做精准跳转。
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
 
-      if (!hasSearch) {
-        if (anchor != null) _scrollToEntry(anchor);
-        return;
-      }
-
-      if (current == ViewMode.diffOnly) {
+      // 有查找词 → 重搜一次（可见行集合变了）。
+      if (hasSearch && current == ViewMode.diffOnly) {
         _findChanged(_findQuery, autoScroll: false);
       }
 
-      switch (choice ?? _SwitchTarget.anchor) {
-        case _SwitchTarget.match:
-          if (_matchEntries.isEmpty) return;
-          var bestPos = -1;
-          if (searchEntry != null) {
-            bestPos = _matchEntries.indexOf(searchEntry);
-            if (bestPos < 0) {
-              var bestDiff = 1 << 30;
-              for (var i = 0; i < _matchEntries.length; i++) {
-                final d = (_matchEntries[i] - searchEntry).abs();
-                if (d < bestDiff) {
-                  bestDiff = d;
-                  bestPos = i;
-                }
-              }
-            }
-          }
-          if (bestPos < 0) bestPos = 0;
-          setState(() => _matchPos = bestPos);
-          _scrollToEntry(_matchEntries[bestPos]);
-          break;
-        case _SwitchTarget.top:
-          if (_scrollController.hasClients) _scrollController.jumpTo(0);
-          break;
-        case _SwitchTarget.anchor:
-          if (anchor != null) _scrollToEntry(anchor);
-          break;
+      // 去顶部：直接 jumpTo(0)。
+      if (choice.isTop) {
+        _setPreciseAnchor(null);
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+        return;
       }
+
+      // 有目标 entry：走精准落点。
+      final target = choice.targetEntry;
+      if (target == null) return;
+      await _preciseJumpToEntry(target);
     });
   }
 
-  Future<_SwitchTarget?> _showSwitchViewDialog(ViewMode newMode) {
+  /// 精准跳转流程：
+  ///   1. 挂临时 GlobalKey 到目标 entry
+  ///   2. 触发一次 setState 让视图 rebuild（key 生效）
+  ///   3. postFrame 后调 jumpToEntryPrecise
+  ///   4. 完成后撤销 key
+  Future<void> _preciseJumpToEntry(int entryIndex) async {
+    final diff = _diff;
+    if (diff == null) return;
+    final mode = ref.read(viewModeProvider);
+
+    _setPreciseAnchor(entryIndex);
+    // 等一帧让视图挂上 key。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    if (_preciseAnchorEntry != entryIndex) return;
+
+    final helper = DiffScrollHelper(
+      scrollController: _scrollController,
+      totalRows: () => _renderedRows(diff, mode),
+      entryToRow: (ei) => _entryToRow(diff, ei, mode),
+    );
+    await helper.jumpToEntryPrecise(
+      entryIndex,
+      anchorKey: () => _preciseAnchorKey,
+    );
+
+    // 撤销临时 key。
+    if (!mounted) return;
+    _setPreciseAnchor(null);
+  }
+
+  void _setPreciseAnchor(int? entryIndex) {
+    setState(() {
+      _preciseAnchorEntry = entryIndex;
+      _preciseAnchorKey = entryIndex == null ? null : GlobalKey();
+    });
+  }
+
+  /// 切视图弹窗。
+  /// - 有查找词：3 选项（跳我搜的词 / 去顶部 / 停在当前位置）
+  /// - 无查找词：5 选项（停在第 1/2/3 行 + 屏幕上边那行 + 去顶部）
+  Future<_SwitchChoice?> _showSwitchChoiceDialog({
+    required ViewMode newMode,
+    required bool hasSearch,
+    required int? searchEntry,
+    required int? anchorEntry,
+  }) async {
     final modeName = switch (newMode) {
       ViewMode.sideBySide => '并排',
       ViewMode.merged => '合并',
       ViewMode.diffOnly => '仅差异',
     };
-    return showDialog<_SwitchTarget>(
+
+    // 计算 5 个选项各自的目标 entry。
+    final entryAt0 = _screenEntryAtDelta(0); // 屏幕第 1 行
+    final entryAt1 = _screenEntryAtDelta(1); // 屏幕第 2 行
+    final entryAt2 = _screenEntryAtDelta(2); // 屏幕第 3 行
+    final entryAtNeg = _screenEntryAtDelta(-1); // 屏幕顶部之上那行
+
+    final diff = _diff;
+
+    String preview(int? entryIndex) {
+      if (diff == null || entryIndex == null) return '';
+      final e = diff.entries[entryIndex];
+      final raw =
+          (e.operation == DiffOperation.replace && e.newText.isNotEmpty)
+              ? e.newText
+              : e.text;
+      if (raw.isEmpty) return '（空行）';
+      return raw.length > 20 ? '${raw.substring(0, 20)}…' : raw;
+    }
+
+    Widget choiceTile({
+      required IconData icon,
+      required String title,
+      required String? subtitle,
+      required VoidCallback onTap,
+    }) {
+      return ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: subtitle == null || subtitle.isEmpty
+            ? null
+            : Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+        onTap: onTap,
+      );
+    }
+
+    return showDialog<_SwitchChoice>(
       context: context,
-      builder: (c) => SimpleDialog(
-        title: Text('切换到$modeName视图'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-            child: Text(
-              '切换后会按新视图重新搜索。请选择要跳转到的位置：',
-              style: Theme.of(c).textTheme.bodySmall,
+      builder: (c) {
+        final children = <Widget>[];
+
+        if (hasSearch && searchEntry != null) {
+          children.add(choiceTile(
+            icon: Icons.search,
+            title: '跳到我搜的那个词',
+            subtitle: preview(searchEntry),
+            onTap: () => Navigator.pop(c, _SwitchChoice.entry(searchEntry)),
+          ));
+        } else {
+          // 无查找词：显示 4 个位置选项。
+          if (entryAt0 != null) {
+            children.add(choiceTile(
+              icon: Icons.looks_one,
+              title: '停在我现在看的地方（屏幕第 1 行）',
+              subtitle: preview(entryAt0),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAt0)),
+            ));
+          }
+          if (entryAt1 != null) {
+            children.add(choiceTile(
+              icon: Icons.looks_two,
+              title: '停在我现在看的地方（屏幕第 2 行）',
+              subtitle: preview(entryAt1),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAt1)),
+            ));
+          }
+          if (entryAt2 != null) {
+            children.add(choiceTile(
+              icon: Icons.looks_3,
+              title: '停在我现在看的地方（屏幕第 3 行）',
+              subtitle: preview(entryAt2),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAt2)),
+            ));
+          }
+          if (entryAtNeg != null) {
+            children.add(choiceTile(
+              icon: Icons.expand_less,
+              title: '屏幕顶部再往上一点',
+              subtitle: preview(entryAtNeg),
+              onTap: () => Navigator.pop(c, _SwitchChoice.entry(entryAtNeg)),
+            ));
+          }
+        }
+
+        // "跳到文件最开头" 始终有。
+        children.add(const Divider(height: 1));
+        children.add(choiceTile(
+          icon: Icons.vertical_align_top,
+          title: '跳到文件最开头',
+          subtitle: null,
+          onTap: () => Navigator.pop(c, const _SwitchChoice.top()),
+        ));
+
+        return SimpleDialog(
+          title: Text('切换到$modeName视图'),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text(
+                '切换后请选择要跳转到的位置：',
+                style: Theme.of(c).textTheme.bodySmall,
+              ),
             ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.search),
-            title: const Text('跳到当前搜索词所在的那一行'),
-            onTap: () => Navigator.pop(c, _SwitchTarget.match),
-          ),
-          ListTile(
-            leading: const Icon(Icons.vertical_align_top),
-            title: const Text('跳到文件最开头'),
-            onTap: () => Navigator.pop(c, _SwitchTarget.top),
-          ),
-          ListTile(
-            leading: const Icon(Icons.my_location),
-            title: const Text('跳到屏幕最上面那行对应位置'),
-            onTap: () => Navigator.pop(c, _SwitchTarget.anchor),
-          ),
-        ],
-      ),
+            ...children,
+          ],
+        );
+      },
     );
   }
 
@@ -1098,6 +1280,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _matchPos = -1;
     _cachedDiffIndices = null;
     _cachedDiffIndicesFor = null;
+    _entryToRowMap = null;
+    _entryToRowMapFor = null;
+    _entryToRowMapMode = null;
     DiffTextIndex.invalidate();
     setState(() {});
 
@@ -1308,6 +1493,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? modName,
   ) {
     final totalDiffs = _diffIndices().length;
+    final noWrap = ref.watch(noWrapProvider);
+    final preciseEntry = _preciseAnchorEntry;
+    final preciseKey = _preciseAnchorKey;
 
     return Scaffold(
       appBar: AppBar(
@@ -1316,7 +1504,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           style: TextStyle(fontSize: 11),
         ),
         actions: [
-          // 计数器单独订阅 _currentDiffPos，滚动时不重建其它部分。
           Center(
             key: const Key('diff-position'),
             child: Padding(
@@ -1376,6 +1563,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               } else if (v == 'syncScroll') {
                 final cur = ref.read(syncScrollProvider);
                 ref.read(syncScrollProvider.notifier).update(!cur);
+              } else if (v == 'noWrap') {
+                final cur = ref.read(noWrapProvider);
+                ref.read(noWrapProvider.notifier).state = !cur;
               } else if (v == 'displaySettings') {
                 _openDisplaySettings();
               } else if (v == 'comparisonSettings') {
@@ -1446,6 +1636,18 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     Icon(Icons.rule),
                     SizedBox(width: 10),
                     Text('比较设置'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'noWrap',
+                child: Row(
+                  children: [
+                    Icon(noWrap
+                        ? Icons.wrap_text
+                        : Icons.notes),
+                    const SizedBox(width: 10),
+                    Text(noWrap ? '关闭不换行' : '开启不换行'),
                   ],
                 ),
               ),
@@ -1522,8 +1724,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 _captureAnchor();
                 return false;
               },
-              // 去掉外层 GestureDetector：它会跟 ListView 的竖直拖动抢手势。
-              // 左右滑切差异改用 AppBar 里的上/下按钮。
               child: switch (viewMode) {
                 ViewMode.merged => MergedView(
                     result: diff,
@@ -1533,6 +1733,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     showLineNumbers: ref.watch(showLineNumbersProvider),
                     bodyFontSize: ref.watch(bodyFontSizeProvider),
                     gutterFontSize: ref.watch(gutterFontSizeProvider),
+                    noWrap: noWrap,
+                    preciseAnchorEntry: preciseEntry,
+                    preciseAnchorKey: preciseKey,
                     onLongPressEntry: (i) => _onRowLongPress([i]),
                   ),
                 ViewMode.sideBySide => SideBySideView(
@@ -1546,6 +1749,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     bodyFontSize: ref.watch(bodyFontSizeProvider),
                     gutterFontSize: ref.watch(gutterFontSizeProvider),
                     syncScroll: ref.watch(syncScrollProvider),
+                    noWrap: noWrap,
+                    preciseAnchorEntry: preciseEntry,
+                    preciseAnchorKey: preciseKey,
                     onLongPressEntry: _onRowLongPress,
                   ),
                 ViewMode.diffOnly => DiffOnlyView(
@@ -1558,6 +1764,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     showLineNumbers: ref.watch(showLineNumbersProvider),
                     bodyFontSize: ref.watch(bodyFontSizeProvider),
                     gutterFontSize: ref.watch(gutterFontSizeProvider),
+                    noWrap: noWrap,
+                    preciseAnchorEntry: preciseEntry,
+                    preciseAnchorKey: preciseKey,
                     onLongPressEntry: _onRowLongPress,
                   ),
               },
