@@ -1564,14 +1564,14 @@ PopupMenuItem<String>(
                   ),
                 ),
                 const SizedBox(width: 6),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton.tonalIcon(
-                    icon: const Icon(Icons.link, size: 18),
-                    label: const Text('复制路径'),
-                    onPressed: canProps ? _copyPath : null,
-                  ),
-                ),
+Expanded(
+  flex: 1,
+  child: FilledButton.tonal(
+    onPressed: canProps ? _copyPath : null,
+    child: const Text('复制路径'),
+  ),
+),
+                
               ],
             ),
             const SizedBox(height: 4),
