@@ -520,7 +520,7 @@ class _DiffCell extends StatelessWidget {
     return ColoredBox(
       color: bg,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -565,13 +565,13 @@ class _PaneHeader extends StatelessWidget {
     return Container(
       width: double.infinity,
       color: color.withValues(alpha: 0.08),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
       child: Text(
         fileName,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style:
-            TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+            TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }
