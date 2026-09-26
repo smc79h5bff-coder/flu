@@ -1,15 +1,20 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/storage/pref_keys.dart';
+import '../../../../core/storage/persistent_notifier.dart';
 import '../../help/presentation/help_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import '../../viewer/presentation/providers/diff_viewer_providers.dart';
 import 'replace_rules_screen.dart';
 
-/// 比较设置页面。所有规则/开关在同一列表中，顺序：
-///   关键词规则 → 正则规则 → 自定义规则 → 内置规则 → 忽略项
-/// 无分区标题、无分割线。
+/// 比较设置页面。
+///   一、批量替换规则（分组标题 + 便签）
+///   二、单条规则（分组标题 + 便签）
+///   三、忽略项（不加标题，直接跟一堆开关）
 class ComparisonSettingsScreen extends ConsumerWidget {
   const ComparisonSettingsScreen({super.key});
 
@@ -17,6 +22,7 @@ class ComparisonSettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final userRules = ref.watch(userRulesProvider);
     final builtinRules = ref.watch(builtinRulesWithStateProvider);
+    final enabledBuiltin = builtinRules.where((r) => r.enabled).length;
 
     return Scaffold(
       appBar: AppBar(
@@ -36,38 +42,76 @@ class ComparisonSettingsScreen extends ConsumerWidget {
         ],
       ),
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 32),
         children: [
-          // ---- 0. 关键词 / 正则 批量规则 ----
+          // ==================== 一、批量替换规则 ====================
+          const _SectionHeader(
+            sectionId: 'batch',
+            title: '批量替换规则',
+            defaultDescription:
+                '一整块文本，一行一条。适合一次写很多简单替换，速度快。\n'
+                '整块一起生效，没法单独关掉某一条。',
+          ),
           _entryTile(
             context,
             ref,
-            title: '关键词规则',
-            subtitle: '普通文字，一行一条。xx->=>yy 替换，xx 删除',
+            title: '普通文字替换',
+            subtitle: '特殊符号（. * + ? 等）按字面处理，无需转义。',
             isRegex: false,
           ),
           _entryTile(
             context,
             ref,
-            title: '正则规则',
-            subtitle: r'正则匹配，一行一条。\d+->=>N 替换，\d+ 删除',
+            title: '正则表达式替换',
+            subtitle: r'支持分组引用 $1 $2，适合复杂匹配。',
             isRegex: true,
           ),
 
-          // ---- 1. 自定义规则 ----
+          // ==================== 二、单条规则 ====================
+          const _SectionHeader(
+            sectionId: 'rules',
+            title: '单条规则',
+            defaultDescription:
+                '每条规则一个开关，可单独启用 / 关闭。\n'
+                '适合需要精细控制、临时想停某一条的场景。',
+          ),
+          _SubHeader(title: '自定义规则', count: userRules.length),
+          if (userRules.isEmpty)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                '还没有自定义规则',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
           for (final r in userRules)
             _ruleTile(context, ref, r, builtin: false),
           ListTile(
             leading: Icon(Icons.add_circle_outline,
                 color: Theme.of(context).colorScheme.primary),
-            title: const Text('新建规则'),
+            title: Text(
+              '新建规则',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: const Text(
+              '查找正则 → 替换串，可指定只对左侧/右侧生效',
+              style: TextStyle(fontSize: 12),
+            ),
             onTap: () => _showEditor(context, ref),
           ),
 
-          // ---- 2. 内置规则 ----
+          _SubHeader(
+            title: '内置规则',
+            count: enabledBuiltin,
+            total: builtinRules.length,
+          ),
           for (final r in builtinRules)
             _ruleTile(context, ref, r, builtin: true),
 
-          // ---- 3. 忽略项 ----
+          // ==================== 三、忽略项（保持原样，不加标题） ====================
           _switchTile(
             context,
             title: '删掉空白符号',
@@ -111,7 +155,8 @@ class ComparisonSettingsScreen extends ConsumerWidget {
           _switchTile(
             context,
             title: '忽略不可见字符',
-            subtitle: '删除零宽空格/连字、方向控制、BOM、软连字符、NBSP 等看不见的字符后再对比',
+            subtitle:
+                '删除零宽空格/连字、方向控制、BOM、软连字符、NBSP 等看不见的字符后再对比',
             value: ref.watch(ignoreInvisibleProvider),
             onChanged: (v) =>
                 ref.read(ignoreInvisibleProvider.notifier).state = v,
@@ -124,14 +169,11 @@ class ComparisonSettingsScreen extends ConsumerWidget {
             onChanged: (v) =>
                 ref.read(unifyAnsiProvider.notifier).state = v,
           ),
-
-          const SizedBox(height: 32),
         ],
       ),
     );
   }
 
-  /// 关键词 / 正则 规则入口。
   Widget _entryTile(
     BuildContext context,
     WidgetRef ref, {
@@ -238,6 +280,197 @@ class ComparisonSettingsScreen extends ConsumerWidget {
       builder: (_) => const _RuleEditorDialog(),
     );
     if (rule != null) ref.read(userRulesProvider.notifier).add(rule);
+  }
+}
+
+/// 分组标题横条。点击 → 弹窗记事本。
+/// 主页正文永远显示 [defaultDescription]，右上角便签图标反映有没有笔记。
+class _SectionHeader extends ConsumerWidget {
+  const _SectionHeader({
+    required this.sectionId,
+    required this.title,
+    required this.defaultDescription,
+  });
+
+  final String sectionId;
+  final String title;
+  final String defaultDescription;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notes = ref.watch(_notesProvider);
+    final userNote = notes[sectionId];
+    final hasNote = userNote != null && userNote.trim().isNotEmpty;
+    final s = Theme.of(context).colorScheme;
+
+    return Material(
+      color: s.primaryContainer.withOpacity(0.35),
+      child: InkWell(
+        onTap: () => _openNoteDialog(context, ref, userNote ?? ''),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+          margin: const EdgeInsets.only(top: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: s.onSurface,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    hasNote
+                        ? Icons.sticky_note_2
+                        : Icons.sticky_note_2_outlined,
+                    size: 18,
+                    color: hasNote ? s.primary : s.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                defaultDescription,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.4,
+                  color: s.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openNoteDialog(
+    BuildContext context,
+    WidgetRef ref,
+    String existing,
+  ) async {
+    final ctrl = TextEditingController(text: existing);
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('$title · 笔记'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                defaultDescription,
+                style: Theme.of(c).textTheme.labelSmall,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                maxLines: 10,
+                minLines: 5,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '在这里记点什么…',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (saved != null) {
+      ref.read(_notesProvider.notifier).setOne(sectionId, saved);
+    }
+  }
+}
+
+/// 子分组标题（自定义规则 / 内置规则）。
+class _SubHeader extends StatelessWidget {
+  const _SubHeader({
+    required this.title,
+    required this.count,
+    this.total,
+  });
+
+  final String title;
+  final int count;
+  final int? total;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final countText = total == null ? '$count 条' : '$count / $total 启用';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: s.onSurface,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            countText,
+            style: TextStyle(fontSize: 11, color: s.outline),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 两组说明各自的笔记（batch / rules）。
+final _notesProvider = NotifierProvider<_NotesNotifier, Map<String, String>>(
+  _NotesNotifier.new,
+);
+
+class _NotesNotifier extends PersistentNotifier<Map<String, String>> {
+  @override
+  String get key => PrefKeys.comparisonNotes;
+
+  @override
+  Map<String, String> get defaultValue => const {};
+
+  @override
+  Map<String, String> decode(String raw) {
+    final m = jsonDecode(raw) as Map<String, dynamic>;
+    return m.map((k, v) => MapEntry(k, v as String));
+  }
+
+  @override
+  String encode(Map<String, String> value) => jsonEncode(value);
+
+  void setOne(String sectionId, String text) {
+    final next = Map<String, String>.from(state);
+    if (text.trim().isEmpty) {
+      next.remove(sectionId);
+    } else {
+      next[sectionId] = text;
+    }
+    update(next);
   }
 }
 
