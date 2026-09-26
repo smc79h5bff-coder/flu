@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/storage/pref_keys.dart';
 import '../../../../core/storage/persistent_notifier.dart';
+import '../../../preprocessing/application/aho_corasick.dart';
 import '../../../preprocessing/application/builtin_rules.dart';
 import '../../../preprocessing/application/preprocessing_service.dart';
 import '../../../preprocessing/domain/preprocessing_rule.dart';
@@ -11,13 +12,27 @@ import '../../domain/import_source.dart';
 
 /// 正则缓存：同一个 pattern 只编译一次，之后复用。
 /// key 里带 multiLine 标志，避免同一个 pattern 用不同 multiLine 时串味。
+///
+/// 上限 [_regexCacheCap] 条，超出后清空重建。
+const int _regexCacheCap = 512;
 final Map<String, RegExp> _regexCache = {};
 
-RegExp _cachedRegex(String pattern, {bool multiLine = false}) =>
-    _regexCache.putIfAbsent(
-      '$multiLine|$pattern',
-      () => RegExp(pattern, multiLine: multiLine),
-    );
+RegExp _cachedRegex(String pattern, {bool multiLine = false}) {
+  final key = '$multiLine|$pattern';
+  final hit = _regexCache[key];
+  if (hit != null) return hit;
+  if (_regexCache.length >= _regexCacheCap) {
+    _regexCache.clear();
+  }
+  final re = RegExp(pattern, multiLine: multiLine);
+  _regexCache[key] = re;
+  return re;
+}
+
+/// 正则元字符。findPattern 含任意一个 → 走正则引擎；否则走 String 快路径。
+final RegExp _regexMeta = RegExp(r'[\^$.*+?()\[\]{}|\\]');
+
+bool _isPlainText(String s) => !_regexMeta.hasMatch(s);
 
 /// Holds the *raw* text imported from a local file / clipboard.
 /// **不持久化**：重启后清空。
@@ -206,6 +221,14 @@ String _unescapeReplacement(String s) {
 }
 
 /// 应用关键词规则到 [text]。
+///
+/// 删除类和替换类各合并到一个 Aho-Corasick 自动机，一次扫描完成所有替换。
+/// 复杂度 O(n + m)，与规则数量无关。取代原来的逐条正则交替。
+///
+/// 语义：
+/// - 最长模式优先（避免短词吃掉长词前缀）。
+/// - 非重叠匹配。
+/// - 删除/替换类之间**不链式触发**（AC 一次扫完，不回头处理新生成的文本）。
 String applyKeywordRules(String text, String rulesText) {
   if (text.isEmpty || rulesText.isEmpty) return text;
 
@@ -229,31 +252,36 @@ String applyKeywordRules(String text, String rulesText) {
 
   var out = text;
 
+  // 删除类：一个 AC 扫光所有关键词。AC 内部最长优先，不用手动排序。
   if (deletions.isNotEmpty) {
-    deletions.sort((a, b) => b.length.compareTo(a.length));
-    try {
-      final pattern = deletions.map(RegExp.escape).join('|');
-      out = out.replaceAll(_cachedRegex(pattern), '');
-    } catch (_) {
-      for (final w in deletions) {
-        out = out.replaceAll(w, '');
-      }
-    }
+    final ac = AhoCorasick(
+      patterns: deletions,
+      replacements: List<String>.filled(deletions.length, ''),
+    );
+    out = ac.replaceAll(out);
   }
 
-  for (final r in replacements) {
-    final repl = _unescapeReplacement(r.replace);
-    try {
-      out = out.replaceAll(_cachedRegex(RegExp.escape(r.find)), repl);
-    } catch (_) {
-      out = out.replaceAll(r.find, repl);
+  // 替换类：一个 AC 处理所有不同替换串。
+  if (replacements.isNotEmpty) {
+    final patterns = <String>[];
+    final reps = <String>[];
+    for (final r in replacements) {
+      patterns.add(r.find);
+      reps.add(_unescapeReplacement(r.replace));
     }
+    final ac = AhoCorasick(patterns: patterns, replacements: reps);
+    out = ac.replaceAll(out);
   }
 
   return out;
 }
 
 /// 应用正则规则到 [text]。逐条 replaceAll，非法正则跳过。
+///
+/// 纯文本 find 走 String.replaceAll 快路径（结果和正则一致，更快）：
+///   - 目标串在文本里不存在 → 整条跳过，不编译正则。
+///   - 存在 → 直接 String.replaceAll，绕开正则引擎。
+/// 含元字符的 find 走正则引擎（带缓存）。
 String applyRegexRules(String text, String rulesText) {
   if (text.isEmpty || rulesText.isEmpty) return text;
 
@@ -272,10 +300,18 @@ String applyRegexRules(String text, String rulesText) {
       replace = '';
     }
     if (find.isEmpty) continue;
-    try {
-      out = out.replaceAll(_cachedRegex(find), _unescapeReplacement(replace));
-    } catch (_) {
-      // 非法正则忽略，不影响其它规则。
+    final repl = _unescapeReplacement(replace);
+    if (_isPlainText(find)) {
+      // 纯文本：先检查文本里有没有，没有直接跳过
+      if (!out.contains(find)) continue;
+      out = out.replaceAll(find, repl);
+    } else {
+      // 真正则：走正则引擎（带缓存）
+      try {
+        out = out.replaceAll(_cachedRegex(find), repl);
+      } catch (_) {
+        // 非法正则忽略，不影响其它规则。
+      }
     }
   }
   return out;
