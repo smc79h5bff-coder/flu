@@ -1,6 +1,19 @@
 import '../domain/preprocessing_rule.dart';
 import 'builtin_rules.dart';
 
+/// 正则缓存：同一个 pattern 只编译一次，之后复用。
+/// key 里带 multiLine 标志，避免同一个 pattern 用不同 multiLine 时串味。
+final Map<String, RegExp> _regexCache = {};
+
+RegExp _cachedRegex(String pattern, {bool multiLine = true}) =>
+    _regexCache.putIfAbsent(
+      '$multiLine|$pattern',
+      () => RegExp(pattern, multiLine: multiLine),
+    );
+
+/// `$1` / `$2` 的展开正则，固定 pattern，提成顶层常量只编译一次。
+final RegExp _replacementRefPattern = RegExp(r'\$(\d)');
+
 /// Pipeline that runs built-in + user-defined rules over the parsed text
 /// before diff. PRD §2 Module 3.4.
 ///
@@ -56,7 +69,8 @@ class PreprocessingService {
   }
 
   String _applyOne(PreprocessingRule rule, String text) {
-    final re = RegExp(rule.findPattern, multiLine: true);
+    // 缓存复用，不再每次 new RegExp。
+    final re = _cachedRegex(rule.findPattern);
     // Built-in mask_phone / norm_number produce a fixed placeholder;
     // user rules use replacement string with $1, $2 back-references.
     if (rule.id == 'ignore_case') {
@@ -70,9 +84,8 @@ class PreprocessingService {
 
   String _expandReplacement(String tpl, Match m) {
     var out = StringBuffer();
-    final re = RegExp(r'\$(\d)');
     var last = 0;
-    for (final match in re.allMatches(tpl)) {
+    for (final match in _replacementRefPattern.allMatches(tpl)) {
       out.write(tpl.substring(last, match.start));
       final idx = int.parse(match.group(1)!);
       out.write(m.group(idx) ?? '');
