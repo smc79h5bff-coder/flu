@@ -4,7 +4,9 @@ class PrefKeys {
   const PrefKeys._();
 
   static const String _p = 'jianming.';
-static const String comparisonNotes = 'comparison_notes';
+
+  static const String comparisonNotes = 'comparison_notes';
+
   // ==================== 对比页显示设置 ====================
   static const String showLineNumbers = '${_p}display.showLineNumbers';
   static const String bodyFontSize = '${_p}display.bodyFontSize';
@@ -25,23 +27,17 @@ static const String comparisonNotes = 'comparison_notes';
   static const String colorCharInsertBg = '${_p}color.charInsertBg';
   static const String colorCharInsertFg = '${_p}color.charInsertFg';
 
-  // ==================== 比较忽略开关 ====================
-  // ==================== 比较忽略开关 ====================
-static const String ignoreRuleEnables = '${_p}ignore.ruleEnables';
-  static const String ignoreWhitespace = '${_p}ignore.whitespace';
-  static const String ignoreEmptyLines = '${_p}ignore.emptyLines';
-  static const String ignoreLineEndings = '${_p}ignore.lineEndings';
-  static const String unifyAnsi = '${_p}ignore.unifyAnsi';
-  static const String ignoreCase = '${_p}ignore.case';
-  static const String ignoreCommas = '${_p}ignore.commas';
-  static const String ignoreNumbers = '${_p}ignore.numbers';
-  static const String ignoreInvisible = '${_p}ignore.invisible';
-
   // ==================== 规则 ====================
   static const String keywordRulesText = '${_p}rules.keyword';
   static const String regexRulesText = '${_p}rules.regex';
   static const String userRules = '${_p}rules.user';
   static const String builtinRuleEnables = '${_p}rules.builtinEnables';
+/// 自定义规则编辑弹窗里，6 个开关的说明文字（用户可编辑）。
+static const String ruleFlagHelp = '${_p}rules.flagHelp';
+  /// 统一规则顺序。元素是单条规则 id，或块标记
+  /// `__block_keyword__` / `__block_regex__`。
+  /// 用 \u0000 分隔的字符串存。
+  static const String ruleOrder = '${_p}rules.order';
 
   // ==================== 文件浏览器 ====================
   static const String sortField = '${_p}browser.sortField';
