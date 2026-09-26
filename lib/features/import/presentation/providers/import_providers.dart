@@ -10,9 +10,8 @@ import '../../../preprocessing/application/preprocessing_service.dart';
 import '../../../preprocessing/domain/preprocessing_rule.dart';
 import '../../domain/import_source.dart';
 
-/// 正则缓存：同一个 pattern 只编译一次，之后复用。
-/// key 里带 multiLine 标志，避免同一个 pattern 用不同 multiLine 时串味。
-///
+// ==================== 正则缓存 ====================
+
 /// 上限 [_regexCacheCap] 条，超出后清空重建。
 const int _regexCacheCap = 512;
 final Map<String, RegExp> _regexCache = {};
@@ -33,6 +32,128 @@ RegExp _cachedRegex(String pattern, {bool multiLine = false}) {
 final RegExp _regexMeta = RegExp(r'[\^$.*+?()\[\]{}|\\]');
 
 bool _isPlainText(String s) => !_regexMeta.hasMatch(s);
+
+// ==================== 写死水印词库（可选） ====================
+
+/// 固定水印词库。全部走 Aho-Corasick 一次扫描删除。
+/// 留空表示不用。填的话直接往里加字符串。
+///
+/// 例：
+///   'xx小说网',
+///   'xx整理',
+const List<String> builtinWatermarks = <String>[
+  // 你的 300 个词填这里
+];
+
+/// 顶层 AC，写死词库只建一次 trie，永远不重建。
+/// 词库为空时是 null，运行时跳过。
+final AhoCorasick? _watermarkAc = builtinWatermarks.isEmpty
+    ? null
+    : AhoCorasick(
+        patterns: builtinWatermarks,
+        replacements: List<String>.filled(builtinWatermarks.length, ''),
+      );
+
+// ==================== 关键词规则解析缓存 + AC 缓存 ====================
+
+/// 一条规则文本解析出来的成果：删除类 AC + 替换类 AC。
+class _ParsedKeywordRules {
+  const _ParsedKeywordRules(this.deleteAc, this.replaceAc);
+  final AhoCorasick? deleteAc;
+  final AhoCorasick? replaceAc;
+}
+
+/// 上限 [_keywordRulesCacheCap] 条，超出清空。
+const int _keywordRulesCacheCap = 16;
+final Map<String, _ParsedKeywordRules> _keywordRulesCache = {};
+
+_ParsedKeywordRules _parseKeywordRules(String rulesText) {
+  final hit = _keywordRulesCache[rulesText];
+  if (hit != null) return hit;
+
+  final deletions = <String>[];
+  final replacements = <({String find, String replace})>[];
+
+  for (final raw in rulesText.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final idx = line.indexOf('->=>');
+    if (idx >= 0) {
+      final find = line.substring(0, idx);
+      final replace = line.substring(idx + 4);
+      if (find.isNotEmpty) {
+        replacements.add((find: find, replace: replace));
+      }
+    } else {
+      deletions.add(line);
+    }
+  }
+
+  final deleteAc = deletions.isEmpty
+      ? null
+      : AhoCorasick(
+          patterns: deletions,
+          replacements: List<String>.filled(deletions.length, ''),
+        );
+
+  AhoCorasick? replaceAc;
+  if (replacements.isNotEmpty) {
+    final patterns = <String>[];
+    final reps = <String>[];
+    for (final r in replacements) {
+      patterns.add(r.find);
+      reps.add(_unescapeReplacement(r.replace));
+    }
+    replaceAc = AhoCorasick(patterns: patterns, replacements: reps);
+  }
+
+  final parsed = _ParsedKeywordRules(deleteAc, replaceAc);
+  if (_keywordRulesCache.length >= _keywordRulesCacheCap) {
+    _keywordRulesCache.clear();
+  }
+  _keywordRulesCache[rulesText] = parsed;
+  return parsed;
+}
+
+// ==================== 正则规则解析缓存 ====================
+
+class _ParsedRegexRule {
+  const _ParsedRegexRule(this.find, this.replace, this.isPlain);
+  final String find;
+  final String replace;
+  final bool isPlain;
+}
+
+const int _regexRulesCacheCap = 16;
+final Map<String, List<_ParsedRegexRule>> _regexRulesCache = {};
+
+List<_ParsedRegexRule> _parseRegexRules(String rulesText) {
+  final hit = _regexRulesCache[rulesText];
+  if (hit != null) return hit;
+
+  final out = <_ParsedRegexRule>[];
+  for (final raw in rulesText.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final idx = line.indexOf('->=>');
+    final find = idx >= 0 ? line.substring(0, idx) : line;
+    final replace = idx >= 0 ? line.substring(idx + 4) : '';
+    if (find.isEmpty) continue;
+    out.add(_ParsedRegexRule(
+      find,
+      _unescapeReplacement(replace),
+      _isPlainText(find),
+    ));
+  }
+
+  if (_regexRulesCache.length >= _regexRulesCacheCap) {
+    _regexRulesCache.clear();
+  }
+  _regexRulesCache[rulesText] = out;
+  return out;
+}
+
+// ==================== Providers ====================
 
 /// Holds the *raw* text imported from a local file / clipboard.
 /// **不持久化**：重启后清空。
@@ -57,7 +178,6 @@ final showProcessedTextProvider = StateProvider<bool>((ref) => false);
 
 // ==================== 自定义预处理规则（持久化） ====================
 
-/// User-defined preprocessing rules (mutable list).
 final userRulesProvider =
     NotifierProvider<UserRulesNotifier, List<PreprocessingRule>>(
   UserRulesNotifier.new,
@@ -85,7 +205,6 @@ class UserRulesNotifier extends PersistentNotifier<List<PreprocessingRule>> {
 
   void add(PreprocessingRule rule) => update([...state, rule]);
 
-  /// 注意：这里叫 updateRule，因为基类已占用 `update` 这个名字（改值+写盘）。
   void updateRule(PreprocessingRule rule) => update([
         for (final r in state)
           if (r.id == rule.id) rule else r,
@@ -105,7 +224,6 @@ class UserRulesNotifier extends PersistentNotifier<List<PreprocessingRule>> {
 
 // ==================== 内置规则启用状态（持久化） ====================
 
-/// Built-in rule enabled-states, keyed by rule id.
 final builtinRuleEnablesProvider =
     NotifierProvider<BuiltinRuleEnablesNotifier, Map<String, bool>>(
   BuiltinRuleEnablesNotifier.new,
@@ -124,8 +242,6 @@ class BuiltinRuleEnablesNotifier
   @override
   Map<String, bool> decode(String raw) {
     final saved = jsonDecode(raw) as Map<String, dynamic>;
-    // 从当前默认值起步：这样新增的内置规则自动用默认状态，
-    // 已经删掉的旧规则 id 也不会被当成有效项保留。
     final out = <String, bool>{
       for (final r in BuiltinRules.all()) r.id: r.enabled,
     };
@@ -140,13 +256,11 @@ class BuiltinRuleEnablesNotifier
   @override
   String encode(Map<String, bool> value) => jsonEncode(value);
 
-  /// 便捷方法：单个规则开关。
   void setOne(String id, bool enabled) {
     update({...state, id: enabled});
   }
 }
 
-/// Built-in rules resolved against the user-selected enabled-states.
 final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
   final overrides = ref.watch(builtinRuleEnablesProvider);
   return <PreprocessingRule>[
@@ -156,15 +270,7 @@ final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
 });
 
 // ==================== 关键词 / 正则替换规则（持久化） ====================
-//
-// 两段纯文本，一行一条规则：
-//   xxx               → 删掉 xxx
-//   xxx->=>yyy        → 把 xxx 换成 yyy
-//
-// 替换串支持转义：\n \r \t \\ \0
-//   xxx->=>a\nb       → 把 xxx 换成 "a 换行 b"
 
-/// 关键词规则原文。
 final keywordRulesTextProvider =
     NotifierProvider<KeywordRulesTextNotifier, String>(
   KeywordRulesTextNotifier.new,
@@ -174,7 +280,6 @@ class KeywordRulesTextNotifier extends StringPrefNotifier {
   KeywordRulesTextNotifier() : super(key: PrefKeys.keywordRulesText);
 }
 
-/// 正则规则原文。
 final regexRulesTextProvider =
     NotifierProvider<RegexRulesTextNotifier, String>(
   RegexRulesTextNotifier.new,
@@ -222,93 +327,57 @@ String _unescapeReplacement(String s) {
 
 /// 应用关键词规则到 [text]。
 ///
-/// 删除类和替换类各合并到一个 Aho-Corasick 自动机，一次扫描完成所有替换。
-/// 复杂度 O(n + m)，与规则数量无关。取代原来的逐条正则交替。
+/// 顺序：
+///   1. 先跑写死水印词库（顶层 AC，永不重建）
+///   2. 再跑用户关键词规则（解析 + AC 按规则文本缓存，规则不变不重建）
 ///
 /// 语义：
-/// - 最长模式优先（避免短词吃掉长词前缀）。
-/// - 非重叠匹配。
-/// - 删除/替换类之间**不链式触发**（AC 一次扫完，不回头处理新生成的文本）。
+/// - 最长模式优先（AC 天然支持）
+/// - 非重叠匹配
+/// - 删除类和替换类**不链式触发**（一次扫完，不回头处理新文本）
 String applyKeywordRules(String text, String rulesText) {
-  if (text.isEmpty || rulesText.isEmpty) return text;
-
-  final deletions = <String>[];
-  final replacements = <({String find, String replace})>[];
-
-  for (final raw in rulesText.split('\n')) {
-    final line = raw.trim();
-    if (line.isEmpty) continue;
-    final idx = line.indexOf('->=>');
-    if (idx >= 0) {
-      final find = line.substring(0, idx);
-      final replace = line.substring(idx + 4);
-      if (find.isNotEmpty) {
-        replacements.add((find: find, replace: replace));
-      }
-    } else {
-      deletions.add(line);
-    }
-  }
+  if (text.isEmpty) return text;
 
   var out = text;
 
-  // 删除类：一个 AC 扫光所有关键词。AC 内部最长优先，不用手动排序。
-  if (deletions.isNotEmpty) {
-    final ac = AhoCorasick(
-      patterns: deletions,
-      replacements: List<String>.filled(deletions.length, ''),
-    );
-    out = ac.replaceAll(out);
+  // 1. 写死水印词库
+  final wm = _watermarkAc;
+  if (wm != null) {
+    out = wm.replaceAll(out);
   }
 
-  // 替换类：一个 AC 处理所有不同替换串。
-  if (replacements.isNotEmpty) {
-    final patterns = <String>[];
-    final reps = <String>[];
-    for (final r in replacements) {
-      patterns.add(r.find);
-      reps.add(_unescapeReplacement(r.replace));
-    }
-    final ac = AhoCorasick(patterns: patterns, replacements: reps);
-    out = ac.replaceAll(out);
+  // 2. 用户关键词规则
+  if (rulesText.isEmpty) return out;
+  final parsed = _parseKeywordRules(rulesText);
+  if (parsed.deleteAc != null) {
+    out = parsed.deleteAc!.replaceAll(out);
   }
-
+  if (parsed.replaceAc != null) {
+    out = parsed.replaceAc!.replaceAll(out);
+  }
   return out;
 }
 
 /// 应用正则规则到 [text]。逐条 replaceAll，非法正则跳过。
 ///
-/// 纯文本 find 走 String.replaceAll 快路径（结果和正则一致，更快）：
-///   - 目标串在文本里不存在 → 整条跳过，不编译正则。
-///   - 存在 → 直接 String.replaceAll，绕开正则引擎。
+/// 纯文本 find 走 String.replaceAll 快路径：
+///   - 目标串在文本里不存在 → 跳过，不编译正则
+///   - 存在 → String.replaceAll，绕开正则引擎
 /// 含元字符的 find 走正则引擎（带缓存）。
+///
+/// 解析结果按规则文本缓存，规则不变不重复解析。
 String applyRegexRules(String text, String rulesText) {
   if (text.isEmpty || rulesText.isEmpty) return text;
 
+  final rules = _parseRegexRules(rulesText);
   var out = text;
-  for (final raw in rulesText.split('\n')) {
-    final line = raw.trim();
-    if (line.isEmpty) continue;
-    final idx = line.indexOf('->=>');
-    String find;
-    String replace;
-    if (idx >= 0) {
-      find = line.substring(0, idx);
-      replace = line.substring(idx + 4);
+  for (final r in rules) {
+    if (r.isPlain) {
+      if (!out.contains(r.find)) continue;
+      out = out.replaceAll(r.find, r.replace);
     } else {
-      find = line;
-      replace = '';
-    }
-    if (find.isEmpty) continue;
-    final repl = _unescapeReplacement(replace);
-    if (_isPlainText(find)) {
-      // 纯文本：先检查文本里有没有，没有直接跳过
-      if (!out.contains(find)) continue;
-      out = out.replaceAll(find, repl);
-    } else {
-      // 真正则：走正则引擎（带缓存）
       try {
-        out = out.replaceAll(_cachedRegex(find), repl);
+        out = out.replaceAll(_cachedRegex(r.find), r.replace);
       } catch (_) {
         // 非法正则忽略，不影响其它规则。
       }
