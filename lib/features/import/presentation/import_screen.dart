@@ -390,31 +390,30 @@ class _IgnoreSettings extends ConsumerWidget {
                 ),
               ),
             ),
-            _IgnoreSwitch(
-              title: '忽略空白符号',
-              value: ref.watch(ignoreWhitespaceProvider),
-              onChanged: (v) => ref
-                  .read(ignoreWhitespaceProvider.notifier)
-                  .state = v,
-            ),
-            _IgnoreSwitch(
-              title: '忽略空行',
-              value: ref.watch(ignoreEmptyLinesProvider),
-              onChanged: (v) =>
-                  ref.read(ignoreEmptyLinesProvider.notifier).state = v,
-            ),
-            _IgnoreSwitch(
-              title: '忽略换行符',
-              value: ref.watch(ignoreLineEndingsProvider),
-              onChanged: (v) =>
-                  ref.read(ignoreLineEndingsProvider.notifier).state = v,
-            ),
-            _IgnoreSwitch(
-              title: '统一编码 ANSI 对比',
-              subtitle: '已是 ANSI(GBK) 不处理；非 ANSI 转 ANSI 并删除无法转换的字符',
-              value: ref.watch(unifyAnsiProvider),
-              onChanged: (v) => ref.read(unifyAnsiProvider.notifier).state = v,
-            ),
+_IgnoreSwitch(
+  title: '忽略空白符号',
+  value: ref.watch(ignoreWhitespaceProvider),
+  onChanged: (v) =>
+      ref.read(ignoreWhitespaceProvider.notifier).update(v),
+),
+_IgnoreSwitch(
+  title: '忽略空行',
+  value: ref.watch(ignoreEmptyLinesProvider),
+  onChanged: (v) =>
+      ref.read(ignoreEmptyLinesProvider.notifier).update(v),
+),
+_IgnoreSwitch(
+  title: '忽略换行符',
+  value: ref.watch(ignoreLineEndingsProvider),
+  onChanged: (v) =>
+      ref.read(ignoreLineEndingsProvider.notifier).update(v),
+),
+_IgnoreSwitch(
+  title: '统一编码 ANSI 对比',
+  subtitle: '已是 ANSI(GBK) 不处理；非 ANSI 转 ANSI 并删除无法转换的字符',
+  value: ref.watch(unifyAnsiProvider),
+  onChanged: (v) => ref.read(unifyAnsiProvider.notifier).update(v),
+),
           ],
         ),
       ),
