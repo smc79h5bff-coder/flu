@@ -411,37 +411,31 @@ if (autoScroll && matches.isNotEmpty) {
     _toast('已应用替换');
   }
 
-  void _applyRawChanges({
-    required bool isOriginal,
-    required Map<int, String> changes,
-  }) {
-    if (changes.isEmpty) return;
-    final raw = ref.read(
-      isOriginal ? originalRawTextProvider : modifiedRawTextProvider,
-    );
-    if (raw == null) return;
+void _applyRawChanges({
+  required bool isOriginal,
+  required Map<int, String> changes,
+}) {
+  if (changes.isEmpty) return;
 
-    final lines =
-        raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+  final current = ref.read(
+    isOriginal ? preprocessedOriginalProvider : preprocessedModifiedProvider,
+  );
+  if (current.isEmpty) return;
 
-    for (final entry in changes.entries) {
-final rawLine = rawLineForNormalizedLine(
-  raw,
-  normalizedLine: entry.key,
-  ignoreEnables: ref.read(ignoreRuleEnablesProvider),
-);
-      if (rawLine == null) continue;
-      if (rawLine < 0 || rawLine >= lines.length) continue;
-      lines[rawLine] = entry.value;
-    }
-
-    final newRaw = lines.join('\n');
-    if (isOriginal) {
-      ref.read(originalRawTextProvider.notifier).state = newRaw;
-    } else {
-      ref.read(modifiedRawTextProvider.notifier).state = newRaw;
-    }
+  final lines = current.split('\n');
+  for (final entry in changes.entries) {
+    final lineNo = entry.key;
+    if (lineNo < 0 || lineNo >= lines.length) continue;
+    lines[lineNo] = entry.value;
   }
+  final newProcessed = lines.join('\n');
+
+  if (isOriginal) {
+    ref.read(editedOriginalProvider.notifier).state = newProcessed;
+  } else {
+    ref.read(editedModifiedProvider.notifier).state = newProcessed;
+  }
+}
 
   Future<void> _closeFindBar() async {
     if (_pendingOrigChanges.isNotEmpty || _pendingModChanges.isNotEmpty) {
@@ -1232,35 +1226,27 @@ int _diffBlockCount(DiffResult diff) {
     return meta;
   }
 
-  void _replaceRawLine({
-    required bool isOriginal,
-    required int normalizedLine,
-    required String newText,
-  }) {
-    final raw = ref.read(
-      isOriginal ? originalRawTextProvider : modifiedRawTextProvider,
-    );
-    if (raw == null) return;
+void _replaceRawLine({
+  required bool isOriginal,
+  required int normalizedLine,
+  required String newText,
+}) {
+  final current = ref.read(
+    isOriginal ? preprocessedOriginalProvider : preprocessedModifiedProvider,
+  );
+  if (current.isEmpty) return;
 
-final rawLine = rawLineForNormalizedLine(
-  raw,
-  normalizedLine: normalizedLine,
-  ignoreEnables: ref.read(ignoreRuleEnablesProvider),
-);
-    if (rawLine == null) return;
+  final lines = current.split('\n');
+  if (normalizedLine < 0 || normalizedLine >= lines.length) return;
+  lines[normalizedLine] = newText;
+  final newProcessed = lines.join('\n');
 
-    final lines =
-        raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
-    if (rawLine < 0 || rawLine >= lines.length) return;
-    lines[rawLine] = newText;
-    final newRaw = lines.join('\n');
-
-    if (isOriginal) {
-      ref.read(originalRawTextProvider.notifier).state = newRaw;
-    } else {
-      ref.read(modifiedRawTextProvider.notifier).state = newRaw;
-    }
+  if (isOriginal) {
+    ref.read(editedOriginalProvider.notifier).state = newProcessed;
+  } else {
+    ref.read(editedModifiedProvider.notifier).state = newProcessed;
   }
+}
 
   Future<void> _onRowLongPress(List<int> entryIndices) async {
     final diff = _diff;
