@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 整页可编辑，编辑后保存到本地，重启后仍在。
 ///
 /// 本页不使用任何 Icon，全部用普通文字符号，避免打包后图标缺失。
+/// 阅读态支持双指捏合缩放字号，右上角小图标一键重置。
 class HelpScreen extends StatefulWidget {
   const HelpScreen({super.key});
 
@@ -80,19 +81,45 @@ App 里有很多长按触发的小功能，集中列在这里。
 入口一：文件浏览器右上角齿轮 → 「比较设置」。
 入口二：对比页右下角 ⋮ → 「比较设置」。
 
-列表从上到下：
-1. 关键词规则：一整块文本，每行一条，普通文字匹配，不把字符当正则。
-2. 正则规则：一整块文本，每行一条，按正则表达式匹配，支持 $1 分组引用。
-3. 自定义规则：一条条带开关的规则，可指定只对左/右侧生效，可单独停用。
-4. 内置规则：开发者写死的一组规则，只提供开关。
-5. 忽略项：一排开关，点一下立即生效，消除无关差异。
+页面上是一个统一的规则列表，**从上到下依次执行**。可以按住左侧手柄上下拖动任意一项，调整执行顺序。列表里有三类东西：
 
-应用顺序：内置规则 → 自定义规则 → 关键词规则 → 正则规则。
+1. 单条规则：每条一个开关，可拖动排序。内置规则（标 🔒）只能开关，自定义规则可开关、编辑、删除。
+2. 关键词规则：一整块文本，一行一条，普通文字匹配。
+3. 正则规则：一整块文本，一行一条，按正则表达式匹配。
+
+三样东西混在同一个列表里，可以随意穿插。比如把关键词块拖到某两条单条规则中间，它就那个位置执行。
+
+应用顺序：完全由列表顺序决定，从上到下。
 所有设置本地保存，重启后仍生效。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-五、关键词规则（批量删除/替换）
+五、单条规则（内置 + 自定义）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+内置规则：开发者写死的一组规则，只有开关，不能改不能删。标 🔒。
+自定义规则：点列表底部"新建规则"新建。填规则名、查找正则、替换串，选作用范围（两份 / 仅原文 / 仅修改版）。每条带开关，可编辑、可删除。
+
+内置规则里现在有这么几条（原「忽略项」已并入这里，不再单独存在）：
+
+  统一换行                     \r\n|\r → \n
+  折叠多余空白                 [ \t]{2,} → 空格
+  去行首尾空白                 行首/行尾的空白删掉
+  中英文引号统一                中英文引号统一成 "
+  逗号空格归一                 逗号后的多个空格压成一个
+  忽略不可见字符                删除零宽空格、BOM 等
+  删掉空白符号                 空格和 Tab 全删掉
+  删掉空行                     纯空行删掉（会改行数，注意顺序）
+  忽略逗号                     逗号全删掉
+  忽略纯数字                   连续数字变成 <NUM>
+  大写全转成小写               A 和 a 视为相同
+  统一编码 ANSI                非 ANSI 字符删掉，慎用
+
+关于执行顺序：规则从上到下依次跑。前面改了文本，后面看到的就是改后的文本。比如"删掉空行"排到最前，后面所有规则看到的都是删过空行的版本，行号也会跟着变。一般情况下别把它拖到最前面。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+六、关键词规则（批量删除/替换）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 用途：一次塞几百个要删除或替换的词（比如"xx小说网"、"xx整理"）。
@@ -117,7 +144,7 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-六、正则规则（高级匹配）
+七、正则规则（高级匹配）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 格式和关键词一样，但匹配串是正则表达式：
@@ -133,7 +160,7 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-七、正则速查表（想写什么，查这里）
+八、正则速查表（想写什么，查这里）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 — 数字 —
@@ -201,7 +228,7 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-八、常用正则组合（直接抄）
+九、常用正则组合（直接抄）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 把下面任意一行粘到"正则规则"编辑器里就能用。
@@ -244,7 +271,7 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-九、特殊字符怎么写
+十、特殊字符怎么写
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 替换串里，这些转义会被还原：
@@ -269,34 +296,20 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-十、自定义规则与内置规则
+十一、自定义规则与内置规则的差别
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-入口：比较设置页。
+两者都在同一个列表里，都能开关、能拖动排序。差别只有：
 
-自定义规则：点"新建规则"，填规则名、查找正则、替换串，选作用范围（两份 / 仅原文 / 仅修改版）。每条带一个开关，可单独启用/停用。
-内置规则：统一换行、折叠多余空白、去行首尾空白、中英文引号统一、逗号空格归一、忽略大小写、全角数字转半角。右侧开关可勾选启用。
+· 内置规则：开发者写死，标 🔒，不能改内容、不能删。
+· 自定义规则：能新建、编辑、删除。
 
 什么时候用自定义规则？
-· 只对左侧（原版）或右侧（修改版）生效 → 关键词/正则规则做不到。
+· 只对左侧（原版）或右侧（修改版）生效 → 内置和关键词/正则块做不到。
 · 需要临时停用某一条 → 关键词/正则规则要删行，自定义规则拨开关即可。
+· 需要 $1 捕获组展开 → 关键词规则不支持，正则规则也不支持，只有自定义规则支持（走 PreprocessingService 的 _expandReplacement）。
 
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-十一、忽略项
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-用于消除无关差异，点开关立即生效：
-
-· 删掉空白符号：去掉空格 / Tab 后比较。
-· 删掉空行：删除纯空行后再比较。
-· 统一换行符：统一 \r\n / \r / \n 三种换行格式。
-· 大写全转成小写：A 和 a 视为相同。
-· 忽略纯数字：连续数字（如 123）视为占位符 <NUM>。
-· 忽略不可见字符：删除零宽空格、方向控制、BOM、软连字符、NBSP 等看不见的字符。
-· 统一编码 ANSI：非 ANSI 字符（Emoji、生僻字）会被删除。开启会丢失内容，慎用。
-
-注意：导入页底部也有一小块同样的开关（只列了 4 个常用项），两处联动，改哪个都一样。
+注意：关键词块和正则块内部虽然也是"很多条替换"，但整块只有一条命，不能单独关掉块里某一行。想单独控制就拆出来用自定义规则。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -402,8 +415,9 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 默认配色：红色=左文件独有，绿色=右文件独有，浅粉=被改行（左），浅绿=被改行（右）。
 查找命中：浅黄高亮 + 加粗；当前停留的一处是粉色。
-关键词规则、正则规则、自定义规则、内置规则开关、忽略项、显示设置——全部本地保存，重启后仍生效。
+所有规则、开关、颜色、字号——全部本地保存，重启后仍生效。
 本页所有文字可长按选中复制（含代码块）。
+本页阅读时支持双指捏合缩放字号，右上角小图标一键重置为默认。
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -412,163 +426,59 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 想改某条规则，照这张表找文件。每一条都列出：定义在哪、应用在哪、UI 在哪、存储在哪。
 
-▶ 忽略项（当前 8 条）
-
-【定义】
-  diff_viewer_providers.dart
-  → defaultIgnoreRules()  返回 List<PreprocessingRule>
-  字段：id / name / findPattern / replaceWith / script / enabled
-
-【应用】
-  diff_viewer_providers.dart
-  → applyDiffIgnores(String text, Map<String,bool> enables)
-  遍历 defaultIgnoreRules()，enabled 为 true 就执行：
-    - 有 script → 走 switch (script) 里的分支
-    - 无 script → out.replaceAll(RegExp(findPattern, multiLine: true), replaceWith)
-
-【查询某条是否开着】
-  diff_viewer_providers.dart
-  → isIgnoreOn(enables, id)
-
-【启用状态存储】
-  diff_viewer_providers.dart
-  → ignoreRuleEnablesProvider（Map<String,bool>，持久化）
-  → IgnoreRuleEnablesNotifier.setOne(id, enabled)
-  key = PrefKeys.ignoreRuleEnables（pref_keys.dart）
-
-【比较设置页 UI】
-  comparison_settings_screen.dart
-  → _ignoreSubtitles（每条 id 的副标题，Map<String,String>）
-  → build 里 for (final r in defaultIgnoreRules()) _switchTile(...)
-    完全自动生成，不用手写
-
-【导入页 UI】
-  import_screen.dart
-  → _importScreenIgnoreIds = {ig_ws, ig_empty, ig_nl, ig_ansi}
-    只显示这几个（导入页空间小，不放全部）
-  → _importIgnoreSubtitles（导入页的副标题）
-
-【归一化行号映射】
-  diff_viewer_providers.dart
-  → rawLineForNormalizedLine(raw, normalizedLine, ignoreEnables)
-    读 ig_ws / ig_empty / ig_invisible 三个开关判断行号偏移
-    被 diff_viewer_screen.dart 两处调用：
-      _applyRawChanges() 和 _replaceRawLine()
-
-【当前 8 条的 id 和实现】
-  ig_nl         正则  \r\n|\r  →  \n
-  ig_invisible  正则  [\u00A0\u00AD\u200B-\u200F...] → 空
-  ig_ws         正则  [ \t]+ → 空
-  ig_empty      script  dropEmptyLines
-  ig_comma      正则  [,，] → 空
-  ig_num        正则  [0-9]+ → <NUM>
-  ig_case       script  lowercase
-  ig_ansi       script  unifyAnsi
-
-【加新脚本类型】
-  1. defaultIgnoreRules() 加一条带 script: '新标识' 的规则
-  2. applyDiffIgnores 的 switch (script) 加 case '新标识': ...
-
-
-▶ 内置规则（当前 7 条）
-
-【定义】
-  preprocessing/application/builtin_rules.dart
-  → BuiltinRules.all()  返回 List<PreprocessingRule>
-
-【应用】
-  preprocessing/application/preprocessing_service.dart
-  → PreprocessingService.apply(input, isOriginal)
-  合并逻辑：
-    active = [...]builtinRules.where(enabled) + ...userRules.where(enabled)
-    active.removeWhere(scope 不匹配 isOriginal 的)
-    if (active.length > 20) throw PreprocessingException
-    逐条 out = _applyOne(rule, out)
-
-【单条应用】
-  preprocessing_service.dart → _applyOne(rule, text)
-  三条分支：
-    1. rule.id == 'ignore_case' → text.toLowerCase()  【特判】
-    2. _isPlainText(findPattern) → text.replaceAll(find, replace)  【快路径】
-    3. 其它 → text.replaceAllMapped(_cachedRegex(find), 展开 $1 $2)
-
-【正则缓存】
-  preprocessing_service.dart → _cachedRegex(pattern, multiLine)
-  顶层 _regexCache，cap 512，超了 clear
-
-【启用状态存储】
-  import_providers.dart
-  → builtinRuleEnablesProvider（Map<String,bool>，持久化）
-  → BuiltinRuleEnablesNotifier.setOne(id, enabled)
-  key = PrefKeys.builtinRuleEnables
-  → builtinRulesWithStateProvider（合并出带启用状态的列表）
-
-【UI】
-  comparison_settings_screen.dart
-  → for (final r in builtinRules) _ruleTile(...)
-
-【当前 7 条的 id 和实现】
-  norm_eol        \r\n|\r           → \n      默认开
-  norm_ws         [ \t]{2,}          → " "     默认开
-  trim_line       ^[ \t]+|[ \t]+$   → 空      默认开
-  norm_quote      ["“”]          → "      默认关
-  norm_comma      [,，] +            → ，      默认开
-  ignore_case     特判 toLowerCase()              默认关
-  norm_number     [０-９]             → 0      默认关（这条实际是坏的）
-
-【注意】
-  ignore_case 和 norm_number 走特判。
-  改它们的 id 会让特判失效，只能改 name / enabled。
-
-
-▶ 自定义规则（用户新建）
+▶ 单条规则（内置 + 自定义合并）
 
 【数据结构】
   preprocessing/domain/preprocessing_rule.dart → PreprocessingRule
   字段：id / name / findPattern / replaceWith / scope / enabled / isBuiltin / script
 
-【作用范围】
-  RuleScope 枚举：both / originalOnly / modifiedOnly
-
-【存储】
-  import_providers.dart
-  → userRulesProvider（List<PreprocessingRule>，持久化）
-  → UserRulesNotifier
-    .add(rule) / .updateRule(rule) / .remove(id) / .toggle(id)
-    .importFromJson(list)
-  key = PrefKeys.userRules（JSON 序列化）
+【内置规则定义】
+  preprocessing/application/builtin_rules.dart → BuiltinRules.all()
+  原「忽略项」的 8 条已并入这里，不再单独存在
 
 【应用】
-  同内置规则，一起进 PreprocessingService.apply()
-  顺序：内置规则先跑（BuiltinRules.all() 在前），自定义规则后跑
-  合并后 active.length > 20 会抛异常
+  preprocessing/application/preprocessing_service.dart → applyOneRule(text, rule)
+  一条规则的执行入口：
+    - 有 script → switch (script) 分支（lowercase / dropEmptyLines / unifyAnsi）
+    - 无 script 且 findPattern 是纯文本 → 走 String.replaceAll 快路径
+    - 否则 → 走正则 replaceAllMapped，支持 $1 展开
+
+【执行顺序】
+  import_providers.dart → ruleOrderProvider
+  存储 key = PrefKeys.ruleOrder
+  元素是：单条规则 id / __block_keyword__ / __block_regex__
+  改顺序：拖动列表项 → setAll(newList)
+
+【合并列表】
+  import_providers.dart → ruleByIdProvider（id → 规则）
+  内置 + 自定义都在这个 map 里
+
+【内置开关存储】
+  import_providers.dart → builtinRuleEnablesProvider（Map<String,bool>）
+  key = PrefKeys.builtinRuleEnables
+
+【自定义规则存储】
+  import_providers.dart → userRulesProvider（List<PreprocessingRule>）
+  key = PrefKeys.userRules（JSON 序列化）
 
 【UI】
-  comparison_settings_screen.dart
-  → _ruleTile(context, ref, rule, builtin: false)
-  → _RuleEditorDialog（新建规则弹窗）
-    字段：规则名 / 查找正则 / 替换串 / 作用范围
-  保存前会 try RegExp(find) 校验，非法则弹 SnackBar
-
-【默认值】
-  import_providers.dart → UserRulesNotifier.defaultValue
-  当前是 const []（空列表）
-  想让新用户自带示例规则，在这里填
+  comparison_settings_screen.dart → ComparisonSettingsScreen
+  单条规则渲染：_buildSingleTile
+  拖动：ReorderableListView.builder + ReorderableDragStartListener
+  新建/编辑弹窗：_RuleEditorDialog
 
 
 ▶ 关键词规则（一整块文本）
 
 【存储】
-  import_providers.dart
-  → keywordRulesTextProvider（String，持久化）
-  → KeywordRulesTextNotifier extends StringPrefNotifier
+  import_providers.dart → keywordRulesTextProvider
   key = PrefKeys.keywordRulesText
 
 【解析】
   import_providers.dart → _parseKeywordRules(rulesText)
   按行 split，每行 trim：
-    含 ->=> → 拆成 (find, replace)，进 replacements 列表
-    不含    → 整行进 deletions 列表（会被删掉）
+    含 ->=> → 拆成 (find, replace)
+    不含    → 整行进 deletions 列表
   结果装进 _ParsedKeywordRules
   deleteAc：删除类的 Aho-Corasick
   replaceAc：替换类的 Aho-Corasick
@@ -584,110 +494,64 @@ App 里有很多长按触发的小功能，集中列在这里。
   3. 再跑 replaceAc.replaceAll(out) 一次扫描
 
 【AC 实现】
-  preprocessing/application/aho_corasick.dart
-  → AhoCorasick(patterns, replacements)
-  → .replaceAll(text)
+  preprocessing/application/aho_corasick.dart → AhoCorasick
   语义：最长优先、非重叠、一次扫描 O(n+m)
-
-【写死水印】
-  import_providers.dart → builtinWatermarks
-  一个 const List<String>，当前是空
-  填进去的词会跟关键词规则一起生效，但不受用户编辑
-  顶层 _watermarkAc 只建一次，永不重建
-
-【转义还原】
-  import_providers.dart → _unescapeReplacement(s)
-  只处理 4 种：\n \r \t \0 和 \\
-  其它 \x 原样保留
 
 【编辑器 UI】
   replace_rules_screen.dart（isRegex: false）
   整页 TextField + 顶部说明 + 底部行数
-  保存时 update(ctrl.text) + importRevision++
-
-【性能特征】
-  不论多少条规则，全文扫 2 遍（删除类 + 替换类）
-  比正则规则逐条扫快一个数量级
-  不支持正则、不支持 $1 捕获组、不链式触发
 
 
 ▶ 正则规则（一整块文本）
 
 【存储】
-  import_providers.dart
-  → regexRulesTextProvider（String，持久化）
-  → RegexRulesTextNotifier extends StringPrefNotifier
+  import_providers.dart → regexRulesTextProvider
   key = PrefKeys.regexRulesText
 
 【解析】
   import_providers.dart → _parseRegexRules(rulesText)
-  按行 split，每行 trim：
-    含 ->=> → 拆成 (find, replace)
-    不含    → find = 整行，replace = 空（删掉）
   每条判断 _isPlainText(find)：
     true  → 纯文本，走 String.replaceAll 快路径
     false → 正则，走 _cachedRegex
-  结果：List<_ParsedRegexRule>(find, replace, isPlain)
 
 【缓存】
-  _regexRulesCache（按 rulesText 作 key）
-  cap 16，超了 clear
-  _regexCache（按 pattern 作 key）
-  cap 512，超了 clear
+  _regexRulesCache（按 rulesText 作 key）cap 16
+  _regexCache（按 pattern 作 key）cap 512
 
 【应用】
   import_providers.dart → applyRegexRules(text, rulesText)
   for (final r in rules)：
     if (r.isPlain)：
-      if (!out.contains(r.find)) continue   ← 目标串不存在直接跳过
+      if (!out.contains(r.find)) continue
       out = out.replaceAll(r.find, r.replace)
     else：
       try { out = out.replaceAll(_cachedRegex(r.find), r.replace) }
-      catch (_) {}   ← 非法正则忽略，不影响其它行
+      catch (_) {}
 
 【元字符判断】
   import_providers.dart → _regexMeta
   RegExp(r'[\^$.*+?()\[\]{}|\\]')
   _isPlainText(s) = !_regexMeta.hasMatch(s)
 
-【不支持 $1 展开】
-  这条管线里替换串原样输出
-  想要 $1 捕获组？只能走自定义规则（PreprocessingService 里有 _expandReplacement）
-
 【编辑器 UI】
   replace_rules_screen.dart（isRegex: true）
-  同关键词规则编辑器，只是顶部说明不同
 
 
 ▶ 处理管线完整顺序
 
   原始文本 raw
     │
-    ├─→ ① PreprocessingService.apply()
-    │      内置规则 + 自定义规则
-    │      import_providers.dart → preprocessedOriginalProvider
+    ├─→ 按 ruleOrderProvider 里的顺序遍历：
+    │     遇到单条规则 id → applyOneRule
+    │     遇到 __block_keyword__ → applyKeywordRules
+    │     遇到 __block_regex__ → applyRegexRules
     │
-    ├─→ ② applyKeywordRules()
-    │      关键词规则（Aho-Corasick）
-    │      import_providers.dart
-    │
-    ├─→ ③ applyRegexRules()
-    │      正则规则（逐条 replaceAll）
-    │      import_providers.dart
-    │
-    ├─→ ④ applyDiffIgnores()
-    │      忽略项（列表式遍历）
-    │      diff_viewer_providers.dart → diffResultProvider
-    │
-    └─→ ⑤ _computeInWorker()
-           真正的 diff 计算（isolate 里跑）
-           PUA 路径（uniqueCount <= 6000）或 Myers 路径
+    └─→ 输出 preprocessedOriginal / preprocessedModified
+          ↓
+          diffResultProvider → _computeInWorker
+          （PUA 路径 uniqueCount <= 6000 或 Myers 路径）
 
-  ① ② ③ 在 preprocessedOriginalProvider / preprocessedModifiedProvider 里
-  ④ ⑤ 在 diffResultProvider 里
-
-  每改一条规则、改一个忽略开关、改一份原文 → 整条管线重跑
-  importRevision++ 也会触发重跑
+  改任意一条规则、改开关、改原文、importRevision++ → 整条管线重跑
 
 
 ▶ 显示设置 & 差异颜色
@@ -699,9 +563,9 @@ App 里有很多长按触发的小功能，集中列在这里。
   syncScrollProvider        两栏同步滚动，默认 true
 
 【非持久化开关】diff_viewer_providers.dart
-  viewModeProvider          当前视图（merged / sideBySide / diffOnly / diffOnlyPlain）
-  noWrapProvider            不换行，默认 false（关 App 复位）
-  showPerfOverlayProvider   性能面板，默认 false（关 App 复位）
+  viewModeProvider
+  noWrapProvider
+  showPerfOverlayProvider
 
 【12 个差异颜色】diff_viewer_providers.dart
   deleteRowBg / deleteRowFg         左文件独有行
@@ -710,15 +574,10 @@ App 里有很多长按触发的小功能，集中列在这里。
   replaceRightBg / replaceRightFg   被改行（右）
   charDeleteBg / charDeleteFg       行内删掉的字
   charInsertBg / charInsertFg       行内新增的字
-  各用 ColorPrefNotifier，key 在 PrefKeys 里
 
-【diff 算法参数】diff_viewer_providers.dart 顶部
-  _puaLimit = 6000      唯一行数 ≤ 这个值走 PUA 编码路径（快）
-  _myersMaxD = 5000     Myers 最大编辑距离，超过退化
-
-【UI 入口】
-  显示设置面板：diff_viewer_screen.dart → _DisplaySettingsSheet
-  入口：更多菜单 → 显示设置
+【diff 算法参数】diff_viewer_providers.dart
+  _puaLimit = 6000
+  _myersMaxD = 5000
 
 
 ▶ 存储 key 总表（PrefKeys）
@@ -739,15 +598,12 @@ App 里有很多长按触发的小功能，集中列在这里。
   jianming.color.charDeleteBg / charDeleteFg
   jianming.color.charInsertBg / charInsertFg
 
-【忽略项】
-  jianming.ignore.ruleEnables（Map<String,bool>）
-  （旧的 ignore.whitespace 等 key 保留但不再用）
-
 【规则】
   jianming.rules.keyword（String）
   jianming.rules.regex（String）
   jianming.rules.user（JSON）
   jianming.rules.builtinEnables（JSON Map）
+  jianming.rules.order（\u0000 分隔的 id 列表）
 
 【文件浏览器】
   jianming.browser.sortField / sortAsc / favorites
@@ -768,25 +624,20 @@ App 里有很多长按触发的小功能，集中列在这里。
 
 ▶ 快速定位
 
-改忽略项             → diff_viewer_providers.dart → defaultIgnoreRules()
-改内置规则           → preprocessing/application/builtin_rules.dart → BuiltinRules.all()
-加忽略项脚本类型     → diff_viewer_providers.dart → applyDiffIgnores 里 switch
-加内置特判           → preprocessing_service.dart → _applyOne
+改单条规则定义       → builtin_rules.dart → BuiltinRules.all()
+加单条规则脚本类型   → preprocessing_service.dart → applyOneRule 里 switch
+改规则执行顺序存储   → import_providers.dart → ruleOrderProvider
 改关键词解析语法     → import_providers.dart → _parseKeywordRules
 改正则解析语法       → import_providers.dart → _parseRegexRules
 改关键词应用流程     → import_providers.dart → applyKeywordRules
 改正则应用流程       → import_providers.dart → applyRegexRules
-改关键词默认文本     → import_providers.dart → KeywordRulesTextNotifier 的 initial
-改正则默认文本       → import_providers.dart → RegexRulesTextNotifier 的 initial
 改自定义规则默认值   → import_providers.dart → UserRulesNotifier.defaultValue
-改规则上限（20 条）  → preprocessing_service.dart → apply() 里 if (active.length > 20)
 改 diff 算法参数     → diff_viewer_providers.dart → _puaLimit / _myersMaxD
 改 diff 主流程       → diff_viewer_providers.dart → diffResultProvider
 改 12 个颜色默认值   → diff_viewer_providers.dart → 各 xxxBgProvider / xxxFgProvider 的 initial
 改字号默认值         → diff_viewer_providers.dart → BodyFontSizeNotifier 等
-改忽略项副标题       → comparison_settings_screen.dart → _ignoreSubtitles
-改导入页显示的忽略项 → import_screen.dart → _importScreenIgnoreIds
-改导入页忽略项副标题 → import_screen.dart → _importIgnoreSubtitles
+改比较设置页 UI      → comparison_settings_screen.dart
+改关键词/正则编辑器  → replace_rules_screen.dart
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -801,10 +652,9 @@ App 里有很多长按触发的小功能，集中列在这里。
 【A】字符串 API —— 正则做不到或很难做
 
 ■ 大小写转换
-  text.toLowerCase()               整段转小写（全 Unicode）
+  text.toLowerCase()               整段转小写
   text.toUpperCase()               整段转大写
-  text[0].toUpperCase() + text.substring(1)   首字母大写
-  一行顶 26 条字母替换，且覆盖法语、德语、希腊、俄语等所有语言
+  一行顶 26 条字母替换，且覆盖所有语言
   正则做不到。现有 ig_case 就是 script: lowercase
 
 ■ 去首尾空白
@@ -816,91 +666,56 @@ App 里有很多长按触发的小功能，集中列在这里。
 ■ 按行切分 / 合并
   text.split('\n')                 切成行列表
   lines.join('\n')                 拼回文本
-  可以配合下面所有行级操作一起用
 
 ■ 去重复行
-  text.split('\n').toSet().toList()   去掉内容重复的行
-  正则做不到。它需要跨行记住"这行出现过没有"
+  text.split('\n').toSet().toList()
+  正则做不到
 
 ■ 行排序 / 倒序
   lines..sort()                              字典序排列
-  lines..sort((a,b)=>b.length.compareTo(a.length))   按长度排
   lines.reversed.join('\n')                 整篇行倒序
-  lines.shuffle()                            打乱
   正则做不到
 
 ■ 行过滤
-  lines.where((l) => l.contains('关键词')).join('\n')    只留含某词的行
-  lines.where((l) => !l.contains('广告')).join('\n')   去掉含某词的行
-  lines.where((l) => l.length > 5).join('\n')           去掉太短的行
-  lines.where((l) => l.length < 500).join('\n')         去掉太长的行
+  lines.where((l) => l.contains('关键词')).join('\n')
+  lines.where((l) => !l.contains('广告')).join('\n')
+  lines.where((l) => l.length > 5).join('\n')
   正则做不到
 
 ■ 加行号
   lines.asMap().entries.map((e) => '${e.key+1}. ${e.value}').join('\n')
-  正则做不到（正则无法生成递增编号）
+  正则做不到
 
 ■ 去掉空行（含纯空格行）
   lines.where((l) => l.trim().isNotEmpty).join('\n')
-  正则 ^\s*$ 处理多行空行不干净，尤其头尾。写代码更彻底
   现有 ig_empty 就是 script: dropEmptyLines
-
-■ 填充 / 截断
-  text.padLeft(10, '0')     左填充到 10 位
-  text.padRight(10, ' ')    右填充
-  text.substring(0, 100)     截前 100 字符
 
 【B】正则一条顶很多条
 
 ■ Unicode 分类过滤（Dart 需 unicode: true）
-  RegExp(r'\p{L}', unicode: true)   所有字母（中英日韩希腊俄…）
-  RegExp(r'\p{N}', unicode: true)   所有数字（阿拉伯、中文、罗马…）
+  RegExp(r'\p{L}', unicode: true)   所有字母
+  RegExp(r'\p{N}', unicode: true)   所有数字
   RegExp(r'\p{P}', unicode: true)   所有标点
-  RegExp(r'\p{S}', unicode: true)   所有符号（含 emoji）
-  RegExp(r'\p{Z}', unicode: true)   所有分隔符（空格类）
-  RegExp(r'\p{M}', unicode: true)   所有组合符
   RegExp(r'\p{C}', unicode: true)   所有控制/不可见字符
 
   例：删所有不可见字符
     text.replaceAll(RegExp(r'\p{C}', unicode: true), '')
-  一条顶现在那个硬编码的 _invisibleChars 那一大串 \u00A0\u00AD\u200B...
 
 ■ 保留字母数字
   text.replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), '')
-  删掉所有标点、符号、emoji、控制字符
 
 ■ 多行模式（^ 和 $ 匹配每行）
-  RegExp(r'^[ \t]+', multiLine: true)   每行开头的空白
-  RegExp(r'[ \t]+$', multiLine: true)   每行结尾的空白
-  multiLine: true 是关键，不加的话 ^ 只匹配整段开头
-
-■ 空白折叠
-  RegExp(r'\s+')       所有空白（空格/Tab/换行）
-  RegExp(r'[ \t]+')    空格和 Tab
-  RegExp(r'[^\S\n]+')  空格和 Tab 但不碰换行
-
-■ 连续字符压缩
-  RegExp(r'\n{3,}')      3 个以上换行
-  RegExp(r'[.。…⋯]+')    连续点号/省略号
-  RegExp(r'[,，]{2,}')   连续逗号
-
-■ 后向引用（匹配重复）
-  RegExp(r'(\w+)\s+\1')   匹配连续重复的词
-
-■ 命名捕获组
-  RegExp(r'(?<year>\d{4})-(?<month>\d{2})')
-  匹配后 m.namedGroup('year')
+  RegExp(r'^[ \t]+', multiLine: true)
+  RegExp(r'[ \t]+$', multiLine: true)
 
 【C】码位运算（正则做不到）
 
 ■ 全角转半角
   String.fromCharCodes(text.runes.map((c) {
     if (c >= 0xFF01 && c <= 0xFF5E) return c - 0xFEE0;
-    if (c == 0x3000) return 0x20;  // 全角空格
+    if (c == 0x3000) return 0x20;
     return c;
   }))
-  覆盖数字、字母、标点，全 Unicode 完整映射
-  现有 norm_number 就是这条（但代码里是坏的，只转了 0）
 
 ■ 半角转全角
   String.fromCharCodes(text.runes.map((c) {
@@ -909,492 +724,69 @@ App 里有很多长按触发的小功能，集中列在这里。
     return c;
   }))
 
-■ 统一编码 ANSI（去掉无法转 GBK 的字符）
+■ 统一编码 ANSI
   逐字符 gbk.encode，能还原的才保留
-  现有 ig_ansi 就是 script: unifyAnsi（在 diff_viewer_providers.dart）
+  现有 ig_ansi 就是 script: unifyAnsi
 
 【D】需要引包的（正则绝对做不到）
 
-■ NFC / NFD 归一化（é 的两种编码统一）
+■ NFC / NFD 归一化
   import 'package:unicode/unicode.dart';
-  text.nfc()   规范组合
-  text.nfd()   规范分解
-  text.nfkc()  兼容分解（①→1，㈱→(株)）
-  同一字符不同编码长得一样但码位不同，归一化后统一
+  text.nfc() / text.nfd() / text.nfkc()
 
-■ Grapheme 切分（用户感知字符）
+■ Grapheme 切分
   import 'package:characters/characters.dart';
-  text.characters.length   按"用户感知字符"计数
-  处理 emoji、组合字、印地语连字
-  text.length 在很多语言里不等于 text.characters.length
+  text.characters.length
 
 ■ 简繁转换
   import 'package:opencc/opencc.dart';
-  OpenCC.s2t(text)   简 → 繁
-  OpenCC.t2s(text)   繁 → 简
+  OpenCC.s2t(text) / OpenCC.t2s(text)
 
 ■ 拼音
   import 'package:pinyin/pinyin.dart';
-  PinyinHelper.getPinyinE(text)     汉字 → 拼音
-  PinyinHelper.getShortPinyin(text) 汉字 → 首字母
-
-■ 中文分词（jieba 类）
-  需要第三方包
+  PinyinHelper.getPinyinE(text)
 
 ■ 编码转换
-  base64Encode(utf8.encode(text))     Base64 编码
-  utf8.decode(base64Decode(b64))     Base64 解码
-  Uri.encodeComponent(text)          URL 编码
-  Uri.decodeComponent(enc)           URL 解码
-  const HtmlEscape().convert(text)   HTML 实体编码
-  const HtmlUnescape().convert(text) HTML 实体解码
+  base64Encode(utf8.encode(text))
+  Uri.encodeComponent(text)
+  const HtmlEscape().convert(text)
 
 ■ 哈希摘要
   import 'package:crypto/crypto.dart';
   md5.convert(utf8.encode(text)).toString()
   sha256.convert(utf8.encode(text)).toString()
 
-【E】需要写函数（几十行，做一次就够）
+【E】决策口诀
 
-■ 中文数字 ↔ 阿拉伯数字
-  "一二三" ↔ "123"、"壹贰叁" ↔ "123"
-  需要字典 + 位权处理
-
-■ 罗马数字互转
-  "IV" ↔ 4、"MCMLXXXIV" ↔ 1984
-
-■ 进制转换
-  int.parse('ff', radix: 16)     十六进制 → 十进制
-  255.toRadixString(16)          十进制 → 十六进制
-  int.parse('1010', radix: 2)    二进制
-
-■ 科学计数法
-  double.parse('1.5e10')         字符串 → 数字
-
-■ 千分位
-  1234567.toString().replaceAllMapped(
-    RegExp(r'(\d)(?=(\d{3})+$)'),
-    (m) => '${m[1]},',
-  )
-
-■ 词频统计
-  final words = text.split(RegExp(r'\s+'));
-  final freq = <String, int>{};
-  for (final w in words) freq[w] = (freq[w] ?? 0) + 1;
-  然后按 freq 排序输出
-
-■ 停用词过滤
-  一个 const List<String> stopwords，逐行逐词 replaceAll
-  也可以放关键词规则里（词多的话 AC 更快）
-
-【F】决策口诀
-
-  纯文本、互相不依赖     → 关键词规则（Aho-Corasick，1 遍扫描，最快）
-  需要正则、不依赖前一条 → 正则规则（逐条 replaceAll）
-  需要正则、$1 捕获组    → 自定义规则（PreprocessingService 里有 _expandReplacement）
+  纯文本、互相不依赖     → 关键词规则（Aho-Corasick，1 遍扫描）
+  需要正则、不依赖前一条 → 正则规则
+  需要正则、$1 捕获组    → 自定义规则
   只对左/右侧生效        → 自定义规则（带 scope）
   临时单独关某一条       → 自定义规则（带开关）
-  行操作 / 码位运算      → script 字段（applyDiffIgnores 里加 case）
-  两处都保留？           → 两个列表各跑各的时机，别合并
-
-【G】转换示例
-
-■ 原文正则：把 3 个以上连续换行压成 2 个
-  RegExp(r'\n{3,}') → '\n\n'
-  能拆成规则吗：能。findPattern + replaceWith 就能表达
-
-■ 原文正则：去掉所有 HTML 标签
-  RegExp(r'<[^>]+>') → ''
-  能拆成规则吗：能
-
-■ 原文正则：把 "2024-01-01" 换成 "2024年01月01日"
-  RegExp(r'(\d{4})-(\d{2})-(\d{2})') → '$1年$2月$3日'
-  能拆成规则吗：只有自定义规则支持（正则规则和关键词规则不支持 $1）
-
-■ 原文代码：全段转小写
-  text.toLowerCase()
-  能拆成规则吗：不能。必须写 script 或在 applyDiffIgnores 里加 case
-
-■ 原文代码：去掉重复行
-  text.split('\n').toSet().join('\n')
-  能拆成规则吗：不能。必须写 script
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【开发】二十一、全部可用代码替代的替换
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-把 Dart 里所有能替代"查找+替换"的操作都列出来。每条标注：正则能不能做、能不能写成规则、是否需要引包。
-
-一、大小写
-  text.toLowerCase()                  全小写（全 Unicode）
-  text.toUpperCase()                  全大写
-  text[0].toUpperCase() + text.substring(1)  首字母大写
-  line.split(' ').map((w) => w.isEmpty ? '' : w[0].toUpperCase() + w.substring(1)).join(' ')  Title Case
-
-  正则能做：否
-  能写成规则：否（除非加 script）
-
-二、空白处理
-  text.trim()                          整段去首尾空白
-  text.trimLeft()                      去开头空白
-  text.trimRight()                     去结尾空白
-  text.replaceAll(' ', '')             删普通空格
-  text.replaceAll('\t', '')            删 Tab
-  text.replaceAll(RegExp(r'\s+'), '')   删所有空白
-  text.replaceAll(RegExp(r'\s+'), ' ')  所有空白折叠成一个空格
-  text.replaceAll(RegExp(r'[^\S\n]+'), ' ')  折叠空格但不碰换行
-  text.replaceAll('\t', '    ')          Tab → 4 空格
-  text.replaceAll('    ', '\t')          4 空格 → Tab
-  text.replaceAll('\u00A0', ' ')        NBSP → 普通空格
-  text.replaceAll('\u3000', ' ')        全角空格 → 普通空格
-  text.replaceAll(RegExp(r'^[ \t]+', multiLine: true), '')  每行开头空白
-  text.replaceAll(RegExp(r'[ \t]+$', multiLine: true), '')  每行结尾空白
-
-  正则能做：多数能
-  能写成规则：能（findPattern + replaceWith）
-  例外：trim 家族（比正则更全，覆盖全角空格）
-
-三、行级操作
-  text.split('\n')                    切成行
-  lines.join('\n')                    拼回
-  lines.toSet().toList()               去重复行
-  lines.toSet().join('\n')            去重复行并拼回
-  lines..sort()                        字典序排
-  lines..sort((a,b)=>b.length.compareTo(a.length))  按长度排
-  lines.reversed.toList()              行倒序
-  lines.shuffle()                      打乱
-  lines.where((l) => l.trim().isNotEmpty).toList()   去空行
-  lines.where((l) => l.contains('关键词')).toList()  只留含某词
-  lines.where((l) => !l.contains('广告')).toList()   去掉含某词
-  lines.where((l) => l.length > 5).toList()          去太短
-  lines.where((l) => l.length < 500).toList()        去太长
-  lines.map((l) => '  $l').join('\n')               每行加缩进
-  lines.map((l) => l.substring(4)).join('\n')       去掉每行前 4 字符
-  lines.map((l) => l.trimRight()).join('\n')        每行去尾空白
-  lines.asMap().entries.map((e)=>'${e.key+1}. ${e.value}').join('\n')  加行号
-  lines.take(10).join('\n')           只留前 10 行
-  lines.skip(10).join('\n')           跳过前 10 行
-  lines.takeWhile((l) => l.isNotEmpty) 到空行停
-  lines.where((l) => l.startsWith('#')).toList()   只留注释行
-  lines.where((l) => !l.startsWith('//')).toList() 去注释行
-
-  正则能做：绝大多数不能
-  能写成规则：不能（需要 script）
-
-四、查找替换的变体（不止 replaceAll）
-  text.replaceAll('a', 'b')                 替换所有
-  text.replaceFirst('a', 'b')               替换第一个
-  text.replaceRange(0, 5, 'xxx')            按位置替换
-  text.replaceAllMapped(RegExp(r'\d+'), (m) => '${int.parse(m[0]!)*2}')  匹配后计算
-  text.replaceFirstMapped(RegExp(r'\d+'), (m) => '${int.parse(m[0]!)+1}')  第一个匹配后计算
-
-  正则能做：能
-  能写成规则：replaceAll 能；replaceFirst 不能；Mapped 不能（需 script）
-
-五、正则相关
-  RegExp(r'\p{L}', unicode: true)        所有字母（中英日韩希腊俄）
-  RegExp(r'\p{N}', unicode: true)        所有数字
-  RegExp(r'\p{P}', unicode: true)        所有标点
-  RegExp(r'\p{S}', unicode: true)        所有符号（含 emoji）
-  RegExp(r'\p{Z}', unicode: true)        所有分隔符
-  RegExp(r'\p{M}', unicode: true)        组合符
-  RegExp(r'\p{C}', unicode: true)        控制/不可见
-
-  RegExp(r'[^\p{L}\p{N}]', unicode: true)  只留字母数字
-
-  text.replaceAll(RegExp(r'\n{3,}'), '\n\n')  3 个以上换行压 2 个
-  text.replaceAll(RegExp(r'[.。…]+'), '…')     连续点号压省略号
-  text.replaceAll(RegExp(r'[,，]{2,}'), '，')   连续逗号归一
-  text.replaceAll(RegExp(r'[ \t]+'), ' ')      空格 Tab 折叠
-  text.replaceAll(RegExp(r'^\s*$', multiLine: true), '')  删空行（不彻底）
-  text.replaceAll(RegExp(r'<[^>]+>'), '')      删 HTML 标签
-  text.replaceAll(RegExp(r'https?://\S+'), '') 删网址
-
-  text.replaceAllMapped(RegExp(r'(\d+)'), (m) => 'X${m[1]}X')  包住数字
-
-  正则能做：能
-  能写成规则：多数能；带回调的不行（需 script）
-  注意：正则规则里替换串不支持 $1（不支持捕获组展开）
-        只有自定义规则支持 $1
-
-六、判断类（用于条件逻辑）
-  text.isEmpty                          是否空串
-  text.isNotEmpty                       是否非空
-  text.startsWith('xxx')                是否以某串开头
-  text.endsWith('xxx')                  是否以某串结尾
-  text.contains('xxx')                  是否含某串
-  text.contains(RegExp(r'\d+'))         是否含正则模式
-  text == 'xxx'                         是否等于
-  text.compareTo('xxx') == 0            是否等于（大小写敏感）
-  text.toLowerCase() == other.toLowerCase()  忽略大小写相等
-
-  正则能做：等价的有 contains(RegExp) / startsWith(RegExp)
-  能写成规则：不能（判断不产生替换）
-
-七、提取类
-  text.substring(0, 10)                            前 10 字符
-  text.substring(text.length - 5)                  后 5 字符
-  text.split(',').first                            第一个元素
-  text.split(',').last                             最后一个元素
-  text.split(',').take(3).join(',')                前 3 个
-  RegExp(r'\d+').firstMatch(text)?.group(0)      第一个数字串
-  RegExp(r'\d+').allMatches(text).map((m) => m.group(0))  所有数字串
-  RegExp(r'(?<year>\d{4})-(?<m>\d{2})').firstMatch(text)?.namedGroup('year')  命名组
-  text.indexOf('关键词')                           位置
-  text.lastIndexOf('关键词')
-  RegExp(r'\w+').allMatches(text).length          词数
-
-  正则能做：能
-  能写成规则：不能（提取不产生替换）
-
-八、生成类
-  text.padLeft(10, '0')                左填充到 10 位
-  text.padRight(10, ' ')               右填充
-  text * 3                             重复 3 次
-  'abc' + text + 'xyz'                 前后加东西
-  List.filled(10, text).join(',')      重复 10 次用逗号连
-  '\n' * 3                            生成 3 个换行
-
-  正则能做：否（生成不依赖查找）
-  能写成规则：否
-
-九、码位运算
-  // 全角 → 半角
-  String.fromCharCodes(text.runes.map((c) {
-    if (c >= 0xFF01 && c <= 0xFF5E) return c - 0xFEE0;
-    if (c == 0x3000) return 0x20;
-    return c;
-  }))
-
-  // 半角 → 全角
-  String.fromCharCodes(text.runes.map((c) {
-    if (c >= 0x21 && c <= 0x7E) return c + 0xFEE0;
-    if (c == 0x20) return 0x3000;
-    return c;
-  }))
-
-  // 字符码位
-  text.codeUnitAt(0)                   第 0 字符码位
-  text.runes.first                     第一个码点
-  String.fromCharCode(0x4E2D)          码位 → 字符
-
-  // 字符遍历
-  for (final rune in text.runes) { ... }       按码点
-  for (final ch in text.characters) { ... }    按用户感知（需 characters 包）
-
-  正则能做：否（正则不能做算术）
-  能写成规则：否（除非 script）
-
-十、编码相关
-  utf8.encode(text)                        字符串 → UTF-8 字节
-  utf8.decode(bytes)                       字节 → 字符串
-  latin1.decode(bytes) / latin1.encode(s)  Latin-1
-  gbk.encode(text) / gbk.decode(bytes)     GBK（需包）
-  base64Encode(utf8.encode(text))          Base64 编码
-  utf8.decode(base64Decode(b64))           Base64 解码
-  Uri.encodeComponent(text)                URL 编码
-  Uri.decodeComponent(enc)                 URL 解码
-  Uri.encodeFull(text) / Uri.decodeFull(text)  整 URL
-  const HtmlEscape().convert(text)         HTML 实体编码
-  const HtmlUnescape().convert(text)       HTML 实体解码
-
-  正则能做：Base64/URL/HTML 有对应模式，但不如内置函数
-  能写成规则：否（需 script）
-
-十一、数字处理
-  int.parse('123')                     字符串 → 整数
-  double.parse('3.14')                 字符串 → 浮点
-  int.parse('ff', radix: 16)           十六进制
-  int.parse('1010', radix: 2)          二进制
-  255.toRadixString(16)                → 'ff'
-  255.toRadixString(2)                 → '11111111'
-  double.parse('1.5e10')               科学计数
-  1234567.toString()                   整数 → 字符串
-  3.14.toStringAsFixed(2)              → '3.14'
-
-  // 千分位
-  1234567.toString().replaceAllMapped(
-    RegExp(r'(\d)(?=(\d{3})+$)'),
-    (m) => '${m[1]},',
-  )
-
-  // 补零
-  5.toString().padLeft(3, '0')         → '005'
-
-  正则能做：部分能
-  能写成规则：简单的能；进制/千分位需 script
-
-十二、日期时间
-  DateTime.parse('2024-01-01')         字符串 → 日期
-  dt.toIso8601String()                 日期 → ISO
-  dt.year / .month / .day / .hour / .minute / .second
-  '${dt.year}年${dt.month}月${dt.day}日'    中文格式
-
-  // 格式转换
-  '2024-01-01'.replaceAll('-', '/')    → '2024/01/01'
-  '2024/01/01'.replaceAll('/', '-')    → '2024-01-01'
-
-  // 补零
-  dt.month.toString().padLeft(2, '0')  → '01'
-
-  正则能做：简单格式转换能
-  能写成规则：简单格式能；解析/补零需 script
-
-十三、哈希摘要
-  import 'package:crypto/crypto.dart';
-  md5.convert(utf8.encode(text)).toString()      32 位十六进制
-  sha1.convert(utf8.encode(text)).toString()     40 位
-  sha256.convert(utf8.encode(text)).toString()   64 位
-
-  正则能做：否
-  能写成规则：否（需 script）
-
-十四、排序比较
-  list..sort()                                      默认排序
-  list..sort((a,b) => a.compareTo(b))               升序
-  list..sort((a,b) => b.compareTo(a))               降序
-  list..sort((a,b) => a.length.compareTo(b.length)) 按长度
-  list..sort((a,b) => a.toLowerCase().compareTo(b.toLowerCase()))  忽略大小写
-
-  // 自定义比较：按数字
-  list..sort((a,b) => int.parse(a).compareTo(int.parse(b)))
-
-  正则能做：否
-  能写成规则：否（需 script）
-
-十五、集合操作
-  lines.toSet().toList()               去重
-  lines.toSet().join('\n')            去重并拼
-  set.toList()..sort()                 去重后排序
-  set.length                           去重后数量
-  a.union(b)                           并集
-  a.intersection(b)                    交集
-  a.difference(b)                      差集
-
-  正则能做：否
-  能写成规则：否（需 script）
-
-十六、拼接格式化
-  'text: $x'                           字符串插值
-  '${a}+${b}=${a+b}'                   表达式
-  list.join(',')                       列表拼接
-  list.join('\n')                      用换行拼
-  'a' * 5                              → 'aaaaa'
-  '\n' * 3                             → '\n\n\n'
-
-  正则能做：否
-  能写成规则：否
-
-十七、Unicode 归一化（需包）
-  import 'package:unicode/unicode.dart';
-  text.nfc()     规范组合
-  text.nfd()     规范分解
-  text.nfkc()    兼容分解（①→1，㈱→(株)，Ⅳ→IV）
-  text.nfkd()    兼容分解（更激进的 NFKD）
-
-  用途：é 有两种编码（单码位 / e + 组合符），视觉一样但 diff 会判成不同。归一化后统一。
-
-  正则能做：否
-  能写成规则：否（需 script）
-
-十八、Grapheme 切分（需包）
-  import 'package:characters/characters.dart';
-  text.characters.length              用户感知字符数
-  text.characters.first               第一个字符
-  text.characters.toList()            切分成列表
-
-  用途：emoji、组合字、印地语连字、家庭 emoji 等
-  在 text.length 里可能算 1~7 个 UTF-16 码元
-
-  正则能做：否
-  能写成规则：否（需 script）
-
-十九、中文相关（需包）
-  // 简繁
-  import 'package:opencc/opencc.dart';
-  OpenCC.s2t(text)                    简 → 繁
-  OpenCC.t2s(text)                    繁 → 简
-
-  // 拼音
-  import 'package:pinyin/pinyin.dart';
-  PinyinHelper.getPinyinE(text)       汉字 → 拼音
-  PinyinHelper.getShortPinyin(text)   汉字 → 拼音首字母
-
-  // 中文分词
-  需第三方包（jieba 类）
-
-  正则能做：否
-  能写成规则：否（需 script）
-
-二十、正则高级用法
-  RegExp(r'(?<name>\d+)')             命名捕获组
-  RegExp(r'(?:abc)')                   非捕获组
-  RegExp(r'(?=abc)')                   前瞻
-  RegExp(r'(?!abc)')                   负前瞻
-  RegExp(r'(?<=abc)')                  后顾
-  RegExp(r'(?<!abc)')                  负后顾
-  RegExp(r'\b')                        单词边界（英文有效）
-  RegExp(r'^', multiLine: true)        每行开头
-  RegExp(r'$', multiLine: true)        每行结尾
-  RegExp(r'(?i)abc')                   忽略大小写（Dart 用参数 caseSensitive: false）
-
-  RegExp(r'(.)\1')                     反向引用（连续重复字符）
-  RegExp(r'(\w+)\s+\1')                重复的词
-
-  正则能做：能
-  能写成规则：正则规则里能表达，但替换串不支持 $1（需自定义规则）
-
-二十一、其它零碎
-  text.codeUnits.length                码元数（≠ 字符数）
-  text.runes.length                    码点数
-  text.length                          UTF-16 单元数
-  text.isEmpty                         是否空
-  text.hashCode                         哈希值
-  text.compareTo(other)                 比较
-  text.codeUnitAt(i)                    第 i 个码元
-  String.fromCharCodes([72, 105])       → 'Hi'
-  text.toString()                       对象 → 字符串
-  int.parse(text) / double.parse(text)  字符串 → 数字
-
-  正则能做：否
-  能写成规则：否
-
-【汇总】决策流程
-
-拿到一个操作，问自己：
-
-1. 是纯文本查找替换吗？
-   是 → 关键词规则（Aho-Corasick，1 遍扫描最快）
-
-2. 需要正则吗？
-   是 → 正则规则（逐条 replaceAll）
-   需要 $1 捕获组 → 自定义规则
-
-3. 只对左/右侧生效？
-   是 → 自定义规则（scope）
-
-4. 需要独立开关？
-   是 → 自定义规则或内置规则
-
-5. 是"忽略差异"而非"改文本"？
-   是 → 忽略项
-
-6. 是行操作 / 码位运算 / 集合操作 / 需要引包？
-   是 → script 字段
-      （在 applyDiffIgnores 的 switch 里加 case，
-        或给 PreprocessingRule 加 script 分支）
-
-7. 是判断 / 提取 / 生成 而不是替换？
-   是 → 规则系统表达不了，只能写 script
-
-一句话：能表达式化的，就放规则；需要运算或逻辑的，写 script。
+  行操作 / 码位运算      → script 字段（applyOneRule 里加 case）
 ''';
 
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _editing = false;
   bool _loaded = false;
+
+  // ==================== 双指缩放字号 ====================
+
+  /// 基准字号（阅读态、缩放系数为 1 时）。
+  static const double _baseFontSize = 13.5;
+  static const double _minScale = 0.5;
+  static const double _maxScale = 3.0;
+
+  /// 当前缩放系数。
+  double _fontScale = 1.0;
+
+  /// 正在触碰屏幕的指针位置（用于算两指距离）。
+  final Map<int, Offset> _touches = <int, Offset>{};
+
+  /// 捏合开始时的两指距离、缩放系数。
+  double _pinchStartDistance = 0;
+  double _pinchStartScale = 1.0;
 
   @override
   void initState() {
@@ -1449,6 +841,61 @@ App 里有很多长按触发的小功能，集中列在这里。
     });
   }
 
+  void _onPointerDown(PointerDownEvent e) {
+    _touches[e.pointer] = e.localPosition;
+    if (_touches.length == 2) {
+      _pinchStartDistance = _distanceBetweenTouches();
+      _pinchStartScale = _fontScale;
+      setState(() {}); // 让 ScrollView 的 physics 立即切换
+    }
+  }
+
+  void _onPointerMove(PointerMoveEvent e) {
+    if (!_touches.containsKey(e.pointer)) return;
+    _touches[e.pointer] = e.localPosition;
+    if (_touches.length != 2 || _pinchStartDistance <= 0) return;
+    final d = _distanceBetweenTouches();
+    if (d <= 0) return;
+    final next =
+        (_pinchStartScale * d / _pinchStartDistance).clamp(_minScale, _maxScale);
+    if ((next - _fontScale).abs() < 0.01) return;
+    setState(() => _fontScale = next);
+  }
+
+  void _onPointerEnd(PointerEvent e) {
+    final removed = _touches.remove(e.pointer) != null;
+    if (!removed) return;
+    if (_touches.length < 2) _pinchStartDistance = 0;
+    if (_touches.isEmpty) {
+      setState(() {}); // 恢复滚动
+    }
+  }
+
+  double _distanceBetweenTouches() {
+    final pts = _touches.values.toList(growable: false);
+    if (pts.length < 2) return 0;
+    return (pts[0] - pts[1]).distance;
+  }
+
+  void _resetFontScale() {
+    if ((_fontScale - 1.0).abs() < 0.01) {
+      _snack('已经是默认字号');
+      return;
+    }
+    setState(() => _fontScale = 1.0);
+    _snack('字号已重置');
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -1459,6 +906,8 @@ App 里有很多长按触发的小功能，集中列在这里。
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
+    final readFontSize = _baseFontSize * _fontScale;
+    final pinching = _touches.length >= 2;
 
     return Scaffold(
       appBar: AppBar(
@@ -1474,6 +923,11 @@ App 里有很多长按触发的小功能，集中列在这里。
               child: const Text('保存'),
             ),
           ] else ...[
+            IconButton(
+              tooltip: '重置字号（阅读时双指可缩放）',
+              icon: const Icon(Icons.format_size),
+              onPressed: _resetFontScale,
+            ),
             TextButton(
               onPressed: () => setState(() => _editing = true),
               child: const Text('编辑'),
@@ -1513,33 +967,43 @@ App 里有很多长按触发的小功能，集中列在这里。
                     ),
                   ),
                 )
-              : SelectionArea(
-                  child: Scrollbar(
-                    controller: _scrollController,
-                    thumbVisibility: true,
-                    interactive: true,
-                    thickness: 11,
-                    radius: const Radius.circular(5),
-                    child: SingleChildScrollView(
+              : Listener(
+                  onPointerDown: _onPointerDown,
+                  onPointerMove: _onPointerMove,
+                  onPointerUp: _onPointerEnd,
+                  onPointerCancel: _onPointerEnd,
+                  child: SelectionArea(
+                    child: Scrollbar(
                       controller: _scrollController,
-                      padding: const EdgeInsets.only(
-                        left: 16,
-                        right: 24,
-                        top: 16,
-                        bottom: 24,
-                      ),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: s.surfaceVariant.withOpacity(0.35),
-                          borderRadius: BorderRadius.circular(8),
+                      thumbVisibility: true,
+                      interactive: true,
+                      thickness: 11,
+                      radius: const Radius.circular(5),
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        // 双指捏合时禁用滚动，避免和缩放打架。
+                        physics: pinching
+                            ? const NeverScrollableScrollPhysics()
+                            : null,
+                        padding: const EdgeInsets.only(
+                          left: 16,
+                          right: 24,
+                          top: 16,
+                          bottom: 24,
                         ),
-                        child: Text(
-                          _controller.text,
-                          style: const TextStyle(
-                            fontSize: 13.5,
-                            height: 1.6,
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: s.surfaceVariant.withOpacity(0.35),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            _controller.text,
+                            style: TextStyle(
+                              fontSize: readFontSize,
+                              height: 1.6,
+                            ),
                           ),
                         ),
                       ),
