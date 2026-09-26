@@ -15,124 +15,253 @@ import 'replace_rules_screen.dart';
 /// 顶部说明笔记的 sectionId。
 const String _orderNoteSectionId = 'ruleOrderTop';
 
-/// ==================== 6 个开关的默认说明文字 ====================
-/// 用户长按标签可查看并编辑，保存后覆盖这里的默认值。
+/// ==================== 7 个开关的默认说明文字 ====================
+/// 用 raw string，$ 和 \ 都是字面字符。
 const Map<String, String> _flagHelpDefaults = {
-  'findRegex': '''【查找词 · 支持正则】
+  'findRegex': r'''【查找词 · 支持正则】
 
 开：查找词按"正则表达式"解析，特殊符号有特殊含义。
-关：查找词按"普通文字"匹配，填什么就匹配什么。
+关：改由"仅字面匹配"接管（两者互斥，必须开一个）。
 
 正则里几个常见符号：
   .     任意一个字符
-  \\d    任意一个数字
-  \\w    字母、数字或下划线
-  \\s    空白（空格 / Tab / 换行）
+  \d    任意一个数字
+  \w    字母、数字或下划线
+  \s    空白（空格 / Tab / 换行）
   *     前面的内容出现 0 次或多次
   +     前面的内容出现 1 次或多次
   ?     前面的内容出现 0 次或 1 次
-  ()    分组，替换时可用 \$1 \$2 引用
+  ()    分组。这一对括号也叫"捕获组"。
+        搭配替换侧的 $1 或 \1 开关，可以"抓到内容搬走"。
+        详见替换侧引用开关的说明。
 
 例子：
-  查找 \\d+        开=匹配所有连续数字；关=匹配字面"\\d+"
-  查找 第\\d+章    开=匹配"第1章""第23章"；关=匹配字面"第\\d+章"
+  查找 \d+        开=匹配所有连续数字；关=匹配字面"\d+"
+  查找 第\d+章    开=匹配"第1章""第23章"；关=匹配字面"第\d+章"
 
 判断标准：想让查找词里的符号有"特殊含义"，就开。
-只想按字面找一个固定字符串，就关。''',
+只想按字面找一个固定字符串，就改成"仅字面匹配"。''',
 
-  'findEscape': '''【查找词 · 支持转义】
+  'findLiteral': r'''【查找词 · 仅字面匹配】
 
-开：查找词里的转义序列会被还原成真字符。
-关：转义序列按字面处理。
+开：查找词完全按普通文字处理，任何符号都没有特殊含义。
+    填什么就匹配什么。
+关：由"支持正则"接管（两者互斥，必须开一个）。
+
+跟"支持正则"的关系：互斥。
+  · 开"支持正则"    → 自动关掉"仅字面匹配"
+  · 开"仅字面匹配"  → 自动关掉"支持正则"
+  · 两个必须有一个开着，不能同时关
+
+例子：
+  查找 a.b    仅字面=匹配"a.b"三个字；正则=匹配"a 任意 b"
+  查找 a*b    仅字面=匹配"a*b"三个字；正则=匹配"b""ab""aab"等
+  查找 (abc)  仅字面=匹配"(abc)"五个字；正则=捕获"abc"
+
+什么时候用：
+  · 要找的字符串里含 . * + ? ( ) [ ] { } | \ ^ $
+    这些符号，而你是想找它们本身
+  · 不想被正则引擎"吃掉"特殊字符
+
+跟"支持转义"的关系：字面模式下，转义开关仍然有效。
+  转义先执行，之后才做字面匹配。''',
+
+  'findEscape': r'''【查找词 · 支持转义】
+
+开：查找词里的转义序列会被还原成真字符，再去匹配。
+关：转义序列按字面处理（\n 匹配"反斜杠+n"两个字符）。
 
 支持的转义：
-  \\n   换行符
-  \\r   回车符
-  \\t   Tab 制表符
-  \\\\   一个反斜杠
-  \\0   空字符（NUL）
+  \n   换行符
+  \r   回车符
+  \t   Tab 制表符
+  \\   一个反斜杠
+  \0   空字符（NUL）
 
 例子：
-  查找 \\n    开=匹配真正的换行；关=匹配"反斜杠+n"两个字符
-  查找 \\t    开=匹配真正的 Tab；关=匹配"反斜杠+t"
+  查找 \n    开=匹配真正的换行；关=匹配字面"反斜杠+n"
+  查找 \t    开=匹配真正的 Tab；关=匹配字面"反斜杠+t"
 
-注意：转义先于正则执行。开了"支持正则"和"支持转义"时，
-查找词会先把 \\n 变成真换行，再交给正则引擎。''',
+—————— 和"支持正则"的关系 ——————
 
-  'findDollar': '''【查找词 · 支持 \$ 行尾锚点】
+Dart 的正则引擎本身就认 \n \t \\ 这些转义。
+所以"支持正则"开着时，\n 是能用的，本开关开不开都行。
 
-仅当"支持正则"开启时有意义。
+只有"仅字面匹配"开着时，本开关才有意义：
+  · 开 = 把 \n 还原成真换行，然后做字面匹配
+  · 关 = 把 \n 当两个字面字符
 
-\$ 在正则里表示"行尾位置"。
-  abc\$    匹配"以 abc 结尾的行"（abc 后面必须紧跟行尾）
+—————— 多行匹配 ——————
 
-开：\$ 当行尾锚点。
-关：\$ 当普通字符，匹配字面的"\$"。
+你也可以直接在查找框里敲回车，输入多行文本。
+敲进去的是真换行，不需要 \n，也不需要这个开关。''',
 
-例子：
-  查找 abc\$     开=匹配"abc"结尾的行；关=匹配字面"abc\$"
-  查找 ^\\d+\$   开=匹配"整行都是数字"的行
+  'replaceDollar': r'''【替换词 · $1 $2 引用】
 
-提示：大多数情况下保持开启。只有当你真的想匹配一个字面的
-"\$"符号时，才关掉它，或者写 \\\$。''',
+开：替换词里出现 $0 $1 $2 …… 时，会被替换成捕获组内容。
+关：$0 $1 $2 …… 原样输出（字面）。
+与"仅字面输出"互斥，与"\1 \2 引用"可共存。
 
-  'replaceRegex': '''【替换词 · 支持正则（\\1 \\2 引用）】
+—————— 什么是捕获组 ——————
 
-开：替换词里的 \\1 \\2 会被替换成对应捕获组的内容。
-关：\\1 \\2 按字面输出。
+捕获组 = 查找词里每一对圆括号 () 抓到的内容。
+从左到右编号：第 1 对括号抓到的是 $1，第 2 对是 $2。
+$0 表示"整个匹配到的内容"，不是括号里的。
 
-捕获组：正则里每出现一对括号 ()，就产生一个捕获组，
-从左到右编号 1、2、3……
+例：查找词写 (\d+)-(\d+)
+  ( \d+ )  第 1 对括号 → $1
+  ( \d+ )  第 2 对括号 → $2
 
-例子：
-  查找 (\\d+)-(\\d+)
-  替换 \\2-\\1
-  开=把"12-34"变成"34-12"；关=输出字面"\\2-\\1"
+文本 12-34 用这个查找词：
+  $0 = 12-34（整个匹配）
+  $1 = 12
+  $2 = 34
 
-注意：
-· \\1 是反斜杠+数字的写法，跟 \$1 是两套独立语法。
-· 一般用 \$1 就够了（靠"支持 \$"开关）。\\1 属于备用写法。
-· 没有捕获组时，\\1 \\2 展开为空串。''',
+—————— 怎么用 ——————
 
-  'replaceEscape': '''【替换词 · 支持转义】
+例1：调换顺序
+  查找：(\d+)-(\d+)
+  替换：$2-$1
+  结果：12-34 → 34-12
 
-开：替换词里的转义序列会被还原成真字符。
-关：转义序列按字面输出。
-
-支持的转义：
-  \\n   换行符
-  \\r   回车符
-  \\t   Tab 制表符
-  \\\\   一个反斜杠
-  \\0   空字符（NUL）
-
-例子：
-  替换词 \\n          开=输出一个真换行；关=输出"反斜杠+n"
-  替换词 第\$1章\\n    开=每章后面跟一个真换行
-  替换词 \\t          开=输出一个真 Tab
-
-用途：想在替换结果里插入换行、Tab、反斜杠，就开这个。''',
-
-  'replaceDollar': '''【替换词 · 支持 \$（\$1 \$2 引用）】
-
-开：替换词里的 \$0 \$1 \$2 …… 会被展开。
-关：\$0 \$1 \$2 …… 按字面输出。
-
-\$0 表示整个匹配的内容。
-\$1 \$2 …… 表示第 1、2、…… 个捕获组的内容。
-捕获组就是查找词里每个 () 里的内容。
-
-例子：
-  查找 (\\d{4})-(\\d{2})-(\\d{2})
-  替换 \$1年\$2月\$3日
+例2：日期格式转换
+  查找：(\d{4})-(\d{2})-(\d{2})
+  替换：$1年$2月$3日
   结果：2024-01-01 → 2024年01月01日
 
-  查找 (\\w+)@(\\w+)
-  替换 \$2#\$1
+例3：提取邮箱用户名和域名，调换
+  查找：(\w+)@(\w+)
+  替换：$2#$1
   结果：abc@xyz → xyz#abc
 
-提示：这是最常用的捕获组引用方式。配合"查找词·支持正则"
-里写 ()，就能实现"记住一部分，搬到另一部分"。''',
+例4：给数字加括号
+  查找：(\d+)
+  替换：($1)
+  结果：123 → (123)
+
+—————— 需要注意 ——————
+
+· 想用 $1，查找词里必须有对应数量的 ()。
+· $1 和 $10 有歧义：Dart 会优先当成 $10。
+  想表示"$1 后面跟个 0"，写 ${1}0。
+· 想输出字面的 $，写 \$。
+· $1 $2 可以多次出现，比如 $1-$2-$1 会输出三段。
+· 转义开关（还原 \n \t）独立控制，与本开关无关。''',
+
+  'replaceBackslash': r'''【替换词 · \1 \2 引用】
+
+开：替换词里出现 \1 \2 \3 …… 时，会被替换成捕获组内容。
+关：按字面输出（不展开 \1）。
+与"仅字面输出"互斥，与"$1 $2 引用"可共存。
+
+—————— 什么是 \1 ——————
+
+\1 是捕获组的一种引用写法，跟 $1 效果一模一样。
+\1 = $1，\2 = $2，依此类推。
+
+捕获组 = 查找词里每一对圆括号 () 抓到的内容。
+从左到右编号：第 1 对括号是 \1，第 2 对是 \2。
+
+例：查找词写 (\d+)-(\d+)
+  第 1 对括号 → \1
+  第 2 对括号 → \2
+
+文本 12-34 用这个查找词：
+  \1 = 12
+  \2 = 34
+
+—————— 例子 ——————
+
+例1：调换顺序
+  查找：(\d+)-(\d+)
+  替换：\2-\1
+  结果：12-34 → 34-12
+
+例2：加括号
+  查找：(\d+)
+  替换：(\1)
+  结果：123 → (123)
+
+例3：日期格式转换
+  查找：(\d{4})-(\d{2})-(\d{2})
+  替换：\1年\2月\3日
+  结果：2024-01-01 → 2024年01月01日
+
+—————— \1 和 $1 的区别 ——————
+
+效果：完全一样。
+写法：\1 用反斜杠，$1 用美元符号。
+来源：\1 是传统正则替换语法，$1 是 Perl 风格。
+
+—————— 什么时候用 \1 ——————
+
+一般用 $1 就够了，看习惯。
+只有一种情况必须用 \1：替换词里本来就要输出一个 $ 符号，
+同时又要引用捕获组。
+
+—————— 注意 ——————
+
+· \1 后面必须跟数字，不能写 \a \b。
+· 想让替换词输出一个真反斜杠，写 \\。
+· 没有捕获组时，\1 \2 展开为空串。
+· 转义开关（还原 \n \t）独立控制，与本开关无关。''',
+
+  'replaceLiteral': r'''【替换词 · 仅字面输出】
+
+开：替换词完全按字面输出，不展开任何 $1 $2 或 \1 \2 引用。
+关：由"$1 $2 引用"和"\1 \2 引用"接管（三者至少开一个）。
+
+跟两个引用开关的关系：互斥。
+  · 开"仅字面输出"    → 自动关掉"$1 $2 引用"和"\1 \2 引用"
+  · 开任一引用开关    → 自动关掉"仅字面输出"
+  · 三个必须有一个开着
+
+例子：
+  查找：(\d+)
+  替换：$1     仅字面=输出"$1"四个字符；引用=输出括号里抓到的数字
+  替换：\1     仅字面=输出"\1"三个字符；引用=同上
+
+什么时候用：
+  · 替换词里本来就有 $ 或 \数字 这种字面内容，
+    不想被当成捕获组引用
+  · 想让替换结果跟正则里的 $1 \1 完全无关
+
+跟"支持转义"的关系：转义开关仍然有效。
+  转义先执行，之后才做字面输出。
+  所以"仅字面输出"+"支持转义"开着时，\n 仍然会变成真换行。''',
+
+  'replaceEscape': r'''【替换词 · 支持转义】
+
+开：替换词里的转义序列会被还原成真字符。
+关：转义序列按字面输出（\n 输出"反斜杠+n"两个字符）。
+
+支持的转义：
+  \n   换行符
+  \r   回车符（老 Mac 换行，现代少用）
+  \t   Tab 制表符
+  \\   一个反斜杠
+  \0   空字符（NUL，极少用）
+
+例子：
+  替换词 \n          开=输出一个真换行；关=输出"反斜杠+n"
+  替换词 第$1章\n    开=每章后面跟一个真换行
+  替换词 \t          开=输出一个真 Tab
+  替换词 C:\\Users   开=输出 C:\Users
+
+—————— 什么时候需要它 ——————
+
+· 想在替换结果里插入换行：\n
+· 想在替换结果里插入 Tab：\t
+· 想输出一个字面反斜杠：\\
+
+—————— 和"多行输入"的区别 ——————
+
+你也可以直接在替换框里敲回车输入真换行，
+不用写 \n。两种方式都行：
+  · 敲回车 = 真换行
+  · 写 \n  = 靠这个开关还原
+
+本开关只影响"反斜杠 + 字母"这种写法。''',
 };
 
 /// 列表里的一项：单条规则 / 关键词块 / 正则块。
@@ -216,8 +345,6 @@ class _ComparisonSettingsScreenState
     );
   }
 
-  // ==================== 列表构建 ====================
-
   List<_RuleItem> _buildItems() {
     final order = ref.watch(ruleOrderProvider);
     final byId = ref.watch(ruleByIdProvider);
@@ -270,8 +397,6 @@ class _ComparisonSettingsScreenState
     return items;
   }
 
-  // ==================== 拖动 ====================
-
   void _onReorder(int oldIndex, int newIndex) {
     final items = _buildItems();
     if (oldIndex < 0 || oldIndex >= items.length) return;
@@ -290,8 +415,6 @@ class _ComparisonSettingsScreenState
       _toast('「删掉空行」在最前会改变行数，编辑回写可能错位');
     }
   }
-
-  // ==================== 项渲染 ====================
 
   Widget _buildTile(_RuleItem item, int index) {
     final dragHandle = ReorderableDragStartListener(
@@ -386,12 +509,21 @@ class _ComparisonSettingsScreenState
     if (rule.findPattern.isEmpty) return '(无内容)';
 
     final flags = <String>[];
-    if (rule.findRegex) flags.add('正则');
+    // 查找侧。
+    if (rule.findLiteral) {
+      flags.add('字面');
+    } else if (rule.findRegex) {
+      flags.add('正则');
+    }
     if (rule.findEscape) flags.add('查找转义');
-    if (rule.findDollar) flags.add(r'$锚点');
-    if (rule.replaceRegex) flags.add(r'\1引用');
+    // 替换侧。
+    if (rule.replaceLiteral) {
+      flags.add('字面输出');
+    } else {
+      if (rule.replaceDollar) flags.add(r'$1引用');
+      if (rule.replaceBackslash) flags.add(r'\1引用');
+    }
     if (rule.replaceEscape) flags.add('替换转义');
-    if (rule.replaceDollar) flags.add(r'$1引用');
     final flagText = flags.isEmpty ? '纯字符串' : flags.join(' · ');
 
     return '/${rule.findPattern}/ → "${rule.replaceWith}"\n[$flagText]';
@@ -452,8 +584,6 @@ class _ComparisonSettingsScreenState
       ),
     );
   }
-
-  // ==================== 顶部说明（可点开写笔记） ====================
 
   Widget _buildHeader() {
     final s = Theme.of(context).colorScheme;
@@ -566,8 +696,6 @@ class _ComparisonSettingsScreenState
     }
   }
 
-  // ==================== 底部新建 / 进入块编辑 ====================
-
   Widget _buildAddButton() {
     return SafeArea(
       child: Padding(
@@ -651,7 +779,7 @@ class _NotesNotifier extends PersistentNotifier<Map<String, String>> {
   }
 }
 
-// ==================== 6 开关说明 provider ====================
+// ==================== 7 开关说明 provider ====================
 
 final _flagHelpProvider =
     NotifierProvider<_FlagHelpNotifier, Map<String, String>>(
@@ -685,7 +813,7 @@ class _FlagHelpNotifier extends PersistentNotifier<Map<String, String>> {
   }
 }
 
-// ==================== 规则编辑弹窗（大窗口 + 6 开关） ====================
+// ==================== 规则编辑弹窗 ====================
 
 class _RuleEditorDialog extends ConsumerStatefulWidget {
   const _RuleEditorDialog({this.initial});
@@ -703,11 +831,12 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
   late RuleScope _scope;
 
   late bool _findRegex;
+  late bool _findLiteral;
   late bool _findEscape;
-  late bool _findDollar;
-  late bool _replaceRegex;
-  late bool _replaceEscape;
   late bool _replaceDollar;
+  late bool _replaceBackslash;
+  late bool _replaceLiteral;
+  late bool _replaceEscape;
 
   @override
   void initState() {
@@ -718,11 +847,12 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     _replaceCtrl = TextEditingController(text: i?.replaceWith ?? '');
     _scope = i?.scope ?? RuleScope.both;
     _findRegex = i?.findRegex ?? true;
+    _findLiteral = i?.findLiteral ?? false;
     _findEscape = i?.findEscape ?? false;
-    _findDollar = i?.findDollar ?? true;
-    _replaceRegex = i?.replaceRegex ?? false;
-    _replaceEscape = i?.replaceEscape ?? false;
     _replaceDollar = i?.replaceDollar ?? true;
+    _replaceBackslash = i?.replaceBackslash ?? false;
+    _replaceLiteral = i?.replaceLiteral ?? false;
+    _replaceEscape = i?.replaceEscape ?? false;
   }
 
   @override
@@ -732,6 +862,74 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     _replaceCtrl.dispose();
     super.dispose();
   }
+
+  // ==================== 互斥逻辑 ====================
+
+  /// 查找侧：正则和字面互斥，必须有一个。
+  void _setFindMode({required bool regex}) {
+    setState(() {
+      _findRegex = regex;
+      _findLiteral = !regex;
+    });
+  }
+
+  /// 替换侧：三个开关至少一个。\1 和 $1 可共存，字面输出与两者互斥。
+  void _setReplaceDollar(bool v) {
+    setState(() {
+      _replaceDollar = v;
+      if (v) _replaceLiteral = false;
+      _ensureReplaceNotAllOff();
+    });
+  }
+
+  void _setReplaceBackslash(bool v) {
+    setState(() {
+      _replaceBackslash = v;
+      if (v) _replaceLiteral = false;
+      _ensureReplaceNotAllOff();
+    });
+  }
+
+  void _setReplaceLiteral(bool v) {
+    setState(() {
+      if (v) {
+        _replaceLiteral = true;
+        _replaceDollar = false;
+        _replaceBackslash = false;
+      } else {
+        _replaceLiteral = false;
+        if (!_replaceDollar && !_replaceBackslash) {
+          _replaceDollar = true;
+        }
+      }
+    });
+  }
+
+  void _ensureReplaceNotAllOff() {
+    if (!_replaceDollar && !_replaceBackslash && !_replaceLiteral) {
+      _replaceDollar = true;
+    }
+  }
+
+  void _resetToDefault() {
+    setState(() {
+      _findRegex = true;
+      _findLiteral = false;
+      _findEscape = false;
+      _replaceDollar = true;
+      _replaceBackslash = false;
+      _replaceLiteral = false;
+      _replaceEscape = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已恢复默认开关'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  // ==================== 说明弹窗 ====================
 
   Future<void> _openFlagHelp(String flagId, String flagLabel) async {
     final helps = ref.read(_flagHelpProvider);
@@ -750,6 +948,8 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
       ref.read(_flagHelpProvider.notifier).setOne(flagId, saved);
     }
   }
+
+  // ==================== UI ====================
 
   @override
   Widget build(BuildContext context) {
@@ -773,9 +973,9 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                   ),
                   const Spacer(),
                   IconButton(
-                    tooltip: '全部关闭（纯字符串匹配）',
-                    icon: const Icon(Icons.backspace_outlined),
-                    onPressed: _resetToPlain,
+                    tooltip: '恢复默认',
+                    icon: const Icon(Icons.restore),
+                    onPressed: _resetToDefault,
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -821,9 +1021,16 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                   _flagSwitch(
                     flagId: 'findRegex',
                     label: '支持正则',
-                    hint: '开：按正则解析；关：完全字面匹配',
+                    hint: '开：按正则解析；关：改由"仅字面匹配"接管',
                     value: _findRegex,
-                    onChanged: (v) => setState(() => _findRegex = v),
+                    onChanged: (v) => _setFindMode(regex: v),
+                  ),
+                  _flagSwitch(
+                    flagId: 'findLiteral',
+                    label: '仅字面匹配',
+                    hint: '开：特殊符号按普通字符处理；关：改由"支持正则"接管',
+                    value: _findLiteral,
+                    onChanged: (v) => _setFindMode(regex: !v),
                   ),
                   _flagSwitch(
                     flagId: 'findEscape',
@@ -831,13 +1038,6 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                     hint: '开：把这些转义还原成真字符后再匹配',
                     value: _findEscape,
                     onChanged: (v) => setState(() => _findEscape = v),
-                  ),
-                  _flagSwitch(
-                    flagId: 'findDollar',
-                    label: r'支持 $（行尾锚点）',
-                    hint: r'开：$ 当行尾；关：$ 当普通字符。仅"支持正则"开启时有意义',
-                    value: _findDollar,
-                    onChanged: (v) => setState(() => _findDollar = v),
                   ),
 
                   const SizedBox(height: 20),
@@ -862,11 +1062,25 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                   ),
                   const SizedBox(height: 6),
                   _flagSwitch(
-                    flagId: 'replaceRegex',
-                    label: r'支持正则（\1 \2 引用）',
+                    flagId: 'replaceDollar',
+                    label: r'$1 $2 引用',
+                    hint: r'开：替换串里的 $1 $2 展开为捕获组',
+                    value: _replaceDollar,
+                    onChanged: _setReplaceDollar,
+                  ),
+                  _flagSwitch(
+                    flagId: 'replaceBackslash',
+                    label: r'\1 \2 引用',
                     hint: r'开：替换串里的 \1 \2 展开为捕获组',
-                    value: _replaceRegex,
-                    onChanged: (v) => setState(() => _replaceRegex = v),
+                    value: _replaceBackslash,
+                    onChanged: _setReplaceBackslash,
+                  ),
+                  _flagSwitch(
+                    flagId: 'replaceLiteral',
+                    label: '仅字面输出',
+                    hint: '开：不展开引用，替换串原样输出',
+                    value: _replaceLiteral,
+                    onChanged: _setReplaceLiteral,
                   ),
                   _flagSwitch(
                     flagId: 'replaceEscape',
@@ -874,13 +1088,6 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                     hint: '开：把这些转义还原成真字符后再输出',
                     value: _replaceEscape,
                     onChanged: (v) => setState(() => _replaceEscape = v),
-                  ),
-                  _flagSwitch(
-                    flagId: 'replaceDollar',
-                    label: r'支持 $（$1 $2 引用）',
-                    hint: r'开：替换串里的 $1 $2 展开为捕获组',
-                    value: _replaceDollar,
-                    onChanged: (v) => setState(() => _replaceDollar = v),
                   ),
 
                   const SizedBox(height: 20),
@@ -896,11 +1103,11 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                     ),
                     items: const [
                       DropdownMenuItem(
-                          value: RuleScope.both, child: Text('两份文档')),
+                          value: RuleScope.both, child: Text('两侧文件')),
                       DropdownMenuItem(
-                          value: RuleScope.originalOnly, child: Text('仅左侧文档')),
+                          value: RuleScope.originalOnly, child: Text('仅左侧文件')),
                       DropdownMenuItem(
-                          value: RuleScope.modifiedOnly, child: Text('仅右侧文档')),
+                          value: RuleScope.modifiedOnly, child: Text('仅右侧文件')),
                     ],
                     onChanged: (v) =>
                         setState(() => _scope = v ?? RuleScope.both),
@@ -915,9 +1122,10 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      '全部关闭 = 纯字符串查找 + 纯字符串替换。\n'
-                      '6 个开关互相独立，任意组合。\n'
-                      '长按任一开关的标签，可查看并编辑该开关的详细说明。',
+                      '查找侧："支持正则"和"仅字面匹配"互斥，必须开一个。\n'
+                      '替换侧："\$1 \$2 引用"、"\$1 \$2 引用"、"仅字面输出"'
+                      '三者至少开一个。\n'
+                      '长按任一开关的标签，可查看并编辑详细说明。',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.5,
@@ -934,9 +1142,9 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
               child: Row(
                 children: [
                   TextButton.icon(
-                    icon: const Icon(Icons.clear_all, size: 18),
-                    label: const Text('全部关闭'),
-                    onPressed: _resetToPlain,
+                    icon: const Icon(Icons.restore, size: 18),
+                    label: const Text('恢复默认'),
+                    onPressed: _resetToDefault,
                   ),
                   const Spacer(),
                   TextButton(
@@ -1033,23 +1241,6 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     );
   }
 
-  void _resetToPlain() {
-    setState(() {
-      _findRegex = false;
-      _findEscape = false;
-      _findDollar = false;
-      _replaceRegex = false;
-      _replaceEscape = false;
-      _replaceDollar = false;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('已全部关闭 → 纯字符串匹配'),
-        duration: Duration(seconds: 1),
-      ),
-    );
-  }
-
   void _submit() {
     final name = _nameCtrl.text.trim();
     final find = _findCtrl.text;
@@ -1060,11 +1251,13 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
       );
       return;
     }
-    if (_findRegex) {
+
+    // 只有正则模式才校验。
+    final useRegex = _findRegex && !_findLiteral;
+    if (useRegex) {
       try {
         var test = find;
         if (_findEscape) test = unescapeEscapes(test);
-        if (!_findDollar) test = test.replaceAll(r'$', r'\$');
         RegExp(test);
       } catch (_) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1073,6 +1266,7 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
         return;
       }
     }
+
     final initial = widget.initial;
     Navigator.pop(
       context,
@@ -1085,11 +1279,12 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
         enabled: initial?.enabled ?? true,
         isBuiltin: false,
         findRegex: _findRegex,
+        findLiteral: _findLiteral,
         findEscape: _findEscape,
-        findDollar: _findDollar,
-        replaceRegex: _replaceRegex,
-        replaceEscape: _replaceEscape,
         replaceDollar: _replaceDollar,
+        replaceBackslash: _replaceBackslash,
+        replaceLiteral: _replaceLiteral,
+        replaceEscape: _replaceEscape,
       ),
     );
   }
