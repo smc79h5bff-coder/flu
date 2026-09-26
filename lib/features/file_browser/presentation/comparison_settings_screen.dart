@@ -144,6 +144,14 @@ _switchTile(
   onChanged: (v) =>
       ref.read(ignoreCaseProvider.notifier).update(v),
 ),
+          _switchTile(
+  context,
+  title: '忽略逗号',
+  subtitle: '英文逗号 , 和中文逗号 ，都删掉后对比',
+  value: ref.watch(ignoreCommasProvider),
+  onChanged: (v) =>
+      ref.read(ignoreCommasProvider.notifier).update(v),
+),
 _switchTile(
   context,
   title: '忽略纯数字（数字改为占位符）',
