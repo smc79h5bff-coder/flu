@@ -7,6 +7,7 @@ import '../../../../core/storage/pref_keys.dart';
 import '../../../../core/storage/persistent_notifier.dart';
 import '../../help/presentation/help_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
+import '../../preprocessing/application/builtin_rules.dart';
 import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import 'replace_rules_screen.dart';
@@ -30,7 +31,7 @@ const Map<String, String> _flagHelpDefaults = {
   *     前面的内容出现 0 次或多次
   +     前面的内容出现 1 次或多次
   ?     前面的内容出现 0 次或 1 次
-  ()    分组，替换时可用 $1 $2 引用
+  ()    分组，替换时可用 \$1 \$2 引用
 
 例子：
   查找 \\d+        开=匹配所有连续数字；关=匹配字面"\\d+"
@@ -58,22 +59,22 @@ const Map<String, String> _flagHelpDefaults = {
 注意：转义先于正则执行。开了"支持正则"和"支持转义"时，
 查找词会先把 \\n 变成真换行，再交给正则引擎。''',
 
-  'findDollar': '''【查找词 · 支持 $ 行尾锚点】
+  'findDollar': '''【查找词 · 支持 \$ 行尾锚点】
 
 仅当"支持正则"开启时有意义。
 
-$ 在正则里表示"行尾位置"。
-  abc$    匹配"以 abc 结尾的行"（abc 后面必须紧跟行尾）
+\$ 在正则里表示"行尾位置"。
+  abc\$    匹配"以 abc 结尾的行"（abc 后面必须紧跟行尾）
 
-开：$ 当行尾锚点。
-关：$ 当普通字符，匹配字面的"$"。
+开：\$ 当行尾锚点。
+关：\$ 当普通字符，匹配字面的"\$"。
 
 例子：
-  查找 abc$     开=匹配"abc"结尾的行；关=匹配字面"abc$"
-  查找 ^\\d+$   开=匹配"整行都是数字"的行
+  查找 abc\$     开=匹配"abc"结尾的行；关=匹配字面"abc\$"
+  查找 ^\\d+\$   开=匹配"整行都是数字"的行
 
 提示：大多数情况下保持开启。只有当你真的想匹配一个字面的
-"$"符号时，才关掉它，或者写 \\$。''',
+"\$"符号时，才关掉它，或者写 \\\$。''',
 
   'replaceRegex': '''【替换词 · 支持正则（\\1 \\2 引用）】
 
@@ -89,8 +90,8 @@ $ 在正则里表示"行尾位置"。
   开=把"12-34"变成"34-12"；关=输出字面"\\2-\\1"
 
 注意：
-· \\1 是反斜杠+数字的写法，跟 $1 是两套独立语法。
-· 一般用 $1 就够了（靠"支持 $"开关）。\\1 属于备用写法。
+· \\1 是反斜杠+数字的写法，跟 \$1 是两套独立语法。
+· 一般用 \$1 就够了（靠"支持 \$"开关）。\\1 属于备用写法。
 · 没有捕获组时，\\1 \\2 展开为空串。''',
 
   'replaceEscape': '''【替换词 · 支持转义】
@@ -107,27 +108,27 @@ $ 在正则里表示"行尾位置"。
 
 例子：
   替换词 \\n          开=输出一个真换行；关=输出"反斜杠+n"
-  替换词 第$1章\\n    开=每章后面跟一个真换行
+  替换词 第\$1章\\n    开=每章后面跟一个真换行
   替换词 \\t          开=输出一个真 Tab
 
 用途：想在替换结果里插入换行、Tab、反斜杠，就开这个。''',
 
-  'replaceDollar': '''【替换词 · 支持 $（$1 $2 引用）】
+  'replaceDollar': '''【替换词 · 支持 \$（\$1 \$2 引用）】
 
-开：替换词里的 $0 $1 $2 …… 会被展开。
-关：$0 $1 $2 …… 按字面输出。
+开：替换词里的 \$0 \$1 \$2 …… 会被展开。
+关：\$0 \$1 \$2 …… 按字面输出。
 
-$0 表示整个匹配的内容。
-$1 $2 …… 表示第 1、2、…… 个捕获组的内容。
+\$0 表示整个匹配的内容。
+\$1 \$2 …… 表示第 1、2、…… 个捕获组的内容。
 捕获组就是查找词里每个 () 里的内容。
 
 例子：
   查找 (\\d{4})-(\\d{2})-(\\d{2})
-  替换 $1年$2月$3日
+  替换 \$1年\$2月\$3日
   结果：2024-01-01 → 2024年01月01日
 
   查找 (\\w+)@(\\w+)
-  替换 $2#$1
+  替换 \$2#\$1
   结果：abc@xyz → xyz#abc
 
 提示：这是最常用的捕获组引用方式。配合"查找词·支持正则"
@@ -732,7 +733,6 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     super.dispose();
   }
 
-  /// 长按标签 → 打开说明对话框。
   Future<void> _openFlagHelp(String flagId, String flagLabel) async {
     final helps = ref.read(_flagHelpProvider);
     final current = helps[flagId] ?? _flagHelpDefaults[flagId] ?? '';
