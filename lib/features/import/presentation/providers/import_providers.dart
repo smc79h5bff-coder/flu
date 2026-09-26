@@ -436,7 +436,7 @@ bool _inScope(PreprocessingRule rule, {required bool isOriginal}) {
 
 /// 按用户排序，依次执行所有规则。
 String _runPipeline(
-  WidgetRef ref, {
+  Ref ref, {
   required String raw,
   required bool isOriginal,
 }) {
