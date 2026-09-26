@@ -1,9 +1,13 @@
-name: Flutter APK Build
+name: Flutter Check & Build
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -27,19 +31,31 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      # ===== push 时：只检查编译过没过，30 秒左右 =====
+
+      - name: Analyze (push 时只跑这个)
+        if: github.event_name == 'push'
+        run: flutter analyze
+
+      # ===== 手动触发时：完整构建，出 APK =====
+
       - name: Build APK (prod)
+        if: github.event_name == 'workflow_dispatch'
         run: flutter build apk --release --flavor prod
 
       - name: Build APK (coexist)
+        if: github.event_name == 'workflow_dispatch'
         run: flutter build apk --release --flavor coexist
 
       - name: Upload prod APK
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: app-prod-release
           path: build/app/outputs/flutter-apk/app-prod-release.apk
 
       - name: Upload coexist APK
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: app-coexist-release
