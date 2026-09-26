@@ -1,27 +1,30 @@
 /// One find/replace rule applied before diff.
-/// PRD §2 Module 3.3.
 class PreprocessingRule {
   const PreprocessingRule({
     required this.id,
     required this.name,
-    required this.findPattern,
-    required this.replaceWith,
+    this.findPattern = '',
+    this.replaceWith = '',
     this.scope = RuleScope.both,
     this.enabled = true,
     this.isBuiltin = false,
+    this.script,
   });
 
   final String id;
   final String name;
 
-  /// Raw regex source (PCRE subset, Dart RegExp compatible).
+  /// 普通查找替换规则用这两个字段。
   final String findPattern;
-
-  /// Replacement string. Supports `$1`, `$2` back-references.
   final String replaceWith;
+
   final RuleScope scope;
   final bool enabled;
   final bool isBuiltin;
+
+  /// 特殊脚本标识。非空时忽略 findPattern/replaceWith，走内置脚本。
+  /// 支持的标识：'lowercase'、'dropEmptyLines'、'unifyAnsi'
+  final String? script;
 
   PreprocessingRule copyWith({
     String? name,
@@ -29,6 +32,7 @@ class PreprocessingRule {
     String? replaceWith,
     RuleScope? scope,
     bool? enabled,
+    String? script,
   }) =>
       PreprocessingRule(
         id: id,
@@ -38,6 +42,7 @@ class PreprocessingRule {
         scope: scope ?? this.scope,
         enabled: enabled ?? this.enabled,
         isBuiltin: isBuiltin,
+        script: script ?? this.script,
       );
 
   Map<String, dynamic> toJson() => {
@@ -48,22 +53,23 @@ class PreprocessingRule {
         'scope': scope.name,
         'enabled': enabled,
         'isBuiltin': isBuiltin,
+        if (script != null) 'script': script,
       };
 
   factory PreprocessingRule.fromJson(Map<String, dynamic> j) =>
       PreprocessingRule(
         id: j['id'] as String,
         name: j['name'] as String,
-        findPattern: j['findPattern'] as String,
-        replaceWith: j['replaceWith'] as String,
+        findPattern: j['findPattern'] as String? ?? '',
+        replaceWith: j['replaceWith'] as String? ?? '',
         scope: RuleScope.values.firstWhere(
           (s) => s.name == j['scope'],
           orElse: () => RuleScope.both,
         ),
         enabled: j['enabled'] as bool? ?? true,
         isBuiltin: j['isBuiltin'] as bool? ?? false,
+        script: j['script'] as String?,
       );
 }
 
-/// Which document the rule applies to.
 enum RuleScope { both, originalOnly, modifiedOnly }
