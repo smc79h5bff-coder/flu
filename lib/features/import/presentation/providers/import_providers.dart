@@ -9,6 +9,16 @@ import '../../../preprocessing/application/preprocessing_service.dart';
 import '../../../preprocessing/domain/preprocessing_rule.dart';
 import '../../domain/import_source.dart';
 
+/// 正则缓存：同一个 pattern 只编译一次，之后复用。
+/// key 里带 multiLine 标志，避免同一个 pattern 用不同 multiLine 时串味。
+final Map<String, RegExp> _regexCache = {};
+
+RegExp _cachedRegex(String pattern, {bool multiLine = false}) =>
+    _regexCache.putIfAbsent(
+      '$multiLine|$pattern',
+      () => RegExp(pattern, multiLine: multiLine),
+    );
+
 /// Holds the *raw* text imported from a local file / clipboard.
 /// **不持久化**：重启后清空。
 final originalRawTextProvider = StateProvider<String?>((ref) => null);
@@ -223,7 +233,7 @@ String applyKeywordRules(String text, String rulesText) {
     deletions.sort((a, b) => b.length.compareTo(a.length));
     try {
       final pattern = deletions.map(RegExp.escape).join('|');
-      out = out.replaceAll(RegExp(pattern), '');
+      out = out.replaceAll(_cachedRegex(pattern), '');
     } catch (_) {
       for (final w in deletions) {
         out = out.replaceAll(w, '');
@@ -234,7 +244,7 @@ String applyKeywordRules(String text, String rulesText) {
   for (final r in replacements) {
     final repl = _unescapeReplacement(r.replace);
     try {
-      out = out.replaceAll(RegExp(RegExp.escape(r.find)), repl);
+      out = out.replaceAll(_cachedRegex(RegExp.escape(r.find)), repl);
     } catch (_) {
       out = out.replaceAll(r.find, repl);
     }
@@ -263,7 +273,7 @@ String applyRegexRules(String text, String rulesText) {
     }
     if (find.isEmpty) continue;
     try {
-      out = out.replaceAll(RegExp(find), _unescapeReplacement(replace));
+      out = out.replaceAll(_cachedRegex(find), _unescapeReplacement(replace));
     } catch (_) {
       // 非法正则忽略，不影响其它规则。
     }
