@@ -1,11 +1,14 @@
 import '../domain/preprocessing_rule.dart';
 
-/// Built-in preprocessing rules from PRD §2 Module 3.2.
-/// Default-on set: norm_eol, norm_ws, trim_line.
+/// 内置规则。原「忽略项」那 8 条已并入这里，不再有单独的忽略体系。
+///
+/// 默认开：norm_eol / norm_ws / trim_line / norm_comma /
+///         ig_invisible / ig_ws / ig_empty
 class BuiltinRules {
   const BuiltinRules._();
 
   static List<PreprocessingRule> all() => const [
+        // ============ 通用规范化 ============
         PreprocessingRule(
           id: 'norm_eol',
           name: '统一换行',
@@ -46,21 +49,64 @@ class BuiltinRules {
           enabled: true,
           isBuiltin: true,
         ),
+
+        // ============ 原「忽略项」搬入 ============
         PreprocessingRule(
-          id: 'ignore_case',
-          name: '忽略大小写',
-          findPattern: r'(.+)',
-          replaceWith: '\$1', // post-processed in service: lowercase
+          id: 'ig_invisible',
+          name: '忽略不可见字符',
+          findPattern:
+              r'[\u00A0\u00AD\u200B-\u200F\u202A-\u202E\u202F\u2060-\u2064\u2066-\u2069\uFEFF]',
+          replaceWith: '',
+          enabled: true,
+          isBuiltin: true,
+        ),
+        PreprocessingRule(
+          id: 'ig_ws',
+          name: '删掉空白符号',
+          findPattern: r'[ \t]+',
+          replaceWith: '',
+          enabled: true,
+          isBuiltin: true,
+        ),
+        PreprocessingRule(
+          id: 'ig_empty',
+          name: '删掉空行',
+          script: 'dropEmptyLines',
+          enabled: true,
+          isBuiltin: true,
+        ),
+        PreprocessingRule(
+          id: 'ig_comma',
+          name: '忽略逗号',
+          findPattern: r'[,，]',
+          replaceWith: '',
           enabled: false,
           isBuiltin: true,
         ),
         PreprocessingRule(
-          id: 'norm_number',
-          name: '全角数字转半角',
-          findPattern: r'[０-９]',
-          replaceWith: '0', // service applies per-match mapping
+          id: 'ig_num',
+          name: '忽略纯数字（数字改为占位符）',
+          findPattern: r'[0-9]+',
+          replaceWith: '<NUM>',
+          enabled: false,
+          isBuiltin: true,
+        ),
+        PreprocessingRule(
+          id: 'ig_case',
+          name: '大写全转成小写',
+          script: 'lowercase',
+          enabled: false,
+          isBuiltin: true,
+        ),
+        PreprocessingRule(
+          id: 'ig_ansi',
+          name: '统一编码 ANSI',
+          script: 'unifyAnsi',
           enabled: false,
           isBuiltin: true,
         ),
       ];
+
+  /// 会改动行数的内置规则 id。UI 用它决定是否提醒用户。
+  static const Set<String> lineCountChangingIds = {'ig_empty'};
 }
