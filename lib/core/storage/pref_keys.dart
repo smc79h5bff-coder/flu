@@ -4,7 +4,7 @@ class PrefKeys {
   const PrefKeys._();
 
   static const String _p = 'jianming.';
-
+static const String comparisonNotes = 'comparison_notes';
   // ==================== 对比页显示设置 ====================
   static const String showLineNumbers = '${_p}display.showLineNumbers';
   static const String bodyFontSize = '${_p}display.bodyFontSize';
