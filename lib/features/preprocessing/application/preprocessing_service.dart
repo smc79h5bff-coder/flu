@@ -2,7 +2,7 @@ import 'package:charset/charset.dart';
 
 import '../domain/preprocessing_rule.dart';
 
-/// 正则缓存：同一个 pattern 只编译一次，之后复用。
+/// 正则缓存。
 const int _regexCacheCap = 512;
 final Map<String, RegExp> _regexCache = {};
 
@@ -53,8 +53,7 @@ String unescapeEscapes(String s) {
   return sb.toString();
 }
 
-/// 展开替换串里的 $0 $1 $2 … 为捕获组内容。
-/// $0 = 整个匹配。$1 = 第 1 组。找不到的组展开为空串。
+/// 展开 $0 $1 $2 … 为捕获组内容。
 String expandDollarRefs(String tpl, Match m) {
   if (!tpl.contains(r'$')) return tpl;
   final re = RegExp(r'\$(\d+)');
@@ -74,7 +73,7 @@ String expandDollarRefs(String tpl, Match m) {
   return out.toString();
 }
 
-/// 展开替换串里的 \1 \2 … 为捕获组内容。
+/// 展开 \1 \2 … 为捕获组内容。
 String expandBackslashRefs(String tpl, Match m) {
   if (!tpl.contains(r'\')) return tpl;
   final re = RegExp(r'\\(\d+)');
@@ -92,17 +91,18 @@ String expandBackslashRefs(String tpl, Match m) {
 
 /// 对一段文本执行一条规则。
 ///
-/// 6 个开关的分工：
-///   findRegex    → 查找用正则引擎 or 字面
-///   findEscape   → 查找前把 \n \t 等还原
-///   findDollar   → 保留 $ 的正则锚点含义（关则转义成字面）
-///   replaceRegex → 替换时展开 \1 \2
-///   replaceEscape→ 替换前把 \n \t 等还原
-///   replaceDollar→ 替换时展开 $1 $2
-///
-/// 全部关闭 = 纯字符串查找 + 纯字符串替换。
+/// 7 个开关分工：
+///   查找侧：
+///     findRegex      → 按正则解析（与 findLiteral 互斥）
+///     findLiteral    → 按字面匹配（与 findRegex 互斥）
+///     findEscape     → 先还原 \n \t 等再匹配
+///   替换侧：
+///     replaceDollar    → 展开 $1 $2
+///     replaceBackslash → 展开 \1 \2
+///     replaceLiteral   → 字面输出（与上面两个互斥）
+///     replaceEscape    → 先还原 \n \t 等再输出
 String applyOneRule(String text, PreprocessingRule rule) {
-  // 内置脚本优先，不走上面 6 个开关。
+  // 内置脚本优先。
   final script = rule.script;
   if (script != null && script.isNotEmpty) {
     switch (script) {
@@ -118,65 +118,61 @@ String applyOneRule(String text, PreprocessingRule rule) {
 
   if (rule.findPattern.isEmpty) return text;
 
-  // 1. 处理查找串
+  // 1. 查找串预处理。
   var find = rule.findPattern;
-  if (rule.findEscape) {
-    find = unescapeEscapes(find);
-  }
+  if (rule.findEscape) find = unescapeEscapes(find);
   if (find.isEmpty) return text;
 
-  if (rule.findRegex) {
-    // 2a. 正则匹配
-    if (!rule.findDollar) {
-      // 把 $ 当字面 → 转义掉
-      find = find.replaceAll(r'$', r'\$');
-    }
+  // 2. 用正则还是字面。
+  //    findLiteral=true → 强制字面。
+  //    findRegex=false 且 findLiteral=false → 兜底也走字面。
+  final useRegex = rule.findRegex && !rule.findLiteral;
+
+  if (useRegex) {
     RegExp re;
     try {
       re = _cachedRegex(find);
     } catch (_) {
       return text;
     }
-    // 3a. 替换：有任意替换开关开 → 走 mapped 展开；否则直接 replaceAll。
+    // 替换需要展开或需要转义时才走 mapped；否则直接 replaceAll 更快。
     final needExpand =
-        rule.replaceRegex || rule.replaceDollar || rule.replaceEscape;
-    if (needExpand) {
+        !rule.replaceLiteral && (rule.replaceDollar || rule.replaceBackslash);
+    final needEscape = rule.replaceEscape;
+    if (needExpand || needEscape) {
       return text.replaceAllMapped(re, (m) => _buildReplacement(rule, m));
     }
     return text.replaceAll(re, rule.replaceWith);
   } else {
-    // 2b. 字面匹配
+    // 字面匹配。
     if (!text.contains(find)) return text;
-    // 3b. 替换
-    var replacement = rule.replaceWith;
-    if (rule.replaceEscape) {
-      replacement = unescapeEscapes(replacement);
-    }
-    if (rule.replaceDollar) {
-      // 字面匹配无捕获组，$0 = 整个 find，$1 $2 … = 空
-      replacement = replacement.replaceAll(r'$0', find);
-      replacement = replacement.replaceAll(RegExp(r'\$\d+'), '');
-    }
-    if (rule.replaceRegex) {
-      // \1 \2 … 无捕获组，全展开为空
-      replacement = replacement.replaceAll(RegExp(r'\\\d+'), '');
-    }
+    final replacement = _buildLiteralReplacement(rule, find);
     return text.replaceAll(find, replacement);
   }
 }
 
 String _buildReplacement(PreprocessingRule rule, Match m) {
   var tpl = rule.replaceWith;
-  if (rule.replaceEscape) {
-    tpl = unescapeEscapes(tpl);
-  }
-  if (rule.replaceDollar) {
-    tpl = expandDollarRefs(tpl, m);
-  }
-  if (rule.replaceRegex) {
-    tpl = expandBackslashRefs(tpl, m);
-  }
+  if (rule.replaceEscape) tpl = unescapeEscapes(tpl);
+  if (rule.replaceLiteral) return tpl;
+  if (rule.replaceDollar) tpl = expandDollarRefs(tpl, m);
+  if (rule.replaceBackslash) tpl = expandBackslashRefs(tpl, m);
   return tpl;
+}
+
+String _buildLiteralReplacement(PreprocessingRule rule, String find) {
+  var replacement = rule.replaceWith;
+  if (rule.replaceEscape) replacement = unescapeEscapes(replacement);
+  if (rule.replaceLiteral) return replacement;
+  // 字面匹配无捕获组：$0 = 整个 find，$1+ = 空；\1+ = 空。
+  if (rule.replaceDollar) {
+    replacement = replacement.replaceAll(r'$0', find);
+    replacement = replacement.replaceAll(RegExp(r'\$\d+'), '');
+  }
+  if (rule.replaceBackslash) {
+    replacement = replacement.replaceAll(RegExp(r'\\\d+'), '');
+  }
+  return replacement;
 }
 
 /// 转 GBK 后能无损还原的字符保留，其余删掉。
