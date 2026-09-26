@@ -11,10 +11,19 @@ import '../../preprocessing/domain/preprocessing_rule.dart';
 import '../../viewer/presentation/providers/diff_viewer_providers.dart';
 import 'replace_rules_screen.dart';
 
-/// 比较设置页面。
-///   一、批量替换规则（分组标题 + 便签）
-///   二、单条规则（分组标题 + 便签）
-///   三、忽略项（不加标题，直接跟一堆开关）
+/// 忽略项在 UI 里的副标题（因为 PreprocessingRule 没有这个字段）。
+const _ignoreSubtitles = <String, String>{
+  'ig_nl': r'统一 \r\n / \r / \n 三种换行格式',
+  'ig_invisible':
+      '删除零宽空格/连字、方向控制、BOM、软连字符、NBSP 等看不见的字符后再对比',
+  'ig_ws': '去掉所有空格和 Tab 后对比',
+  'ig_empty': '去掉空白行后对比',
+  'ig_comma': '英文逗号 , 和中文逗号 ，都删掉后对比',
+  'ig_num': '连续数字（如 123）视为占位符 <NUM>',
+  'ig_case': 'A 和 a 视为相同',
+  'ig_ansi': '非 ANSI 字符（Emoji、生僻字）会被删除。开启会丢失内容，慎用',
+};
+
 class ComparisonSettingsScreen extends ConsumerWidget {
   const ComparisonSettingsScreen({super.key});
 
@@ -23,6 +32,7 @@ class ComparisonSettingsScreen extends ConsumerWidget {
     final userRules = ref.watch(userRulesProvider);
     final builtinRules = ref.watch(builtinRulesWithStateProvider);
     final enabledBuiltin = builtinRules.where((r) => r.enabled).length;
+    final ignoreEnables = ref.watch(ignoreRuleEnablesProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -111,71 +121,17 @@ class ComparisonSettingsScreen extends ConsumerWidget {
           for (final r in builtinRules)
             _ruleTile(context, ref, r, builtin: true),
 
-          // ==================== 三、忽略项（保持原样，不加标题） ====================
-_switchTile(
-  context,
-  title: '删掉空白符号',
-  subtitle: '去掉所有空格和 Tab 后对比',
-  value: ref.watch(ignoreWhitespaceProvider),
-  onChanged: (v) =>
-      ref.read(ignoreWhitespaceProvider.notifier).update(v),
-),
-_switchTile(
-  context,
-  title: '删掉空行',
-  subtitle: '去掉空白行后对比',
-  value: ref.watch(ignoreEmptyLinesProvider),
-  onChanged: (v) =>
-      ref.read(ignoreEmptyLinesProvider.notifier).update(v),
-),
-_switchTile(
-  context,
-  title: '统一换行符',
-  subtitle: r'统一 \r\n / \r / \n 三种换行格式',
-  value: ref.watch(ignoreLineEndingsProvider),
-  onChanged: (v) =>
-      ref.read(ignoreLineEndingsProvider.notifier).update(v),
-),
-_switchTile(
-  context,
-  title: '大写全转成小写',
-  subtitle: 'A 和 a 视为相同',
-  value: ref.watch(ignoreCaseProvider),
-  onChanged: (v) =>
-      ref.read(ignoreCaseProvider.notifier).update(v),
-),
-          _switchTile(
-  context,
-  title: '忽略逗号',
-  subtitle: '英文逗号 , 和中文逗号 ，都删掉后对比',
-  value: ref.watch(ignoreCommasProvider),
-  onChanged: (v) =>
-      ref.read(ignoreCommasProvider.notifier).update(v),
-),
-_switchTile(
-  context,
-  title: '忽略纯数字（数字改为占位符）',
-  subtitle: '连续数字（如 123）视为占位符 <NUM>',
-  value: ref.watch(ignoreNumbersProvider),
-  onChanged: (v) =>
-      ref.read(ignoreNumbersProvider.notifier).update(v),
-),
-_switchTile(
-  context,
-  title: '忽略不可见字符',
-  subtitle: '删除零宽空格/连字、方向控制、BOM、软连字符、NBSP 等看不见的字符后再对比',
-  value: ref.watch(ignoreInvisibleProvider),
-  onChanged: (v) =>
-      ref.read(ignoreInvisibleProvider.notifier).update(v),
-),
-_switchTile(
-  context,
-  title: '统一编码 ANSI',
-  subtitle: '非 ANSI 字符（Emoji、生僻字）会被删除。开启会丢失内容，慎用',
-  value: ref.watch(unifyAnsiProvider),
-  onChanged: (v) =>
-      ref.read(unifyAnsiProvider.notifier).update(v),
-),
+          // ==================== 三、忽略项（列表驱动） ====================
+          for (final r in defaultIgnoreRules())
+            _switchTile(
+              context,
+              title: r.name,
+              subtitle: _ignoreSubtitles[r.id] ?? '',
+              value: ignoreEnables[r.id] ?? r.enabled,
+              onChanged: (v) => ref
+                  .read(ignoreRuleEnablesProvider.notifier)
+                  .setOne(r.id, v),
+            ),
         ],
       ),
     );
@@ -234,7 +190,9 @@ _switchTile(
     return ListTile(
       title: Text(rule.name),
       subtitle: Text(
-        '/${rule.findPattern}/ → "${rule.replaceWith}"',
+        rule.script != null
+            ? '(内置脚本: ${rule.script})'
+            : '/${rule.findPattern}/ → "${rule.replaceWith}"',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -290,8 +248,6 @@ _switchTile(
   }
 }
 
-/// 分组标题横条。点击 → 弹窗记事本。
-/// 主页正文永远显示 [defaultDescription]，右上角便签图标反映有没有笔记。
 class _SectionHeader extends ConsumerWidget {
   const _SectionHeader({
     required this.sectionId,
@@ -410,7 +366,6 @@ class _SectionHeader extends ConsumerWidget {
   }
 }
 
-/// 子分组标题（自定义规则 / 内置规则）。
 class _SubHeader extends StatelessWidget {
   const _SubHeader({
     required this.title,
@@ -449,7 +404,6 @@ class _SubHeader extends StatelessWidget {
   }
 }
 
-/// 两组说明各自的笔记（batch / rules）。
 final _notesProvider = NotifierProvider<_NotesNotifier, Map<String, String>>(
   _NotesNotifier.new,
 );
@@ -481,7 +435,6 @@ class _NotesNotifier extends PersistentNotifier<Map<String, String>> {
   }
 }
 
-/// 新建规则对话框。
 class _RuleEditorDialog extends StatefulWidget {
   const _RuleEditorDialog();
 
