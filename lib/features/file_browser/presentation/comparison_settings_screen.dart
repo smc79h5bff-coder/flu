@@ -112,63 +112,62 @@ class ComparisonSettingsScreen extends ConsumerWidget {
             _ruleTile(context, ref, r, builtin: true),
 
           // ==================== 三、忽略项（保持原样，不加标题） ====================
-          _switchTile(
-            context,
-            title: '删掉空白符号',
-            subtitle: '去掉所有空格和 Tab 后对比',
-            value: ref.watch(ignoreWhitespaceProvider),
-            onChanged: (v) =>
-                ref.read(ignoreWhitespaceProvider.notifier).state = v,
-          ),
-          _switchTile(
-            context,
-            title: '删掉空行',
-            subtitle: '去掉空白行后对比',
-            value: ref.watch(ignoreEmptyLinesProvider),
-            onChanged: (v) =>
-                ref.read(ignoreEmptyLinesProvider.notifier).state = v,
-          ),
-          _switchTile(
-            context,
-            title: '统一换行符',
-            subtitle: r'统一 \r\n / \r / \n 三种换行格式',
-            value: ref.watch(ignoreLineEndingsProvider),
-            onChanged: (v) =>
-                ref.read(ignoreLineEndingsProvider.notifier).state = v,
-          ),
-          _switchTile(
-            context,
-            title: '大写全转成小写',
-            subtitle: 'A 和 a 视为相同',
-            value: ref.watch(ignoreCaseProvider),
-            onChanged: (v) =>
-                ref.read(ignoreCaseProvider.notifier).state = v,
-          ),
-          _switchTile(
-            context,
-            title: '忽略纯数字（数字改为占位符）',
-            subtitle: '连续数字（如 123）视为占位符 <NUM>',
-            value: ref.watch(ignoreNumbersProvider),
-            onChanged: (v) =>
-                ref.read(ignoreNumbersProvider.notifier).state = v,
-          ),
-          _switchTile(
-            context,
-            title: '忽略不可见字符',
-            subtitle:
-                '删除零宽空格/连字、方向控制、BOM、软连字符、NBSP 等看不见的字符后再对比',
-            value: ref.watch(ignoreInvisibleProvider),
-            onChanged: (v) =>
-                ref.read(ignoreInvisibleProvider.notifier).state = v,
-          ),
-          _switchTile(
-            context,
-            title: '统一编码 ANSI',
-            subtitle: '非 ANSI 字符（Emoji、生僻字）会被删除。开启会丢失内容，慎用',
-            value: ref.watch(unifyAnsiProvider),
-            onChanged: (v) =>
-                ref.read(unifyAnsiProvider.notifier).state = v,
-          ),
+_switchTile(
+  context,
+  title: '删掉空白符号',
+  subtitle: '去掉所有空格和 Tab 后对比',
+  value: ref.watch(ignoreWhitespaceProvider),
+  onChanged: (v) =>
+      ref.read(ignoreWhitespaceProvider.notifier).update(v),
+),
+_switchTile(
+  context,
+  title: '删掉空行',
+  subtitle: '去掉空白行后对比',
+  value: ref.watch(ignoreEmptyLinesProvider),
+  onChanged: (v) =>
+      ref.read(ignoreEmptyLinesProvider.notifier).update(v),
+),
+_switchTile(
+  context,
+  title: '统一换行符',
+  subtitle: r'统一 \r\n / \r / \n 三种换行格式',
+  value: ref.watch(ignoreLineEndingsProvider),
+  onChanged: (v) =>
+      ref.read(ignoreLineEndingsProvider.notifier).update(v),
+),
+_switchTile(
+  context,
+  title: '大写全转成小写',
+  subtitle: 'A 和 a 视为相同',
+  value: ref.watch(ignoreCaseProvider),
+  onChanged: (v) =>
+      ref.read(ignoreCaseProvider.notifier).update(v),
+),
+_switchTile(
+  context,
+  title: '忽略纯数字（数字改为占位符）',
+  subtitle: '连续数字（如 123）视为占位符 <NUM>',
+  value: ref.watch(ignoreNumbersProvider),
+  onChanged: (v) =>
+      ref.read(ignoreNumbersProvider.notifier).update(v),
+),
+_switchTile(
+  context,
+  title: '忽略不可见字符',
+  subtitle: '删除零宽空格/连字、方向控制、BOM、软连字符、NBSP 等看不见的字符后再对比',
+  value: ref.watch(ignoreInvisibleProvider),
+  onChanged: (v) =>
+      ref.read(ignoreInvisibleProvider.notifier).update(v),
+),
+_switchTile(
+  context,
+  title: '统一编码 ANSI',
+  subtitle: '非 ANSI 字符（Emoji、生僻字）会被删除。开启会丢失内容，慎用',
+  value: ref.watch(unifyAnsiProvider),
+  onChanged: (v) =>
+      ref.read(unifyAnsiProvider.notifier).update(v),
+),
         ],
       ),
     );
