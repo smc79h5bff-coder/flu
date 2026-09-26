@@ -24,6 +24,7 @@ class SideBySideView extends ConsumerStatefulWidget {
     this.gutterFontSize = 11.0,
     this.syncScroll = true,
     this.noWrap = false,
+    this.jumpedToEntry,
     this.onLongPressEntry,
     super.key,
   });
@@ -49,6 +50,7 @@ class SideBySideView extends ConsumerStatefulWidget {
   final double gutterFontSize;
   final bool syncScroll;
   final bool noWrap;
+  final int? jumpedToEntry;
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -170,10 +172,21 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                   } else {
                     out = row;
                   }
+                  final bool isJumped = widget.jumpedToEntry != null &&
+                      (spec.del == widget.jumpedToEntry ||
+                          spec.ins == widget.jumpedToEntry);
+                  final Widget framed = isJumped
+                      ? Container(
+                          foregroundDecoration: BoxDecoration(
+                            border: Border.all(color: Colors.black, width: 2),
+                          ),
+                          child: out,
+                        )
+                      : out;
                   final key = spec.del != null && spec.ins != null
                       ? ValueKey<String>('${spec.del}-${spec.ins}')
                       : ValueKey<int>(spec.del ?? spec.ins!);
-                  return KeyedSubtree(key: key, child: out);
+                  return KeyedSubtree(key: key, child: framed);
                 },
               ),
             ),
@@ -251,8 +264,17 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                                 behavior: HitTestBehavior.opaque,
                                 child: tile,
                               );
+                        final Widget framed = (widget.jumpedToEntry == ei)
+                            ? Container(
+                                foregroundDecoration: BoxDecoration(
+                                  border:
+                                      Border.all(color: Colors.black, width: 2),
+                                ),
+                                child: out,
+                              )
+                            : out;
                         return KeyedSubtree(
-                            key: ValueKey<int>(ei), child: out);
+                            key: ValueKey<int>(ei), child: framed);
                       },
                     ),
                   ),
@@ -293,8 +315,17 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                                 behavior: HitTestBehavior.opaque,
                                 child: tile,
                               );
+                        final Widget framed = (widget.jumpedToEntry == ei)
+                            ? Container(
+                                foregroundDecoration: BoxDecoration(
+                                  border:
+                                      Border.all(color: Colors.black, width: 2),
+                                ),
+                                child: out,
+                              )
+                            : out;
                         return KeyedSubtree(
-                            key: ValueKey<int>(ei), child: out);
+                            key: ValueKey<int>(ei), child: framed);
                       },
                     ),
                   ),
