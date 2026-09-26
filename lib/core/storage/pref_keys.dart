@@ -39,6 +39,14 @@ static const String ruleFlagHelp = '${_p}rules.flagHelp';
   /// 用 \u0000 分隔的字符串存。
   static const String ruleOrder = '${_p}rules.order';
 
+  
+
+// ==================== 对比页按钮栏 ====================
+static const String toolbarRules = '${_p}toolbar.rules';
+static const String toolbarOrder = '${_p}toolbar.order';
+
+  
+  
   // ==================== 文件浏览器 ====================
   static const String sortField = '${_p}browser.sortField';
   static const String sortAsc = '${_p}browser.sortAsc';
