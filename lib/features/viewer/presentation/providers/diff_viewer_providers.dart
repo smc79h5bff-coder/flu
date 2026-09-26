@@ -1,18 +1,15 @@
 import 'dart:convert';
 
-import 'package:charset/charset.dart';
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import '../../../../core/storage/pref_keys.dart';
 import '../../../../core/storage/persistent_notifier.dart';
 import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../../../import/presentation/providers/import_providers.dart';
-import '../../../preprocessing/domain/preprocessing_rule.dart';
 
 enum ViewMode { merged, sideBySide, diffOnly, diffOnlyPlain }
 
@@ -105,175 +102,7 @@ class DiffPerfStats {
 
 final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
 
-// ==================== 忽略规则（持久化，列表式） ====================
-
-final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
-
-final RegExp _invisibleChars = RegExp(
-  r'[\u00A0\u00AD'
-  r'\u200B-\u200F'
-  r'\u202A-\u202E'
-  r'\u202F'
-  r'\u2060-\u2064'
-  r'\u2066-\u2069'
-  r'\uFEFF]',
-);
-
-/// 8 条忽略规则。顺序 = 执行顺序。
-List<PreprocessingRule> defaultIgnoreRules() => const [
-      PreprocessingRule(
-        id: 'ig_nl',
-        name: '统一换行符',
-        findPattern: r'\r\n|\r',
-        replaceWith: '\n',
-        isBuiltin: true,
-      ),
-      PreprocessingRule(
-        id: 'ig_invisible',
-        name: '忽略不可见字符',
-        findPattern:
-            r'[\u00A0\u00AD\u200B-\u200F\u202A-\u202E\u202F\u2060-\u2064\u2066-\u2069\uFEFF]',
-        replaceWith: '',
-        isBuiltin: true,
-      ),
-      PreprocessingRule(
-        id: 'ig_ws',
-        name: '删掉空白符号',
-        findPattern: r'[ \t]+',
-        replaceWith: '',
-        isBuiltin: true,
-      ),
-      PreprocessingRule(
-        id: 'ig_empty',
-        name: '删掉空行',
-        script: 'dropEmptyLines',
-        isBuiltin: true,
-      ),
-      PreprocessingRule(
-        id: 'ig_comma',
-        name: '忽略逗号',
-        findPattern: r'[,，]',
-        replaceWith: '',
-        enabled: false,
-        isBuiltin: true,
-      ),
-      PreprocessingRule(
-        id: 'ig_num',
-        name: '忽略纯数字（数字改为占位符）',
-        findPattern: r'[0-9]+',
-        replaceWith: '<NUM>',
-        enabled: false,
-        isBuiltin: true,
-      ),
-      PreprocessingRule(
-        id: 'ig_case',
-        name: '大写全转成小写',
-        script: 'lowercase',
-        enabled: false,
-        isBuiltin: true,
-      ),
-      PreprocessingRule(
-        id: 'ig_ansi',
-        name: '统一编码 ANSI',
-        script: 'unifyAnsi',
-        enabled: false,
-        isBuiltin: true,
-      ),
-    ];
-
-final ignoreRuleEnablesProvider =
-    NotifierProvider<IgnoreRuleEnablesNotifier, Map<String, bool>>(
-  IgnoreRuleEnablesNotifier.new,
-);
-
-class IgnoreRuleEnablesNotifier
-    extends PersistentNotifier<Map<String, bool>> {
-  @override
-  String get key => PrefKeys.ignoreRuleEnables;
-
-  @override
-  Map<String, bool> get defaultValue => {
-        for (final r in defaultIgnoreRules()) r.id: r.enabled,
-      };
-
-  @override
-  Map<String, bool> decode(String raw) {
-    final saved = jsonDecode(raw) as Map<String, dynamic>;
-    final out = {
-      for (final r in defaultIgnoreRules()) r.id: r.enabled,
-    };
-    for (final e in saved.entries) {
-      if (out.containsKey(e.key)) out[e.key] = e.value == true;
-    }
-    return out;
-  }
-
-  @override
-  String encode(Map<String, bool> value) => jsonEncode(value);
-
-  void setOne(String id, bool enabled) {
-    update({...state, id: enabled});
-  }
-}
-
-bool isIgnoreOn(Map<String, bool> enables, String id) {
-  for (final r in defaultIgnoreRules()) {
-    if (r.id == id) return enables[id] ?? r.enabled;
-  }
-  return false;
-}
-
-String unifyToAnsi(String text) {
-  try {
-    final bytes = gbk.encode(text);
-    if (gbk.decode(bytes) == text) return text;
-  } catch (_) {}
-  final sb = StringBuffer();
-  for (final rune in text.runes) {
-    final ch = String.fromCharCode(rune);
-    try {
-      final bytes = gbk.encode(ch);
-      if (gbk.decode(bytes) != ch) continue;
-      sb.write(ch);
-    } catch (_) {}
-  }
-  return sb.toString();
-}
-
-String applyDiffIgnores(String text, Map<String, bool> enables) {
-  var out = text;
-  for (final rule in defaultIgnoreRules()) {
-    final on = enables[rule.id] ?? rule.enabled;
-    if (!on) continue;
-
-    final script = rule.script;
-    if (script != null) {
-      switch (script) {
-        case 'lowercase':
-          out = out.toLowerCase();
-          break;
-        case 'dropEmptyLines':
-          out = out
-              .split('\n')
-              .where((l) => l.trim().isNotEmpty)
-              .join('\n');
-          break;
-        case 'unifyAnsi':
-          out = unifyToAnsi(out);
-          break;
-      }
-      continue;
-    }
-
-    try {
-      out = out.replaceAll(
-        RegExp(rule.findPattern, multiLine: true),
-        rule.replaceWith,
-      );
-    } catch (_) {}
-  }
-  return out;
-}
+// ==================== Diff 计算 ====================
 
 typedef _DiffRequest = ({
   String original,
@@ -574,11 +403,6 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final modified = ref.watch(preprocessedModifiedProvider);
   if (original.isEmpty || modified.isEmpty) return null;
 
-  final ignoreEnables = ref.watch(ignoreRuleEnablesProvider);
-  final origNorm = applyDiffIgnores(original, ignoreEnables);
-  final modNorm = applyDiffIgnores(modified, ignoreEnables);
-  if (origNorm.isEmpty || modNorm.isEmpty) return null;
-
   ref.watch(importRevisionProvider);
 
   final tPrep = sw.elapsedMilliseconds;
@@ -586,8 +410,8 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final payload = await compute(
     _computeInWorker,
     (
-      original: origNorm,
-      modified: modNorm,
+      original: original,
+      modified: modified,
     ),
   );
   final tIsolate = sw.elapsedMilliseconds;
@@ -608,8 +432,8 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
     diffMs: payload.diffMs,
     isolateExpandMs: payload.expandMs,
     lineCount: payload.entries.length,
-    origLen: origNorm.length,
-    modLen: modNorm.length,
+    origLen: original.length,
+    modLen: modified.length,
     origLines: payload.origLines,
     modLines: payload.modLines,
     uniqueLines: payload.uniqueLines,
@@ -823,34 +647,4 @@ Color? hexToColor(String s) {
   final v = int.tryParse(s.substring(1), radix: 16);
   if (v == null) return null;
   return Color(0xFF000000 | v);
-}
-
-int? rawLineForNormalizedLine(
-  String raw, {
-  required int normalizedLine,
-  required Map<String, bool> ignoreEnables,
-}) {
-  final ignoreWhitespace = isIgnoreOn(ignoreEnables, 'ig_ws');
-  final ignoreEmptyLines = isIgnoreOn(ignoreEnables, 'ig_empty');
-  final ignoreInvisible = isIgnoreOn(ignoreEnables, 'ig_invisible');
-
-  if (normalizedLine < 0) return null;
-  final lines =
-      raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
-
-  if (!ignoreEmptyLines) {
-    return normalizedLine < lines.length ? normalizedLine : null;
-  }
-
-  var count = 0;
-  for (var i = 0; i < lines.length; i++) {
-    var s = lines[i];
-    if (ignoreInvisible) s = s.replaceAll(_invisibleChars, '');
-    if (ignoreWhitespace) s = s.replaceAll(_horizontalWhitespace, '');
-    if (s.trim().isNotEmpty) {
-      if (count == normalizedLine) return i;
-      count++;
-    }
-  }
-  return null;
 }
