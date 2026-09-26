@@ -898,9 +898,9 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                       DropdownMenuItem(
                           value: RuleScope.both, child: Text('两份文档')),
                       DropdownMenuItem(
-                          value: RuleScope.originalOnly, child: Text('仅原文')),
+                          value: RuleScope.originalOnly, child: Text('仅左侧文档')),
                       DropdownMenuItem(
-                          value: RuleScope.modifiedOnly, child: Text('仅修改版')),
+                          value: RuleScope.modifiedOnly, child: Text('仅右侧文档')),
                     ],
                     onChanged: (v) =>
                         setState(() => _scope = v ?? RuleScope.both),
