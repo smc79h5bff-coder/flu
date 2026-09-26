@@ -1,135 +1,198 @@
+import 'package:charset/charset.dart';
+
 import '../domain/preprocessing_rule.dart';
-import 'builtin_rules.dart';
 
 /// 正则缓存：同一个 pattern 只编译一次，之后复用。
-/// key 里带 multiLine 标志，避免同一个 pattern 用不同 multiLine 时串味。
-///
-/// 上限 [_regexCacheCap] 条，超出后清空重建。规则数量通常有限，
-/// 但用户可能加几百条规则，为防止无界增长，加上限。
 const int _regexCacheCap = 512;
 final Map<String, RegExp> _regexCache = {};
 
-RegExp _cachedRegex(String pattern, {bool multiLine = true}) {
-  final key = '$multiLine|$pattern';
-  final hit = _regexCache[key];
+RegExp _cachedRegex(String pattern) {
+  final hit = _regexCache[pattern];
   if (hit != null) return hit;
   if (_regexCache.length >= _regexCacheCap) {
     _regexCache.clear();
   }
-  final re = RegExp(pattern, multiLine: multiLine);
-  _regexCache[key] = re;
+  final re = RegExp(pattern, multiLine: true);
+  _regexCache[pattern] = re;
   return re;
 }
 
-/// `$1` / `$2` 的展开正则，固定 pattern，提成顶层常量只编译一次。
-final RegExp _replacementRefPattern = RegExp(r'\$(\d)');
-
-/// 正则元字符。findPattern 含任意一个 → 必须走正则引擎；
-/// 不含 → 可走 String.replaceAll 快路径（快 2~5 倍）。
-final RegExp _regexMeta = RegExp(r'[\^$.*+?()\[\]{}|\\]');
-
-/// findPattern 是否不含任何正则元字符（纯文本匹配）。
-bool _isPlainText(String s) => !_regexMeta.hasMatch(s);
-
-/// Pipeline that runs built-in + user-defined rules over the parsed text
-/// before diff. PRD §2 Module 3.4.
-///
-/// Invariants:
-/// - Rules are applied serially in list order.
-/// - Per-rule execution has a 500 ms soft timeout (throws on timeout).
-/// - Max 20 active rules — caller should truncate before invoking.
-/// - Output is the *processed* text used for diff calculation. Rendering
-///   layer is responsible for showing original text + diff highlights.
-class PreprocessingService {
-  PreprocessingService({
-    List<PreprocessingRule>? userRules,
-    List<PreprocessingRule>? builtinRules,
-    this.ruleTimeoutMs = 500,
-  })  : userRules = userRules ?? const [],
-        builtinRules = builtinRules ?? BuiltinRules.all();
-
-  final List<PreprocessingRule> userRules;
-
-  /// Built-in rules with current enabled-state applied (may come from a
-  /// provider that lets the user toggle them).
-  final List<PreprocessingRule> builtinRules;
-  final int ruleTimeoutMs;
-
-  /// Apply all enabled rules in scope [original] (true) or [modified] (false).
-  String apply(String input, {required bool isOriginal}) {
-    final active = <PreprocessingRule>[
-      ...builtinRules.where((r) => r.enabled),
-      ...userRules.where((r) => r.enabled),
-    ]..removeWhere((r) => !_inScope(r, isOriginal));
-    if (active.length > 20) {
-      throw PreprocessingException(
-        'Too many active rules (${active.length}); trim to <= 20.',
-      );
-    }
-
-    var out = input;
-    for (final rule in active) {
-      // 快速跳过：纯文本规则的目标串在文本里不存在 → 这条规则必然命中 0 次，
-      // 直接跳过整条，省掉一次全文扫描。规则多时这一条最省时间。
-      if (_isPlainText(rule.findPattern) &&
-          !out.contains(rule.findPattern)) {
-        continue;
+/// 还原 \n \r \t \\ \0 成真字符。
+String unescapeEscapes(String s) {
+  if (!s.contains(r'\')) return s;
+  final sb = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    final c = s[i];
+    if (c == r'\' && i + 1 < s.length) {
+      final n = s[i + 1];
+      switch (n) {
+        case 'n':
+          sb.write('\n');
+          i++;
+          continue;
+        case 'r':
+          sb.write('\r');
+          i++;
+          continue;
+        case 't':
+          sb.write('\t');
+          i++;
+          continue;
+        case '0':
+          sb.write('\u0000');
+          i++;
+          continue;
+        case r'\':
+          sb.write(r'\');
+          i++;
+          continue;
       }
-      out = _applyOne(rule, out);
     }
-    return out;
+    sb.write(c);
   }
+  return sb.toString();
+}
 
-  bool _inScope(PreprocessingRule rule, bool isOriginal) {
-    switch (rule.scope) {
-      case RuleScope.both:
-        return true;
-      case RuleScope.originalOnly:
-        return isOriginal;
-      case RuleScope.modifiedOnly:
-        return !isOriginal;
-    }
-  }
-
-  String _applyOne(PreprocessingRule rule, String text) {
-    // ignore_case 特判：走 toLowerCase 快路径。
-    if (rule.id == 'ignore_case') {
-      return text.toLowerCase();
-    }
-
-    // 纯文本快路径：findPattern 不含元字符 → 直接 String.replaceAll，
-    // 跳过正则引擎（快 2~5 倍），且不需要编译 RegExp。
-    // 注意：纯文本路径无捕获组，替换串原样使用（不做 $1 展开）。
-    if (_isPlainText(rule.findPattern)) {
-      return text.replaceAll(rule.findPattern, rule.replaceWith);
-    }
-
-    // 正则路径：缓存复用 RegExp。
-    return text.replaceAllMapped(
-      _cachedRegex(rule.findPattern),
-      (m) => _expandReplacement(rule.replaceWith, m),
-    );
-  }
-
-  String _expandReplacement(String tpl, Match m) {
-    // 快速路径：替换串无 $ 直接返回，省掉 allMatches 遍历。
-    if (!tpl.contains(r'$')) return tpl;
-    var out = StringBuffer();
-    var last = 0;
-    for (final match in _replacementRefPattern.allMatches(tpl)) {
-      out.write(tpl.substring(last, match.start));
-      final idx = int.parse(match.group(1)!);
+/// 展开替换串里的 $0 $1 $2 … 为捕获组内容。
+/// $0 = 整个匹配。$1 = 第 1 组。找不到的组展开为空串。
+String expandDollarRefs(String tpl, Match m) {
+  if (!tpl.contains(r'$')) return tpl;
+  final re = RegExp(r'\$(\d+)');
+  final out = StringBuffer();
+  var last = 0;
+  for (final match in re.allMatches(tpl)) {
+    out.write(tpl.substring(last, match.start));
+    final idx = int.parse(match.group(1)!);
+    if (idx == 0) {
+      out.write(m.group(0) ?? '');
+    } else {
       out.write(m.group(idx) ?? '');
-      last = match.end;
     }
-    out.write(tpl.substring(last));
-    return out.toString();
+    last = match.end;
+  }
+  out.write(tpl.substring(last));
+  return out.toString();
+}
+
+/// 展开替换串里的 \1 \2 … 为捕获组内容。
+String expandBackslashRefs(String tpl, Match m) {
+  if (!tpl.contains(r'\')) return tpl;
+  final re = RegExp(r'\\(\d+)');
+  final out = StringBuffer();
+  var last = 0;
+  for (final match in re.allMatches(tpl)) {
+    out.write(tpl.substring(last, match.start));
+    final idx = int.parse(match.group(1)!);
+    out.write(m.group(idx) ?? '');
+    last = match.end;
+  }
+  out.write(tpl.substring(last));
+  return out.toString();
+}
+
+/// 对一段文本执行一条规则。
+///
+/// 6 个开关的分工：
+///   findRegex    → 查找用正则引擎 or 字面
+///   findEscape   → 查找前把 \n \t 等还原
+///   findDollar   → 保留 $ 的正则锚点含义（关则转义成字面）
+///   replaceRegex → 替换时展开 \1 \2
+///   replaceEscape→ 替换前把 \n \t 等还原
+///   replaceDollar→ 替换时展开 $1 $2
+///
+/// 全部关闭 = 纯字符串查找 + 纯字符串替换。
+String applyOneRule(String text, PreprocessingRule rule) {
+  // 内置脚本优先，不走上面 6 个开关。
+  final script = rule.script;
+  if (script != null && script.isNotEmpty) {
+    switch (script) {
+      case 'lowercase':
+        return text.toLowerCase();
+      case 'dropEmptyLines':
+        return text.split('\n').where((l) => l.trim().isNotEmpty).join('\n');
+      case 'unifyAnsi':
+        return unifyToAnsi(text);
+    }
+    return text;
+  }
+
+  if (rule.findPattern.isEmpty) return text;
+
+  // 1. 处理查找串
+  var find = rule.findPattern;
+  if (rule.findEscape) {
+    find = unescapeEscapes(find);
+  }
+  if (find.isEmpty) return text;
+
+  if (rule.findRegex) {
+    // 2a. 正则匹配
+    if (!rule.findDollar) {
+      // 把 $ 当字面 → 转义掉
+      find = find.replaceAll(r'$', r'\$');
+    }
+    RegExp re;
+    try {
+      re = _cachedRegex(find);
+    } catch (_) {
+      return text;
+    }
+    // 3a. 替换：有任意替换开关开 → 走 mapped 展开；否则直接 replaceAll。
+    final needExpand =
+        rule.replaceRegex || rule.replaceDollar || rule.replaceEscape;
+    if (needExpand) {
+      return text.replaceAllMapped(re, (m) => _buildReplacement(rule, m));
+    }
+    return text.replaceAll(re, rule.replaceWith);
+  } else {
+    // 2b. 字面匹配
+    if (!text.contains(find)) return text;
+    // 3b. 替换
+    var replacement = rule.replaceWith;
+    if (rule.replaceEscape) {
+      replacement = unescapeEscapes(replacement);
+    }
+    if (rule.replaceDollar) {
+      // 字面匹配无捕获组，$0 = 整个 find，$1 $2 … = 空
+      replacement = replacement.replaceAll(r'$0', find);
+      replacement = replacement.replaceAll(RegExp(r'\$\d+'), '');
+    }
+    if (rule.replaceRegex) {
+      // \1 \2 … 无捕获组，全展开为空
+      replacement = replacement.replaceAll(RegExp(r'\\\d+'), '');
+    }
+    return text.replaceAll(find, replacement);
   }
 }
 
-class PreprocessingException implements Exception {
-  const PreprocessingException(this.message);
-  final String message;
-  @override
-  String toString() => 'PreprocessingException: $message';
+String _buildReplacement(PreprocessingRule rule, Match m) {
+  var tpl = rule.replaceWith;
+  if (rule.replaceEscape) {
+    tpl = unescapeEscapes(tpl);
+  }
+  if (rule.replaceDollar) {
+    tpl = expandDollarRefs(tpl, m);
+  }
+  if (rule.replaceRegex) {
+    tpl = expandBackslashRefs(tpl, m);
+  }
+  return tpl;
+}
+
+/// 转 GBK 后能无损还原的字符保留，其余删掉。
+String unifyToAnsi(String text) {
+  try {
+    final bytes = gbk.encode(text);
+    if (gbk.decode(bytes) == text) return text;
+  } catch (_) {}
+  final sb = StringBuffer();
+  for (final rune in text.runes) {
+    final ch = String.fromCharCode(rune);
+    try {
+      final bytes = gbk.encode(ch);
+      if (gbk.decode(bytes) != ch) continue;
+      sb.write(ch);
+    } catch (_) {}
+  }
+  return sb.toString();
 }
