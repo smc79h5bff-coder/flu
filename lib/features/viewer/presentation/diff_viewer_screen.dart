@@ -701,7 +701,7 @@ Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
     final rows =
         isPlain ? cachedDiffOnlyPlainRows(diff) : cachedDiffOnlyRows(diff);
     final panelW = (viewportW - 1) / 2;
-    final contentW = panelW - 52.0;
+    final contentW = panelW - 44.0;
     final k = cacheKey(isPlain ? 'diff_only_plain' : 'diff_only');
     final cached = LineHeightCache.instance.get(k);
     if (cached != null) {
@@ -738,7 +738,7 @@ Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 12,
+      extraVerticalPadding: 4,
     );
     LineHeightCache.instance.put(k, table);
     return isPlain
