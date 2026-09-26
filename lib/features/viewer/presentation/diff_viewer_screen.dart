@@ -425,13 +425,11 @@ if (autoScroll && matches.isNotEmpty) {
         raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
 
     for (final entry in changes.entries) {
-      final rawLine = rawLineForNormalizedLine(
-        raw,
-        normalizedLine: entry.key,
-        ignoreWhitespace: ref.read(ignoreWhitespaceProvider),
-        ignoreEmptyLines: ref.read(ignoreEmptyLinesProvider),
-        ignoreInvisible: ref.read(ignoreInvisibleProvider),
-      );
+final rawLine = rawLineForNormalizedLine(
+  raw,
+  normalizedLine: entry.key,
+  ignoreEnables: ref.read(ignoreRuleEnablesProvider),
+);
       if (rawLine == null) continue;
       if (rawLine < 0 || rawLine >= lines.length) continue;
       lines[rawLine] = entry.value;
@@ -1244,13 +1242,11 @@ int _diffBlockCount(DiffResult diff) {
     );
     if (raw == null) return;
 
-    final rawLine = rawLineForNormalizedLine(
-      raw,
-      normalizedLine: normalizedLine,
-      ignoreWhitespace: ref.read(ignoreWhitespaceProvider),
-      ignoreEmptyLines: ref.read(ignoreEmptyLinesProvider),
-      ignoreInvisible: ref.read(ignoreInvisibleProvider),
-    );
+final rawLine = rawLineForNormalizedLine(
+  raw,
+  normalizedLine: normalizedLine,
+  ignoreEnables: ref.read(ignoreRuleEnablesProvider),
+);
     if (rawLine == null) return;
 
     final lines =
