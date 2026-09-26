@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:charset/charset.dart';
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/foundation.dart';
@@ -10,14 +12,9 @@ import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../../../import/presentation/providers/import_providers.dart';
+import '../../../preprocessing/domain/preprocessing_rule.dart';
 
-/// 4 种视图：
-/// - merged          合并
-/// - sideBySide      并排
-/// - diffOnly        差异 + 上下各 2 行上下文
-/// - diffOnlyPlain   纯差异，无上下文
 enum ViewMode { merged, sideBySide, diffOnly, diffOnlyPlain }
-
 
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 
@@ -108,81 +105,9 @@ class DiffPerfStats {
 
 final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
 
-// ==================== 忽略开关（持久化） ====================
+// ==================== 忽略规则（持久化，列表式） ====================
 
 final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
-
-final ignoreWhitespaceProvider =
-    NotifierProvider<IgnoreWhitespaceNotifier, bool>(
-  IgnoreWhitespaceNotifier.new,
-);
-
-class IgnoreWhitespaceNotifier extends BoolPrefNotifier {
-  IgnoreWhitespaceNotifier()
-      : super(key: PrefKeys.ignoreWhitespace, initial: true);
-}
-
-final ignoreEmptyLinesProvider =
-    NotifierProvider<IgnoreEmptyLinesNotifier, bool>(
-  IgnoreEmptyLinesNotifier.new,
-);
-
-class IgnoreEmptyLinesNotifier extends BoolPrefNotifier {
-  IgnoreEmptyLinesNotifier()
-      : super(key: PrefKeys.ignoreEmptyLines, initial: true);
-}
-
-final ignoreLineEndingsProvider =
-    NotifierProvider<IgnoreLineEndingsNotifier, bool>(
-  IgnoreLineEndingsNotifier.new,
-);
-
-class IgnoreLineEndingsNotifier extends BoolPrefNotifier {
-  IgnoreLineEndingsNotifier()
-      : super(key: PrefKeys.ignoreLineEndings, initial: true);
-}
-
-final unifyAnsiProvider =
-    NotifierProvider<UnifyAnsiNotifier, bool>(UnifyAnsiNotifier.new);
-
-class UnifyAnsiNotifier extends BoolPrefNotifier {
-  UnifyAnsiNotifier() : super(key: PrefKeys.unifyAnsi, initial: false);
-}
-
-final ignoreCaseProvider =
-    NotifierProvider<IgnoreCaseNotifier, bool>(IgnoreCaseNotifier.new);
-
-class IgnoreCaseNotifier extends BoolPrefNotifier {
-  IgnoreCaseNotifier() : super(key: PrefKeys.ignoreCase, initial: false);
-}
-
-final ignoreCommasProvider =
-    NotifierProvider<IgnoreCommasNotifier, bool>(IgnoreCommasNotifier.new);
-
-class IgnoreCommasNotifier extends BoolPrefNotifier {
-  IgnoreCommasNotifier()
-      : super(key: PrefKeys.ignoreCommas, initial: false);
-}
-
-final ignoreNumbersProvider =
-    NotifierProvider<IgnoreNumbersNotifier, bool>(
-  IgnoreNumbersNotifier.new,
-);
-
-class IgnoreNumbersNotifier extends BoolPrefNotifier {
-  IgnoreNumbersNotifier()
-      : super(key: PrefKeys.ignoreNumbers, initial: false);
-}
-
-final ignoreInvisibleProvider =
-    NotifierProvider<IgnoreInvisibleNotifier, bool>(
-  IgnoreInvisibleNotifier.new,
-);
-
-class IgnoreInvisibleNotifier extends BoolPrefNotifier {
-  IgnoreInvisibleNotifier()
-      : super(key: PrefKeys.ignoreInvisible, initial: true);
-}
 
 final RegExp _invisibleChars = RegExp(
   r'[\u00A0\u00AD'
@@ -193,6 +118,110 @@ final RegExp _invisibleChars = RegExp(
   r'\u2066-\u2069'
   r'\uFEFF]',
 );
+
+/// 8 条忽略规则。顺序 = 执行顺序。
+List<PreprocessingRule> defaultIgnoreRules() => const [
+      PreprocessingRule(
+        id: 'ig_nl',
+        name: '统一换行符',
+        findPattern: r'\r\n|\r',
+        replaceWith: '\n',
+        isBuiltin: true,
+      ),
+      PreprocessingRule(
+        id: 'ig_invisible',
+        name: '忽略不可见字符',
+        findPattern:
+            r'[\u00A0\u00AD\u200B-\u200F\u202A-\u202E\u202F\u2060-\u2064\u2066-\u2069\uFEFF]',
+        replaceWith: '',
+        isBuiltin: true,
+      ),
+      PreprocessingRule(
+        id: 'ig_ws',
+        name: '删掉空白符号',
+        findPattern: r'[ \t]+',
+        replaceWith: '',
+        isBuiltin: true,
+      ),
+      PreprocessingRule(
+        id: 'ig_empty',
+        name: '删掉空行',
+        script: 'dropEmptyLines',
+        isBuiltin: true,
+      ),
+      PreprocessingRule(
+        id: 'ig_comma',
+        name: '忽略逗号',
+        findPattern: r'[,，]',
+        replaceWith: '',
+        enabled: false,
+        isBuiltin: true,
+      ),
+      PreprocessingRule(
+        id: 'ig_num',
+        name: '忽略纯数字（数字改为占位符）',
+        findPattern: r'[0-9]+',
+        replaceWith: '<NUM>',
+        enabled: false,
+        isBuiltin: true,
+      ),
+      PreprocessingRule(
+        id: 'ig_case',
+        name: '大写全转成小写',
+        script: 'lowercase',
+        enabled: false,
+        isBuiltin: true,
+      ),
+      PreprocessingRule(
+        id: 'ig_ansi',
+        name: '统一编码 ANSI',
+        script: 'unifyAnsi',
+        enabled: false,
+        isBuiltin: true,
+      ),
+    ];
+
+final ignoreRuleEnablesProvider =
+    NotifierProvider<IgnoreRuleEnablesNotifier, Map<String, bool>>(
+  IgnoreRuleEnablesNotifier.new,
+);
+
+class IgnoreRuleEnablesNotifier
+    extends PersistentNotifier<Map<String, bool>> {
+  @override
+  String get key => PrefKeys.ignoreRuleEnables;
+
+  @override
+  Map<String, bool> get defaultValue => {
+        for (final r in defaultIgnoreRules()) r.id: r.enabled,
+      };
+
+  @override
+  Map<String, bool> decode(String raw) {
+    final saved = jsonDecode(raw) as Map<String, dynamic>;
+    final out = {
+      for (final r in defaultIgnoreRules()) r.id: r.enabled,
+    };
+    for (final e in saved.entries) {
+      if (out.containsKey(e.key)) out[e.key] = e.value == true;
+    }
+    return out;
+  }
+
+  @override
+  String encode(Map<String, bool> value) => jsonEncode(value);
+
+  void setOne(String id, bool enabled) {
+    update({...state, id: enabled});
+  }
+}
+
+bool isIgnoreOn(Map<String, bool> enables, String id) {
+  for (final r in defaultIgnoreRules()) {
+    if (r.id == id) return enables[id] ?? r.enabled;
+  }
+  return false;
+}
 
 String unifyToAnsi(String text) {
   try {
@@ -211,61 +240,58 @@ String unifyToAnsi(String text) {
   return sb.toString();
 }
 
-String applyDiffIgnores(
-  String text, {
-  bool whitespace = false,
-  bool emptyLines = false,
-  bool lineEndings = false,
-  bool ignoreCase = false,
-  bool ignoreCommas = false,
-  bool ignoreNumbers = false,
-  bool ignoreInvisible = false,
-}) {
+String applyDiffIgnores(String text, Map<String, bool> enables) {
   var out = text;
-  if (lineEndings) {
-    out = out.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-  }
-  if (ignoreInvisible) {
-    out = out.replaceAll(_invisibleChars, '');
-  }
-  if (whitespace) {
-    out = out.replaceAll(_horizontalWhitespace, '');
-  }
-  if (emptyLines) {
-    out = out.split('\n').where((l) => l.trim().isNotEmpty).join('\n');
-  }
-  if (ignoreCommas) {
-    out = out.replaceAll(',', '').replaceAll('，', '');
-  }
-  if (ignoreNumbers) {
-    out = out.replaceAll(RegExp(r'[0-9]+'), '<NUM>');
-  }
-  if (ignoreCase) {
-    out = out.toLowerCase();
+  for (final rule in defaultIgnoreRules()) {
+    final on = enables[rule.id] ?? rule.enabled;
+    if (!on) continue;
+
+    final script = rule.script;
+    if (script != null) {
+      switch (script) {
+        case 'lowercase':
+          out = out.toLowerCase();
+          break;
+        case 'dropEmptyLines':
+          out = out
+              .split('\n')
+              .where((l) => l.trim().isNotEmpty)
+              .join('\n');
+          break;
+        case 'unifyAnsi':
+          out = unifyToAnsi(out);
+          break;
+      }
+      continue;
+    }
+
+    try {
+      out = out.replaceAll(
+        RegExp(rule.findPattern, multiLine: true),
+        rule.replaceWith,
+      );
+    } catch (_) {}
   }
   return out;
 }
 
-typedef _DiffRequest =
-    ({
-      String original,
-      String modified,
-      bool unifyAnsi,
-    });
+typedef _DiffRequest = ({
+  String original,
+  String modified,
+});
 
-typedef _DiffPayload =
-    ({
-      List<(int, String)> entries,
-      int ansiMs,
-      int splitMs,
-      int encodeMs,
-      int diffMs,
-      int expandMs,
-      int origLines,
-      int modLines,
-      int uniqueLines,
-      bool usedMyers,
-    });
+typedef _DiffPayload = ({
+  List<(int, String)> entries,
+  int ansiMs,
+  int splitMs,
+  int encodeMs,
+  int diffMs,
+  int expandMs,
+  int origLines,
+  int modLines,
+  int uniqueLines,
+  bool usedMyers,
+});
 
 int _dmpOpToIndex(int op) {
   if (op == DIFF_EQUAL) return DiffOperation.equal.index;
@@ -293,14 +319,13 @@ const int _puaLimit = 6000;
 _DiffPayload _computeInWorker(_DiffRequest req) {
   final sw = Stopwatch()..start();
 
-  final original = req.unifyAnsi ? unifyToAnsi(req.original) : req.original;
-  final modified = req.unifyAnsi ? unifyToAnsi(req.modified) : req.modified;
-  final tAnsi = sw.elapsedMilliseconds;
+  final original = req.original;
+  final modified = req.modified;
 
   if (original.isEmpty && modified.isEmpty) {
     return (
       entries: const <(int, String)>[],
-      ansiMs: tAnsi,
+      ansiMs: 0,
       splitMs: 0,
       encodeMs: 0,
       diffMs: 0,
@@ -366,7 +391,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   var usedMyers = false;
 
   if (uniqueCount <= _puaLimit) {
-    // PUA 编码路径（快）
     final codeToLine = <int, String>{};
     var nextCode = 0xE000;
     for (final e in idToLine.entries) {
@@ -403,7 +427,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       out.add((DiffOperation.equal.index, linesA[i]));
     }
   } else {
-    // Myers 行级 diff 路径（唯一行超过 PUA 上限）
     usedMyers = true;
     final ops = _myersDiff(idsA, idsB);
     for (var i = 0; i < commonPrefix; i++) {
@@ -422,8 +445,8 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
 
   return (
     entries: out,
-    ansiMs: tAnsi,
-    splitMs: tSplit - tAnsi,
+    ansiMs: 0,
+    splitMs: tSplit,
     encodeMs: tEncode - tSplit,
     diffMs: tDiff - tEncode,
     expandMs: tExpand - tDiff,
@@ -434,10 +457,6 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   );
 }
 
-// ==================== Myers 行级 diff ====================
-
-/// Myers O(ND) 行级 diff。d 超过 [_myersMaxD] 就用简单兜底，
-/// 防止极端场景内存爆掉。
 const int _myersMaxD = 5000;
 
 List<(int, int)> _myersDiff(List<int> a, List<int> b) {
@@ -458,7 +477,6 @@ List<(int, int)> _myersDiff(List<int> a, List<int> b) {
   outer:
   for (var d = 0; d <= maxD; d++) {
     if (d > _myersMaxD) {
-      // 差异太大，退化为整块 delete + insert（罕见场景）。
       return [
         for (final id in a) (DiffOperation.delete.index, id),
         for (final id in b) (DiffOperation.insert.index, id),
@@ -556,38 +574,13 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
   final modified = ref.watch(preprocessedModifiedProvider);
   if (original.isEmpty || modified.isEmpty) return null;
 
-  final ignoreWs = ref.watch(ignoreWhitespaceProvider);
-  final ignoreEmpty = ref.watch(ignoreEmptyLinesProvider);
-  final ignoreNl = ref.watch(ignoreLineEndingsProvider);
-  final ignoreCase = ref.watch(ignoreCaseProvider);
-  final ignoreCommas = ref.watch(ignoreCommasProvider);
-  final ignoreNumbers = ref.watch(ignoreNumbersProvider);
-  final ignoreInvisible = ref.watch(ignoreInvisibleProvider);
-  final origNorm = applyDiffIgnores(
-    original,
-    whitespace: ignoreWs,
-    emptyLines: ignoreEmpty,
-    lineEndings: ignoreNl,
-    ignoreCase: ignoreCase,
-    ignoreCommas: ignoreCommas,
-    ignoreNumbers: ignoreNumbers,
-    ignoreInvisible: ignoreInvisible,
-  );
-  final modNorm = applyDiffIgnores(
-    modified,
-    whitespace: ignoreWs,
-    emptyLines: ignoreEmpty,
-    lineEndings: ignoreNl,
-    ignoreCase: ignoreCase,
-    ignoreCommas: ignoreCommas,
-    ignoreNumbers: ignoreNumbers,
-    ignoreInvisible: ignoreInvisible,
-  );
+  final ignoreEnables = ref.watch(ignoreRuleEnablesProvider);
+  final origNorm = applyDiffIgnores(original, ignoreEnables);
+  final modNorm = applyDiffIgnores(modified, ignoreEnables);
   if (origNorm.isEmpty || modNorm.isEmpty) return null;
 
   ref.watch(importRevisionProvider);
 
-  final unifyAnsi = ref.watch(unifyAnsiProvider);
   final tPrep = sw.elapsedMilliseconds;
 
   final payload = await compute(
@@ -595,7 +588,6 @@ final diffResultProvider = FutureProvider.autoDispose<DiffResult?>((ref) async {
     (
       original: origNorm,
       modified: modNorm,
-      unifyAnsi: unifyAnsi,
     ),
   );
   final tIsolate = sw.elapsedMilliseconds;
@@ -836,10 +828,12 @@ Color? hexToColor(String s) {
 int? rawLineForNormalizedLine(
   String raw, {
   required int normalizedLine,
-  required bool ignoreWhitespace,
-  required bool ignoreEmptyLines,
-  required bool ignoreInvisible,
+  required Map<String, bool> ignoreEnables,
 }) {
+  final ignoreWhitespace = isIgnoreOn(ignoreEnables, 'ig_ws');
+  final ignoreEmptyLines = isIgnoreOn(ignoreEnables, 'ig_empty');
+  final ignoreInvisible = isIgnoreOn(ignoreEnables, 'ig_invisible');
+
   if (normalizedLine < 0) return null;
   final lines =
       raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
