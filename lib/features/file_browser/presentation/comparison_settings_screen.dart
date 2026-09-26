@@ -8,6 +8,8 @@ import '../../../../core/storage/persistent_notifier.dart';
 import '../../help/presentation/help_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../preprocessing/application/builtin_rules.dart';
+import '../../preprocessing/application/js_runtime.dart';
+import '../../preprocessing/application/presets.dart';
 import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import 'replace_rules_screen.dart';
@@ -16,7 +18,6 @@ import 'replace_rules_screen.dart';
 const String _orderNoteSectionId = 'ruleOrderTop';
 
 /// ==================== 7 个开关的默认说明文字 ====================
-/// 用 raw string，$ 和 \ 都是字面字符。
 const Map<String, String> _flagHelpDefaults = {
   'findRegex': r'''【查找词 · 支持正则】
 
@@ -56,15 +57,7 @@ const Map<String, String> _flagHelpDefaults = {
 例子：
   查找 a.b    仅字面=匹配"a.b"三个字；正则=匹配"a 任意 b"
   查找 a*b    仅字面=匹配"a*b"三个字；正则=匹配"b""ab""aab"等
-  查找 (abc)  仅字面=匹配"(abc)"五个字；正则=捕获"abc"
-
-什么时候用：
-  · 要找的字符串里含 . * + ? ( ) [ ] { } | \ ^ $
-    这些符号，而你是想找它们本身
-  · 不想被正则引擎"吃掉"特殊字符
-
-跟"支持转义"的关系：字面模式下，转义开关仍然有效。
-  转义先执行，之后才做字面匹配。''',
+  查找 (abc)  仅字面=匹配"(abc)"五个字；正则=捕获"abc"''',
 
   'findEscape': r'''【查找词 · 支持转义】
 
@@ -81,15 +74,6 @@ const Map<String, String> _flagHelpDefaults = {
 例子：
   查找 \n    开=匹配真正的换行；关=匹配字面"反斜杠+n"
   查找 \t    开=匹配真正的 Tab；关=匹配字面"反斜杠+t"
-
-—————— 和"支持正则"的关系 ——————
-
-Dart 的正则引擎本身就认 \n \t \\ 这些转义。
-所以"支持正则"开着时，\n 是能用的，本开关开不开都行。
-
-只有"仅字面匹配"开着时，本开关才有意义：
-  · 开 = 把 \n 还原成真换行，然后做字面匹配
-  · 关 = 把 \n 当两个字面字符
 
 —————— 多行匹配 ——————
 
@@ -129,24 +113,12 @@ $0 表示"整个匹配到的内容"，不是括号里的。
   替换：$1年$2月$3日
   结果：2024-01-01 → 2024年01月01日
 
-例3：提取邮箱用户名和域名，调换
-  查找：(\w+)@(\w+)
-  替换：$2#$1
-  结果：abc@xyz → xyz#abc
-
-例4：给数字加括号
-  查找：(\d+)
-  替换：($1)
-  结果：123 → (123)
-
 —————— 需要注意 ——————
 
 · 想用 $1，查找词里必须有对应数量的 ()。
 · $1 和 $10 有歧义：Dart 会优先当成 $10。
   想表示"$1 后面跟个 0"，写 ${1}0。
-· 想输出字面的 $，写 \$。
-· $1 $2 可以多次出现，比如 $1-$2-$1 会输出三段。
-· 转义开关（还原 \n \t）独立控制，与本开关无关。''',
+· 想输出字面的 $，写 \$。''',
 
   'replaceBackslash': r'''【替换词 · \1 \2 引用】
 
@@ -154,57 +126,11 @@ $0 表示"整个匹配到的内容"，不是括号里的。
 关：按字面输出（不展开 \1）。
 与"仅字面输出"互斥，与"$1 $2 引用"可共存。
 
-—————— 什么是 \1 ——————
+\1 和 $1 是两套写法，效果一样。
+一般用 $1 就够了，\1 是备用。
 
-\1 是捕获组的一种引用写法，跟 $1 效果一模一样。
-\1 = $1，\2 = $2，依此类推。
-
-捕获组 = 查找词里每一对圆括号 () 抓到的内容。
-从左到右编号：第 1 对括号是 \1，第 2 对是 \2。
-
-例：查找词写 (\d+)-(\d+)
-  第 1 对括号 → \1
-  第 2 对括号 → \2
-
-文本 12-34 用这个查找词：
-  \1 = 12
-  \2 = 34
-
-—————— 例子 ——————
-
-例1：调换顺序
-  查找：(\d+)-(\d+)
-  替换：\2-\1
-  结果：12-34 → 34-12
-
-例2：加括号
-  查找：(\d+)
-  替换：(\1)
-  结果：123 → (123)
-
-例3：日期格式转换
-  查找：(\d{4})-(\d{2})-(\d{2})
-  替换：\1年\2月\3日
-  结果：2024-01-01 → 2024年01月01日
-
-—————— \1 和 $1 的区别 ——————
-
-效果：完全一样。
-写法：\1 用反斜杠，$1 用美元符号。
-来源：\1 是传统正则替换语法，$1 是 Perl 风格。
-
-—————— 什么时候用 \1 ——————
-
-一般用 $1 就够了，看习惯。
 只有一种情况必须用 \1：替换词里本来就要输出一个 $ 符号，
-同时又要引用捕获组。
-
-—————— 注意 ——————
-
-· \1 后面必须跟数字，不能写 \a \b。
-· 想让替换词输出一个真反斜杠，写 \\。
-· 没有捕获组时，\1 \2 展开为空串。
-· 转义开关（还原 \n \t）独立控制，与本开关无关。''',
+同时又要引用捕获组。''',
 
   'replaceLiteral': r'''【替换词 · 仅字面输出】
 
@@ -212,23 +138,11 @@ $0 表示"整个匹配到的内容"，不是括号里的。
 关：由"$1 $2 引用"和"\1 \2 引用"接管（三者至少开一个）。
 
 跟两个引用开关的关系：互斥。
-  · 开"仅字面输出"    → 自动关掉"$1 $2 引用"和"\1 \2 引用"
+  · 开"仅字面输出"    → 自动关掉两个引用
   · 开任一引用开关    → 自动关掉"仅字面输出"
   · 三个必须有一个开着
 
-例子：
-  查找：(\d+)
-  替换：$1     仅字面=输出"$1"四个字符；引用=输出括号里抓到的数字
-  替换：\1     仅字面=输出"\1"三个字符；引用=同上
-
-什么时候用：
-  · 替换词里本来就有 $ 或 \数字 这种字面内容，
-    不想被当成捕获组引用
-  · 想让替换结果跟正则里的 $1 \1 完全无关
-
-跟"支持转义"的关系：转义开关仍然有效。
-  转义先执行，之后才做字面输出。
-  所以"仅字面输出"+"支持转义"开着时，\n 仍然会变成真换行。''',
+注意：跟"支持转义"不互斥。字面输出 + 支持转义时，\n 仍然会变真换行。''',
 
   'replaceEscape': r'''【替换词 · 支持转义】
 
@@ -237,34 +151,19 @@ $0 表示"整个匹配到的内容"，不是括号里的。
 
 支持的转义：
   \n   换行符
-  \r   回车符（老 Mac 换行，现代少用）
+  \r   回车符
   \t   Tab 制表符
   \\   一个反斜杠
-  \0   空字符（NUL，极少用）
+  \0   空字符（NUL）
 
 例子：
   替换词 \n          开=输出一个真换行；关=输出"反斜杠+n"
   替换词 第$1章\n    开=每章后面跟一个真换行
-  替换词 \t          开=输出一个真 Tab
-  替换词 C:\\Users   开=输出 C:\Users
-
-—————— 什么时候需要它 ——————
-
-· 想在替换结果里插入换行：\n
-· 想在替换结果里插入 Tab：\t
-· 想输出一个字面反斜杠：\\
-
-—————— 和"多行输入"的区别 ——————
-
-你也可以直接在替换框里敲回车输入真换行，
-不用写 \n。两种方式都行：
-  · 敲回车 = 真换行
-  · 写 \n  = 靠这个开关还原
-
-本开关只影响"反斜杠 + 字母"这种写法。''',
+  替换词 \\          开=输出一个真反斜杠''',
 };
 
-/// 列表里的一项：单条规则 / 关键词块 / 正则块。
+/// ==================== 列表项类型 ====================
+
 sealed class _RuleItem {
   String get id;
   Key get key;
@@ -296,6 +195,8 @@ class _RegexBlockItem extends _RuleItem {
   @override
   Key get key => const ValueKey<String>('block:regex');
 }
+
+/// ==================== 比较设置页 ====================
 
 class ComparisonSettingsScreen extends ConsumerStatefulWidget {
   const ComparisonSettingsScreen({super.key});
@@ -451,7 +352,7 @@ class _ComparisonSettingsScreenState
 
   Widget _buildSingleTile(_SingleRuleItem item, Widget dragHandle) {
     final rule = item.rule;
-    final subtitle = _ruleSubtitle(rule);
+    final subtitle = ruleSubtitle(rule);
 
     return ListTile(
       key: item.key,
@@ -459,7 +360,7 @@ class _ComparisonSettingsScreenState
       title: Text(rule.name),
       subtitle: Text(
         subtitle,
-        maxLines: 2,
+        maxLines: 3,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 12),
       ),
@@ -500,33 +401,6 @@ class _ComparisonSettingsScreenState
         ],
       ),
     );
-  }
-
-  String _ruleSubtitle(PreprocessingRule rule) {
-    if (rule.script != null && rule.script!.isNotEmpty) {
-      return '(内置脚本: ${rule.script})';
-    }
-    if (rule.findPattern.isEmpty) return '(无内容)';
-
-    final flags = <String>[];
-    // 查找侧。
-    if (rule.findLiteral) {
-      flags.add('字面');
-    } else if (rule.findRegex) {
-      flags.add('正则');
-    }
-    if (rule.findEscape) flags.add('查找转义');
-    // 替换侧。
-    if (rule.replaceLiteral) {
-      flags.add('字面输出');
-    } else {
-      if (rule.replaceDollar) flags.add(r'$1引用');
-      if (rule.replaceBackslash) flags.add(r'\1引用');
-    }
-    if (rule.replaceEscape) flags.add('替换转义');
-    final flagText = flags.isEmpty ? '纯字符串' : flags.join(' · ');
-
-    return '/${rule.findPattern}/ → "${rule.replaceWith}"\n[$flagText]';
   }
 
   Widget _buildBlockTile({
@@ -715,7 +589,7 @@ class _ComparisonSettingsScreenState
   Future<void> _addUserRule() async {
     final rule = await showDialog<PreprocessingRule>(
       context: context,
-      builder: (_) => const _RuleEditorDialog(),
+      builder: (_) => const RuleEditorDialog(),
     );
     if (rule != null) ref.read(userRulesProvider.notifier).add(rule);
   }
@@ -723,7 +597,7 @@ class _ComparisonSettingsScreenState
   Future<void> _editUserRule(PreprocessingRule rule) async {
     final updated = await showDialog<PreprocessingRule>(
       context: context,
-      builder: (_) => _RuleEditorDialog(initial: rule),
+      builder: (_) => RuleEditorDialog(initial: rule),
     );
     if (updated != null) {
       ref.read(userRulesProvider.notifier).updateRule(updated);
@@ -743,6 +617,56 @@ class _ComparisonSettingsScreenState
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg)),
     );
+  }
+}
+
+// ==================== 副标题生成（公开，按钮栏也用） ====================
+
+String ruleSubtitle(PreprocessingRule rule) {
+  if (rule.script != null && rule.script!.isNotEmpty) {
+    return '(内置脚本: ${rule.script})';
+  }
+
+  switch (rule.kind) {
+    case RuleKind.preset:
+      final preset = Presets.byId(rule.presetId ?? '');
+      if (preset == null) return '(未知预置功能)';
+      final parts = <String>[];
+      for (final p in preset.params) {
+        final v = rule.params[p.key] ?? p.defaultValue;
+        if (v.isEmpty) continue;
+        parts.add('${p.label}=${p.type == PresetParamType.choice ? p.labelFor(v) : v}');
+      }
+      final paramText = parts.isEmpty ? '' : '\n${parts.join(' · ')}';
+      return '${preset.name}$paramText';
+
+    case RuleKind.js:
+      final script = (rule.jsScript ?? '').trim();
+      if (script.isEmpty) return 'JS 脚本（空）';
+      final firstLine = script.split('\n').firstWhere(
+            (l) => l.trim().isNotEmpty,
+            orElse: () => script,
+          );
+      return 'JS 脚本\n$firstLine';
+
+    case RuleKind.replace:
+      if (rule.findPattern.isEmpty) return '(无内容)';
+      final flags = <String>[];
+      if (rule.findLiteral) {
+        flags.add('字面');
+      } else if (rule.findRegex) {
+        flags.add('正则');
+      }
+      if (rule.findEscape) flags.add('查找转义');
+      if (rule.replaceLiteral) {
+        flags.add('字面输出');
+      } else {
+        if (rule.replaceDollar) flags.add(r'$1引用');
+        if (rule.replaceBackslash) flags.add(r'\1引用');
+      }
+      if (rule.replaceEscape) flags.add('替换转义');
+      final flagText = flags.isEmpty ? '纯字符串' : flags.join(' · ');
+      return '/${rule.findPattern}/ → "${rule.replaceWith}"\n[$flagText]';
   }
 }
 
@@ -779,7 +703,7 @@ class _NotesNotifier extends PersistentNotifier<Map<String, String>> {
   }
 }
 
-// ==================== 7 开关说明 provider ====================
+// ==================== 开关说明 provider ====================
 
 final _flagHelpProvider =
     NotifierProvider<_FlagHelpNotifier, Map<String, String>>(
@@ -813,23 +737,37 @@ class _FlagHelpNotifier extends PersistentNotifier<Map<String, String>> {
   }
 }
 
-// ==================== 规则编辑弹窗 ====================
+// ==================== 规则编辑弹窗（公开） ====================
 
-class _RuleEditorDialog extends ConsumerStatefulWidget {
-  const _RuleEditorDialog({this.initial});
+class RuleEditorDialog extends ConsumerStatefulWidget {
+  const RuleEditorDialog({
+    super.key,
+    this.initial,
+    this.showCopyToPreprocess = false,
+    this.onCopyToPreprocess,
+  });
 
   final PreprocessingRule? initial;
 
+  /// 是否显示"复制到预处理规则"按钮。按钮栏打开时传 true。
+  final bool showCopyToPreprocess;
+
+  /// 点击"复制到预处理规则"时回调。
+  final void Function(PreprocessingRule rule)? onCopyToPreprocess;
+
   @override
-  ConsumerState<_RuleEditorDialog> createState() => _RuleEditorDialogState();
+  ConsumerState<RuleEditorDialog> createState() => _RuleEditorDialogState();
 }
 
-class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
+class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _findCtrl;
   late final TextEditingController _replaceCtrl;
+  late final TextEditingController _jsCtrl;
   late RuleScope _scope;
+  late RuleKind _kind;
 
+  // 7 开关状态。
   late bool _findRegex;
   late bool _findLiteral;
   late bool _findEscape;
@@ -838,6 +776,10 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
   late bool _replaceLiteral;
   late bool _replaceEscape;
 
+  // preset 状态。
+  String? _presetId;
+  Map<String, String> _presetParams = const {};
+
   @override
   void initState() {
     super.initState();
@@ -845,7 +787,11 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     _nameCtrl = TextEditingController(text: i?.name ?? '');
     _findCtrl = TextEditingController(text: i?.findPattern ?? '');
     _replaceCtrl = TextEditingController(text: i?.replaceWith ?? '');
+    _jsCtrl = TextEditingController(
+      text: i?.jsScript ?? defaultJsTemplate,
+    );
     _scope = i?.scope ?? RuleScope.both;
+    _kind = i?.kind ?? RuleKind.replace;
     _findRegex = i?.findRegex ?? true;
     _findLiteral = i?.findLiteral ?? false;
     _findEscape = i?.findEscape ?? false;
@@ -853,6 +799,18 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     _replaceBackslash = i?.replaceBackslash ?? false;
     _replaceLiteral = i?.replaceLiteral ?? false;
     _replaceEscape = i?.replaceEscape ?? false;
+    _presetId = i?.presetId;
+    _presetParams = Map<String, String>.from(i?.params ?? const {});
+    // 若新建时没选 preset，默认选第一个。
+    if (_kind == RuleKind.preset && _presetId == null) {
+      final first = Presets.all().firstOrNull;
+      if (first != null) {
+        _presetId = first.id;
+        _presetParams = {
+          for (final p in first.params) p.key: p.defaultValue,
+        };
+      }
+    }
   }
 
   @override
@@ -860,12 +818,12 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     _nameCtrl.dispose();
     _findCtrl.dispose();
     _replaceCtrl.dispose();
+    _jsCtrl.dispose();
     super.dispose();
   }
 
   // ==================== 互斥逻辑 ====================
 
-  /// 查找侧：正则和字面互斥，必须有一个。
   void _setFindMode({required bool regex}) {
     setState(() {
       _findRegex = regex;
@@ -873,7 +831,6 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     });
   }
 
-  /// 替换侧：三个开关至少一个。\1 和 $1 可共存，字面输出与两者互斥。
   void _setReplaceDollar(bool v) {
     setState(() {
       _replaceDollar = v;
@@ -963,27 +920,7 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
         height: mq.size.height * 0.94,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 6, 6),
-              child: Row(
-                children: [
-                  Text(
-                    widget.initial == null ? '新建规则' : '编辑规则',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: '恢复默认',
-                    icon: const Icon(Icons.restore),
-                    onPressed: _resetToDefault,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
+            _buildTitleBar(),
             const Divider(height: 1),
             Expanded(
               child: ListView(
@@ -997,169 +934,453 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
                       isDense: true,
                     ),
                   ),
-                  const SizedBox(height: 18),
-
-                  // ===== 查找词 =====
-                  _sectionHeader('查找词'),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _findCtrl,
-                    minLines: 3,
-                    maxLines: 8,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                    ),
-                    decoration: const InputDecoration(
-                      hintText: r'例如：\d{4}-\d{2}-\d{2}',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.all(10),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _flagSwitch(
-                    flagId: 'findRegex',
-                    label: '支持正则',
-                    hint: '开：按正则解析；关：改由"仅字面匹配"接管',
-                    value: _findRegex,
-                    onChanged: (v) => _setFindMode(regex: v),
-                  ),
-                  _flagSwitch(
-                    flagId: 'findLiteral',
-                    label: '仅字面匹配',
-                    hint: '开：特殊符号按普通字符处理；关：改由"支持正则"接管',
-                    value: _findLiteral,
-                    onChanged: (v) => _setFindMode(regex: !v),
-                  ),
-                  _flagSwitch(
-                    flagId: 'findEscape',
-                    label: r'支持转义（\n \r \t \\ \0）',
-                    hint: '开：把这些转义还原成真字符后再匹配',
-                    value: _findEscape,
-                    onChanged: (v) => setState(() => _findEscape = v),
-                  ),
-
+                  const SizedBox(height: 14),
+                  _buildKindSelector(),
+                  const SizedBox(height: 14),
+                  ..._buildKindContent(),
                   const SizedBox(height: 20),
-
-                  // ===== 替换词 =====
-                  _sectionHeader('替换词'),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _replaceCtrl,
-                    minLines: 3,
-                    maxLines: 8,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                    ),
-                    decoration: const InputDecoration(
-                      hintText: r'例如：$1年$2月$3日',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.all(10),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _flagSwitch(
-                    flagId: 'replaceDollar',
-                    label: r'$1 $2 引用',
-                    hint: r'开：替换串里的 $1 $2 展开为捕获组',
-                    value: _replaceDollar,
-                    onChanged: _setReplaceDollar,
-                  ),
-                  _flagSwitch(
-                    flagId: 'replaceBackslash',
-                    label: r'\1 \2 引用',
-                    hint: r'开：替换串里的 \1 \2 展开为捕获组',
-                    value: _replaceBackslash,
-                    onChanged: _setReplaceBackslash,
-                  ),
-                  _flagSwitch(
-                    flagId: 'replaceLiteral',
-                    label: '仅字面输出',
-                    hint: '开：不展开引用，替换串原样输出',
-                    value: _replaceLiteral,
-                    onChanged: _setReplaceLiteral,
-                  ),
-                  _flagSwitch(
-                    flagId: 'replaceEscape',
-                    label: r'支持转义（\n \r \t \\ \0）',
-                    hint: '开：把这些转义还原成真字符后再输出',
-                    value: _replaceEscape,
-                    onChanged: (v) => setState(() => _replaceEscape = v),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // ===== 作用范围 =====
-                  DropdownButtonFormField<RuleScope>(
-                    value: _scope,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: '作用范围',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                          value: RuleScope.both, child: Text('两侧文件')),
-                      DropdownMenuItem(
-                          value: RuleScope.originalOnly, child: Text('仅左侧文件')),
-                      DropdownMenuItem(
-                          value: RuleScope.modifiedOnly, child: Text('仅右侧文件')),
-                    ],
-                    onChanged: (v) =>
-                        setState(() => _scope = v ?? RuleScope.both),
-                  ),
-
+                  _buildScopeDropdown(),
                   const SizedBox(height: 16),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: s.surfaceVariant.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '查找侧："支持正则"和"仅字面匹配"互斥，必须开一个。\n'
-                      '替换侧："\$1 \$2 引用"、"\$1 \$2 引用"、"仅字面输出"'
-                      '三者至少开一个。\n'
-                      '长按任一开关的标签，可查看并编辑详细说明。',
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.5,
-                        color: s.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
+                  _buildHintBox(),
                 ],
               ),
             ),
             const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-              child: Row(
-                children: [
-                  TextButton.icon(
-                    icon: const Icon(Icons.restore, size: 18),
-                    label: const Text('恢复默认'),
-                    onPressed: _resetToDefault,
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: _submit,
-                    child: const Text('保存'),
-                  ),
-                ],
+            _buildBottomBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTitleBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 6, 6),
+      child: Row(
+        children: [
+          Text(
+            widget.initial == null ? '新建规则' : '编辑规则',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const Spacer(),
+          if (_kind == RuleKind.replace)
+            IconButton(
+              tooltip: '恢复默认',
+              icon: const Icon(Icons.restore),
+              onPressed: _resetToDefault,
+            ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKindSelector() {
+    return SegmentedButton<RuleKind>(
+      segments: const [
+        ButtonSegment(value: RuleKind.replace, label: Text('查找替换')),
+        ButtonSegment(value: RuleKind.preset, label: Text('预置功能')),
+        ButtonSegment(value: RuleKind.js, label: Text('JS 脚本')),
+      ],
+      selected: {_kind},
+      onSelectionChanged: (set) {
+        setState(() {
+          _kind = set.first;
+          // 从 replace 切到 preset 且没选功能 → 自动选第一个。
+          if (_kind == RuleKind.preset && _presetId == null) {
+            final first = Presets.all().firstOrNull;
+            if (first != null) {
+              _presetId = first.id;
+              _presetParams = {
+                for (final p in first.params) p.key: p.defaultValue,
+              };
+            }
+          }
+        });
+      },
+    );
+  }
+
+  List<Widget> _buildKindContent() {
+    switch (_kind) {
+      case RuleKind.replace:
+        return _buildReplaceContent();
+      case RuleKind.preset:
+        return _buildPresetContent();
+      case RuleKind.js:
+        return _buildJsContent();
+    }
+  }
+
+  // ==================== replace 内容 ====================
+
+  List<Widget> _buildReplaceContent() {
+    return [
+      _sectionHeader('查找词'),
+      const SizedBox(height: 6),
+      TextField(
+        controller: _findCtrl,
+        minLines: 3,
+        maxLines: 8,
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+        decoration: const InputDecoration(
+          hintText: r'例如：\d{4}-\d{2}-\d{2}',
+          border: OutlineInputBorder(),
+          isDense: true,
+          contentPadding: EdgeInsets.all(10),
+        ),
+      ),
+      const SizedBox(height: 6),
+      _flagSwitch(
+        flagId: 'findRegex',
+        label: '支持正则',
+        hint: '开：按正则解析；关：改由"仅字面匹配"接管',
+        value: _findRegex,
+        onChanged: (v) => _setFindMode(regex: v),
+      ),
+      _flagSwitch(
+        flagId: 'findLiteral',
+        label: '仅字面匹配',
+        hint: '开：特殊符号按普通字符处理；关：改由"支持正则"接管',
+        value: _findLiteral,
+        onChanged: (v) => _setFindMode(regex: !v),
+      ),
+      _flagSwitch(
+        flagId: 'findEscape',
+        label: r'支持转义（\n \r \t \\ \0）',
+        hint: '开：把这些转义还原成真字符后再匹配',
+        value: _findEscape,
+        onChanged: (v) => setState(() => _findEscape = v),
+      ),
+      const SizedBox(height: 20),
+      _sectionHeader('替换词'),
+      const SizedBox(height: 6),
+      TextField(
+        controller: _replaceCtrl,
+        minLines: 3,
+        maxLines: 8,
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+        decoration: const InputDecoration(
+          hintText: r'例如：$1年$2月$3日',
+          border: OutlineInputBorder(),
+          isDense: true,
+          contentPadding: EdgeInsets.all(10),
+        ),
+      ),
+      const SizedBox(height: 6),
+      _flagSwitch(
+        flagId: 'replaceDollar',
+        label: r'$1 $2 引用',
+        hint: r'开：替换串里的 $1 $2 展开为捕获组',
+        value: _replaceDollar,
+        onChanged: _setReplaceDollar,
+      ),
+      _flagSwitch(
+        flagId: 'replaceBackslash',
+        label: r'\1 \2 引用',
+        hint: r'开：替换串里的 \1 \2 展开为捕获组',
+        value: _replaceBackslash,
+        onChanged: _setReplaceBackslash,
+      ),
+      _flagSwitch(
+        flagId: 'replaceLiteral',
+        label: '仅字面输出',
+        hint: '开：不展开引用，替换串原样输出',
+        value: _replaceLiteral,
+        onChanged: _setReplaceLiteral,
+      ),
+      _flagSwitch(
+        flagId: 'replaceEscape',
+        label: r'支持转义（\n \r \t \\ \0）',
+        hint: '开：把这些转义还原成真字符后再输出',
+        value: _replaceEscape,
+        onChanged: (v) => setState(() => _replaceEscape = v),
+      ),
+    ];
+  }
+
+  // ==================== preset 内容 ====================
+
+  List<Widget> _buildPresetContent() {
+    final presets = Presets.all();
+    final current = Presets.byId(_presetId ?? '');
+
+    return [
+      _sectionHeader('预置功能'),
+      const SizedBox(height: 6),
+      DropdownButtonFormField<String>(
+        value: _presetId,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: '选择功能',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: [
+          for (final p in presets)
+            DropdownMenuItem(value: p.id, child: Text(p.name)),
+        ],
+        onChanged: (v) {
+          if (v == null) return;
+          final p = Presets.byId(v);
+          if (p == null) return;
+          setState(() {
+            _presetId = v;
+            _presetParams = {
+              for (final param in p.params)
+                param.key: _presetParams[param.key] ?? param.defaultValue,
+            };
+          });
+        },
+      ),
+      if (current != null) ...[
+        const SizedBox(height: 8),
+        Text(
+          current.description,
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        ..._buildPresetParams(current),
+      ],
+    ];
+  }
+
+  List<Widget> _buildPresetParams(Preset preset) {
+    if (preset.params.isEmpty) {
+      return [
+        Text(
+          '（此功能不需要参数）',
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ];
+    }
+    return [
+      for (final p in preset.params)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _buildPresetParam(p),
+        ),
+    ];
+  }
+
+  Widget _buildPresetParam(PresetParam p) {
+    final value = _presetParams[p.key] ?? p.defaultValue;
+    switch (p.type) {
+      case PresetParamType.choice:
+        return DropdownButtonFormField<String>(
+          value: value,
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: p.label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+            helperText: p.hint.isEmpty ? null : p.hint,
+          ),
+          items: [
+            for (final o in p.options)
+              DropdownMenuItem(value: _optValue(o), child: Text(_optLabel(o))),
+          ],
+          onChanged: (v) {
+            if (v == null) return;
+            setState(() => _presetParams = {
+                  ..._presetParams,
+                  p.key: v,
+                });
+          },
+        );
+      case PresetParamType.integer:
+        return TextFormField(
+          initialValue: value,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            labelText: p.label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+            helperText: p.hint.isEmpty ? null : p.hint,
+          ),
+          onChanged: (v) {
+            _presetParams = {..._presetParams, p.key: v};
+          },
+        );
+      case PresetParamType.text:
+        return TextFormField(
+          initialValue: value,
+          decoration: InputDecoration(
+            labelText: p.label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+            helperText: p.hint.isEmpty ? null : p.hint,
+          ),
+          onChanged: (v) {
+            _presetParams = {..._presetParams, p.key: v};
+          },
+        );
+    }
+  }
+
+  String _optValue(String o) {
+    final i = o.indexOf('|');
+    return i < 0 ? o : o.substring(0, i);
+  }
+
+  String _optLabel(String o) {
+    final i = o.indexOf('|');
+    return i < 0 ? o : o.substring(i + 1);
+  }
+
+  // ==================== js 内容 ====================
+
+  List<Widget> _buildJsContent() {
+    return [
+      _sectionHeader('JS 脚本'),
+      const SizedBox(height: 6),
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          '脚本里有变量 text（输入的整段文本）。\n'
+          '最后一行写你的处理结果（表达式），作为输出。\n'
+          '支持 ES2019 语法。想调试可以用 console.log。',
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.5,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _jsCtrl,
+        minLines: 12,
+        maxLines: 24,
+        style: const TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          height: 1.5,
+        ),
+        decoration: const InputDecoration(
+          hintText: '// 例如：删除空行\ntext.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.all(10),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          OutlinedButton.icon(
+            icon: const Icon(Icons.restore, size: 16),
+            label: const Text('填入模板'),
+            onPressed: () {
+              setState(() => _jsCtrl.text = defaultJsTemplate);
+            },
+          ),
+          const Spacer(),
+          TextButton.icon(
+            icon: const Icon(Icons.info_outline, size: 16),
+            label: const Text('示例'),
+            onPressed: _showJsExamples,
+          ),
+        ],
+      ),
+    ];
+  }
+
+  void _showJsExamples() {
+    showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('JS 示例'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.7,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              _jsExamples,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                height: 1.5,
               ),
             ),
-          ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 作用范围 ====================
+
+  Widget _buildScopeDropdown() {
+    return DropdownButtonFormField<RuleScope>(
+      value: _scope,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: '作用范围',
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      items: const [
+        DropdownMenuItem(value: RuleScope.both, child: Text('两侧文件')),
+        DropdownMenuItem(
+            value: RuleScope.originalOnly, child: Text('仅左侧文件')),
+        DropdownMenuItem(
+            value: RuleScope.modifiedOnly, child: Text('仅右侧文件')),
+      ],
+      onChanged: (v) => setState(() => _scope = v ?? RuleScope.both),
+    );
+  }
+
+  Widget _buildHintBox() {
+    final s = Theme.of(context).colorScheme;
+    String hint;
+    switch (_kind) {
+      case RuleKind.replace:
+        hint = '查找侧："支持正则"和"仅字面匹配"互斥，必须开一个。\n'
+            '替换侧："\$1 \$2 引用"、"\$1 \$2 引用"、"仅字面输出"'
+            '三者至少开一个。\n'
+            '长按任一开关的标签，可查看并编辑详细说明。';
+        break;
+      case RuleKind.preset:
+        hint = '预置功能处理文本，参数由上方表单填写。\n'
+            '想了解每个功能的具体行为，去「使用说明」里查。';
+        break;
+      case RuleKind.js:
+        hint = 'JS 脚本在规则顺序里执行，速度比原生规则慢。\n'
+            '大文本时尽量把 JS 规则排到最后。';
+        break;
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: s.surfaceVariant.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        hint,
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.5,
+          color: s.onSurfaceVariant,
         ),
       ),
     );
@@ -1170,10 +1391,7 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
       children: [
         Text(
           text,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
         const Spacer(),
       ],
@@ -1241,54 +1459,234 @@ class _RuleEditorDialogState extends ConsumerState<_RuleEditorDialog> {
     );
   }
 
-  void _submit() {
-    final name = _nameCtrl.text.trim();
-    final find = _findCtrl.text;
-    final replace = _replaceCtrl.text;
-    if (name.isEmpty || find.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('规则名和查找词不能为空')),
-      );
-      return;
-    }
-
-    // 只有正则模式才校验。
-    final useRegex = _findRegex && !_findLiteral;
-    if (useRegex) {
-      try {
-        var test = find;
-        if (_findEscape) test = unescapeEscapes(test);
-        RegExp(test);
-      } catch (_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('正则无效，请检查查找词')),
-        );
-        return;
-      }
-    }
-
-    final initial = widget.initial;
-    Navigator.pop(
-      context,
-      PreprocessingRule(
-        id: initial?.id ?? 'user_${DateTime.now().microsecondsSinceEpoch}',
-        name: name,
-        findPattern: find,
-        replaceWith: replace,
-        scope: _scope,
-        enabled: initial?.enabled ?? true,
-        isBuiltin: false,
-        findRegex: _findRegex,
-        findLiteral: _findLiteral,
-        findEscape: _findEscape,
-        replaceDollar: _replaceDollar,
-        replaceBackslash: _replaceBackslash,
-        replaceLiteral: _replaceLiteral,
-        replaceEscape: _replaceEscape,
+  Widget _buildBottomBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      child: Row(
+        children: [
+          if (widget.showCopyToPreprocess)
+            TextButton.icon(
+              icon: const Icon(Icons.copy_all, size: 18),
+              label: const Text('复制到预处理'),
+              onPressed: _handleCopyToPreprocess,
+            )
+          else
+            const SizedBox.shrink(),
+          const Spacer(),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: _submit,
+            child: const Text('保存'),
+          ),
+        ],
       ),
     );
   }
+
+  void _handleCopyToPreprocess() {
+    final rule = _buildRule();
+    if (rule == null) return;
+    // 复制时换一个 id，避免撞车。
+    final copied = PreprocessingRule(
+      id: 'user_${DateTime.now().microsecondsSinceEpoch}',
+      name: rule.name,
+      kind: rule.kind,
+      findPattern: rule.findPattern,
+      replaceWith: rule.replaceWith,
+      scope: rule.scope,
+      enabled: true,
+      isBuiltin: false,
+      script: rule.script,
+      findRegex: rule.findRegex,
+      findLiteral: rule.findLiteral,
+      findEscape: rule.findEscape,
+      replaceDollar: rule.replaceDollar,
+      replaceBackslash: rule.replaceBackslash,
+      replaceLiteral: rule.replaceLiteral,
+      replaceEscape: rule.replaceEscape,
+      presetId: rule.presetId,
+      params: rule.params,
+      jsScript: rule.jsScript,
+    );
+    ref.read(userRulesProvider.notifier).add(copied);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已复制到预处理规则列表')),
+    );
+    widget.onCopyToPreprocess?.call(copied);
+  }
+
+  void _submit() {
+    final rule = _buildRule();
+    if (rule == null) return;
+    Navigator.pop(context, rule);
+  }
+
+  /// 构造规则。校验不通过返回 null。
+  PreprocessingRule? _buildRule() {
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
+      _toast('规则名不能为空');
+      return null;
+    }
+
+    switch (_kind) {
+      case RuleKind.replace:
+        final find = _findCtrl.text;
+        if (find.isEmpty) {
+          _toast('查找词不能为空');
+          return null;
+        }
+        final useRegex = _findRegex && !_findLiteral;
+        if (useRegex) {
+          try {
+            var test = find;
+            if (_findEscape) test = unescapeEscapes(test);
+            RegExp(test);
+          } catch (_) {
+            _toast('正则无效，请检查查找词');
+            return null;
+          }
+        }
+        return PreprocessingRule(
+          id: widget.initial?.id ??
+              'user_${DateTime.now().microsecondsSinceEpoch}',
+          name: name,
+          kind: RuleKind.replace,
+          findPattern: find,
+          replaceWith: _replaceCtrl.text,
+          scope: _scope,
+          enabled: widget.initial?.enabled ?? true,
+          isBuiltin: false,
+          findRegex: _findRegex,
+          findLiteral: _findLiteral,
+          findEscape: _findEscape,
+          replaceDollar: _replaceDollar,
+          replaceBackslash: _replaceBackslash,
+          replaceLiteral: _replaceLiteral,
+          replaceEscape: _replaceEscape,
+        );
+
+      case RuleKind.preset:
+        if (_presetId == null) {
+          _toast('请选择预置功能');
+          return null;
+        }
+        return PreprocessingRule(
+          id: widget.initial?.id ??
+              'user_${DateTime.now().microsecondsSinceEpoch}',
+          name: name,
+          kind: RuleKind.preset,
+          scope: _scope,
+          enabled: widget.initial?.enabled ?? true,
+          isBuiltin: false,
+          presetId: _presetId,
+          params: Map<String, String>.from(_presetParams),
+        );
+
+      case RuleKind.js:
+        final script = _jsCtrl.text;
+        if (script.trim().isEmpty) {
+          _toast('JS 脚本不能为空');
+          return null;
+        }
+        return PreprocessingRule(
+          id: widget.initial?.id ??
+              'user_${DateTime.now().microsecondsSinceEpoch}',
+          name: name,
+          kind: RuleKind.js,
+          scope: _scope,
+          enabled: widget.initial?.enabled ?? true,
+          isBuiltin: false,
+          jsScript: script,
+        );
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
 }
+
+// ==================== JS 示例文本 ====================
+
+const String _jsExamples = r'''
+【去掉重复行】
+[...new Set(text.split('\n'))].join('\n')
+
+【去掉空行】
+text.split('\n').filter(l => l.trim()).join('\n')
+
+【每行前加行号】
+text.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n')
+
+【只保留含"第X章"的行】
+text.split('\n').filter(l => /^第\d+章/.test(l)).join('\n')
+
+【删除含"广告"的行】
+text.split('\n').filter(l => !l.includes('广告')).join('\n')
+
+【大写转小写】
+text.toLowerCase()
+
+【首字母大写】
+text.replace(/\b\w/g, c => c.toUpperCase())
+
+【倒序排列每行】
+text.split('\n').reverse().join('\n')
+
+【按长度排序（短到长）】
+text.split('\n').sort((a, b) => a.length - b.length).join('\n')
+
+【每行去首尾空格】
+text.split('\n').map(l => l.trim()).join('\n')
+
+【数字加千分位】
+text.replace(/\d+/g, n => Number(n).toLocaleString())
+
+【删除 HTML 标签】
+text.replace(/<[^>]+>/g, '')
+
+【两个空格变一个】
+text.replace(/  +/g, ' ')
+
+【每行倒序字符】
+text.split('\n').map(l => [...l].reverse().join('')).join('\n')
+
+【段落合并（连续非空行合并成一行）】
+text.split(/\n\s*\n/).map(p => p.split('\n').join(' ')).join('\n\n')
+
+【只保留前 100 行】
+text.split('\n').slice(0, 100).join('\n')
+
+【去掉前后空白】
+text.trim()
+
+【统计行数】
+text.split('\n').length.toString()
+
+【最长的一行】
+text.split('\n').reduce((a, b) => a.length > b.length ? a : b)
+
+【词频统计（前 20 个）】
+(() => {
+  const words = text.split(/\s+/);
+  const freq = {};
+  words.forEach(w => freq[w] = (freq[w] || 0) + 1);
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([w, n]) => `${w}: ${n}`)
+    .join('\n');
+})()
+''';
 
 // ==================== 开关说明对话框 ====================
 
