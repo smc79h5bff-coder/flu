@@ -101,7 +101,7 @@ return Scaffold(
       interactive: true,
       thickness: 11,
       radius: const Radius.circular(5),
-        thumbColor: Colors.grey.shade600,   
+       
       child: ListView(
         controller: _scrollController,
         padding: const EdgeInsets.only(
