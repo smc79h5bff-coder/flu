@@ -1388,18 +1388,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     return fullPath;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_canGoUp && !_selectionMode,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        if (_selectionMode) {
-          setState(_clearSelection);
-        } else if (_canGoUp) {
-          _goUp();
-        }
-      },
+@override
+Widget build(BuildContext context) {
+  return PopScope(
+    canPop: !_canGoUp && !_selectionMode && !_searchActive,
+    onPopInvokedWithResult: (didPop, _) {
+      if (didPop) return;
+      if (_searchActive) {
+        _clearSearch();
+      } else if (_selectionMode) {
+        setState(_clearSelection);
+      } else if (_canGoUp) {
+        _goUp();
+      }
+    },
       child: Scaffold(
         appBar: _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
         body: Column(
