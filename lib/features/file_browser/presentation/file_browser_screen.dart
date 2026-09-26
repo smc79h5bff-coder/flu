@@ -1428,10 +1428,13 @@ Widget build(BuildContext context) {
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
     return AppBar(
-      title: GestureDetector(
-        onLongPress: _showJumpToPathDialog,
-        child: Text(_title),
-      ),
+title: GestureDetector(
+  onLongPress: _showJumpToPathDialog,
+  child: Text(
+    _title,
+    style: const TextStyle(fontSize: 14),
+  ),
+),
       leading: _canGoUp
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
