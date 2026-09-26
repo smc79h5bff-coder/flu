@@ -100,7 +100,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 final Map<ViewMode, Future<_HeightBundle>> _heightFutures = {};
 DiffResult? _heightFuturesFor;
 String? _heightFuturesConfigKey;
-
+int? _jumpedToEntry;
+    
   _HeightBundle? _activeHeights;
   ViewMode? _activeHeightsMode;
 
@@ -292,12 +293,33 @@ String? _heightFuturesConfigKey;
       }
     }
 
-    setState(() {
-      _matchEntries = matches;
-      _matchPos = matches.isEmpty ? -1 : 0;
-      _noResultHint = hint;
-    });
-    if (autoScroll && matches.isNotEmpty) _scrollToEntry(matches.first);
+
+      // 从当前位置往下找第一个命中；往下没有就回卷到第一个。
+int newPos = 0;
+if (matches.isNotEmpty && diff != null) {
+  final mode = ref.read(viewModeProvider);
+  final topRow = _currentTopRow();
+  if (topRow != null) {
+    final map = _entryToRowMapOf(diff, mode);
+    for (var i = 0; i < matches.length; i++) {
+      final r = map[matches[i]];
+      if (r != null && r >= topRow) {
+        newPos = i;
+        break;
+      }
+    }
+  }
+}
+
+setState(() {
+  _matchEntries = matches;
+  _matchPos = matches.isEmpty ? -1 : newPos;
+  _noResultHint = hint;
+});
+if (autoScroll && matches.isNotEmpty) {
+  _scrollToEntry(matches[newPos]);
+}
+      
   }
 
   void _ensureFindApplied() {
@@ -755,10 +777,13 @@ Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
 
     final offset = table.offsetOf(row);
     final max = _scrollController.position.maxScrollExtent;
-    final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
-    _scrollController.jumpTo(clamped);
-  }
+  final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
+  _scrollController.jumpTo(clamped);
 
+  if (_jumpedToEntry != entryIndex) {
+    setState(() => _jumpedToEntry = entryIndex);
+  }
+}
   void _nextMatch() {
     _ensureFindApplied();
     if (_matchEntries.isEmpty) return;
