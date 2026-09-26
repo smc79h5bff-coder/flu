@@ -17,8 +17,16 @@ import '../../viewer/presentation/diff_viewer_screen.dart';
 import '../../viewer/presentation/providers/diff_viewer_providers.dart';
 import 'providers/import_providers.dart';
 
-/// First screen — pick two documents and start the comparison.
-/// PRD §2 Module 1.
+/// 导入页只显示这 4 条忽略项。
+const _importScreenIgnoreIds = {'ig_ws', 'ig_empty', 'ig_nl', 'ig_ansi'};
+
+const _importIgnoreSubtitles = <String, String>{
+  'ig_ws': null.toString().isEmpty ? '' : '去掉所有空格和 Tab 后对比',
+  'ig_empty': '去掉空白行后对比',
+  'ig_nl': r'统一 \r\n / \r / \n 三种换行格式',
+  'ig_ansi': '已是 ANSI(GBK) 不处理；非 ANSI 转 ANSI 并删除无法转换的字符',
+};
+
 class ImportScreen extends ConsumerWidget {
   const ImportScreen({super.key});
 
@@ -80,15 +88,9 @@ class ImportScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
-          _DocSlot(
-            label: '原文档',
-            isOriginal: true,
-          ),
+          _DocSlot(label: '原文档', isOriginal: true),
           const SizedBox(height: 12),
-          _DocSlot(
-            label: '修改版文档',
-            isOriginal: false,
-          ),
+          _DocSlot(label: '修改版文档', isOriginal: false),
           const SizedBox(height: 16),
           const _IgnoreSettings(),
           const SizedBox(height: 24),
@@ -115,7 +117,6 @@ class ImportScreen extends ConsumerWidget {
     );
   }
 
-  /// 将导入的原/修改版文档（含各自编码）合并另存为 UTF-8 备份文件。
   Future<void> _saveBackup(BuildContext context, WidgetRef ref) async {
     final original = ref.read(originalRawTextProvider);
     final modified = ref.read(modifiedRawTextProvider);
@@ -187,8 +188,7 @@ class _DocSlot extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(label,
-                          style:
-                              Theme.of(context).textTheme.titleMedium),
+                          style: Theme.of(context).textTheme.titleMedium),
                       if (fileName != null && fileName.isNotEmpty)
                         Text(
                           fileName,
@@ -243,7 +243,8 @@ class _DocSlot extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      text.length > 200 ? '${text.substring(0, 200)}…'
+                      text.length > 200
+                          ? '${text.substring(0, 200)}…'
                           : text,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
@@ -258,13 +259,11 @@ class _DocSlot extends ConsumerWidget {
   }
 
   Future<void> _pickFile(BuildContext context, WidgetRef ref) async {
-    // file_picker 13.x: returns a List<PlatformFile>; read bytes via readAsBytes.
     final files = await FilePicker.pickFiles();
     if (files.isEmpty) return;
 
     final picked = files.single;
     if (!context.mounted) return;
-    // 大文件解析在后台 isolate 执行，避免阻塞 UI 线程导致"无响应"。
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -272,7 +271,6 @@ class _DocSlot extends ConsumerWidget {
     );
     try {
       final bytes = await picked.readAsBytes();
-      // compute 需要可跨 isolate 传输的对象，这里用顶层函数 + 记录类型。
       final result = await compute(
         _parseInWorker,
         (fileName: picked.name, bytes: bytes),
@@ -293,7 +291,6 @@ class _DocSlot extends ConsumerWidget {
     }
   }
 
-  /// 从系统剪贴板粘贴文本作为该侧的文档内容。
   Future<void> _paste(BuildContext context, WidgetRef ref) async {
     String? text;
     try {
@@ -357,7 +354,6 @@ class _DocSlot extends ConsumerWidget {
   }
 }
 
-/// Runs in a background isolate. 解析大文件避免阻塞 UI 线程。
 ParsedDocument _parseInWorker(
     ({String fileName, Uint8List bytes}) input) {
   return DocumentParser.parse(
@@ -366,12 +362,13 @@ ParsedDocument _parseInWorker(
   );
 }
 
-/// 一级界面（导入页）的比较设置：忽略空白符号 / 空行 / 换行符。
 class _IgnoreSettings extends ConsumerWidget {
   const _IgnoreSettings();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final ignoreEnables = ref.watch(ignoreRuleEnablesProvider);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
@@ -390,30 +387,16 @@ class _IgnoreSettings extends ConsumerWidget {
                 ),
               ),
             ),
-_IgnoreSwitch(
-  title: '忽略空白符号',
-  value: ref.watch(ignoreWhitespaceProvider),
-  onChanged: (v) =>
-      ref.read(ignoreWhitespaceProvider.notifier).update(v),
-),
-_IgnoreSwitch(
-  title: '忽略空行',
-  value: ref.watch(ignoreEmptyLinesProvider),
-  onChanged: (v) =>
-      ref.read(ignoreEmptyLinesProvider.notifier).update(v),
-),
-_IgnoreSwitch(
-  title: '忽略换行符',
-  value: ref.watch(ignoreLineEndingsProvider),
-  onChanged: (v) =>
-      ref.read(ignoreLineEndingsProvider.notifier).update(v),
-),
-_IgnoreSwitch(
-  title: '统一编码 ANSI 对比',
-  subtitle: '已是 ANSI(GBK) 不处理；非 ANSI 转 ANSI 并删除无法转换的字符',
-  value: ref.watch(unifyAnsiProvider),
-  onChanged: (v) => ref.read(unifyAnsiProvider.notifier).update(v),
-),
+            for (final r in defaultIgnoreRules())
+              if (_importScreenIgnoreIds.contains(r.id))
+                _IgnoreSwitch(
+                  title: r.name,
+                  subtitle: _importIgnoreSubtitles[r.id],
+                  value: ignoreEnables[r.id] ?? r.enabled,
+                  onChanged: (v) => ref
+                      .read(ignoreRuleEnablesProvider.notifier)
+                      .setOne(r.id, v),
+                ),
           ],
         ),
       ),
