@@ -108,17 +108,81 @@ class DiffPerfStats {
 
 final lastDiffPerfProvider = StateProvider<DiffPerfStats?>((ref) => null);
 
-// ==================== 忽略开关 ====================
+// ==================== 忽略开关（持久化） ====================
 
 final RegExp _horizontalWhitespace = RegExp(r'[ \t]+');
-final ignoreWhitespaceProvider = StateProvider<bool>((ref) => true);
-final ignoreEmptyLinesProvider = StateProvider<bool>((ref) => true);
-final ignoreLineEndingsProvider = StateProvider<bool>((ref) => true);
-final unifyAnsiProvider = StateProvider<bool>((ref) => false);
-final ignoreCaseProvider = StateProvider<bool>((ref) => false);
-final ignoreCommasProvider = StateProvider<bool>((ref) => false);
-final ignoreNumbersProvider = StateProvider<bool>((ref) => false);
-final ignoreInvisibleProvider = StateProvider<bool>((ref) => true);
+
+final ignoreWhitespaceProvider =
+    NotifierProvider<IgnoreWhitespaceNotifier, bool>(
+  IgnoreWhitespaceNotifier.new,
+);
+
+class IgnoreWhitespaceNotifier extends BoolPrefNotifier {
+  IgnoreWhitespaceNotifier()
+      : super(key: PrefKeys.ignoreWhitespace, initial: true);
+}
+
+final ignoreEmptyLinesProvider =
+    NotifierProvider<IgnoreEmptyLinesNotifier, bool>(
+  IgnoreEmptyLinesNotifier.new,
+);
+
+class IgnoreEmptyLinesNotifier extends BoolPrefNotifier {
+  IgnoreEmptyLinesNotifier()
+      : super(key: PrefKeys.ignoreEmptyLines, initial: true);
+}
+
+final ignoreLineEndingsProvider =
+    NotifierProvider<IgnoreLineEndingsNotifier, bool>(
+  IgnoreLineEndingsNotifier.new,
+);
+
+class IgnoreLineEndingsNotifier extends BoolPrefNotifier {
+  IgnoreLineEndingsNotifier()
+      : super(key: PrefKeys.ignoreLineEndings, initial: true);
+}
+
+final unifyAnsiProvider =
+    NotifierProvider<UnifyAnsiNotifier, bool>(UnifyAnsiNotifier.new);
+
+class UnifyAnsiNotifier extends BoolPrefNotifier {
+  UnifyAnsiNotifier() : super(key: PrefKeys.unifyAnsi, initial: false);
+}
+
+final ignoreCaseProvider =
+    NotifierProvider<IgnoreCaseNotifier, bool>(IgnoreCaseNotifier.new);
+
+class IgnoreCaseNotifier extends BoolPrefNotifier {
+  IgnoreCaseNotifier() : super(key: PrefKeys.ignoreCase, initial: false);
+}
+
+final ignoreCommasProvider =
+    NotifierProvider<IgnoreCommasNotifier, bool>(IgnoreCommasNotifier.new);
+
+class IgnoreCommasNotifier extends BoolPrefNotifier {
+  IgnoreCommasNotifier()
+      : super(key: PrefKeys.ignoreCommas, initial: false);
+}
+
+final ignoreNumbersProvider =
+    NotifierProvider<IgnoreNumbersNotifier, bool>(
+  IgnoreNumbersNotifier.new,
+);
+
+class IgnoreNumbersNotifier extends BoolPrefNotifier {
+  IgnoreNumbersNotifier()
+      : super(key: PrefKeys.ignoreNumbers, initial: false);
+}
+
+final ignoreInvisibleProvider =
+    NotifierProvider<IgnoreInvisibleNotifier, bool>(
+  IgnoreInvisibleNotifier.new,
+);
+
+class IgnoreInvisibleNotifier extends BoolPrefNotifier {
+  IgnoreInvisibleNotifier()
+      : super(key: PrefKeys.ignoreInvisible, initial: true);
+}
 
 final RegExp _invisibleChars = RegExp(
   r'[\u00A0\u00AD'
