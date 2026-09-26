@@ -24,6 +24,7 @@ class DiffOnlyPlainView extends ConsumerWidget {
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
     this.noWrap = false,
+    this.jumpedToEntry,
     this.onLongPressEntry,
     super.key,
   });
@@ -39,6 +40,7 @@ class DiffOnlyPlainView extends ConsumerWidget {
   final double bodyFontSize;
   final double gutterFontSize;
   final bool noWrap;
+  final int? jumpedToEntry;
   final void Function(List<int> entryIndices)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -132,10 +134,21 @@ class DiffOnlyPlainView extends ConsumerWidget {
                   } else {
                     out = row;
                   }
+                  final bool isJumped = jumpedToEntry != null &&
+                      (spec.del == jumpedToEntry ||
+                          spec.ins == jumpedToEntry);
+                  final Widget framed = isJumped
+                      ? Container(
+                          foregroundDecoration: BoxDecoration(
+                            border: Border.all(color: Colors.black, width: 2),
+                          ),
+                          child: out,
+                        )
+                      : out;
                   final key = spec.del != null && spec.ins != null
                       ? ValueKey<String>('${spec.del}-${spec.ins}')
                       : ValueKey<int>(spec.del ?? spec.ins!);
-                  return KeyedSubtree(key: key, child: out);
+                  return KeyedSubtree(key: key, child: framed);
                 },
               ),
             ),
