@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_js/flutter_js.dart';
 
 /// JS 运行时封装。
@@ -23,28 +21,23 @@ class JsRuntime {
 
   JavascriptRuntime? _runtime;
   bool _initializing = false;
-  Future<void>? _initFuture;
 
   /// 最近一次执行的错误信息。null 表示没有错误。
   String? lastError;
 
-  /// 确保引擎已就绪。
-  Future<void> ensureReady() async {
+  /// 确保引擎已就绪。同步。
+  void ensureReady() {
     if (_runtime != null) return;
-    if (_initFuture != null) return _initFuture!;
-    _initFuture = _doInit();
-    return _initFuture!;
+    _doInit();
   }
 
-  Future<void> _doInit() async {
+  void _doInit() {
     if (_initializing) return;
     _initializing = true;
     try {
       _runtime = getJavascriptRuntime();
       // 注入一些常用辅助，省得用户每次都写。
       _runtime!.evaluate(r'''
-        // 常用：把 text 按行切开、处理后拼回来。
-        // 用户脚本里可以直接用 lines 和 joinLines。
         var __lines = null;
         function getLines() {
           if (__lines === null) __lines = text.split('\n');
@@ -62,9 +55,9 @@ class JsRuntime {
   /// 执行一段 JS 脚本，输入 [text]，返回处理后的文本。
   ///
   /// 出错时返回原文本，错误信息写入 [lastError]。
-  Future<String> run(String script, String text) async {
+  String run(String script, String text) {
     lastError = null;
-    await ensureReady();
+    ensureReady();
     final rt = _runtime;
     if (rt == null) {
       lastError = 'JS 引擎未初始化';
@@ -75,8 +68,7 @@ class JsRuntime {
       // 把 text 注入成 JS 变量。用 JSON 编码避免转义问题。
       rt.evaluate('var text = ${_jsonString(text)};');
 
-      // 执行用户脚本。把最后一行作为"表达式的值"。
-      // 简单做法：包成一个 IIFE，return 最后一行。
+      // 执行用户脚本。
       final wrapped = _wrapScript(script);
 
       final result = rt.evaluate(wrapped);
@@ -89,7 +81,6 @@ class JsRuntime {
       final v = result.stringResult;
       if (v.isEmpty && script.trim().isNotEmpty) {
         // 脚本没有 return，可能写成了语句而非表达式。
-        // 尝试直接 eval 最后一行。这里不折腾，按空结果返回原文本。
         lastError = '脚本没有返回值';
         return text;
       }
@@ -165,7 +156,6 @@ class JsRuntime {
   void dispose() {
     _runtime?.dispose();
     _runtime = null;
-    _initFuture = null;
   }
 }
 
