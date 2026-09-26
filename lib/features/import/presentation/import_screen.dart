@@ -21,7 +21,7 @@ import 'providers/import_providers.dart';
 const _importScreenIgnoreIds = {'ig_ws', 'ig_empty', 'ig_nl', 'ig_ansi'};
 
 const _importIgnoreSubtitles = <String, String>{
-  'ig_ws': null.toString().isEmpty ? '' : '去掉所有空格和 Tab 后对比',
+  'ig_ws': '去掉所有空格和 Tab 后对比',
   'ig_empty': '去掉空白行后对比',
   'ig_nl': r'统一 \r\n / \r / \n 三种换行格式',
   'ig_ansi': '已是 ANSI(GBK) 不处理；非 ANSI 转 ANSI 并删除无法转换的字符',
