@@ -12,7 +12,6 @@ import '../../domain/import_source.dart';
 
 // ==================== 正则缓存 ====================
 
-/// 上限 [_regexCacheCap] 条，超出后清空重建。
 const int _regexCacheCap = 512;
 final Map<String, RegExp> _regexCache = {};
 
@@ -28,25 +27,16 @@ RegExp _cachedRegex(String pattern, {bool multiLine = false}) {
   return re;
 }
 
-/// 正则元字符。findPattern 含任意一个 → 走正则引擎；否则走 String 快路径。
 final RegExp _regexMeta = RegExp(r'[\^$.*+?()\[\]{}|\\]');
 
 bool _isPlainText(String s) => !_regexMeta.hasMatch(s);
 
 // ==================== 写死水印词库（可选） ====================
 
-/// 固定水印词库。全部走 Aho-Corasick 一次扫描删除。
-/// 留空表示不用。填的话直接往里加字符串。
-///
-/// 例：
-///   'xx小说网',
-///   'xx整理',
 const List<String> builtinWatermarks = <String>[
   // 你的 300 个词填这里
 ];
 
-/// 顶层 AC，写死词库只建一次 trie，永远不重建。
-/// 词库为空时是 null，运行时跳过。
 final AhoCorasick? _watermarkAc = builtinWatermarks.isEmpty
     ? null
     : AhoCorasick(
@@ -56,14 +46,12 @@ final AhoCorasick? _watermarkAc = builtinWatermarks.isEmpty
 
 // ==================== 关键词规则解析缓存 + AC 缓存 ====================
 
-/// 一条规则文本解析出来的成果：删除类 AC + 替换类 AC。
 class _ParsedKeywordRules {
   const _ParsedKeywordRules(this.deleteAc, this.replaceAc);
   final AhoCorasick? deleteAc;
   final AhoCorasick? replaceAc;
 }
 
-/// 上限 [_keywordRulesCacheCap] 条，超出清空。
 const int _keywordRulesCacheCap = 16;
 final Map<String, _ParsedKeywordRules> _keywordRulesCache = {};
 
@@ -155,25 +143,25 @@ List<_ParsedRegexRule> _parseRegexRules(String rulesText) {
 
 // ==================== Providers ====================
 
-/// Holds the *raw* text imported from a local file / clipboard.
-/// **不持久化**：重启后清空。
+/// 原始文本（导入后从没被改过）。**不持久化**。
 final originalRawTextProvider = StateProvider<String?>((ref) => null);
 final modifiedRawTextProvider = StateProvider<String?>((ref) => null);
 
-/// 导入文件的文件名（用于在导入卡片旁展示）。**不持久化**。
+/// 用户在对比页编辑后的临时文本。
+/// null = 没有编辑过，走规则计算。
+/// 任何规则变化都会清空这两个 provider，回到"从原文重算"。
+final editedOriginalProvider = StateProvider<String?>((ref) => null);
+final editedModifiedProvider = StateProvider<String?>((ref) => null);
+
 final originalFileNameProvider = StateProvider<String?>((ref) => null);
 final modifiedFileNameProvider = StateProvider<String?>((ref) => null);
 
-/// 导入文件的真实磁盘路径。**不持久化**。
 final originalFilePathProvider = StateProvider<String?>((ref) => null);
 final modifiedFilePathProvider = StateProvider<String?>((ref) => null);
 
-/// Encoding label surfaced in the export footer. **不持久化**。
 final originalEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 final modifiedEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 
-/// Toggles "show processed text" vs "show original text" in the viewer.
-/// **不持久化**。
 final showProcessedTextProvider = StateProvider<bool>((ref) => false);
 
 // ==================== 自定义预处理规则（持久化） ====================
@@ -289,7 +277,6 @@ class RegexRulesTextNotifier extends StringPrefNotifier {
   RegexRulesTextNotifier() : super(key: PrefKeys.regexRulesText);
 }
 
-/// 把替换串里的转义序列（\n \r \t \\ \0）转成真正的控制字符。
 String _unescapeReplacement(String s) {
   if (!s.contains(r'\')) return s;
   final sb = StringBuffer();
@@ -325,28 +312,16 @@ String _unescapeReplacement(String s) {
   return sb.toString();
 }
 
-/// 应用关键词规则到 [text]。
-///
-/// 顺序：
-///   1. 先跑写死水印词库（顶层 AC，永不重建）
-///   2. 再跑用户关键词规则（解析 + AC 按规则文本缓存，规则不变不重建）
-///
-/// 语义：
-/// - 最长模式优先（AC 天然支持）
-/// - 非重叠匹配
-/// - 删除类和替换类**不链式触发**（一次扫完，不回头处理新文本）
 String applyKeywordRules(String text, String rulesText) {
   if (text.isEmpty) return text;
 
   var out = text;
 
-  // 1. 写死水印词库
   final wm = _watermarkAc;
   if (wm != null) {
     out = wm.replaceAll(out);
   }
 
-  // 2. 用户关键词规则
   if (rulesText.isEmpty) return out;
   final parsed = _parseKeywordRules(rulesText);
   if (parsed.deleteAc != null) {
@@ -358,14 +333,6 @@ String applyKeywordRules(String text, String rulesText) {
   return out;
 }
 
-/// 应用正则规则到 [text]。逐条 replaceAll，非法正则跳过。
-///
-/// 纯文本 find 走 String.replaceAll 快路径：
-///   - 目标串在文本里不存在 → 跳过，不编译正则
-///   - 存在 → String.replaceAll，绕开正则引擎
-/// 含元字符的 find 走正则引擎（带缓存）。
-///
-/// 解析结果按规则文本缓存，规则不变不重复解析。
 String applyRegexRules(String text, String rulesText) {
   if (text.isEmpty || rulesText.isEmpty) return text;
 
@@ -378,16 +345,18 @@ String applyRegexRules(String text, String rulesText) {
     } else {
       try {
         out = out.replaceAll(_cachedRegex(r.find), r.replace);
-      } catch (_) {
-        // 非法正则忽略，不影响其它规则。
-      }
+      } catch (_) {}
     }
   }
   return out;
 }
 
-/// Computed: produces preprocessed text for both sides.
+/// 左边当前显示的文本。
+/// 优先返回编辑缓冲；没有编辑就按规则从原文算。
 final preprocessedOriginalProvider = Provider<String>((ref) {
+  final edited = ref.watch(editedOriginalProvider);
+  if (edited != null) return edited;
+
   final raw = ref.watch(originalRawTextProvider);
   if (raw == null) return '';
   final rules = ref.watch(userRulesProvider);
@@ -399,7 +368,11 @@ final preprocessedOriginalProvider = Provider<String>((ref) {
   return out;
 });
 
+/// 右边当前显示的文本。
 final preprocessedModifiedProvider = Provider<String>((ref) {
+  final edited = ref.watch(editedModifiedProvider);
+  if (edited != null) return edited;
+
   final raw = ref.watch(modifiedRawTextProvider);
   if (raw == null) return '';
   final rules = ref.watch(userRulesProvider);
@@ -411,9 +384,7 @@ final preprocessedModifiedProvider = Provider<String>((ref) {
   return out;
 });
 
-/// Bumped whenever a new import succeeds. **不持久化**。
 final importRevisionProvider = StateProvider<int>((ref) => 0);
 
-/// Currently selected import source. **不持久化**。
 final selectedSourceProvider =
     StateProvider<ImportSource?>((ref) => null);
