@@ -17,13 +17,14 @@ import '../../viewer/presentation/diff_viewer_screen.dart';
 import '../../viewer/presentation/providers/diff_viewer_providers.dart';
 import 'providers/import_providers.dart';
 
-/// 导入页只显示这 4 条忽略项。
-const _importScreenIgnoreIds = {'ig_ws', 'ig_empty', 'ig_nl', 'ig_ansi'};
+/// 导入页只显示这 4 条内置规则。
+/// 原来有 ig_nl，已和 norm_eol 合并。
+const _importScreenIgnoreIds = {'ig_ws', 'ig_empty', 'norm_eol', 'ig_ansi'};
 
 const _importIgnoreSubtitles = <String, String>{
   'ig_ws': '去掉所有空格和 Tab 后对比',
   'ig_empty': '去掉空白行后对比',
-  'ig_nl': r'统一 \r\n / \r / \n 三种换行格式',
+  'norm_eol': r'统一 \r\n / \r / \n 三种换行格式',
   'ig_ansi': '已是 ANSI(GBK) 不处理；非 ANSI 转 ANSI 并删除无法转换的字符',
 };
 
@@ -367,7 +368,7 @@ class _IgnoreSettings extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final ignoreEnables = ref.watch(ignoreRuleEnablesProvider);
+    final builtins = ref.watch(builtinRulesWithStateProvider);
 
     return Card(
       child: Padding(
@@ -387,14 +388,14 @@ class _IgnoreSettings extends ConsumerWidget {
                 ),
               ),
             ),
-            for (final r in defaultIgnoreRules())
+            for (final r in builtins)
               if (_importScreenIgnoreIds.contains(r.id))
                 _IgnoreSwitch(
                   title: r.name,
                   subtitle: _importIgnoreSubtitles[r.id],
-                  value: ignoreEnables[r.id] ?? r.enabled,
+                  value: r.enabled,
                   onChanged: (v) => ref
-                      .read(ignoreRuleEnablesProvider.notifier)
+                      .read(builtinRuleEnablesProvider.notifier)
                       .setOne(r.id, v),
                 ),
           ],
