@@ -34,6 +34,28 @@ class ComparisonSettingsScreen extends ConsumerWidget {
     final enabledBuiltin = builtinRules.where((r) => r.enabled).length;
     final ignoreEnables = ref.watch(ignoreRuleEnablesProvider);
 
+    // 任何规则变化 → 清空编辑缓冲，回到"从原文重算"
+    ref.listen(ignoreRuleEnablesProvider, (_, __) {
+      ref.read(editedOriginalProvider.notifier).state = null;
+      ref.read(editedModifiedProvider.notifier).state = null;
+    });
+    ref.listen(builtinRuleEnablesProvider, (_, __) {
+      ref.read(editedOriginalProvider.notifier).state = null;
+      ref.read(editedModifiedProvider.notifier).state = null;
+    });
+    ref.listen(userRulesProvider, (_, __) {
+      ref.read(editedOriginalProvider.notifier).state = null;
+      ref.read(editedModifiedProvider.notifier).state = null;
+    });
+    ref.listen(keywordRulesTextProvider, (_, __) {
+      ref.read(editedOriginalProvider.notifier).state = null;
+      ref.read(editedModifiedProvider.notifier).state = null;
+    });
+    ref.listen(regexRulesTextProvider, (_, __) {
+      ref.read(editedOriginalProvider.notifier).state = null;
+      ref.read(editedModifiedProvider.notifier).state = null;
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('比较设置'),
