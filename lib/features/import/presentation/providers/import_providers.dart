@@ -10,6 +10,15 @@ import '../../../preprocessing/application/preprocessing_service.dart';
 import '../../../preprocessing/domain/preprocessing_rule.dart';
 import '../../domain/import_source.dart';
 
+// ==================== 特殊块标记 ====================
+
+/// 统一规则顺序列表里，关键词块 / 正则块用这两个特殊 id 占位。
+class RuleBlockIds {
+  const RuleBlockIds._();
+  static const String keyword = '__block_keyword__';
+  static const String regex = '__block_regex__';
+}
+
 // ==================== 正则缓存 ====================
 
 const int _regexCacheCap = 512;
@@ -34,7 +43,7 @@ bool _isPlainText(String s) => !_regexMeta.hasMatch(s);
 // ==================== 写死水印词库（可选） ====================
 
 const List<String> builtinWatermarks = <String>[
-  // 你的 300 个词填这里
+  // 你的词填这里
 ];
 
 final AhoCorasick? _watermarkAc = builtinWatermarks.isEmpty
@@ -141,7 +150,7 @@ List<_ParsedRegexRule> _parseRegexRules(String rulesText) {
   return out;
 }
 
-// ==================== Providers ====================
+// ==================== 文本 provider ====================
 
 /// 原始文本（导入后从没被改过）。**不持久化**。
 final originalRawTextProvider = StateProvider<String?>((ref) => null);
@@ -149,7 +158,6 @@ final modifiedRawTextProvider = StateProvider<String?>((ref) => null);
 
 /// 用户在对比页编辑后的临时文本。
 /// null = 没有编辑过，走规则计算。
-/// 任何规则变化都会清空这两个 provider，回到"从原文重算"。
 final editedOriginalProvider = StateProvider<String?>((ref) => null);
 final editedModifiedProvider = StateProvider<String?>((ref) => null);
 
@@ -163,6 +171,10 @@ final originalEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 final modifiedEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 
 final showProcessedTextProvider = StateProvider<bool>((ref) => false);
+
+final importRevisionProvider = StateProvider<int>((ref) => 0);
+
+final selectedSourceProvider = StateProvider<ImportSource?>((ref) => null);
 
 // ==================== 自定义预处理规则（持久化） ====================
 
@@ -191,15 +203,21 @@ class UserRulesNotifier extends PersistentNotifier<List<PreprocessingRule>> {
   String encode(List<PreprocessingRule> value) =>
       jsonEncode([for (final r in value) r.toJson()]);
 
-  void add(PreprocessingRule rule) => update([...state, rule]);
+  void add(PreprocessingRule rule) {
+    update([...state, rule]);
+    // 追加到统一顺序列表末尾。
+    ref.read(ruleOrderProvider.notifier).append(rule.id);
+  }
 
   void updateRule(PreprocessingRule rule) => update([
         for (final r in state)
           if (r.id == rule.id) rule else r,
       ]);
 
-  void remove(String id) =>
-      update(state.where((r) => r.id != id).toList());
+  void remove(String id) {
+    update(state.where((r) => r.id != id).toList());
+    ref.read(ruleOrderProvider.notifier).removeId(id);
+  }
 
   void toggle(String id) => update([
         for (final r in state)
@@ -257,6 +275,56 @@ final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
   ];
 });
 
+/// id → 规则 的索引，内置 + 自定义都在里面。
+final ruleByIdProvider = Provider<Map<String, PreprocessingRule>>((ref) {
+  final builtins = ref.watch(builtinRulesWithStateProvider);
+  final user = ref.watch(userRulesProvider);
+  final map = <String, PreprocessingRule>{};
+  for (final r in builtins) map[r.id] = r;
+  for (final r in user) map[r.id] = r;
+  return map;
+});
+
+// ==================== 统一规则顺序（持久化） ====================
+
+final ruleOrderProvider =
+    NotifierProvider<RuleOrderNotifier, List<String>>(
+  RuleOrderNotifier.new,
+);
+
+class RuleOrderNotifier extends PersistentNotifier<List<String>> {
+  @override
+  String get key => PrefKeys.ruleOrder;
+
+  @override
+  List<String> get defaultValue => <String>[
+        for (final r in BuiltinRules.all()) r.id,
+        RuleBlockIds.keyword,
+        RuleBlockIds.regex,
+      ];
+
+  @override
+  List<String> decode(String raw) {
+    if (raw.isEmpty) return defaultValue;
+    return raw.split('\u0000').where((s) => s.isNotEmpty).toList();
+  }
+
+  @override
+  String encode(List<String> value) => value.join('\u0000');
+
+  void setAll(List<String> value) => update(List<String>.from(value));
+
+  void append(String id) {
+    if (state.contains(id)) return;
+    update([...state, id]);
+  }
+
+  void removeId(String id) {
+    if (!state.contains(id)) return;
+    update(state.where((s) => s != id).toList());
+  }
+}
+
 // ==================== 关键词 / 正则替换规则（持久化） ====================
 
 final keywordRulesTextProvider =
@@ -312,6 +380,7 @@ String _unescapeReplacement(String s) {
   return sb.toString();
 }
 
+/// 关键词规则：整块 Aho-Corasick 一次扫。
 String applyKeywordRules(String text, String rulesText) {
   if (text.isEmpty) return text;
 
@@ -333,6 +402,7 @@ String applyKeywordRules(String text, String rulesText) {
   return out;
 }
 
+/// 正则规则：逐条 replaceAll。
 String applyRegexRules(String text, String rulesText) {
   if (text.isEmpty || rulesText.isEmpty) return text;
 
@@ -351,21 +421,56 @@ String applyRegexRules(String text, String rulesText) {
   return out;
 }
 
+// ==================== 预处理管线 ====================
+
+bool _inScope(PreprocessingRule rule, {required bool isOriginal}) {
+  switch (rule.scope) {
+    case RuleScope.both:
+      return true;
+    case RuleScope.originalOnly:
+      return isOriginal;
+    case RuleScope.modifiedOnly:
+      return !isOriginal;
+  }
+}
+
+/// 按用户排序，依次执行所有规则。
+String _runPipeline(
+  WidgetRef ref, {
+  required String raw,
+  required bool isOriginal,
+}) {
+  final order = ref.watch(ruleOrderProvider);
+  final byId = ref.watch(ruleByIdProvider);
+  final keywordText = ref.watch(keywordRulesTextProvider);
+  final regexText = ref.watch(regexRulesTextProvider);
+
+  var out = raw;
+  for (final id in order) {
+    if (id == RuleBlockIds.keyword) {
+      out = applyKeywordRules(out, keywordText);
+    } else if (id == RuleBlockIds.regex) {
+      out = applyRegexRules(out, regexText);
+    } else {
+      final rule = byId[id];
+      if (rule == null) continue;
+      if (!rule.enabled) continue;
+      if (!_inScope(rule, isOriginal: isOriginal)) continue;
+      out = applyOneRule(out, rule);
+    }
+  }
+  return out;
+}
+
 /// 左边当前显示的文本。
-/// 优先返回编辑缓冲；没有编辑就按规则从原文算。
 final preprocessedOriginalProvider = Provider<String>((ref) {
   final edited = ref.watch(editedOriginalProvider);
   if (edited != null) return edited;
 
   final raw = ref.watch(originalRawTextProvider);
   if (raw == null) return '';
-  final rules = ref.watch(userRulesProvider);
-  final builtins = ref.watch(builtinRulesWithStateProvider);
-  var out = PreprocessingService(userRules: rules, builtinRules: builtins)
-      .apply(raw, isOriginal: true);
-  out = applyKeywordRules(out, ref.watch(keywordRulesTextProvider));
-  out = applyRegexRules(out, ref.watch(regexRulesTextProvider));
-  return out;
+
+  return _runPipeline(ref, raw: raw, isOriginal: true);
 });
 
 /// 右边当前显示的文本。
@@ -375,16 +480,6 @@ final preprocessedModifiedProvider = Provider<String>((ref) {
 
   final raw = ref.watch(modifiedRawTextProvider);
   if (raw == null) return '';
-  final rules = ref.watch(userRulesProvider);
-  final builtins = ref.watch(builtinRulesWithStateProvider);
-  var out = PreprocessingService(userRules: rules, builtinRules: builtins)
-      .apply(raw, isOriginal: false);
-  out = applyKeywordRules(out, ref.watch(keywordRulesTextProvider));
-  out = applyRegexRules(out, ref.watch(regexRulesTextProvider));
-  return out;
+
+  return _runPipeline(ref, raw: raw, isOriginal: false);
 });
-
-final importRevisionProvider = StateProvider<int>((ref) => 0);
-
-final selectedSourceProvider =
-    StateProvider<ImportSource?>((ref) => null);
