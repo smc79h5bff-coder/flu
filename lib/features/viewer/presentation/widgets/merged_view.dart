@@ -21,6 +21,7 @@ class MergedView extends ConsumerWidget {
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
     this.noWrap = false,
+    this.jumpedToEntry,
     this.onLongPressEntry,
     super.key,
   });
@@ -39,6 +40,7 @@ class MergedView extends ConsumerWidget {
   final double bodyFontSize;
   final double gutterFontSize;
   final bool noWrap;
+  final int? jumpedToEntry;
   final void Function(int entryIndex)? onLongPressEntry;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
@@ -97,7 +99,15 @@ class MergedView extends ConsumerWidget {
                     behavior: HitTestBehavior.opaque,
                     child: tile,
                   );
-            return KeyedSubtree(key: ValueKey<int>(ei), child: wrapped);
+            final Widget framed = (jumpedToEntry == ei)
+                ? Container(
+                    foregroundDecoration: BoxDecoration(
+                      border: Border.all(color: Colors.black, width: 2),
+                    ),
+                    child: wrapped,
+                  )
+                : wrapped;
+            return KeyedSubtree(key: ValueKey<int>(ei), child: framed);
           },
         ),
       ),
