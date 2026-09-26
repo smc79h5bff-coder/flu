@@ -26,6 +26,8 @@ static const String comparisonNotes = 'comparison_notes';
   static const String colorCharInsertFg = '${_p}color.charInsertFg';
 
   // ==================== 比较忽略开关 ====================
+  // ==================== 比较忽略开关 ====================
+static const String ignoreRuleEnables = '${_p}ignore.ruleEnables';
   static const String ignoreWhitespace = '${_p}ignore.whitespace';
   static const String ignoreEmptyLines = '${_p}ignore.emptyLines';
   static const String ignoreLineEndings = '${_p}ignore.lineEndings';
