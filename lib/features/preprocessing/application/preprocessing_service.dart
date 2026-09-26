@@ -1,8 +1,10 @@
 import 'package:charset/charset.dart';
 
 import '../domain/preprocessing_rule.dart';
+import 'js_runtime.dart';
+import 'presets.dart';
 
-/// 正则缓存。
+/// 正则缓存：同一个 pattern 只编译一次，之后复用。
 const int _regexCacheCap = 512;
 final Map<String, RegExp> _regexCache = {};
 
@@ -53,7 +55,7 @@ String unescapeEscapes(String s) {
   return sb.toString();
 }
 
-/// 展开 $0 $1 $2 … 为捕获组内容。
+/// 展开替换串里的 $0 $1 $2 … 为捕获组内容。
 String expandDollarRefs(String tpl, Match m) {
   if (!tpl.contains(r'$')) return tpl;
   final re = RegExp(r'\$(\d+)');
@@ -73,7 +75,7 @@ String expandDollarRefs(String tpl, Match m) {
   return out.toString();
 }
 
-/// 展开 \1 \2 … 为捕获组内容。
+/// 展开替换串里的 \1 \2 … 为捕获组内容。
 String expandBackslashRefs(String tpl, Match m) {
   if (!tpl.contains(r'\')) return tpl;
   final re = RegExp(r'\\(\d+)');
@@ -91,17 +93,51 @@ String expandBackslashRefs(String tpl, Match m) {
 
 /// 对一段文本执行一条规则。
 ///
-/// 7 个开关分工：
-///   查找侧：
-///     findRegex      → 按正则解析（与 findLiteral 互斥）
-///     findLiteral    → 按字面匹配（与 findRegex 互斥）
-///     findEscape     → 先还原 \n \t 等再匹配
-///   替换侧：
-///     replaceDollar    → 展开 $1 $2
-///     replaceBackslash → 展开 \1 \2
-///     replaceLiteral   → 字面输出（与上面两个互斥）
-///     replaceEscape    → 先还原 \n \t 等再输出
+/// 三种 kind：
+///   replace → 走 7 开关的查找替换（含内置脚本）
+///   preset  → 走 presets.dart 里的预置功能
+///   js      → 走 js_runtime.dart 里的 JS 引擎
 String applyOneRule(String text, PreprocessingRule rule) {
+  switch (rule.kind) {
+    case RuleKind.preset:
+      return _applyPreset(text, rule);
+    case RuleKind.js:
+      return _applyJs(text, rule);
+    case RuleKind.replace:
+      break;
+  }
+  return _applyReplace(text, rule);
+}
+
+// ==================== preset ====================
+
+String _applyPreset(String text, PreprocessingRule rule) {
+  final id = rule.presetId;
+  if (id == null || id.isEmpty) return text;
+  final preset = Presets.byId(id);
+  if (preset == null) return text;
+  try {
+    return preset.apply(text, rule.params);
+  } catch (_) {
+    return text;
+  }
+}
+
+// ==================== js ====================
+
+String _applyJs(String text, PreprocessingRule rule) {
+  final script = rule.jsScript;
+  if (script == null || script.trim().isEmpty) return text;
+  try {
+    return JsRuntime.instance.run(script, text);
+  } catch (_) {
+    return text;
+  }
+}
+
+// ==================== replace ====================
+
+String _applyReplace(String text, PreprocessingRule rule) {
   // 内置脚本优先。
   final script = rule.script;
   if (script != null && script.isNotEmpty) {
@@ -124,8 +160,6 @@ String applyOneRule(String text, PreprocessingRule rule) {
   if (find.isEmpty) return text;
 
   // 2. 用正则还是字面。
-  //    findLiteral=true → 强制字面。
-  //    findRegex=false 且 findLiteral=false → 兜底也走字面。
   final useRegex = rule.findRegex && !rule.findLiteral;
 
   if (useRegex) {
@@ -135,7 +169,6 @@ String applyOneRule(String text, PreprocessingRule rule) {
     } catch (_) {
       return text;
     }
-    // 替换需要展开或需要转义时才走 mapped；否则直接 replaceAll 更快。
     final needExpand =
         !rule.replaceLiteral && (rule.replaceDollar || rule.replaceBackslash);
     final needEscape = rule.replaceEscape;
