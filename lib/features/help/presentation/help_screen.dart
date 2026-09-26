@@ -6,12 +6,26 @@ import 'package:flutter/material.dart';
 /// 整页文字可长按选中复制。
 ///
 /// 本页不使用任何 Icon，全部用普通文字符号，避免打包后图标缺失。
-class HelpScreen extends StatelessWidget {
+class HelpScreen extends StatefulWidget {
   const HelpScreen({super.key});
+
+  @override
+  State<HelpScreen> createState() => _HelpScreenState();
+}
+
+class _HelpScreenState extends State<HelpScreen> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
+    
 
     Widget section(String title, List<Widget> children) {
       return Card(
@@ -78,12 +92,25 @@ class HelpScreen extends StatelessWidget {
           ),
         );
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('使用说明')),
-      body: SelectionArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
+return Scaffold(
+  appBar: AppBar(title: const Text('使用说明')),
+  body: SelectionArea(
+    child: Scrollbar(
+      controller: _scrollController,
+      thumbVisibility: true,
+      interactive: true,
+      thickness: 11,
+      radius: const Radius.circular(5),
+        thumbColor: Colors.grey.shade600,   
+      child: ListView(
+        controller: _scrollController,
+        padding: const EdgeInsets.only(
+          left: 16,
+          right: 24,
+          top: 16,
+          bottom: 16,
+        ),
+        children: [
             // ============ 一、浏览与对比 ============
             section('一、浏览文件、选中两个开始对比', [
               step('进入文件夹：', '点任意文件夹进入；左上角 ← 返回上一级。'),
