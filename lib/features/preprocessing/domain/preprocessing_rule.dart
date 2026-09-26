@@ -9,51 +9,51 @@ class PreprocessingRule {
     this.enabled = true,
     this.isBuiltin = false,
     this.script,
-    // ====== 查找词 3 开关 ======
+    // ====== 查找侧 3 开关 ======
     this.findRegex = true,
+    this.findLiteral = false,
     this.findEscape = false,
-    this.findDollar = true,
-    // ====== 替换词 3 开关 ======
-    this.replaceRegex = false,
-    this.replaceEscape = false,
+    // ====== 替换侧 4 开关 ======
     this.replaceDollar = true,
+    this.replaceBackslash = false,
+    this.replaceLiteral = false,
+    this.replaceEscape = false,
   });
 
   final String id;
   final String name;
-
   final String findPattern;
   final String replaceWith;
-
   final RuleScope scope;
   final bool enabled;
   final bool isBuiltin;
 
   /// 特殊脚本标识。非空时忽略上面所有字段，走内置脚本。
-  /// 支持的标识：'lowercase'、'dropEmptyLines'、'unifyAnsi'
   final String? script;
 
-  // ==================== 6 个处理开关 ====================
-  // 全部关闭 = 纯字符串匹配 + 纯字符串替换。
+  // ==================== 7 个处理开关 ====================
 
-  /// 查找词按正则解析。关 → 字面匹配。
+  /// 查找词按正则解析。与 [findLiteral] 互斥，必须有一个为 true。
   final bool findRegex;
 
-  /// 查找词里的 \n \r \t \\ \0 还原成真字符。
+  /// 查找词按字面匹配。与 [findRegex] 互斥，必须有一个为 true。
+  final bool findLiteral;
+
+  /// 查找词里的 \n \r \t \\ \0 还原成真字符再匹配。
   final bool findEscape;
-
-  /// 查找词里的 $ 保留正则行尾锚点含义。
-  /// 关 → 把 $ 转义成字面 \$。
-  final bool findDollar;
-
-  /// 替换词里的 \1 \2 按捕获组引用展开。
-  final bool replaceRegex;
-
-  /// 替换词里的 \n \r \t \\ \0 还原成真字符。
-  final bool replaceEscape;
 
   /// 替换词里的 $1 $2 按捕获组引用展开。
   final bool replaceDollar;
+
+  /// 替换词里的 \1 \2 按捕获组引用展开。
+  final bool replaceBackslash;
+
+  /// 替换词按字面输出（不展开引用）。
+  /// 与 [replaceDollar] / [replaceBackslash] 互斥，三者至少开一个。
+  final bool replaceLiteral;
+
+  /// 替换词里的 \n \r \t \\ \0 还原成真字符再输出。
+  final bool replaceEscape;
 
   PreprocessingRule copyWith({
     String? name,
@@ -63,11 +63,12 @@ class PreprocessingRule {
     bool? enabled,
     String? script,
     bool? findRegex,
+    bool? findLiteral,
     bool? findEscape,
-    bool? findDollar,
-    bool? replaceRegex,
-    bool? replaceEscape,
     bool? replaceDollar,
+    bool? replaceBackslash,
+    bool? replaceLiteral,
+    bool? replaceEscape,
   }) =>
       PreprocessingRule(
         id: id,
@@ -79,11 +80,12 @@ class PreprocessingRule {
         isBuiltin: isBuiltin,
         script: script ?? this.script,
         findRegex: findRegex ?? this.findRegex,
+        findLiteral: findLiteral ?? this.findLiteral,
         findEscape: findEscape ?? this.findEscape,
-        findDollar: findDollar ?? this.findDollar,
-        replaceRegex: replaceRegex ?? this.replaceRegex,
-        replaceEscape: replaceEscape ?? this.replaceEscape,
         replaceDollar: replaceDollar ?? this.replaceDollar,
+        replaceBackslash: replaceBackslash ?? this.replaceBackslash,
+        replaceLiteral: replaceLiteral ?? this.replaceLiteral,
+        replaceEscape: replaceEscape ?? this.replaceEscape,
       );
 
   Map<String, dynamic> toJson() => {
@@ -96,33 +98,39 @@ class PreprocessingRule {
         'isBuiltin': isBuiltin,
         if (script != null) 'script': script,
         'findRegex': findRegex,
+        'findLiteral': findLiteral,
         'findEscape': findEscape,
-        'findDollar': findDollar,
-        'replaceRegex': replaceRegex,
-        'replaceEscape': replaceEscape,
         'replaceDollar': replaceDollar,
+        'replaceBackslash': replaceBackslash,
+        'replaceLiteral': replaceLiteral,
+        'replaceEscape': replaceEscape,
       };
 
-  factory PreprocessingRule.fromJson(Map<String, dynamic> j) =>
-      PreprocessingRule(
-        id: j['id'] as String,
-        name: j['name'] as String,
-        findPattern: j['findPattern'] as String? ?? '',
-        replaceWith: j['replaceWith'] as String? ?? '',
-        scope: RuleScope.values.firstWhere(
-          (s) => s.name == j['scope'],
-          orElse: () => RuleScope.both,
-        ),
-        enabled: j['enabled'] as bool? ?? true,
-        isBuiltin: j['isBuiltin'] as bool? ?? false,
-        script: j['script'] as String?,
-        findRegex: j['findRegex'] as bool? ?? true,
-        findEscape: j['findEscape'] as bool? ?? false,
-        findDollar: j['findDollar'] as bool? ?? true,
-        replaceRegex: j['replaceRegex'] as bool? ?? false,
-        replaceEscape: j['replaceEscape'] as bool? ?? false,
-        replaceDollar: j['replaceDollar'] as bool? ?? true,
-      );
+  factory PreprocessingRule.fromJson(Map<String, dynamic> j) {
+    // 兼容旧字段名（老版本用过 findDollar / replaceRegex）。
+    final oldReplaceRegex = j['replaceRegex'] as bool?;
+    return PreprocessingRule(
+      id: j['id'] as String,
+      name: j['name'] as String,
+      findPattern: j['findPattern'] as String? ?? '',
+      replaceWith: j['replaceWith'] as String? ?? '',
+      scope: RuleScope.values.firstWhere(
+        (s) => s.name == j['scope'],
+        orElse: () => RuleScope.both,
+      ),
+      enabled: j['enabled'] as bool? ?? true,
+      isBuiltin: j['isBuiltin'] as bool? ?? false,
+      script: j['script'] as String?,
+      findRegex: j['findRegex'] as bool? ?? true,
+      findLiteral: j['findLiteral'] as bool? ?? false,
+      findEscape: j['findEscape'] as bool? ?? false,
+      replaceDollar: j['replaceDollar'] as bool? ?? true,
+      replaceBackslash:
+          j['replaceBackslash'] as bool? ?? oldReplaceRegex ?? false,
+      replaceLiteral: j['replaceLiteral'] as bool? ?? false,
+      replaceEscape: j['replaceEscape'] as bool? ?? false,
+    );
+  }
 }
 
 enum RuleScope { both, originalOnly, modifiedOnly }
