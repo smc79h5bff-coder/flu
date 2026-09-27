@@ -80,10 +80,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int> _matchEntries = const <int>[];
   int _matchPos = -1;
 
-  /// 上一次真正执行过扫描的查询词。用来判断"要不要重扫"。
   String _scannedQuery = '';
-
-  /// 差异类视图里搜不到、但全量里有命中时显示的提示。
   String? _noResultHint;
 
   bool _regexEnable = false;
@@ -149,7 +146,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   bool _isDiffOnlyMode(ViewMode m) =>
       m == ViewMode.diffOnly || m == ViewMode.diffOnlyPlain;
 
-  /// 大文件：不做自动搜索，只由用户明确触发（回车 / 箭头 / 替换）。
   bool get _isLargeFile {
     final diff = _diff;
     return diff != null && diff.entries.length > 2000;
@@ -2001,7 +1997,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     current: viewMode,
                   ),
                 ),
-                const SizedBox(width: 2),
                 Expanded(
                   flex: 3,
                   child: _viewChip(
@@ -2010,7 +2005,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     current: viewMode,
                   ),
                 ),
-                const SizedBox(width: 2),
                 Expanded(
                   flex: 1,
                   child: _viewChip(
@@ -2020,7 +2014,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     compact: true,
                   ),
                 ),
-                const SizedBox(width: 2),
                 Expanded(
                   flex: 1,
                   child: _viewChip(
@@ -2114,7 +2107,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final s = Theme.of(context).colorScheme;
 
     return Container(
-      height: 26,
+      height: 32,
       color: s.surfaceVariant.withOpacity(0.25),
       child: Row(
         children: [
@@ -2136,14 +2129,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
                       final c = colors[r.id];
-                      final bg = c?.bg ?? const Color(0xFFF5FBF5);
+                      final bg = c?.bg ?? s.primaryContainer;
                       final fg = c?.fg ?? s.onPrimaryContainer;
                       final border =
                           c?.border ?? s.primary.withOpacity(0.3);
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 1,
-                          vertical: 3,
+                          vertical: 4,
                         ),
                         child: GestureDetector(
                           onTap: () => _onToolbarButtonTap(r),
@@ -2210,15 +2203,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return GestureDetector(
       onTap: () => _switchView(value),
       child: Container(
-        height: 32,
+        height: 36,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected
-              ? s.primaryContainer
-              : s.surfaceVariant.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? s.primary : s.outlineVariant,
+          border: Border(
+            bottom: BorderSide(
+              color: selected ? s.primary : Colors.transparent,
+              width: 2,
+            ),
           ),
         ),
         child: Text(
@@ -2226,9 +2218,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: compact ? 10 : 12,
+            fontSize: 11,
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            color: selected ? s.onPrimaryContainer : s.onSurfaceVariant,
+            color: selected ? s.primary : s.onSurfaceVariant,
           ),
         ),
       ),
@@ -3157,7 +3149,7 @@ class _ButtonColorDialogState extends ConsumerState<_ButtonColorDialog> {
   void _setBg(Color? color) {
     final all = ref.read(toolbarButtonColorsProvider);
     final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
-    ref.read(toolbarButtonColorsProvider.notifier).setColor(
+    ref.read(toolbarButtonColorsProvider.notifier).setOne(
           widget.ruleId,
           ToolbarButtonColor(bg: color, fg: cur.fg, border: cur.border),
         );
@@ -3166,7 +3158,7 @@ class _ButtonColorDialogState extends ConsumerState<_ButtonColorDialog> {
   void _setFg(Color? color) {
     final all = ref.read(toolbarButtonColorsProvider);
     final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
-    ref.read(toolbarButtonColorsProvider.notifier).setColor(
+    ref.read(toolbarButtonColorsProvider.notifier).setOne(
           widget.ruleId,
           ToolbarButtonColor(bg: cur.bg, fg: color, border: cur.border),
         );
@@ -3175,7 +3167,7 @@ class _ButtonColorDialogState extends ConsumerState<_ButtonColorDialog> {
   void _setBorder(Color? color) {
     final all = ref.read(toolbarButtonColorsProvider);
     final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
-    ref.read(toolbarButtonColorsProvider.notifier).setColor(
+    ref.read(toolbarButtonColorsProvider.notifier).setOne(
           widget.ruleId,
           ToolbarButtonColor(bg: cur.bg, fg: cur.fg, border: color),
         );
@@ -3365,3 +3357,4 @@ class _FindHistoryDialog extends ConsumerWidget {
     );
   }
 }
+    
