@@ -2243,11 +2243,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     itemCount: rules.length,
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
-                      final c = colors[r.id];
-                      final bg = c?.bg ?? s.primaryContainer;
-                      final fg = c?.fg ?? s.onPrimaryContainer;
-                      final border =
-                          c?.border ?? s.primary.withOpacity(0.3);
+final c = colors[r.id];
+final bg = c?.bg ?? Colors.white;
+final fg = c?.fg ?? Colors.black;
+final border = c?.border ?? Colors.black.withOpacity(0.5);
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 1,
