@@ -33,8 +33,6 @@ import '../../file_browser/presentation/comparison_settings_screen.dart'
     show RuleEditorDialog, ruleSubtitle;
 import 'providers/toolbar_rules_provider.dart';
 
-
-
 class DiffViewerScreen extends ConsumerStatefulWidget {
   const DiffViewerScreen({super.key});
 
@@ -82,6 +80,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   List<int> _matchEntries = const <int>[];
   int _matchPos = -1;
 
+  /// 上一次真正执行过扫描的查询词。用来判断"要不要重扫"。
+  String _scannedQuery = '';
+
   /// 差异类视图里搜不到、但全量里有命中时显示的提示。
   String? _noResultHint;
 
@@ -104,11 +105,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   Map<int, int>? _entryToRowMap;
   DiffResult? _entryToRowMapFor;
   ViewMode? _entryToRowMapMode;
-final Map<ViewMode, Future<_HeightBundle>> _heightFutures = {};
-DiffResult? _heightFuturesFor;
-String? _heightFuturesConfigKey;
-int? _jumpedToEntry;
-    
+  final Map<ViewMode, Future<_HeightBundle>> _heightFutures = {};
+  DiffResult? _heightFuturesFor;
+  String? _heightFuturesConfigKey;
+  int? _jumpedToEntry;
+
   _HeightBundle? _activeHeights;
   ViewMode? _activeHeightsMode;
 
@@ -116,10 +117,9 @@ int? _jumpedToEntry;
   bool _pendingJumpQueued = false;
 
   Timer? _findDebounce;
-bool _processing = false;
-String _processingText = '';
+  bool _processing = false;
+  String _processingText = '';
 
-    
   @override
   void initState() {
     super.initState();
@@ -149,6 +149,12 @@ String _processingText = '';
   /// 是否属于"只显示差异相关行"的视图。
   bool _isDiffOnlyMode(ViewMode m) =>
       m == ViewMode.diffOnly || m == ViewMode.diffOnlyPlain;
+
+  /// 大文件：不做自动搜索，只由用户明确触发（回车 / 箭头 / 替换）。
+  bool get _isLargeFile {
+    final diff = _diff;
+    return diff != null && diff.entries.length > 2000;
+  }
 
   // ==================== 查找 / 替换基础逻辑 ====================
 
@@ -245,6 +251,12 @@ String _processingText = '';
 
   void _onFindInput(String q) {
     _findDebounce?.cancel();
+    if (_isLargeFile) {
+      // 大文件：不自动扫描，仅更新用于高亮的查询词。
+      // 真正搜索只由回车 / 上/下一个 / 替换触发。
+      setState(() => _findQuery = q);
+      return;
+    }
     _findDebounce = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
       _findChanged(q);
@@ -259,6 +271,7 @@ String _processingText = '';
   /// 若差异类视图搜不到，但全量里有命中，弹提示引导用户切视图。
   void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
+    _scannedQuery = q;
     final diff = _diff;
     final matches = <int>[];
     var hasGlobalHits = false;
@@ -303,46 +316,65 @@ String _processingText = '';
       }
     }
 
-
-      // 从当前位置往下找第一个命中；往下没有就回卷到第一个。
-int newPos = 0;
-if (matches.isNotEmpty && diff != null) {
-  final mode = ref.read(viewModeProvider);
-  final topRow = _currentTopRow();
-  if (topRow != null) {
-    final map = _entryToRowMapOf(diff, mode);
-    for (var i = 0; i < matches.length; i++) {
-      final r = map[matches[i]];
-      if (r != null && r >= topRow) {
-        newPos = i;
-        break;
+    // 从当前位置往下找第一个命中；往下没有就回卷到第一个。
+    int newPos = 0;
+    if (matches.isNotEmpty && diff != null) {
+      final mode = ref.read(viewModeProvider);
+      final topRow = _currentTopRow();
+      if (topRow != null) {
+        final map = _entryToRowMapOf(diff, mode);
+        for (var i = 0; i < matches.length; i++) {
+          final r = map[matches[i]];
+          if (r != null && r >= topRow) {
+            newPos = i;
+            break;
+          }
+        }
       }
     }
-  }
-}
 
-setState(() {
-  _matchEntries = matches;
-  _matchPos = matches.isEmpty ? -1 : newPos;
-  _noResultHint = hint;
-});
-if (autoScroll && matches.isNotEmpty) {
-  _scrollToEntry(matches[newPos]);
-}
-      
+    setState(() {
+      _matchEntries = matches;
+      _matchPos = matches.isEmpty ? -1 : newPos;
+      _noResultHint = hint;
+    });
+    if (autoScroll && matches.isNotEmpty) {
+      _scrollToEntry(matches[newPos]);
+    }
   }
 
   void _ensureFindApplied() {
-    if (_findDebounce?.isActive ?? false) {
-      _findDebounce!.cancel();
+    _findDebounce?.cancel();
+    // 只有"输入框内容和上次扫描过的不同"才重新扫描。
+    // 大文件下 _onFindInput 不会触发扫描，所以这里必然会扫一次。
+    if (_scannedQuery != _findController.text) {
       _findChanged(_findController.text, autoScroll: false);
     }
+  }
+
+  void _recordFindHistory() {
+    final q = _findController.text;
+    if (q.trim().isEmpty) return;
+    ref.read(findHistoryProvider.notifier).add(q);
+  }
+
+  Future<void> _showFindHistory() async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _FindHistoryDialog(
+        onPick: (q) {
+          _findController.text = q;
+          setState(() => _findQuery = q);
+        },
+      ),
+    );
   }
 
   // ==================== 替换 ====================
 
   void _replaceCurrentInline() {
     _ensureFindApplied();
+    _recordFindHistory();
     if (_findQuery.isEmpty || _matchEntries.isEmpty || _matchPos < 0) {
       _toast('没有可替换的内容');
       return;
@@ -352,6 +384,7 @@ if (autoScroll && matches.isNotEmpty) {
 
   void _replaceAllInline() {
     _ensureFindApplied();
+    _recordFindHistory();
     if (_findQuery.isEmpty || _matchEntries.isEmpty) {
       _toast('没有可替换的内容');
       return;
@@ -421,31 +454,31 @@ if (autoScroll && matches.isNotEmpty) {
     _toast('已应用替换');
   }
 
-void _applyRawChanges({
-  required bool isOriginal,
-  required Map<int, String> changes,
-}) {
-  if (changes.isEmpty) return;
+  void _applyRawChanges({
+    required bool isOriginal,
+    required Map<int, String> changes,
+  }) {
+    if (changes.isEmpty) return;
 
-  final current = ref.read(
-    isOriginal ? preprocessedOriginalProvider : preprocessedModifiedProvider,
-  );
-  if (current.isEmpty) return;
+    final current = ref.read(
+      isOriginal ? preprocessedOriginalProvider : preprocessedModifiedProvider,
+    );
+    if (current.isEmpty) return;
 
-  final lines = current.split('\n');
-  for (final entry in changes.entries) {
-    final lineNo = entry.key;
-    if (lineNo < 0 || lineNo >= lines.length) continue;
-    lines[lineNo] = entry.value;
+    final lines = current.split('\n');
+    for (final entry in changes.entries) {
+      final lineNo = entry.key;
+      if (lineNo < 0 || lineNo >= lines.length) continue;
+      lines[lineNo] = entry.value;
+    }
+    final newProcessed = lines.join('\n');
+
+    if (isOriginal) {
+      ref.read(editedOriginalProvider.notifier).state = newProcessed;
+    } else {
+      ref.read(editedModifiedProvider.notifier).state = newProcessed;
+    }
   }
-  final newProcessed = lines.join('\n');
-
-  if (isOriginal) {
-    ref.read(editedOriginalProvider.notifier).state = newProcessed;
-  } else {
-    ref.read(editedModifiedProvider.notifier).state = newProcessed;
-  }
-}
 
   Future<void> _closeFindBar() async {
     if (_pendingOrigChanges.isNotEmpty || _pendingModChanges.isNotEmpty) {
@@ -488,6 +521,7 @@ void _applyRawChanges({
     setState(() {
       _showFind = false;
       _findQuery = '';
+      _scannedQuery = '';
       _matchEntries = const [];
       _matchPos = -1;
       _noResultHint = null;
@@ -547,33 +581,32 @@ void _applyRawChanges({
 
   // ==================== 高度表 ====================
 
-Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
-  final mq = MediaQuery.of(context);
-  final configKey = '${mq.size.width}|'
-      '${ref.read(bodyFontSizeProvider)}|'
-      '${ref.read(noWrapProvider)}|'
-      '${ref.read(showLineNumbersProvider)}|'
-      '${ref.read(importRevisionProvider)}|'
-      '${ref.read(syncScrollProvider)}';
+  Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
+    final mq = MediaQuery.of(context);
+    final configKey = '${mq.size.width}|'
+        '${ref.read(bodyFontSizeProvider)}|'
+        '${ref.read(noWrapProvider)}|'
+        '${ref.read(showLineNumbersProvider)}|'
+        '${ref.read(importRevisionProvider)}|'
+        '${ref.read(syncScrollProvider)}';
 
-  // diff 变了，或显示配置变了 → 全部作废，重新算。
-  if (!identical(_heightFuturesFor, diff) ||
-      _heightFuturesConfigKey != configKey) {
-    _heightFutures.clear();
-    _heightFuturesFor = diff;
-    _heightFuturesConfigKey = configKey;
+    // diff 变了，或显示配置变了 → 全部作废，重新算。
+    if (!identical(_heightFuturesFor, diff) ||
+        _heightFuturesConfigKey != configKey) {
+      _heightFutures.clear();
+      _heightFuturesFor = diff;
+      _heightFuturesConfigKey = configKey;
+    }
+
+    // 该视图已算过 → 直接返回同一个 future，不重算。
+    final existing = _heightFutures[mode];
+    if (existing != null) return existing;
+
+    // 没算过 → 创建。
+    final f = _computeHeightBundle(diff, mode);
+    _heightFutures[mode] = f;
+    return f;
   }
-
-  // 该视图已算过 → 直接返回同一个 future，不重算。
-  final existing = _heightFutures[mode];
-  if (existing != null) return existing;
-
-  // 没算过 → 创建。
-  final f = _computeHeightBundle(diff, mode);
-  _heightFutures[mode] = f;
-  return f;
-}
-    
 
   Future<_HeightBundle> _computeHeightBundle(
     DiffResult diff,
@@ -779,15 +812,17 @@ Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
 
     final offset = table.offsetOf(row);
     final max = _scrollController.position.maxScrollExtent;
-  final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
-  _scrollController.jumpTo(clamped);
+    final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
+    _scrollController.jumpTo(clamped);
 
-  if (_jumpedToEntry != entryIndex) {
-    setState(() => _jumpedToEntry = entryIndex);
+    if (_jumpedToEntry != entryIndex) {
+      setState(() => _jumpedToEntry = entryIndex);
+    }
   }
-}
+
   void _nextMatch() {
     _ensureFindApplied();
+    _recordFindHistory();
     if (_matchEntries.isEmpty) return;
     final next = (_matchPos + 1) % _matchEntries.length;
     setState(() => _matchPos = next);
@@ -796,6 +831,7 @@ Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
 
   void _prevMatch() {
     _ensureFindApplied();
+    _recordFindHistory();
     if (_matchEntries.isEmpty) return;
     final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
     setState(() => _matchPos = prev);
@@ -828,24 +864,23 @@ Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
     _cachedDiffIndicesFor = diff;
     return list;
   }
-/// "处"的计数：连续的差异行算 1 处。
-int _diffBlockCount(DiffResult diff) {
-  var count = 0;
-  var inBlock = false;
-  for (final e in diff.entries) {
-    final isDiff = e.operation != DiffOperation.equal;
-    if (isDiff && !inBlock) {
-      count++;
-      inBlock = true;
-    } else if (!isDiff) {
-      inBlock = false;
+
+  /// "处"的计数：连续的差异行算 1 处。
+  int _diffBlockCount(DiffResult diff) {
+    var count = 0;
+    var inBlock = false;
+    for (final e in diff.entries) {
+      final isDiff = e.operation != DiffOperation.equal;
+      if (isDiff && !inBlock) {
+        count++;
+        inBlock = true;
+      } else if (!isDiff) {
+        inBlock = false;
+      }
     }
+    return count;
   }
-  return count;
-}
 
-
-    
   int? _currentTopRow() {
     final diff = _diff;
     if (diff == null) return null;
@@ -855,15 +890,17 @@ int _diffBlockCount(DiffResult diff) {
     if (!_scrollController.hasClients) return null;
     return table.indexAt(_scrollController.position.pixels);
   }
-void _jumpToDocTop() {
-  if (!_scrollController.hasClients) return;
-  _scrollController.jumpTo(0);
-}
 
-void _jumpToDocBottom() {
-  if (!_scrollController.hasClients) return;
-  _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-}
+  void _jumpToDocTop() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(0);
+  }
+
+  void _jumpToDocBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  }
+
   void _jumpToNextDiff() {
     final diff = _diff;
     if (diff == null) return;
@@ -1244,27 +1281,27 @@ void _jumpToDocBottom() {
     return meta;
   }
 
-void _replaceRawLine({
-  required bool isOriginal,
-  required int normalizedLine,
-  required String newText,
-}) {
-  final current = ref.read(
-    isOriginal ? preprocessedOriginalProvider : preprocessedModifiedProvider,
-  );
-  if (current.isEmpty) return;
+  void _replaceRawLine({
+    required bool isOriginal,
+    required int normalizedLine,
+    required String newText,
+  }) {
+    final current = ref.read(
+      isOriginal ? preprocessedOriginalProvider : preprocessedModifiedProvider,
+    );
+    if (current.isEmpty) return;
 
-  final lines = current.split('\n');
-  if (normalizedLine < 0 || normalizedLine >= lines.length) return;
-  lines[normalizedLine] = newText;
-  final newProcessed = lines.join('\n');
+    final lines = current.split('\n');
+    if (normalizedLine < 0 || normalizedLine >= lines.length) return;
+    lines[normalizedLine] = newText;
+    final newProcessed = lines.join('\n');
 
-  if (isOriginal) {
-    ref.read(editedOriginalProvider.notifier).state = newProcessed;
-  } else {
-    ref.read(editedModifiedProvider.notifier).state = newProcessed;
+    if (isOriginal) {
+      ref.read(editedOriginalProvider.notifier).state = newProcessed;
+    } else {
+      ref.read(editedModifiedProvider.notifier).state = newProcessed;
+    }
   }
-}
 
   Future<void> _onRowLongPress(List<int> entryIndices) async {
     final diff = _diff;
@@ -1497,9 +1534,9 @@ void _replaceRawLine({
     _entryToRowMap = null;
     _entryToRowMapFor = null;
     _entryToRowMapMode = null;
-_heightFutures.clear();
-_heightFuturesFor = null;
-_heightFuturesConfigKey = null;
+    _heightFutures.clear();
+    _heightFuturesFor = null;
+    _heightFuturesConfigKey = null;
     DiffTextIndex.invalidate();
     setState(() {});
 
@@ -1714,53 +1751,54 @@ _heightFuturesConfigKey = null;
         if (!snapshot.hasData) {
           return Scaffold(
             appBar: AppBar(title: const Text('对比结果')),
-body: const Center(
-  child: Padding(
-    padding: EdgeInsets.all(24),
-    child: Text(
-      '正在计算显示布局…',
-      style: TextStyle(fontSize: 16),
-      textAlign: TextAlign.center,
-    ),
-  ),
-),
+            body: const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  '正在计算显示布局…',
+                  style: TextStyle(fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
           );
         }
         final heights = snapshot.data!;
         _activeHeights = heights;
         _activeHeightsMode = viewMode;
 
-if (_pendingJumpEntry != null && !_pendingJumpQueued) {
-  _pendingJumpQueued = true;
-  final target = _pendingJumpEntry!;
-  WidgetsBinding.instance.addPostFrameCallback((_) async {
-    if (!mounted) return;
-    _pendingJumpEntry = null;
-    _pendingJumpQueued = false;
+        if (_pendingJumpEntry != null && !_pendingJumpQueued) {
+          _pendingJumpQueued = true;
+          final target = _pendingJumpEntry!;
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            _pendingJumpEntry = null;
+            _pendingJumpQueued = false;
 
-    // 等 ListView 完成第一次 measure（maxScrollExtent 才有真实值）。
-    for (var attempt = 0; attempt < 5; attempt++) {
-      if (!mounted) return;
-      if (!_scrollController.hasClients) {
-        await WidgetsBinding.instance.endOfFrame;
-        continue;
-      }
-      if (_scrollController.position.maxScrollExtent > 0 || attempt >= 4) {
-        break;
-      }
-      await WidgetsBinding.instance.endOfFrame;
-    }
-    if (!mounted) return;
+            // 等 ListView 完成第一次 measure（maxScrollExtent 才有真实值）。
+            for (var attempt = 0; attempt < 5; attempt++) {
+              if (!mounted) return;
+              if (!_scrollController.hasClients) {
+                await WidgetsBinding.instance.endOfFrame;
+                continue;
+              }
+              if (_scrollController.position.maxScrollExtent > 0 ||
+                  attempt >= 4) {
+                break;
+              }
+              await WidgetsBinding.instance.endOfFrame;
+            }
+            if (!mounted) return;
 
-    if (target < 0) {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(0);
-      }
-    } else {
-      _scrollToEntry(target);
-    }
-  });
-}
+            if (target < 0) {
+              if (_scrollController.hasClients) {
+                _scrollController.jumpTo(0);
+              }
+            } else {
+              _scrollToEntry(target);
+            }
+          });
+        }
 
         return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
       },
@@ -1775,8 +1813,8 @@ if (_pendingJumpEntry != null && !_pendingJumpQueued) {
     _HeightBundle heights,
   ) {
     final noWrap = ref.watch(noWrapProvider);
-final diffBlocks = _diffBlockCount(diff);
-      
+    final diffBlocks = _diffBlockCount(diff);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -1784,30 +1822,30 @@ final diffBlocks = _diffBlockCount(diff);
           style: TextStyle(fontSize: 11),
         ),
         actions: [
-Tooltip(
-  message: '上一处差异\n长按：跳到文档开头',
-  child: InkWell(
-    key: const Key('prev-diff'),
-    onTap: _jumpToPrevDiff,
-    onLongPress: _jumpToDocTop,
-    child: const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: Icon(Icons.arrow_upward, size: 26),
-    ),
-  ),
-),
-Tooltip(
-  message: '下一处差异\n长按：跳到文档结尾',
-  child: InkWell(
-    key: const Key('next-diff'),
-    onTap: _jumpToNextDiff,
-    onLongPress: _jumpToDocBottom,
-    child: const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: Icon(Icons.arrow_downward, size: 26),
-    ),
-  ),
-),
+          Tooltip(
+            message: '上一处差异\n长按：跳到文档开头',
+            child: InkWell(
+              key: const Key('prev-diff'),
+              onTap: _jumpToPrevDiff,
+              onLongPress: _jumpToDocTop,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Icon(Icons.arrow_upward, size: 26),
+              ),
+            ),
+          ),
+          Tooltip(
+            message: '下一处差异\n长按：跳到文档结尾',
+            child: InkWell(
+              key: const Key('next-diff'),
+              onTap: _jumpToNextDiff,
+              onLongPress: _jumpToDocBottom,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Icon(Icons.arrow_downward, size: 26),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             iconSize: 26,
@@ -1977,57 +2015,55 @@ Tooltip(
         children: [
           if (_originalDeleted || _modifiedDeleted) _buildDeletedBanner(),
           _buildEncodingBanner(),
-            if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
+          if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
           if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
-Padding(
-  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-  child: Row(
-    children: [
-      Expanded(
-        flex: 3,
-        child: _viewChip(
-          label: '差异上下文行',
-          value: ViewMode.diffOnly,
-          current: viewMode,
-        ),
-      ),
-      const SizedBox(width: 2),
-      Expanded(
-        flex: 3,
-        child: _viewChip(
-          label: '纯差异',
-          value: ViewMode.diffOnlyPlain,
-          current: viewMode,
-        ),
-      ),
-      const SizedBox(width: 2),
-      Expanded(
-        flex: 1,
-        child: _viewChip(
-          label: '并排',
-          value: ViewMode.sideBySide,
-          current: viewMode,
-          compact: true,
-        ),
-      ),
-      const SizedBox(width: 2),
-      Expanded(
-        flex: 1,
-        child: _viewChip(
-          label: '合并',
-          value: ViewMode.merged,
-          current: viewMode,
-          compact: true,
-        ),
-      ),
-    ],
-  ),
-),
-            
-_buildToolbar(),               // ← 新增
-if (_processing) _buildProcessingBanner(),  // ← 新增
-            
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: _viewChip(
+                    label: '差异上下文行',
+                    value: ViewMode.diffOnly,
+                    current: viewMode,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Expanded(
+                  flex: 3,
+                  child: _viewChip(
+                    label: '纯差异',
+                    value: ViewMode.diffOnlyPlain,
+                    current: viewMode,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Expanded(
+                  flex: 1,
+                  child: _viewChip(
+                    label: '并排',
+                    value: ViewMode.sideBySide,
+                    current: viewMode,
+                    compact: true,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Expanded(
+                  flex: 1,
+                  child: _viewChip(
+                    label: '合并',
+                    value: ViewMode.merged,
+                    current: viewMode,
+                    compact: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _buildToolbar(),
+          if (_processing) _buildProcessingBanner(),
           Expanded(
             child: switch (viewMode) {
               ViewMode.merged => MergedView(
@@ -2099,279 +2135,272 @@ if (_processing) _buildProcessingBanner(),  // ← 新增
     );
   }
 
-// ==================== 按钮栏 ====================
+  // ==================== 按钮栏 ====================
 
+  Widget _buildToolbar() {
+    final rules = ref.watch(toolbarRulesOrderedProvider);
+    final s = Theme.of(context).colorScheme;
 
-Widget _buildToolbar() {
-  final rules = ref.watch(toolbarRulesOrderedProvider);
-  final s = Theme.of(context).colorScheme;
-
-  return Container(
-    height: 26,
-    color: s.surfaceVariant.withOpacity(0.25),
-    child: Row(
-      children: [
-        Expanded(
-          child: rules.isEmpty
-              ? Center(
-                  child: Text(
-                    '点 + 添加按钮（长按编辑）',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: s.onSurfaceVariant,
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  itemCount: rules.length,
-                  itemBuilder: (ctx, i) {
-                    final r = rules[i];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 1,
-                        vertical: 3,
+    return Container(
+      height: 26,
+      color: s.surfaceVariant.withOpacity(0.25),
+      child: Row(
+        children: [
+          Expanded(
+            child: rules.isEmpty
+                ? Center(
+                    child: Text(
+                      '点 + 添加按钮（长按编辑）',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: s.onSurfaceVariant,
                       ),
-                      child: GestureDetector(
-                        onTap: () => _onToolbarButtonTap(r),
-                        onLongPress: () => _editToolbarRule(r),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: s.primaryContainer,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(
-                              color: s.primary.withOpacity(0.3),
+                    ),
+                  )
+                : ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    itemCount: rules.length,
+                    itemBuilder: (ctx, i) {
+                      final r = rules[i];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 1,
+                          vertical: 3,
+                        ),
+                        child: GestureDetector(
+                          onTap: () => _onToolbarButtonTap(r),
+                          onLongPress: () => _editToolbarRule(r),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
                             ),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            r.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: s.onPrimaryContainer,
-                              fontWeight: FontWeight.w500,
+                            decoration: BoxDecoration(
+                              color: s.primaryContainer,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: s.primary.withOpacity(0.3),
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              r.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: s.onPrimaryContainer,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-        SizedBox(
-          width: 28,
-          child: IconButton(
-            icon: const Icon(Icons.add, size: 16),
-            padding: EdgeInsets.zero,
-            tooltip: '新建按钮',
-            visualDensity: VisualDensity.compact,
-            onPressed: _addToolbarRule,
+                      );
+                    },
+                  ),
           ),
-        ),
-        SizedBox(
-          width: 28,
-          child: IconButton(
-            icon: const Icon(Icons.sort, size: 16),
-            padding: EdgeInsets.zero,
-            tooltip: '排序按钮',
-            visualDensity: VisualDensity.compact,
-            onPressed: _showToolbarOrderDialog,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-
-
-Widget _viewChip({
-  required String label,
-  required ViewMode value,
-  required ViewMode current,
-  bool compact = false,
-}) {
-  final selected = value == current;
-  final s = Theme.of(context).colorScheme;
-  return GestureDetector(
-    onTap: () => _switchView(value),
-    child: Container(
-      height: 32,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: selected
-            ? s.primaryContainer
-            : s.surfaceVariant.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: selected ? s.primary : s.outlineVariant,
-        ),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: compact ? 10 : 12,
-          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-          color: selected ? s.onPrimaryContainer : s.onSurfaceVariant,
-        ),
-      ),
-    ),
-  );
-}
-
-
-
-
-      
-Widget _buildProcessingBanner() {
-  final s = Theme.of(context).colorScheme;
-  return Container(
-    width: double.infinity,
-    color: s.tertiaryContainer,
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-    child: Text(
-      _processingText,
-      style: TextStyle(
-        fontSize: 12,
-        color: s.onTertiaryContainer,
-      ),
-    ),
-  );
-}
-
-Future<void> _onToolbarButtonTap(PreprocessingRule rule) async {
-  final side = await showModalBottomSheet<String>(
-    context: context,
-    builder: (c) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Text(
-              '「${rule.name}」应用到：',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+          SizedBox(
+            width: 28,
+            child: IconButton(
+              icon: const Icon(Icons.add, size: 16),
+              padding: EdgeInsets.zero,
+              tooltip: '新建按钮',
+              visualDensity: VisualDensity.compact,
+              onPressed: _addToolbarRule,
             ),
           ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.arrow_back),
-            title: const Text('只改左侧文件'),
-            onTap: () => Navigator.pop(c, 'left'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.arrow_forward),
-            title: const Text('只改右侧文件'),
-            onTap: () => Navigator.pop(c, 'right'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.compare_arrows),
-            title: const Text('两侧都改'),
-            onTap: () => Navigator.pop(c, 'both'),
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.close),
-            title: const Text('取消'),
-            onTap: () => Navigator.pop(c),
+          SizedBox(
+            width: 28,
+            child: IconButton(
+              icon: const Icon(Icons.sort, size: 16),
+              padding: EdgeInsets.zero,
+              tooltip: '排序按钮',
+              visualDensity: VisualDensity.compact,
+              onPressed: _showToolbarOrderDialog,
+            ),
           ),
         ],
       ),
-    ),
-  );
-  if (side == null || !mounted) return;
-  await _applyToolbarRule(rule, side);
-}
+    );
+  }
 
-Future<void> _applyToolbarRule(PreprocessingRule rule, String side) async {
-  setState(() {
-    _processing = true;
-    _processingText = '正在执行「${rule.name}」…';
-  });
-  await Future<void>.delayed(Duration.zero);
-  if (!mounted) return;
+  Widget _viewChip({
+    required String label,
+    required ViewMode value,
+    required ViewMode current,
+    bool compact = false,
+  }) {
+    final selected = value == current;
+    final s = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => _switchView(value),
+      child: Container(
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? s.primaryContainer
+              : s.surfaceVariant.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected ? s.primary : s.outlineVariant,
+          ),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: compact ? 10 : 12,
+            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            color: selected ? s.onPrimaryContainer : s.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
 
-  try {
-    final currentOrig = ref.read(preprocessedOriginalProvider);
-    final currentMod = ref.read(preprocessedModifiedProvider);
+  Widget _buildProcessingBanner() {
+    final s = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      color: s.tertiaryContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Text(
+        _processingText,
+        style: TextStyle(
+          fontSize: 12,
+          color: s.onTertiaryContainer,
+        ),
+      ),
+    );
+  }
 
-    if (side == 'left' || side == 'both') {
-      if (currentOrig.isNotEmpty) {
-        final next = applyOneRule(currentOrig, rule);
-        ref.read(editedOriginalProvider.notifier).state = next;
-      }
-    }
-    if (side == 'right' || side == 'both') {
-      if (currentMod.isNotEmpty) {
-        final next = applyOneRule(currentMod, rule);
-        ref.read(editedModifiedProvider.notifier).state = next;
-      }
-    }
+  Future<void> _onToolbarButtonTap(PreprocessingRule rule) async {
+    final side = await showModalBottomSheet<String>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                '「${rule.name}」应用到：',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.arrow_back),
+              title: const Text('只改左侧文件'),
+              onTap: () => Navigator.pop(c, 'left'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.arrow_forward),
+              title: const Text('只改右侧文件'),
+              onTap: () => Navigator.pop(c, 'right'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.compare_arrows),
+              title: const Text('两侧都改'),
+              onTap: () => Navigator.pop(c, 'both'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('取消'),
+              onTap: () => Navigator.pop(c),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (side == null || !mounted) return;
+    await _applyToolbarRule(rule, side);
+  }
 
-    ref.read(importRevisionProvider.notifier).state++;
-    _resetViewAfterEdit();
-
+  Future<void> _applyToolbarRule(PreprocessingRule rule, String side) async {
+    setState(() {
+      _processing = true;
+      _processingText = '正在执行「${rule.name}」…';
+    });
+    await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
-    _toast('已应用「${rule.name}」');
-  } catch (e) {
-    if (mounted) _toast('执行失败：$e');
-  } finally {
-    if (mounted) {
-      setState(() {
-        _processing = false;
-        _processingText = '';
-      });
+
+    try {
+      final currentOrig = ref.read(preprocessedOriginalProvider);
+      final currentMod = ref.read(preprocessedModifiedProvider);
+
+      if (side == 'left' || side == 'both') {
+        if (currentOrig.isNotEmpty) {
+          final next = applyOneRule(currentOrig, rule);
+          ref.read(editedOriginalProvider.notifier).state = next;
+        }
+      }
+      if (side == 'right' || side == 'both') {
+        if (currentMod.isNotEmpty) {
+          final next = applyOneRule(currentMod, rule);
+          ref.read(editedModifiedProvider.notifier).state = next;
+        }
+      }
+
+      ref.read(importRevisionProvider.notifier).state++;
+      _resetViewAfterEdit();
+
+      if (!mounted) return;
+      _toast('已应用「${rule.name}」');
+    } catch (e) {
+      if (mounted) _toast('执行失败：$e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processing = false;
+          _processingText = '';
+        });
+      }
     }
   }
-}
 
-Future<void> _addToolbarRule() async {
-  final rule = await showDialog<PreprocessingRule>(
-    context: context,
-    builder: (_) => const RuleEditorDialog(
-      showCopyToPreprocess: false,
-    ),
-  );
-  if (rule == null || !mounted) return;
-  ref.read(toolbarRulesProvider.notifier).add(rule);
-  _toast('已添加按钮「${rule.name}」');
-}
-
-Future<void> _editToolbarRule(PreprocessingRule rule) async {
-  final updated = await showDialog<PreprocessingRule>(
-    context: context,
-    builder: (_) => RuleEditorDialog(
-      initial: rule,
-      showCopyToPreprocess: true,
-      onCopyToPreprocess: (copied) {
-        _toast('「${copied.name}」已复制到预处理规则');
-      },
-    ),
-  );
-  if (updated == null || !mounted) return;
-  ref.read(toolbarRulesProvider.notifier).updateRule(updated);
-}
-
-Future<void> _showToolbarOrderDialog() async {
-  final rules = ref.read(toolbarRulesOrderedProvider);
-  if (rules.isEmpty) {
-    _toast('还没有按钮');
-    return;
+  Future<void> _addToolbarRule() async {
+    final rule = await showDialog<PreprocessingRule>(
+      context: context,
+      builder: (_) => const RuleEditorDialog(
+        showCopyToPreprocess: false,
+      ),
+    );
+    if (rule == null || !mounted) return;
+    ref.read(toolbarRulesProvider.notifier).add(rule);
+    _toast('已添加按钮「${rule.name}」');
   }
-  await showDialog<void>(
-    context: context,
-    builder: (c) => _ToolbarOrderDialog(rules: rules),
-  );
-}
-    
+
+  Future<void> _editToolbarRule(PreprocessingRule rule) async {
+    final updated = await showDialog<PreprocessingRule>(
+      context: context,
+      builder: (_) => RuleEditorDialog(
+        initial: rule,
+        showCopyToPreprocess: true,
+        onCopyToPreprocess: (copied) {
+          _toast('「${copied.name}」已复制到预处理规则');
+        },
+      ),
+    );
+    if (updated == null || !mounted) return;
+    ref.read(toolbarRulesProvider.notifier).updateRule(updated);
+  }
+
+  Future<void> _showToolbarOrderDialog() async {
+    final rules = ref.read(toolbarRulesOrderedProvider);
+    if (rules.isEmpty) {
+      _toast('还没有按钮');
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (c) => _ToolbarOrderDialog(rules: rules),
+    );
+  }
+
   Widget _buildDeletedBanner() {
     final parts = <String>[];
     if (_originalDeleted) parts.add('左边文件');
@@ -2424,33 +2453,33 @@ Future<void> _showToolbarOrderDialog() async {
       ),
     );
   }
-Widget _buildFewDiffsBanner(int blocks) {
-  return Container(
-    width: double.infinity,
-    color: Colors.pink.shade50,
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-    child: Row(
-      children: [
-        Icon(Icons.check_circle_outline,
-            size: 14, color: Colors.pink.shade900),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            blocks == 0
-                ? '两份文档完全相同'
-                : '共 $blocks 处差异，已全部显示',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.pink.shade900,
+
+  Widget _buildFewDiffsBanner(int blocks) {
+    return Container(
+      width: double.infinity,
+      color: Colors.pink.shade50,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_outline,
+              size: 14, color: Colors.pink.shade900),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              blocks == 0
+                  ? '两份文档完全相同'
+                  : '共 $blocks 处差异，已全部显示',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.pink.shade900,
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
-    
   Widget _buildPerfOverlay() {
     final perf = ref.watch(lastDiffPerfProvider);
     if (perf == null) return const SizedBox.shrink();
@@ -2565,6 +2594,12 @@ Widget _buildFewDiffsBanner(int blocks) {
                     onChanged: _onFindInput,
                     onSubmitted: (_) => _nextMatch(),
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.history),
+                  tooltip: '查找历史',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _showFindHistory,
                 ),
               ],
             ),
@@ -2958,7 +2993,6 @@ class _DisplaySettingsSheet extends ConsumerWidget {
   }
 }
 
-
 class _ToolbarOrderDialog extends ConsumerStatefulWidget {
   const _ToolbarOrderDialog({required this.rules});
 
@@ -3042,6 +3076,66 @@ class _ToolbarOrderDialogState extends ConsumerState<_ToolbarOrderDialog> {
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已保存')),
+    );
+  }
+}
+
+// ==================== 查找历史弹窗 ====================
+
+class _FindHistoryDialog extends ConsumerWidget {
+  const _FindHistoryDialog({required this.onPick});
+
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final history = ref.watch(findHistoryProvider);
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: const Text('查找历史'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: history.isEmpty
+            ? const Center(child: Text('还没有查找记录'))
+            : ListView.builder(
+                itemCount: history.length,
+                itemBuilder: (ctx, i) {
+                  final q = history[i];
+                  return ListTile(
+                    dense: true,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 8),
+                    title: Text(
+                      q,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: '删除',
+                      onPressed: () {
+                        ref.read(findHistoryProvider.notifier).remove(q);
+                      },
+                    ),
+                    onTap: () {
+                      onPick(q);
+                      Navigator.pop(context);
+                    },
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
     );
   }
 }
