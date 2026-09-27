@@ -2172,6 +2172,49 @@ Widget _buildToolbar() {
     ),
   );
 }
+
+
+
+Widget _viewChip({
+  required String label,
+  required ViewMode value,
+  required ViewMode current,
+  bool compact = false,
+}) {
+  final selected = value == current;
+  final s = Theme.of(context).colorScheme;
+  return GestureDetector(
+    onTap: () => _switchView(value),
+    child: Container(
+      height: 32,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: selected
+            ? s.primaryContainer
+            : s.surfaceVariant.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: selected ? s.primary : s.outlineVariant,
+        ),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: compact ? 10 : 12,
+          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          color: selected ? s.onPrimaryContainer : s.onSurfaceVariant,
+        ),
+      ),
+    ),
+  );
+}
+
+
+
+
+      
 Widget _buildProcessingBanner() {
   final s = Theme.of(context).colorScheme;
   return Container(
