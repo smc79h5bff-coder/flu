@@ -33,6 +33,113 @@ import '../../file_browser/presentation/comparison_settings_screen.dart'
     show RuleEditorDialog, ruleSubtitle;
 import 'providers/toolbar_rules_provider.dart';
 
+// ==================== 诊断工具 ====================
+
+class ViewerDiag {
+  ViewerDiag._();
+  static final List<({String tag, int ms})> _entries = [];
+  static final Stopwatch _sw = Stopwatch()..start();
+
+  static void reset() {
+    _entries.clear();
+    _sw.reset();
+    _sw.start();
+  }
+
+  static void mark(String tag) {
+    _entries.add((tag: tag, ms: _sw.elapsedMilliseconds));
+  }
+
+  static List<({String tag, int ms})> get entries =>
+      List.unmodifiable(_entries);
+}
+
+/// 把一个字符串逐字符列出来，带码点。★ 标出与另一边不同的位置。
+String _dumpChars(String s, {Set<int> diffAt = const {}}) {
+  final sb = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    final c = s.codeUnitAt(i);
+    final mark = diffAt.contains(i) ? '★' : ' ';
+    String vis;
+    if (c == 0x0D) {
+      vis = r'\r';
+    } else if (c == 0x0A) {
+      vis = r'\n';
+    } else if (c == 0x09) {
+      vis = r'\t';
+    } else if (c == 0x20) {
+      vis = '␣';
+    } else if (c == 0x3000) {
+      vis = '全角空格';
+    } else if (c == 0xA0) {
+      vis = 'NBSP';
+    } else if (c == 0x200B) {
+      vis = 'ZWSP';
+    } else if (c == 0x200C) {
+      vis = 'ZWNJ';
+    } else if (c == 0x200D) {
+      vis = 'ZWJ';
+    } else if (c == 0xFEFF) {
+      vis = 'BOM';
+    } else if (c == 0x2028) {
+      vis = '行分隔符';
+    } else if (c == 0x2029) {
+      vis = '段分隔符';
+    } else if (c < 0x20 || c == 0x7F) {
+      vis = '控制字符';
+    } else {
+      vis = String.fromCharCode(c);
+    }
+    sb.writeln(
+        '$mark[$i] $vis  U+${c.toRadixString(16).toUpperCase().padLeft(4, '0')}');
+  }
+  return sb.toString();
+}
+
+/// 统计一段文本里各类特殊字符的数量。
+Map<String, int> _charStats(String s) {
+  var crlf = 0;
+  var lf = 0;
+  var cr = 0;
+  var fwSpace = 0;
+  var nbsp = 0;
+  var zwsp = 0;
+  var bom = 0;
+  var tab = 0;
+  for (var i = 0; i < s.length; i++) {
+    final c = s.codeUnitAt(i);
+    if (c == 0x0A) {
+      if (i > 0 && s.codeUnitAt(i - 1) == 0x0D) {
+        crlf++;
+      } else {
+        lf++;
+      }
+    } else if (c == 0x0D) {
+      cr++;
+    } else if (c == 0x3000) {
+      fwSpace++;
+    } else if (c == 0xA0) {
+      nbsp++;
+    } else if (c == 0x200B) {
+      zwsp++;
+    } else if (c == 0xFEFF) {
+      bom++;
+    } else if (c == 0x09) {
+      tab++;
+    }
+  }
+  return {
+    'CRLF(\\r\\n)': crlf,
+    'LF(\\n)': lf,
+    'CR(\\r)': cr,
+    '全角空格 U+3000': fwSpace,
+    'NBSP U+00A0': nbsp,
+    'ZWSP U+200B': zwsp,
+    'BOM U+FEFF': bom,
+    'Tab': tab,
+  };
+}
+
 class DiffViewerScreen extends ConsumerStatefulWidget {
   const DiffViewerScreen({super.key});
 
@@ -125,6 +232,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   Timer? _findDebounce;
   bool _processing = false;
   String _processingText = '';
+
+  DiffResult? _lastDiagDiff;
 
   @override
   void initState() {
@@ -254,16 +363,16 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _onFindInput(String q) {
-  _findDebounce?.cancel();
-  setState(() => _findQuery = q);
-  final delay = _isLargeFile
-      ? const Duration(milliseconds: 600)
-      : const Duration(milliseconds: 250);
-  _findDebounce = Timer(delay, () {
-    if (!mounted) return;
-    _findChanged(q);
-  });
-}
+    _findDebounce?.cancel();
+    setState(() => _findQuery = q);
+    final delay = _isLargeFile
+        ? const Duration(milliseconds: 600)
+        : const Duration(milliseconds: 250);
+    _findDebounce = Timer(delay, () {
+      if (!mounted) return;
+      _findChanged(q);
+    });
+  }
 
   void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
@@ -590,6 +699,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     DiffResult diff,
     ViewMode mode,
   ) async {
+    ViewerDiag.mark('高度: 开始 (${mode.name})');
+
     final mq = MediaQuery.of(context);
     final viewportW = mq.size.width;
     final dpr = mq.devicePixelRatio;
@@ -622,7 +733,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final rowW = showLine ? viewportW - 50.0 : viewportW - 16.0;
       final k = cacheKey('merged');
       final cached = LineHeightCache.instance.get(k);
-      if (cached != null) return _HeightBundle(merged: cached);
+      if (cached != null) {
+        ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
+        return _HeightBundle(merged: cached);
+      }
       final table = await computeLineHeights(
         itemCount: order.length,
         widthForItem: (_) => rowW,
@@ -633,6 +747,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         extraVerticalPadding: 8,
       );
       LineHeightCache.instance.put(k, table);
+      ViewerDiag.mark('高度: 完成 (${mode.name})');
       return _HeightBundle(merged: table);
     }
 
@@ -643,7 +758,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         final contentW = panelW - 52.0;
         final k = cacheKey('sbs_sync');
         final cached = LineHeightCache.instance.get(k);
-        if (cached != null) return _HeightBundle(sbsSync: cached);
+        if (cached != null) {
+          ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
+          return _HeightBundle(sbsSync: cached);
+        }
         final table = await computeLineHeightsForTwoPane(
           itemCount: rows.length,
           leftWidth: contentW,
@@ -664,6 +782,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           extraVerticalPadding: 12,
         );
         LineHeightCache.instance.put(k, table);
+        ViewerDiag.mark('高度: 完成 (${mode.name})');
         return _HeightBundle(sbsSync: table);
       } else {
         final entries = diff.entries;
@@ -706,6 +825,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             );
         if (cachedR == null) LineHeightCache.instance.put(rk, rightTable);
 
+        ViewerDiag.mark('高度: 完成 (${mode.name})');
         return _HeightBundle(sbsLeft: leftTable, sbsRight: rightTable);
       }
     }
@@ -718,6 +838,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final k = cacheKey(isPlain ? 'diff_only_plain' : 'diff_only');
     final cached = LineHeightCache.instance.get(k);
     if (cached != null) {
+      ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
       return isPlain
           ? _HeightBundle(diffOnlyPlain: cached)
           : _HeightBundle(diffOnly: cached);
@@ -754,6 +875,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       extraVerticalPadding: 4,
     );
     LineHeightCache.instance.put(k, table);
+    ViewerDiag.mark('高度: 完成 (${mode.name})');
     return isPlain
         ? _HeightBundle(diffOnlyPlain: table)
         : _HeightBundle(diffOnly: table);
@@ -926,6 +1048,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   Future<void> _switchView(ViewMode newMode) async {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
+
+    // 点按钮就先把行高表算起来，别等选完跳转位置才开算。
+    final diff = _diff;
+    if (diff != null) {
+      unawaited(_getHeightFuture(diff, newMode));
+    }
 
     final searchEntry = _currentMatchEntry;
     final hasSearch = _findQuery.isNotEmpty && _matchEntries.isNotEmpty;
@@ -1105,10 +1233,193 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
-  void _openComparisonSettings() {
-    Navigator.of(context).push(
+  Future<void> _openComparisonSettings() async {
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => const ComparisonSettingsScreen(),
+      ),
+    );
+    if (!mounted) return;
+    // 从比较设置回来，规则可能变了，主动让对比和布局都重算。
+    ref.read(importRevisionProvider.notifier).state++;
+    _resetViewAfterEdit();
+  }
+
+  // ==================== 诊断弹窗 ====================
+
+  Future<void> _showRowDiagnoseDialog(String left, String right) async {
+    final maxLen = left.length > right.length ? left.length : right.length;
+    final diffAt = <int>{};
+    for (var i = 0; i < maxLen; i++) {
+      final l = i < left.length ? left.codeUnitAt(i) : -1;
+      final r = i < right.length ? right.codeUnitAt(i) : -1;
+      if (l != r) diffAt.add(i);
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: Text(
+          diffAt.isEmpty ? '两边完全一样' : '差异 ${diffAt.length} 处（★ 标记）',
+          style: const TextStyle(fontSize: 14),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.75,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('左长度 ${left.length}，右长度 ${right.length}',
+                    style: Theme.of(c).textTheme.labelSmall),
+                const Divider(),
+                const Text('左：',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                SelectableText(
+                  _dumpChars(left, diffAt: diffAt),
+                  style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 12, height: 1.5),
+                ),
+                const SizedBox(height: 16),
+                const Text('右：',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                SelectableText(
+                  _dumpChars(right, diffAt: diffAt),
+                  style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 12, height: 1.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showFileDiagnoseDialog() async {
+    final orig = ref.read(preprocessedOriginalProvider);
+    final mod = ref.read(preprocessedModifiedProvider);
+    final oStats = _charStats(orig);
+    final mStats = _charStats(mod);
+    final oLines = orig.split('\n');
+    final mLines = mod.split('\n');
+
+    const preview = 20;
+
+    Widget statBlock(String title, Map<String, int> stats) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          for (final e in stats.entries)
+            Text('  ${e.key}: ${e.value}',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+        ],
+      );
+    }
+
+    Widget lineBlock(String title, List<String> lines) {
+      final sb = StringBuffer();
+      for (var i = 0; i < lines.length && i < preview; i++) {
+        final t = lines[i];
+        final shown = t.length > 40 ? '${t.substring(0, 40)}…' : t;
+        final w = t.runes.length;
+        sb.writeln('${(i + 1).toString().padLeft(3)} [$w] $shown');
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          SelectableText(
+            sb.toString(),
+            style: const TextStyle(
+                fontFamily: 'monospace', fontSize: 11, height: 1.4),
+          ),
+        ],
+      );
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('文件诊断', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '左总长 ${orig.length}（行 ${oLines.length}）  '
+                  '右总长 ${mod.length}（行 ${mLines.length}）',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const Divider(),
+                statBlock('左边特殊字符', oStats),
+                const SizedBox(height: 8),
+                statBlock('右边特殊字符', mStats),
+                const Divider(),
+                lineBlock('左边前 $preview 行', oLines),
+                const SizedBox(height: 12),
+                lineBlock('右边前 $preview 行', mLines),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showTimingDialog() async {
+    final entries = ViewerDiag.entries;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('耗时诊断', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.6,
+          child: entries.isEmpty
+              ? const Center(child: Text('还没有记录'))
+              : ListView.builder(
+                  itemCount: entries.length,
+                  itemBuilder: (ctx, i) {
+                    final e = entries[i];
+                    final prev = i == 0 ? 0 : entries[i - 1].ms;
+                    final delta = e.ms - prev;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        '+${delta}ms  (累计 ${e.ms}ms)  ${e.tag}',
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
       ),
     );
   }
@@ -1239,7 +1550,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
-  // ==================== 长按：复制 / 就地编辑 ====================
+  // ==================== 长按：复制 / 就地编辑 / 诊断 ====================
 
   List<({int orig, int mod})> _computeLineMeta(DiffResult result) {
     final meta = <({int orig, int mod})>[];
@@ -1354,6 +1665,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           if (mounted) _toast('已复制右边此行');
         }
         return;
+      case 'diagnose':
+        if (origText != null && modText != null) {
+          await _showRowDiagnoseDialog(origText, modText);
+        }
+        return;
       case 'edit':
         break;
       default:
@@ -1423,6 +1739,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   style: Theme.of(c).textTheme.labelSmall,
                 ),
                 onTap: () => Navigator.pop(c, 'copyMod'),
+              ),
+            if (origText != null && modText != null)
+              ListTile(
+                leading: const Icon(Icons.bug_report),
+                title: const Text('诊断此行（逐字符对比）'),
+                onTap: () => Navigator.pop(c, 'diagnose'),
               ),
             const Divider(height: 1),
             ListTile(
@@ -1726,6 +2048,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     String? origName,
     String? modName,
   ) {
+    if (!identical(_lastDiagDiff, diff)) {
+      _lastDiagDiff = diff;
+      ViewerDiag.reset();
+      ViewerDiag.mark('diff 计算完成，进入渲染');
+    }
+
     final future = _getHeightFuture(diff, viewMode);
     return FutureBuilder<_HeightBundle>(
       future: future,
@@ -1745,6 +2073,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             ),
           );
         }
+        ViewerDiag.mark('视图就绪');
         final heights = snapshot.data!;
         _activeHeights = heights;
         _activeHeightsMode = viewMode;
@@ -1804,7 +2133,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       return _cachedContentWidth!;
     }
 
-    // 估算字符宽度：中文约 1.0×bodySize，英文约 0.5×bodySize，取 0.75 折中。
     final charWidth = bodySize * 0.75;
     final numW = showLine ? 44.0 : 16.0;
     final pad = 30.0;
@@ -1838,7 +2166,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
       final panelChars = maxL > maxR ? maxL : maxR;
       final panelW = numW + panelChars * charWidth + pad;
-      computed = panelW * 2 + 1; // +1 = 中间分隔线
+      computed = panelW * 2 + 1;
     }
 
     if (computed < viewportW) computed = viewportW;
@@ -1923,25 +2251,25 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         ),
     };
 
-if (!noWrap) return inner;
+    if (!noWrap) return inner;
 
-// 只有合并视图是单栏，仍走外层横滚。
-if (viewMode == ViewMode.merged) {
-  final screenW = MediaQuery.of(context).size.width;
-  final contentW = _getContentWidth(diff, viewMode, screenW);
-  if (contentW <= screenW + 1) return inner;
-  return SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    controller: _hScrollController,
-    child: SizedBox(
-      width: contentW,
-      child: inner,
-    ),
-  );
-}
+    // 只有合并视图是单栏，仍走外层横滚。
+    if (viewMode == ViewMode.merged) {
+      final screenW = MediaQuery.of(context).size.width;
+      final contentW = _getContentWidth(diff, viewMode, screenW);
+      if (contentW <= screenW + 1) return inner;
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        controller: _hScrollController,
+        child: SizedBox(
+          width: contentW,
+          child: inner,
+        ),
+      );
+    }
 
-// 其余三个视图是双栏，交给它们各自内部横滚。
-return inner;
+    // 其余三个视图是双栏，交给它们各自内部横滚。
+    return inner;
   }
 
   Widget _buildDiffScaffold(
@@ -1961,25 +2289,25 @@ return inner;
           style: TextStyle(fontSize: 11),
         ),
         actions: [
-  InkWell(
-    key: const Key('prev-diff'),
-    onTap: _jumpToPrevDiff,
-    onLongPress: _jumpToDocTop,
-    child: const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: Icon(Icons.arrow_upward, size: 26),
-    ),
-  ),
-  InkWell(
-    key: const Key('next-diff'),
-    onTap: _jumpToNextDiff,
-    onLongPress: _jumpToDocBottom,
-    child: const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: Icon(Icons.arrow_downward, size: 26),
-    ),
-  ),
-  IconButton(
+          InkWell(
+            key: const Key('prev-diff'),
+            onTap: _jumpToPrevDiff,
+            onLongPress: _jumpToDocTop,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Icon(Icons.arrow_upward, size: 26),
+            ),
+          ),
+          InkWell(
+            key: const Key('next-diff'),
+            onTap: _jumpToNextDiff,
+            onLongPress: _jumpToDocBottom,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Icon(Icons.arrow_downward, size: 26),
+            ),
+          ),
+          IconButton(
             icon: const Icon(Icons.search),
             iconSize: 26,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -2009,7 +2337,6 @@ return inner;
               } else if (v == 'noWrap') {
                 final cur = ref.read(noWrapProvider);
                 ref.read(noWrapProvider.notifier).state = !cur;
-                // 切换不换行时重置横向滚动位置。
                 if (_hScrollController.hasClients) {
                   _hScrollController.jumpTo(0);
                 }
@@ -2017,6 +2344,10 @@ return inner;
                 _openDisplaySettings();
               } else if (v == 'comparisonSettings') {
                 _openComparisonSettings();
+              } else if (v == 'diagFile') {
+                _showFileDiagnoseDialog();
+              } else if (v == 'diagTime') {
+                _showTimingDialog();
               }
             },
             itemBuilder: (context) => [
@@ -2066,13 +2397,13 @@ return inner;
                 ),
               ),
               const PopupMenuDivider(),
-              PopupMenuItem<String>(
+              const PopupMenuItem<String>(
                 value: 'displaySettings',
                 child: Row(
                   children: [
-                    const Icon(Icons.format_size),
-                    const SizedBox(width: 10),
-                    const Text('显示设置'),
+                    Icon(Icons.format_size),
+                    SizedBox(width: 10),
+                    Text('显示设置'),
                   ],
                 ),
               ),
@@ -2129,6 +2460,26 @@ return inner;
                 ),
               ),
               const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'diagFile',
+                child: Row(
+                  children: [
+                    Icon(Icons.description),
+                    SizedBox(width: 10),
+                    Text('诊断：看文件差异细节'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'diagTime',
+                child: Row(
+                  children: [
+                    Icon(Icons.timer),
+                    SizedBox(width: 10),
+                    Text('诊断：看每步耗时'),
+                  ],
+                ),
+              ),
               PopupMenuItem<String>(
                 value: 'orientation',
                 child: Row(
@@ -2242,10 +2593,10 @@ return inner;
                     itemCount: rules.length,
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
-final c = colors[r.id];
-final bg = c?.bg ?? Colors.white;
-final fg = c?.fg ?? Colors.black;
-final border = c?.border ?? Colors.black.withOpacity(0.5);
+                      final c = colors[r.id];
+                      final bg = c?.bg ?? Colors.white;
+                      final fg = c?.fg ?? Colors.black;
+                      final border = c?.border ?? Colors.black.withOpacity(0.5);
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 1,
@@ -3173,7 +3524,6 @@ class _ToolbarOrderDialogState extends ConsumerState<_ToolbarOrderDialog> {
         .setAll(_rules.map((r) => r.id).toList());
     ref.read(toolbarRulesProvider.notifier).setAll(_rules);
 
-    // 清理已被删除的按钮的颜色设置。
     final newIds = _rules.map((r) => r.id).toSet();
     final oldIds = widget.rules.map((r) => r.id).toSet();
     final removedIds = oldIds.difference(newIds);
