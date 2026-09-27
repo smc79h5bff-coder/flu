@@ -1,4 +1,5 @@
 import 'package:flutter/rendering.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../diff/domain/diff_result.dart';
 
