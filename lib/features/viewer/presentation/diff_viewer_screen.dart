@@ -1964,22 +1964,50 @@ final diffBlocks = _diffBlockCount(diff);
             if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
           if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
-          SegmentedButton<ViewMode>(
-            segments: const [
-              ButtonSegment(
-                value: ViewMode.diffOnly,
-                label: Text('差异上下文行'),
-              ),
-              ButtonSegment(
-                value: ViewMode.diffOnlyPlain,
-                label: Text('纯差异'),
-              ),
-              ButtonSegment(value: ViewMode.sideBySide, label: Text('并排')),
-              ButtonSegment(value: ViewMode.merged, label: Text('合并')),
-            ],
-            selected: {viewMode},
-            onSelectionChanged: (s) => _switchView(s.first),
-          ),
+Padding(
+  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+  child: Row(
+    children: [
+      Expanded(
+        flex: 3,
+        child: _viewChip(
+          label: '差异上下文行',
+          value: ViewMode.diffOnly,
+          current: viewMode,
+        ),
+      ),
+      const SizedBox(width: 2),
+      Expanded(
+        flex: 3,
+        child: _viewChip(
+          label: '纯差异',
+          value: ViewMode.diffOnlyPlain,
+          current: viewMode,
+        ),
+      ),
+      const SizedBox(width: 2),
+      Expanded(
+        flex: 1,
+        child: _viewChip(
+          label: '并排',
+          value: ViewMode.sideBySide,
+          current: viewMode,
+          compact: true,
+        ),
+      ),
+      const SizedBox(width: 2),
+      Expanded(
+        flex: 1,
+        child: _viewChip(
+          label: '合并',
+          value: ViewMode.merged,
+          current: viewMode,
+          compact: true,
+        ),
+      ),
+    ],
+  ),
+),
             
 _buildToolbar(),               // ← 新增
 if (_processing) _buildProcessingBanner(),  // ← 新增
