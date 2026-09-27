@@ -254,16 +254,16 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _onFindInput(String q) {
-    _findDebounce?.cancel();
-    if (_isLargeFile) {
-      setState(() => _findQuery = q);
-      return;
-    }
-    _findDebounce = Timer(const Duration(milliseconds: 250), () {
-      if (!mounted) return;
-      _findChanged(q);
-    });
-  }
+  _findDebounce?.cancel();
+  setState(() => _findQuery = q);
+  final delay = _isLargeFile
+      ? const Duration(milliseconds: 600)
+      : const Duration(milliseconds: 250);
+  _findDebounce = Timer(delay, () {
+    if (!mounted) return;
+    _findChanged(q);
+  });
+}
 
   void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
