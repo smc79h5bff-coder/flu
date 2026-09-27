@@ -350,12 +350,9 @@ final plainRightBg = plainBg;
   }
 }
 
-// ========== 派生数据缓存 ==========
-
 DiffResult? _lastDiffOnlyRowsFor;
 List<AlignedRow>? _lastDiffOnlyRows;
 
-/// 仅差异视图的行：差异行 + 前后各 2 行上下文。
 List<AlignedRow> cachedDiffOnlyRows(DiffResult result) {
   if (identical(_lastDiffOnlyRowsFor, result) && _lastDiffOnlyRows != null) {
     return _lastDiffOnlyRows!;
@@ -412,8 +409,6 @@ class _CharDiff {
   final Color addedBg;
   final Color addedFg;
 }
-
-// ========== 查找高亮 spans 的 LRU 缓存 ==========
 
 const int _spansCacheCap = 512;
 final Map<String, List<InlineSpan>> _spansCache =
@@ -508,9 +503,9 @@ class _DiffCell extends StatelessWidget {
     );
     final outline = Theme.of(context).colorScheme.outline;
 
-    final Widget content;
+    final Widget rawContent;
     if (charDiff != null) {
-      content = InlineCharDiff(
+      rawContent = InlineCharDiff(
         before: charDiff!.before,
         after: charDiff!.after,
         side: charDiff!.side,
@@ -525,17 +520,15 @@ class _DiffCell extends StatelessWidget {
     } else {
       final spans = _cachedSpans(
           text, findQuery, isCurrentMatch, matchYellow, matchPink);
-      if (noWrap) {
-        content = Text.rich(
-          TextSpan(style: body, children: spans),
-          softWrap: false,
-          overflow: TextOverflow.clip,
-          maxLines: 1,
-        );
-      } else {
-        content = Text.rich(TextSpan(style: body, children: spans));
-      }
+      rawContent = Text.rich(TextSpan(style: body, children: spans));
     }
+
+    final Widget content = noWrap
+        ? SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: rawContent,
+          )
+        : rawContent;
 
     return ColoredBox(
       color: bg,
