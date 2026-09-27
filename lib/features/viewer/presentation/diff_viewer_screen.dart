@@ -2057,58 +2057,7 @@ if (_processing) _buildProcessingBanner(),  // ← 新增
 
 // ==================== 按钮栏 ====================
 
-Widget _buildToolbar() {
-  final rules = ref.watch(toolbarRulesOrderedProvider);
-  final s = Theme.of(context).colorScheme;
 
-  return Container(
-    height: 46,
-    color: s.surfaceVariant.withOpacity(0.25),
-    child: Row(
-      children: [
-        Expanded(
-          child: rules.isEmpty
-              ? Center(
-                  child: Text(
-                    '点 + 添加常用按钮（长按按钮编辑）',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: s.onSurfaceVariant,
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  itemCount: rules.length,
-                  itemBuilder: (ctx, i) {
-                    final r = rules[i];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 3,
-                        vertical: 7,
-                      ),
-                      child: GestureDetector(
-                        onTap: () => _onToolbarButtonTap(r),
-                        onLongPress: () => _editToolbarRule(r),
-                        child: Container(
-                          constraints: const BoxConstraints(maxWidth: 160),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: s.primaryContainer,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: s.primary.withOpacity(0.3),
-                            ),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            r.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: s.onPrimaryContainer,
 Widget _buildToolbar() {
   final rules = ref.watch(toolbarRulesOrderedProvider);
   final s = Theme.of(context).colorScheme;
