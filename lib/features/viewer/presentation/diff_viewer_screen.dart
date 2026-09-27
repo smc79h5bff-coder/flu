@@ -2870,7 +2870,7 @@ class _DisplaySettingsSheet extends ConsumerWidget {
     );
   }
 }
-}
+
 
 class _ToolbarOrderDialog extends ConsumerStatefulWidget {
   const _ToolbarOrderDialog({required this.rules});
