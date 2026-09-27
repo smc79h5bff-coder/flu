@@ -2444,7 +2444,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 Expanded(
                   flex: 3,
                   child: _viewChip(
-                    label: '差异上下文行',
+                    label: '差异行+上下2行',
                     value: ViewMode.diffOnly,
                     current: viewMode,
                   ),
@@ -2452,7 +2452,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 Expanded(
                   flex: 3,
                   child: _viewChip(
-                    label: '纯差异',
+                    label: '仅显示差异行',
                     value: ViewMode.diffOnlyPlain,
                     current: viewMode,
                   ),
@@ -2469,7 +2469,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 Expanded(
                   flex: 1,
                   child: _viewChip(
-                    label: '合并',
+                    label: '上下',
                     value: ViewMode.merged,
                     current: viewMode,
                     compact: true,
