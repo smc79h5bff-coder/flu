@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/storage/pref_keys.dart';
@@ -58,6 +59,8 @@ class ToolbarRulesNotifier
   void remove(String id) {
     update(state.where((r) => r.id != id).toList());
     ref.read(toolbarOrderProvider.notifier).removeId(id);
+    // 同时清掉它的颜色设置。
+    ref.read(toolbarButtonColorsProvider.notifier).remove(id);
   }
 
   void setAll(List<PreprocessingRule> rules) {
@@ -161,3 +164,92 @@ final toolbarRulesOrderedProvider =
   }
   return result;
 });
+
+// ==================== 按钮独立颜色 ====================
+
+/// 一个按钮的 3 个颜色。null = 用主题色。
+class ToolbarButtonColor {
+  const ToolbarButtonColor({this.bg, this.fg, this.border});
+
+  final Color? bg;
+  final Color? fg;
+  final Color? border;
+
+  bool get isEmpty => bg == null && fg == null && border == null;
+
+  Map<String, dynamic> toJson() => {
+        if (bg != null) 'bg': _colorToHex(bg!),
+        if (fg != null) 'fg': _colorToHex(fg!),
+        if (border != null) 'border': _colorToHex(border!),
+      };
+
+  factory ToolbarButtonColor.fromJson(Map<String, dynamic> j) {
+    Color? parse(Object? v) =>
+        v is String ? _hexToColor(v) : null;
+    return ToolbarButtonColor(
+      bg: parse(j['bg']),
+      fg: parse(j['fg']),
+      border: parse(j['border']),
+    );
+  }
+}
+
+String _colorToHex(Color c) {
+  final v = c.toARGB32() & 0xFFFFFF;
+  return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+}
+
+Color? _hexToColor(String s) {
+  if (s.length != 7 || !s.startsWith('#')) return null;
+  final v = int.tryParse(s.substring(1), radix: 16);
+  if (v == null) return null;
+  return Color(0xFF000000 | v);
+}
+
+/// Map<ruleId, ToolbarButtonColor>，持久化。
+final toolbarButtonColorsProvider =
+    NotifierProvider<ToolbarButtonColorsNotifier,
+        Map<String, ToolbarButtonColor>>(
+  ToolbarButtonColorsNotifier.new,
+);
+
+class ToolbarButtonColorsNotifier
+    extends PersistentNotifier<Map<String, ToolbarButtonColor>> {
+  @override
+  String get key => PrefKeys.toolbarButtonColors;
+
+  @override
+  Map<String, ToolbarButtonColor> get defaultValue => const {};
+
+  @override
+  Map<String, ToolbarButtonColor> decode(String raw) {
+    final m = jsonDecode(raw) as Map<String, dynamic>;
+    return m.map(
+      (k, v) => MapEntry(
+        k,
+        ToolbarButtonColor.fromJson(v as Map<String, dynamic>),
+      ),
+    );
+  }
+
+  @override
+  String encode(Map<String, ToolbarButtonColor> value) =>
+      jsonEncode(value.map((k, v) => MapEntry(k, v.toJson())));
+
+  /// 设置一个按钮的颜色。全部为 null 时删除这条记录。
+  void setColor(String id, ToolbarButtonColor color) {
+    final next = Map<String, ToolbarButtonColor>.from(state);
+    if (color.isEmpty) {
+      next.remove(id);
+    } else {
+      next[id] = color;
+    }
+    update(next);
+  }
+
+  void remove(String id) {
+    if (!state.containsKey(id)) return;
+    final next = Map<String, ToolbarButtonColor>.from(state)..remove(id);
+    update(next);
+  }
+}
