@@ -72,6 +72,10 @@ class _HeightBundle {
 
 class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final ScrollController _scrollController = ScrollController();
+
+  /// 不换行模式下，外层横向滚动。
+  final ScrollController _hScrollController = ScrollController();
+
   final TextEditingController _findController = TextEditingController();
   final TextEditingController _replaceController = TextEditingController();
 
@@ -110,6 +114,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   _HeightBundle? _activeHeights;
   ViewMode? _activeHeightsMode;
 
+  // 内容宽度缓存（不换行模式横向滚动用）。
+  double? _cachedContentWidth;
+  DiffResult? _cachedContentWidthFor;
+  String? _cachedContentWidthConfig;
+
   int? _pendingJumpEntry;
   bool _pendingJumpQueued = false;
 
@@ -132,6 +141,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _findController.dispose();
     _replaceController.dispose();
     _scrollController.dispose();
+    _hScrollController.dispose();
     super.dispose();
   }
 
@@ -1505,6 +1515,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _heightFutures.clear();
     _heightFuturesFor = null;
     _heightFuturesConfigKey = null;
+    _cachedContentWidth = null;
+    _cachedContentWidthFor = null;
+    _cachedContentWidthConfig = null;
     DiffTextIndex.invalidate();
     setState(() {});
 
@@ -1516,6 +1529,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
+        if (_hScrollController.hasClients) _hScrollController.jumpTo(0);
       });
       return;
     }
@@ -1772,6 +1786,159 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
+  // ==================== 内容宽度（不换行模式横向滚动用） ====================
+
+  double _getContentWidth(DiffResult diff, ViewMode mode, double viewportW) {
+    final noWrap = ref.read(noWrapProvider);
+    if (!noWrap) return viewportW;
+
+    final bodySize = ref.read(bodyFontSizeProvider);
+    final showLine = ref.read(showLineNumbersProvider);
+    final rev = ref.read(importRevisionProvider);
+    final configKey =
+        '${viewportW.round()}|${bodySize.round()}|$showLine|${mode.name}|$rev';
+
+    if (identical(_cachedContentWidthFor, diff) &&
+        _cachedContentWidthConfig == configKey &&
+        _cachedContentWidth != null) {
+      return _cachedContentWidth!;
+    }
+
+    // 估算字符宽度：中文约 1.0×bodySize，英文约 0.5×bodySize，取 0.75 折中。
+    final charWidth = bodySize * 0.75;
+    final numW = showLine ? 44.0 : 16.0;
+    final pad = 30.0;
+
+    double computed;
+
+    if (mode == ViewMode.merged) {
+      var maxChars = 0;
+      for (final ei in cachedMergedOrder(diff)) {
+        final t = diff.entries[ei].text;
+        if (t.length > maxChars) maxChars = t.length;
+      }
+      computed = numW + maxChars * charWidth + pad;
+    } else {
+      final rows = mode == ViewMode.sideBySide
+          ? cachedAlignedRows(diff)
+          : (mode == ViewMode.diffOnlyPlain
+              ? cachedDiffOnlyPlainRows(diff)
+              : cachedDiffOnlyRows(diff));
+      var maxL = 0;
+      var maxR = 0;
+      for (final spec in rows) {
+        if (spec.del != null) {
+          final t = diff.entries[spec.del!].text;
+          if (t.length > maxL) maxL = t.length;
+        }
+        if (spec.ins != null) {
+          final t = diff.entries[spec.ins!].text;
+          if (t.length > maxR) maxR = t.length;
+        }
+      }
+      final panelChars = maxL > maxR ? maxL : maxR;
+      final panelW = numW + panelChars * charWidth + pad;
+      computed = panelW * 2 + 1; // +1 = 中间分隔线
+    }
+
+    if (computed < viewportW) computed = viewportW;
+
+    _cachedContentWidth = computed;
+    _cachedContentWidthFor = diff;
+    _cachedContentWidthConfig = configKey;
+    return computed;
+  }
+
+  // ==================== 视图（可选横向滚动包裹） ====================
+
+  Widget _buildActiveView(
+    DiffResult diff,
+    ViewMode viewMode,
+    String? origName,
+    String? modName,
+    _HeightBundle heights,
+    bool noWrap,
+  ) {
+    final Widget inner = switch (viewMode) {
+      ViewMode.merged => MergedView(
+          result: diff,
+          heightTable: heights.merged ?? LineHeightTable.empty,
+          controller: _scrollController,
+          findQuery: _findQuery,
+          currentMatchEntry: _currentMatchEntry,
+          jumpedToEntry: _jumpedToEntry,
+          showLineNumbers: ref.watch(showLineNumbersProvider),
+          bodyFontSize: ref.watch(bodyFontSizeProvider),
+          gutterFontSize: ref.watch(gutterFontSizeProvider),
+          noWrap: noWrap,
+          onLongPressEntry: (i) => _onRowLongPress([i]),
+        ),
+      ViewMode.sideBySide => SideBySideView(
+          result: diff,
+          syncHeightTable: heights.sbsSync ?? LineHeightTable.empty,
+          leftHeightTable: heights.sbsLeft ?? LineHeightTable.empty,
+          rightHeightTable: heights.sbsRight ?? LineHeightTable.empty,
+          originalFileName: origName,
+          modifiedFileName: modName,
+          controller: _scrollController,
+          findQuery: _findQuery,
+          currentMatchEntry: _currentMatchEntry,
+          jumpedToEntry: _jumpedToEntry,
+          showLineNumbers: ref.watch(showLineNumbersProvider),
+          bodyFontSize: ref.watch(bodyFontSizeProvider),
+          gutterFontSize: ref.watch(gutterFontSizeProvider),
+          syncScroll: ref.watch(syncScrollProvider),
+          noWrap: noWrap,
+          onLongPressEntry: _onRowLongPress,
+        ),
+      ViewMode.diffOnly => DiffOnlyView(
+          result: diff,
+          heightTable: heights.diffOnly ?? LineHeightTable.empty,
+          originalFileName: origName,
+          modifiedFileName: modName,
+          controller: _scrollController,
+          findQuery: _findQuery,
+          currentMatchEntry: _currentMatchEntry,
+          jumpedToEntry: _jumpedToEntry,
+          showLineNumbers: ref.watch(showLineNumbersProvider),
+          bodyFontSize: ref.watch(bodyFontSizeProvider),
+          gutterFontSize: ref.watch(gutterFontSizeProvider),
+          noWrap: noWrap,
+          onLongPressEntry: _onRowLongPress,
+        ),
+      ViewMode.diffOnlyPlain => DiffOnlyPlainView(
+          result: diff,
+          heightTable: heights.diffOnlyPlain ?? LineHeightTable.empty,
+          originalFileName: origName,
+          modifiedFileName: modName,
+          controller: _scrollController,
+          findQuery: _findQuery,
+          currentMatchEntry: _currentMatchEntry,
+          jumpedToEntry: _jumpedToEntry,
+          showLineNumbers: ref.watch(showLineNumbersProvider),
+          bodyFontSize: ref.watch(bodyFontSizeProvider),
+          gutterFontSize: ref.watch(gutterFontSizeProvider),
+          noWrap: noWrap,
+          onLongPressEntry: _onRowLongPress,
+        ),
+    };
+
+    if (!noWrap) return inner;
+
+    final screenW = MediaQuery.of(context).size.width;
+    final contentW = _getContentWidth(diff, viewMode, screenW);
+    if (contentW <= screenW + 1) return inner;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      controller: _hScrollController,
+      child: SizedBox(
+        width: contentW,
+        child: inner,
+      ),
+    );
+  }
+
   Widget _buildDiffScaffold(
     DiffResult diff,
     ViewMode viewMode,
@@ -1843,6 +2010,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               } else if (v == 'noWrap') {
                 final cur = ref.read(noWrapProvider);
                 ref.read(noWrapProvider.notifier).state = !cur;
+                // 切换不换行时重置横向滚动位置。
+                if (_hScrollController.hasClients) {
+                  _hScrollController.jumpTo(0);
+                }
               } else if (v == 'displaySettings') {
                 _openDisplaySettings();
               } else if (v == 'comparisonSettings') {
@@ -2029,70 +2200,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           _buildToolbar(),
           if (_processing) _buildProcessingBanner(),
           Expanded(
-            child: switch (viewMode) {
-              ViewMode.merged => MergedView(
-                  result: diff,
-                  heightTable: heights.merged ?? LineHeightTable.empty,
-                  controller: _scrollController,
-                  findQuery: _findQuery,
-                  currentMatchEntry: _currentMatchEntry,
-                  jumpedToEntry: _jumpedToEntry,
-                  showLineNumbers: ref.watch(showLineNumbersProvider),
-                  bodyFontSize: ref.watch(bodyFontSizeProvider),
-                  gutterFontSize: ref.watch(gutterFontSizeProvider),
-                  noWrap: noWrap,
-                  onLongPressEntry: (i) => _onRowLongPress([i]),
-                ),
-              ViewMode.sideBySide => SideBySideView(
-                  result: diff,
-                  syncHeightTable: heights.sbsSync ?? LineHeightTable.empty,
-                  leftHeightTable: heights.sbsLeft ?? LineHeightTable.empty,
-                  rightHeightTable: heights.sbsRight ?? LineHeightTable.empty,
-                  originalFileName: origName,
-                  modifiedFileName: modName,
-                  controller: _scrollController,
-                  findQuery: _findQuery,
-                  currentMatchEntry: _currentMatchEntry,
-                  jumpedToEntry: _jumpedToEntry,
-                  showLineNumbers: ref.watch(showLineNumbersProvider),
-                  bodyFontSize: ref.watch(bodyFontSizeProvider),
-                  gutterFontSize: ref.watch(gutterFontSizeProvider),
-                  syncScroll: ref.watch(syncScrollProvider),
-                  noWrap: noWrap,
-                  onLongPressEntry: _onRowLongPress,
-                ),
-              ViewMode.diffOnly => DiffOnlyView(
-                  result: diff,
-                  heightTable: heights.diffOnly ?? LineHeightTable.empty,
-                  originalFileName: origName,
-                  modifiedFileName: modName,
-                  controller: _scrollController,
-                  findQuery: _findQuery,
-                  currentMatchEntry: _currentMatchEntry,
-                  jumpedToEntry: _jumpedToEntry,
-                  showLineNumbers: ref.watch(showLineNumbersProvider),
-                  bodyFontSize: ref.watch(bodyFontSizeProvider),
-                  gutterFontSize: ref.watch(gutterFontSizeProvider),
-                  noWrap: noWrap,
-                  onLongPressEntry: _onRowLongPress,
-                ),
-              ViewMode.diffOnlyPlain => DiffOnlyPlainView(
-                  result: diff,
-                  heightTable:
-                      heights.diffOnlyPlain ?? LineHeightTable.empty,
-                  originalFileName: origName,
-                  modifiedFileName: modName,
-                  controller: _scrollController,
-                  findQuery: _findQuery,
-                  currentMatchEntry: _currentMatchEntry,
-                  jumpedToEntry: _jumpedToEntry,
-                  showLineNumbers: ref.watch(showLineNumbersProvider),
-                  bodyFontSize: ref.watch(bodyFontSizeProvider),
-                  gutterFontSize: ref.watch(gutterFontSizeProvider),
-                  noWrap: noWrap,
-                  onLongPressEntry: _onRowLongPress,
-                ),
-            },
+            child: _buildActiveView(
+              diff,
+              viewMode,
+              origName,
+              modName,
+              heights,
+              noWrap,
+            ),
           ),
         ],
       ),
@@ -3357,4 +3472,3 @@ class _FindHistoryDialog extends ConsumerWidget {
     );
   }
 }
-    
