@@ -32,13 +32,7 @@ class PrefKeys {
   static const String regexRulesText = '${_p}rules.regex';
   static const String userRules = '${_p}rules.user';
   static const String builtinRuleEnables = '${_p}rules.builtinEnables';
-
-  /// 自定义规则编辑弹窗里，6 个开关的说明文字（用户可编辑）。
   static const String ruleFlagHelp = '${_p}rules.flagHelp';
-
-  /// 统一规则顺序。元素是单条规则 id，或块标记
-  /// `__block_keyword__` / `__block_regex__`。
-  /// 用 \u0000 分隔的字符串存。
   static const String ruleOrder = '${_p}rules.order';
 
   /// 规则表（普通文字）的详细说明（用户可编辑，为空表示用默认）。
@@ -50,6 +44,9 @@ class PrefKeys {
   // ==================== 对比页按钮栏 ====================
   static const String toolbarRules = '${_p}toolbar.rules';
   static const String toolbarOrder = '${_p}toolbar.order';
+
+  /// 按钮独立颜色：Map<ruleId, {bg, fg, border}>。
+  static const String toolbarButtonColors = '${_p}toolbar.buttonColors';
 
   // ==================== 查找 / 搜索历史 ====================
   static const String findHistory = '${_p}viewer.findHistory';
