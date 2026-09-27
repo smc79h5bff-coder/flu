@@ -361,57 +361,61 @@ class _ComparisonSettingsScreenState
       child: Row(
         children: [
           dragHandle,
-          // 中间：规则名 + 一行摘要。长按打开详情弹窗。
           Expanded(
-            child: GestureDetector(
-              onLongPress: () => _showRuleDetail(rule),
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      rule.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 14),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 规则名：一行，长按不响应
+                  Text(
+                    rule.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 2),
+                  // 摘要：一行，超长截断成 ..；长按打开详情弹窗。
+                  GestureDetector(
+                    onLongPress: () => _showRuleDetail(rule),
+                    behavior: HitTestBehavior.opaque,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: LayoutBuilder(
+                        builder: (ctx, constraints) => _buildTwoDotsText(
+                          preview,
+                          constraints.maxWidth,
+                          TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      preview,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
-          // 开关：长按（仅自定义规则）→ 删除确认
-          GestureDetector(
-            onLongPress: rule.isBuiltin
-                ? null
-                : () => _confirmDeleteRule(rule),
-            child: Switch(
-              value: rule.enabled,
-              onChanged: (v) {
-                if (rule.isBuiltin) {
-                  ref
-                      .read(builtinRuleEnablesProvider.notifier)
-                      .setOne(rule.id, v);
-                } else {
-                  ref
-                      .read(userRulesProvider.notifier)
-                      .updateRule(rule.copyWith(enabled: v));
-                }
-              },
-            ),
+          Switch(
+            value: rule.enabled,
+            onChanged: (v) {
+              if (rule.isBuiltin) {
+                ref
+                    .read(builtinRuleEnablesProvider.notifier)
+                    .setOne(rule.id, v);
+              } else {
+                ref
+                    .read(userRulesProvider.notifier)
+                    .updateRule(rule.copyWith(enabled: v));
+              }
+            },
           ),
-          // 编辑按钮（仅自定义规则），加宽。
+          // 编辑按钮：仅自定义规则显示，加宽。
           if (!rule.isBuiltin)
             SizedBox(
               width: 52,
@@ -424,6 +428,37 @@ class _ComparisonSettingsScreenState
         ],
       ),
     );
+  }
+
+  /// 用 ".." 截断的超长文本。宽度不够时二分查找合适长度。
+  Widget _buildTwoDotsText(String text, double maxWidth, TextStyle style) {
+    if (text.isEmpty) return Text('', style: style);
+
+    final full = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: maxWidth);
+    if (!full.didExceedMaxLines) {
+      return Text(text, style: style, maxLines: 1);
+    }
+
+    var lo = 0;
+    var hi = text.length;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) ~/ 2;
+      final tp = TextPainter(
+        text: TextSpan(text: '${text.substring(0, mid)}..', style: style),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout(maxWidth: maxWidth);
+      if (tp.didExceedMaxLines) {
+        hi = mid - 1;
+      } else {
+        lo = mid;
+      }
+    }
+    return Text('${text.substring(0, lo)}..', style: style, maxLines: 1);
   }
 
   /// 一行摘要，用于列表项副标题。
@@ -446,7 +481,7 @@ class _ComparisonSettingsScreenState
     }
   }
 
-  /// 长按规则名 → 弹出规则详情。
+  /// 长按摘要 → 弹出规则详情。
   Future<void> _showRuleDetail(PreprocessingRule rule) async {
     final detail = ruleSubtitle(rule);
     final kindLabel = switch (rule.kind) {
@@ -460,7 +495,7 @@ class _ComparisonSettingsScreenState
       RuleScope.modifiedOnly => '仅右侧文件',
     };
 
-    await showDialog<void>(
+    final action = await showDialog<String>(
       context: context,
       builder: (c) {
         final s = Theme.of(c).colorScheme;
@@ -525,14 +560,37 @@ class _ComparisonSettingsScreenState
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('关闭'),
-            ),
+            if (rule.isBuiltin)
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              )
+            else ...[
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(c, 'edit'),
+                child: const Text('编辑'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () => Navigator.pop(c, 'delete'),
+                child: const Text('删除'),
+              ),
+            ],
           ],
         );
       },
     );
+
+    if (!mounted) return;
+    if (action == 'edit') {
+      await _editUserRule(rule);
+    } else if (action == 'delete') {
+      await _confirmDeleteRule(rule);
+    }
   }
 
   Widget _tag(String text, ColorScheme s) {
@@ -559,9 +617,7 @@ class _ComparisonSettingsScreenState
       builder: (c) => AlertDialog(
         insetPadding: const EdgeInsets.all(8),
         title: const Text('删除规则？'),
-        content: Text(
-          '「${rule.name}」将被删除，无法恢复。',
-        ),
+        content: Text('「${rule.name}」将被删除，无法恢复。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c, false),
@@ -1167,7 +1223,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       onSelectionChanged: (set) {
         setState(() {
           _kind = set.first;
-          // 从 replace 切到 preset 且没选功能 → 自动选第一个。
           if (_kind == RuleKind.preset && _presetId == null) {
             final first = Presets.all().firstOrNull;
             if (first != null) {
@@ -1192,8 +1247,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         return _buildJsContent();
     }
   }
-
-  // ==================== replace 内容 ====================
 
   List<Widget> _buildReplaceContent() {
     return [
@@ -1279,8 +1332,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       ),
     ];
   }
-
-  // ==================== preset 内容 ====================
 
   List<Widget> _buildPresetContent() {
     final presets = Presets.all();
@@ -1415,8 +1466,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     return i < 0 ? o : o.substring(i + 1);
   }
 
-  // ==================== js 内容 ====================
-
   List<Widget> _buildJsContent() {
     return [
       _sectionHeader('JS 脚本'),
@@ -1504,8 +1553,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       ),
     );
   }
-
-  // ==================== 作用范围 ====================
 
   Widget _buildScopeDropdown() {
     return DropdownButtonFormField<RuleScope>(
@@ -1668,7 +1715,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   void _handleCopyToPreprocess() {
     final rule = _buildRule();
     if (rule == null) return;
-    // 复制时换一个 id，避免撞车。
     final copied = PreprocessingRule(
       id: 'user_${DateTime.now().microsecondsSinceEpoch}',
       name: rule.name,
@@ -1704,7 +1750,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     Navigator.pop(context, rule);
   }
 
-  /// 构造规则。校验不通过返回 null。
   PreprocessingRule? _buildRule() {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
