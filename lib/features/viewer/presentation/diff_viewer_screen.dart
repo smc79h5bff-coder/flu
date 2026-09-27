@@ -1961,31 +1961,25 @@ return inner;
           style: TextStyle(fontSize: 11),
         ),
         actions: [
-          Tooltip(
-            message: '上一处差异\n长按：跳到文档开头',
-            child: InkWell(
-              key: const Key('prev-diff'),
-              onTap: _jumpToPrevDiff,
-              onLongPress: _jumpToDocTop,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                child: Icon(Icons.arrow_upward, size: 26),
-              ),
-            ),
-          ),
-          Tooltip(
-            message: '下一处差异\n长按：跳到文档结尾',
-            child: InkWell(
-              key: const Key('next-diff'),
-              onTap: _jumpToNextDiff,
-              onLongPress: _jumpToDocBottom,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                child: Icon(Icons.arrow_downward, size: 26),
-              ),
-            ),
-          ),
-          IconButton(
+  InkWell(
+    key: const Key('prev-diff'),
+    onTap: _jumpToPrevDiff,
+    onLongPress: _jumpToDocTop,
+    child: const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Icon(Icons.arrow_upward, size: 26),
+    ),
+  ),
+  InkWell(
+    key: const Key('next-diff'),
+    onTap: _jumpToNextDiff,
+    onLongPress: _jumpToDocBottom,
+    child: const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Icon(Icons.arrow_downward, size: 26),
+    ),
+  ),
+  IconButton(
             icon: const Icon(Icons.search),
             iconSize: 26,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
