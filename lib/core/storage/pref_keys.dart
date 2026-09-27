@@ -32,21 +32,21 @@ class PrefKeys {
   static const String regexRulesText = '${_p}rules.regex';
   static const String userRules = '${_p}rules.user';
   static const String builtinRuleEnables = '${_p}rules.builtinEnables';
-/// 自定义规则编辑弹窗里，6 个开关的说明文字（用户可编辑）。
-static const String ruleFlagHelp = '${_p}rules.flagHelp';
+  /// 自定义规则编辑弹窗里，6 个开关的说明文字（用户可编辑）。
+  static const String ruleFlagHelp = '${_p}rules.flagHelp';
   /// 统一规则顺序。元素是单条规则 id，或块标记
   /// `__block_keyword__` / `__block_regex__`。
   /// 用 \u0000 分隔的字符串存。
   static const String ruleOrder = '${_p}rules.order';
 
-  
+  // ==================== 对比页按钮栏 ====================
+  static const String toolbarRules = '${_p}toolbar.rules';
+  static const String toolbarOrder = '${_p}toolbar.order';
 
-// ==================== 对比页按钮栏 ====================
-static const String toolbarRules = '${_p}toolbar.rules';
-static const String toolbarOrder = '${_p}toolbar.order';
+  // ==================== 查找 / 搜索历史 ====================
+  static const String findHistory = '${_p}viewer.findHistory';
+  static const String browserSearchHistory = '${_p}browser.searchHistory';
 
-  
-  
   // ==================== 文件浏览器 ====================
   static const String sortField = '${_p}browser.sortField';
   static const String sortAsc = '${_p}browser.sortAsc';
