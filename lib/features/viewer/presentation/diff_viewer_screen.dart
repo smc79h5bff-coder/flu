@@ -2107,7 +2107,7 @@ Widget _buildToolbar() {
   final s = Theme.of(context).colorScheme;
 
   return Container(
-    height: 32,
+    height: 26,
     color: s.surfaceVariant.withOpacity(0.25),
     child: Row(
       children: [
@@ -2406,10 +2406,10 @@ Future<void> _showToolbarOrderDialog() async {
     return Container(
       width: double.infinity,
       color: Colors.amber.shade100,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Row(
         children: [
-          Icon(Icons.info_outline, size: 16, color: Colors.amber.shade900),
+          Icon(Icons.info_outline, size: 14, color: Colors.amber.shade900),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -2428,11 +2428,11 @@ Widget _buildFewDiffsBanner(int blocks) {
   return Container(
     width: double.infinity,
     color: Colors.pink.shade50,
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
     child: Row(
       children: [
         Icon(Icons.check_circle_outline,
-            size: 16, color: Colors.pink.shade900),
+            size: 14, color: Colors.pink.shade900),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -2458,7 +2458,7 @@ Widget _buildFewDiffsBanner(int blocks) {
     return Container(
       width: double.infinity,
       color: s.tertiaryContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: SelectableText(
         perf.oneLine,
         style: TextStyle(
