@@ -2109,6 +2109,59 @@ Widget _buildToolbar() {
                             style: TextStyle(
                               fontSize: 12,
                               color: s.onPrimaryContainer,
+Widget _buildToolbar() {
+  final rules = ref.watch(toolbarRulesOrderedProvider);
+  final s = Theme.of(context).colorScheme;
+
+  return Container(
+    height: 32,
+    color: s.surfaceVariant.withOpacity(0.25),
+    child: Row(
+      children: [
+        Expanded(
+          child: rules.isEmpty
+              ? Center(
+                  child: Text(
+                    '点 + 添加按钮（长按编辑）',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: s.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  itemCount: rules.length,
+                  itemBuilder: (ctx, i) {
+                    final r = rules[i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 1,
+                        vertical: 3,
+                      ),
+                      child: GestureDetector(
+                        onTap: () => _onToolbarButtonTap(r),
+                        onLongPress: () => _editToolbarRule(r),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: s.primaryContainer,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: s.primary.withOpacity(0.3),
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            r.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: s.onPrimaryContainer,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -2118,23 +2171,30 @@ Widget _buildToolbar() {
                   },
                 ),
         ),
-        IconButton(
-          icon: const Icon(Icons.add, size: 20),
-          tooltip: '新建按钮',
-          visualDensity: VisualDensity.compact,
-          onPressed: _addToolbarRule,
+        SizedBox(
+          width: 28,
+          child: IconButton(
+            icon: const Icon(Icons.add, size: 16),
+            padding: EdgeInsets.zero,
+            tooltip: '新建按钮',
+            visualDensity: VisualDensity.compact,
+            onPressed: _addToolbarRule,
+          ),
         ),
-        IconButton(
-          icon: const Icon(Icons.sort, size: 20),
-          tooltip: '排序按钮',
-          visualDensity: VisualDensity.compact,
-          onPressed: _showToolbarOrderDialog,
+        SizedBox(
+          width: 28,
+          child: IconButton(
+            icon: const Icon(Icons.sort, size: 16),
+            padding: EdgeInsets.zero,
+            tooltip: '排序按钮',
+            visualDensity: VisualDensity.compact,
+            onPressed: _showToolbarOrderDialog,
+          ),
         ),
       ],
     ),
   );
 }
-
 Widget _buildProcessingBanner() {
   final s = Theme.of(context).colorScheme;
   return Container(
