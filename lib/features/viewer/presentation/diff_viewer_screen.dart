@@ -29,7 +29,7 @@ import 'widgets/merged_view.dart';
 import 'widgets/side_by_side_view.dart';
 import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
-import '../file_browser/presentation/comparison_settings_screen.dart'
+import '../../file_browser/presentation/comparison_settings_screen.dart'
     show RuleEditorDialog, ruleSubtitle;
 import 'providers/toolbar_rules_provider.dart';
 
@@ -2055,15 +2055,226 @@ if (_processing) _buildProcessingBanner(),  // ← 新增
     );
   }
 
-    
-Widget _buildToolbar() { ... }
-Widget _buildProcessingBanner() { ... }
-Future<void> _onToolbarButtonTap(PreprocessingRule rule) async { ... }
-Future<void> _applyToolbarRule(PreprocessingRule rule, String side) async { ... }
-Future<void> _addToolbarRule() async { ... }
-Future<void> _editToolbarRule(PreprocessingRule rule) async { ... }
-Future<void> _showToolbarOrderDialog() async { ... }
+// ==================== 按钮栏 ====================
 
+Widget _buildToolbar() {
+  final rules = ref.watch(toolbarRulesOrderedProvider);
+  final s = Theme.of(context).colorScheme;
+
+  return Container(
+    height: 46,
+    color: s.surfaceVariant.withOpacity(0.25),
+    child: Row(
+      children: [
+        Expanded(
+          child: rules.isEmpty
+              ? Center(
+                  child: Text(
+                    '点 + 添加常用按钮（长按按钮编辑）',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: s.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  itemCount: rules.length,
+                  itemBuilder: (ctx, i) {
+                    final r = rules[i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 3,
+                        vertical: 7,
+                      ),
+                      child: GestureDetector(
+                        onTap: () => _onToolbarButtonTap(r),
+                        onLongPress: () => _editToolbarRule(r),
+                        child: Container(
+                          constraints: const BoxConstraints(maxWidth: 160),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: s.primaryContainer,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: s.primary.withOpacity(0.3),
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            r.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: s.onPrimaryContainer,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add, size: 20),
+          tooltip: '新建按钮',
+          visualDensity: VisualDensity.compact,
+          onPressed: _addToolbarRule,
+        ),
+        IconButton(
+          icon: const Icon(Icons.sort, size: 20),
+          tooltip: '排序按钮',
+          visualDensity: VisualDensity.compact,
+          onPressed: _showToolbarOrderDialog,
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildProcessingBanner() {
+  final s = Theme.of(context).colorScheme;
+  return Container(
+    width: double.infinity,
+    color: s.tertiaryContainer,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    child: Text(
+      _processingText,
+      style: TextStyle(
+        fontSize: 12,
+        color: s.onTertiaryContainer,
+      ),
+    ),
+  );
+}
+
+Future<void> _onToolbarButtonTap(PreprocessingRule rule) async {
+  final side = await showModalBottomSheet<String>(
+    context: context,
+    builder: (c) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Text(
+              '「${rule.name}」应用到：',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.arrow_back),
+            title: const Text('只改左侧文件'),
+            onTap: () => Navigator.pop(c, 'left'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.arrow_forward),
+            title: const Text('只改右侧文件'),
+            onTap: () => Navigator.pop(c, 'right'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.compare_arrows),
+            title: const Text('两侧都改'),
+            onTap: () => Navigator.pop(c, 'both'),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.close),
+            title: const Text('取消'),
+            onTap: () => Navigator.pop(c),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (side == null || !mounted) return;
+  await _applyToolbarRule(rule, side);
+}
+
+Future<void> _applyToolbarRule(PreprocessingRule rule, String side) async {
+  setState(() {
+    _processing = true;
+    _processingText = '正在执行「${rule.name}」…';
+  });
+  await Future<void>.delayed(Duration.zero);
+  if (!mounted) return;
+
+  try {
+    final currentOrig = ref.read(preprocessedOriginalProvider);
+    final currentMod = ref.read(preprocessedModifiedProvider);
+
+    if (side == 'left' || side == 'both') {
+      if (currentOrig.isNotEmpty) {
+        final next = applyOneRule(currentOrig, rule);
+        ref.read(editedOriginalProvider.notifier).state = next;
+      }
+    }
+    if (side == 'right' || side == 'both') {
+      if (currentMod.isNotEmpty) {
+        final next = applyOneRule(currentMod, rule);
+        ref.read(editedModifiedProvider.notifier).state = next;
+      }
+    }
+
+    ref.read(importRevisionProvider.notifier).state++;
+    _resetViewAfterEdit();
+
+    if (!mounted) return;
+    _toast('已应用「${rule.name}」');
+  } catch (e) {
+    if (mounted) _toast('执行失败：$e');
+  } finally {
+    if (mounted) {
+      setState(() {
+        _processing = false;
+        _processingText = '';
+      });
+    }
+  }
+}
+
+Future<void> _addToolbarRule() async {
+  final rule = await showDialog<PreprocessingRule>(
+    context: context,
+    builder: (_) => const RuleEditorDialog(
+      showCopyToPreprocess: false,
+    ),
+  );
+  if (rule == null || !mounted) return;
+  ref.read(toolbarRulesProvider.notifier).add(rule);
+  _toast('已添加按钮「${rule.name}」');
+}
+
+Future<void> _editToolbarRule(PreprocessingRule rule) async {
+  final updated = await showDialog<PreprocessingRule>(
+    context: context,
+    builder: (_) => RuleEditorDialog(
+      initial: rule,
+      showCopyToPreprocess: true,
+      onCopyToPreprocess: (copied) {
+        _toast('「${copied.name}」已复制到预处理规则');
+      },
+    ),
+  );
+  if (updated == null || !mounted) return;
+  ref.read(toolbarRulesProvider.notifier).updateRule(updated);
+}
+
+Future<void> _showToolbarOrderDialog() async {
+  final rules = ref.read(toolbarRulesOrderedProvider);
+  if (rules.isEmpty) {
+    _toast('还没有按钮');
+    return;
+  }
+  await showDialog<void>(
+    context: context,
+    builder: (c) => _ToolbarOrderDialog(rules: rules),
+  );
+}
     
   Widget _buildDeletedBanner() {
     final parts = <String>[];
