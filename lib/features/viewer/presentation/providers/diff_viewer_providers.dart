@@ -220,6 +220,7 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   var usedMyers = false;
 
   if (uniqueCount <= _puaLimit) {
+    // 小唯一行数：用 diff_match_patch 的位运算加速（PUA 编码）
     final codeToLine = <int, String>{};
     var nextCode = 0xE000;
     for (final e in idToLine.entries) {
@@ -256,8 +257,11 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
       out.add((DiffOperation.equal.index, linesA[i]));
     }
   } else {
+    // 唯一行多（如小说全文）：用耐心 diff。
+    // 它先找"两边都唯一"的行当锚点，把问题切成小块，速度快、
+    // 内存低，且不像原始 Myers 那样差异一大就退化成"全部标红"。
     usedMyers = true;
-    final ops = _myersDiff(idsA, idsB);
+    final ops = _patienceDiff(idsA, idsB);
     for (var i = 0; i < commonPrefix; i++) {
       out.add((DiffOperation.equal.index, linesA[i]));
     }
@@ -286,102 +290,238 @@ _DiffPayload _computeInWorker(_DiffRequest req) {
   );
 }
 
-const int _myersMaxD = 5000;
+// ==================== 耐心 diff ====================
 
-List<(int, int)> _myersDiff(List<int> a, List<int> b) {
-  final n = a.length;
-  final m = b.length;
-  if (n == 0 && m == 0) return const [];
-  if (n == 0) return [for (final id in b) (DiffOperation.insert.index, id)];
-  if (m == 0) return [for (final id in a) (DiffOperation.delete.index, id)];
+/// 耐心 diff：先找"两边都只出现一次"的公共行当锚点，用锚点把问题
+/// 切成小块。对小说这类几乎每行唯一的文本，比 Myers 快 100 倍。
+List<(int, int)> _patienceDiff(List<int> a, List<int> b) {
+  final out = <(int, int)>[];
+  _patienceRec(a, 0, a.length, b, 0, b.length, out);
+  return out;
+}
 
-  final maxD = n + m;
-  final offset = maxD;
-  final v = List<int>.filled(2 * maxD + 1, 0);
-  final trace = <List<int>>[];
+void _patienceRec(
+  List<int> a, int aLo, int aHi,
+  List<int> b, int bLo, int bHi,
+  List<(int, int)> out,
+) {
+  // 剥公共前缀
+  while (aLo < aHi && bLo < bHi && a[aLo] == b[bLo]) {
+    out.add((DiffOperation.equal.index, a[aLo]));
+    aLo++;
+    bLo++;
+  }
+  // 剥公共后缀
+  var aEnd = aHi;
+  var bEnd = bHi;
+  while (aEnd > aLo && bEnd > bLo && a[aEnd - 1] == b[bEnd - 1]) {
+    aEnd--;
+    bEnd--;
+  }
 
-  int idx(int k) => k + offset;
-
-  var foundD = -1;
-  outer:
-  for (var d = 0; d <= maxD; d++) {
-    if (d > _myersMaxD) {
-      return [
-        for (final id in a) (DiffOperation.delete.index, id),
-        for (final id in b) (DiffOperation.insert.index, id),
-      ];
+  if (aLo == aEnd) {
+    for (var j = bLo; j < bEnd; j++) {
+      out.add((DiffOperation.insert.index, b[j]));
     }
-    trace.add(List<int>.from(v));
+  } else if (bLo == bEnd) {
+    for (var i = aLo; i < aEnd; i++) {
+      out.add((DiffOperation.delete.index, a[i]));
+    }
+  } else if ((aEnd - aLo) + (bEnd - bLo) < 200) {
+    // 区块足够小，直接 Myers，别折腾锚点
+    _myersRec(a, aLo, aEnd, b, bLo, bEnd, out);
+  } else {
+    final anchors = _findUniqueAnchors(a, aLo, aEnd, b, bLo, bEnd);
+    if (anchors.isEmpty) {
+      // 这一块没有唯一行（重复段落），退回 Myers
+      _myersRec(a, aLo, aEnd, b, bLo, bEnd, out);
+    } else {
+      var curA = aLo;
+      var curB = bLo;
+      for (final (ai, bi) in anchors) {
+        _patienceRec(a, curA, ai, b, curB, bi, out);
+        out.add((DiffOperation.equal.index, a[ai]));
+        curA = ai + 1;
+        curB = bi + 1;
+      }
+      _patienceRec(a, curA, aEnd, b, curB, bEnd, out);
+    }
+  }
+
+  // 回填后缀
+  for (var i = aEnd; i < aHi; i++) {
+    out.add((DiffOperation.equal.index, a[i]));
+  }
+}
+
+/// 找"两边都只出现一次"的公共行，用最长递增子序列挑出配对。
+List<(int, int)> _findUniqueAnchors(
+  List<int> a, int aLo, int aHi,
+  List<int> b, int bLo, int bHi,
+) {
+  final aCount = <int, int>{};
+  final aPos = <int, int>{};
+  for (var i = aLo; i < aHi; i++) {
+    final id = a[i];
+    aCount[id] = (aCount[id] ?? 0) + 1;
+    aPos[id] = i;
+  }
+  final bCount = <int, int>{};
+  final bPos = <int, int>{};
+  for (var i = bLo; i < bHi; i++) {
+    final id = b[i];
+    bCount[id] = (bCount[id] ?? 0) + 1;
+    bPos[id] = i;
+  }
+  final candidates = <(int, int)>[];
+  for (final id in aCount.keys) {
+    if (aCount[id] == 1 && bCount[id] == 1) {
+      candidates.add((aPos[id]!, bPos[id]!));
+    }
+  }
+  if (candidates.isEmpty) return const [];
+  candidates.sort((x, y) => x.$1.compareTo(y.$1));
+  return _longestIncreasingSubsequence(candidates);
+}
+
+List<(int, int)> _longestIncreasingSubsequence(List<(int, int)> pairs) {
+  final n = pairs.length;
+  if (n == 0) return const [];
+  final tails = <int>[];
+  final prev = List<int>.filled(n, -1);
+  for (var i = 0; i < n; i++) {
+    final v = pairs[i].$2;
+    var lo = 0, hi = tails.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (pairs[tails[mid]].$2 < v) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if (lo > 0) prev[i] = tails[lo - 1];
+    if (lo == tails.length) {
+      tails.add(i);
+    } else {
+      tails[lo] = i;
+    }
+  }
+  final res = <(int, int)>[];
+  var k = tails.isEmpty ? -1 : tails.last;
+  while (k >= 0) {
+    res.add(pairs[k]);
+    k = prev[k];
+  }
+  return res.reversed.toList();
+}
+
+// ==================== 线性空间 Myers（耐心 diff 的兜底） ====================
+
+void _myersRec(
+  List<int> a, int aStart, int aEnd,
+  List<int> b, int bStart, int bEnd,
+  List<(int, int)> out,
+) {
+  while (aStart < aEnd && bStart < bEnd && a[aStart] == b[bStart]) {
+    out.add((DiffOperation.equal.index, a[aStart]));
+    aStart++;
+    bStart++;
+  }
+  var aSuf = aEnd;
+  var bSuf = bEnd;
+  while (aSuf > aStart && bSuf > bStart && a[aSuf - 1] == b[bSuf - 1]) {
+    aSuf--;
+    bSuf--;
+  }
+
+  if (aStart == aSuf) {
+    for (var j = bStart; j < bSuf; j++) {
+      out.add((DiffOperation.insert.index, b[j]));
+    }
+  } else if (bStart == bSuf) {
+    for (var i = aStart; i < aSuf; i++) {
+      out.add((DiffOperation.delete.index, a[i]));
+    }
+  } else {
+    final mid = _myersFindMiddleSnake(a, aStart, aSuf, b, bStart, bSuf);
+    _myersRec(a, aStart, mid.$1, b, bStart, mid.$2, out);
+    _myersRec(a, mid.$1, aSuf, b, mid.$2, bSuf, out);
+  }
+
+  for (var i = aSuf; i < aEnd; i++) {
+    out.add((DiffOperation.equal.index, a[i]));
+  }
+}
+
+(int, int) _myersFindMiddleSnake(
+  List<int> a, int aStart, int aEnd,
+  List<int> b, int bStart, int bEnd,
+) {
+  final n = aEnd - aStart;
+  final m = bEnd - bStart;
+  final delta = n - m;
+  final deltaIsOdd = delta.abs() % 2 == 1;
+  final maxD = (n + m + 1) ~/ 2;
+  final offset = maxD;
+  final size = 2 * maxD + 1;
+  final vf = List<int>.filled(size, 0);
+  final vb = List<int>.filled(size, 0);
+
+  for (var d = 0; d <= maxD; d++) {
     for (var k = -d; k <= d; k += 2) {
       int x;
-      if (k == -d || (k != d && v[idx(k - 1)] < v[idx(k + 1)])) {
-        x = v[idx(k + 1)];
+      if (k == -d ||
+          (k != d && vf[offset + k - 1] < vf[offset + k + 1])) {
+        x = vf[offset + k + 1];
       } else {
-        x = v[idx(k - 1)] + 1;
+        x = vf[offset + k - 1] + 1;
       }
       var y = x - k;
-      while (x < n && y < m && a[x] == b[y]) {
+      while (x < n && y < m && a[aStart + x] == b[bStart + y]) {
         x++;
         y++;
       }
-      v[idx(k)] = x;
-      if (x >= n && y >= m) {
-        foundD = d;
-        break outer;
+      vf[offset + k] = x;
+      if (deltaIsOdd) {
+        final bK = delta - k;
+        if (bK >= -d + 1 && bK <= d - 1) {
+          if (vf[offset + k] + vb[offset + bK] >= n) {
+            return (aStart + x, bStart + y);
+          }
+        }
+      }
+    }
+    for (var k = -d; k <= d; k += 2) {
+      int x;
+      if (k == -d ||
+          (k != d && vb[offset + k - 1] < vb[offset + k + 1])) {
+        x = vb[offset + k + 1];
+      } else {
+        x = vb[offset + k - 1] + 1;
+      }
+      var y = x - k;
+      while (x < n && y < m && a[aEnd - 1 - x] == b[bEnd - 1 - y]) {
+        x++;
+        y++;
+      }
+      vb[offset + k] = x;
+      if (!deltaIsOdd) {
+        final fK = delta - k;
+        if (fK >= -d && fK <= d) {
+          if (vb[offset + k] + vf[offset + fK] >= n) {
+            final fx = vf[offset + fK];
+            final fy = fx - fK;
+            return (aStart + fx, bStart + fy);
+          }
+        }
       }
     }
   }
-  if (foundD < 0) {
-    return [
-      for (final id in a) (DiffOperation.delete.index, id),
-      for (final id in b) (DiffOperation.insert.index, id),
-    ];
-  }
-
-  final rev = <(int, int)>[];
-  var x = n;
-  var y = m;
-  for (var d = foundD; d > 0; d--) {
-    final vPrev = trace[d];
-    final k = x - y;
-    int prevK;
-    if (k == -d || (k != d && vPrev[idx(k - 1)] < vPrev[idx(k + 1)])) {
-      prevK = k + 1;
-    } else {
-      prevK = k - 1;
-    }
-    final prevX = vPrev[idx(prevK)];
-    final prevY = prevX - prevK;
-
-    while (x > prevX && y > prevY) {
-      x--;
-      y--;
-      rev.add((DiffOperation.equal.index, a[x]));
-    }
-    if (x == prevX) {
-      y--;
-      rev.add((DiffOperation.insert.index, b[y]));
-    } else {
-      x--;
-      rev.add((DiffOperation.delete.index, a[x]));
-    }
-  }
-  while (x > 0 && y > 0) {
-    x--;
-    y--;
-    rev.add((DiffOperation.equal.index, a[x]));
-  }
-  while (x > 0) {
-    x--;
-    rev.add((DiffOperation.delete.index, a[x]));
-  }
-  while (y > 0) {
-    y--;
-    rev.add((DiffOperation.insert.index, b[y]));
-  }
-
-  return rev.reversed.toList();
+  return ((aStart + aEnd) ~/ 2, (bStart + bEnd) ~/ 2);
 }
+
+// ==================== 组装 DiffEntry ====================
 
 DiffEntry _mkEntry(DiffOperation op, String line) {
   switch (op) {
