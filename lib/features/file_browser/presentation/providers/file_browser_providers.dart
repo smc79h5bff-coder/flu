@@ -86,3 +86,29 @@ class SearchScopeNotifier extends EnumPrefNotifier<SearchScope> {
           initial: SearchScope.currentRecursive,
         );
 }
+
+// ==================== 搜索历史（持久化） ====================
+
+/// 上限 30 条，去重（最新在前）。
+final browserSearchHistoryProvider =
+    NotifierProvider<BrowserSearchHistoryNotifier, List<String>>(
+  BrowserSearchHistoryNotifier.new,
+);
+
+class BrowserSearchHistoryNotifier extends StringListPrefNotifier {
+  BrowserSearchHistoryNotifier()
+      : super(key: PrefKeys.browserSearchHistory);
+
+  static const int _max = 30;
+
+  void add(String q) {
+    if (q.trim().isEmpty) return;
+    final next = <String>[q, ...state.where((s) => s != q)];
+    if (next.length > _max) next.removeRange(_max, next.length);
+    update(next);
+  }
+
+  void remove(String q) {
+    update(state.where((s) => s != q).toList());
+  }
+}
