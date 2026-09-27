@@ -27,6 +27,13 @@ import 'widgets/diff_only_plain_view.dart';
 import 'widgets/diff_only_view.dart';
 import 'widgets/merged_view.dart';
 import 'widgets/side_by_side_view.dart';
+import '../../preprocessing/application/preprocessing_service.dart';
+import '../../preprocessing/domain/preprocessing_rule.dart';
+import '../file_browser/presentation/comparison_settings_screen.dart'
+    show RuleEditorDialog, ruleSubtitle;
+import 'providers/toolbar_rules_provider.dart';
+
+
 
 class DiffViewerScreen extends ConsumerStatefulWidget {
   const DiffViewerScreen({super.key});
@@ -109,7 +116,10 @@ int? _jumpedToEntry;
   bool _pendingJumpQueued = false;
 
   Timer? _findDebounce;
+bool _processing = false;
+String _processingText = '';
 
+    
   @override
   void initState() {
     super.initState();
@@ -1970,6 +1980,10 @@ final diffBlocks = _diffBlockCount(diff);
             selected: {viewMode},
             onSelectionChanged: (s) => _switchView(s.first),
           ),
+            
+_buildToolbar(),               // ← 新增
+if (_processing) _buildProcessingBanner(),  // ← 新增
+            
           Expanded(
             child: switch (viewMode) {
               ViewMode.merged => MergedView(
@@ -2041,6 +2055,16 @@ final diffBlocks = _diffBlockCount(diff);
     );
   }
 
+    
+Widget _buildToolbar() { ... }
+Widget _buildProcessingBanner() { ... }
+Future<void> _onToolbarButtonTap(PreprocessingRule rule) async { ... }
+Future<void> _applyToolbarRule(PreprocessingRule rule, String side) async { ... }
+Future<void> _addToolbarRule() async { ... }
+Future<void> _editToolbarRule(PreprocessingRule rule) async { ... }
+Future<void> _showToolbarOrderDialog() async { ... }
+
+    
   Widget _buildDeletedBanner() {
     final parts = <String>[];
     if (_originalDeleted) parts.add('左边文件');
@@ -2623,6 +2647,94 @@ class _DisplaySettingsSheet extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+}
+
+class _ToolbarOrderDialog extends ConsumerStatefulWidget {
+  const _ToolbarOrderDialog({required this.rules});
+
+  final List<PreprocessingRule> rules;
+
+  @override
+  ConsumerState<_ToolbarOrderDialog> createState() =>
+      _ToolbarOrderDialogState();
+}
+
+class _ToolbarOrderDialogState extends ConsumerState<_ToolbarOrderDialog> {
+  late List<PreprocessingRule> _rules;
+
+  @override
+  void initState() {
+    super.initState();
+    _rules = List<PreprocessingRule>.from(widget.rules);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: const Text('按钮排序'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: ReorderableListView.builder(
+          itemCount: _rules.length,
+          onReorder: (oldIndex, newIndex) {
+            setState(() {
+              if (newIndex > oldIndex) newIndex--;
+              final item = _rules.removeAt(oldIndex);
+              _rules.insert(newIndex, item);
+            });
+          },
+          itemBuilder: (ctx, i) {
+            final r = _rules[i];
+            return ListTile(
+              key: ValueKey<String>('order:${r.id}'),
+              leading: const Icon(Icons.drag_handle),
+              title: Text(r.name),
+              subtitle: Text(
+                ruleSubtitle(r),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11),
+              ),
+              trailing: IconButton(
+                tooltip: '删除',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () {
+                  setState(() => _rules.removeAt(i));
+                },
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    ref
+        .read(toolbarOrderProvider.notifier)
+        .setAll(_rules.map((r) => r.id).toList());
+    ref.read(toolbarRulesProvider.notifier).setAll(_rules);
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已保存')),
     );
   }
 }
