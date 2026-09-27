@@ -74,12 +74,12 @@ class DiffOnlyView extends ConsumerWidget {
         Expanded(
           child: ScrollbarTheme(
             data: ScrollbarThemeData(
-              thumbColor: WidgetStatePropertyAll(
-                (isDark ? Colors.white : Colors.black)
-                    .withValues(alpha: 0.42),
-              ),
-              thickness: const WidgetStatePropertyAll(12),
-              radius: const Radius.circular(6),
+thumbColor: WidgetStatePropertyAll(
+  (isDark ? Colors.white : Colors.black).withValues(alpha: 0.22),
+),
+thickness: const WidgetStatePropertyAll(16),
+radius: const Radius.circular(8),
+minThumbLength: 40,
               trackVisibility: const WidgetStatePropertyAll(false),
             ),
             child: Scrollbar(
