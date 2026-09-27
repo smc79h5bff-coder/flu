@@ -1613,15 +1613,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     final meta = _computeLineMeta(diff);
 
-    String? origAnchorText;
-    String? modAnchorText;
-    if (origEntryIdx != null && origEntryIdx > 0) {
-      origAnchorText = diff.entries[origEntryIdx - 1].text;
-    }
-    if (modEntryIdx != null && modEntryIdx > 0) {
-      modAnchorText = diff.entries[modEntryIdx - 1].text;
-    }
-
     String? origText;
     String? modText;
     int? origLine;
@@ -1698,12 +1689,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
 
     ref.read(importRevisionProvider.notifier).state++;
-    _resetViewAfterEdit(
-      anchorOrigLine: origLine,
-      anchorModLine: modLine,
-      anchorOrigText: origAnchorText,
-      anchorModText: modAnchorText,
-    );
+    // 直接跳到"编辑的那一行"——用 entry index 最稳，不靠 anchor 文字。
+    _pendingJumpEntry = origEntryIdx ?? modEntryIdx;
+    _pendingJumpQueued = false;
+    _resetViewAfterEdit();
   }
 
   Future<String?> _showRowActionSheet({
@@ -1819,12 +1808,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return (orig: origCtrl.text, mod: modCtrl.text);
   }
 
-  void _resetViewAfterEdit({
-    int? anchorOrigLine,
-    int? anchorModLine,
-    String? anchorOrigText,
-    String? anchorModText,
-  }) {
+  void _resetViewAfterEdit() {
     _matchEntries = const <int>[];
     _matchPos = -1;
     _noResultHint = null;
@@ -1843,67 +1827,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     DiffTextIndex.invalidate();
     setState(() {});
 
-    final hasAnchor = anchorOrigLine != null ||
-        anchorModLine != null ||
-        (anchorOrigText != null && anchorOrigText.isNotEmpty) ||
-        (anchorModText != null && anchorModText.isNotEmpty);
-    if (!hasAnchor) {
+    // 如果有排队跳转，交给 _buildWithHeights 里处理。
+    // 否则滚回顶部。
+    if (_pendingJumpEntry == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
         if (_hScrollController.hasClients) _hScrollController.jumpTo(0);
       });
-      return;
-    }
-
-    _scrollToLineAfterRecompute(
-      anchorOrigLine,
-      anchorModLine,
-      anchorOrigText,
-      anchorModText,
-    );
-  }
-
-  Future<void> _scrollToLineAfterRecompute(
-    int? origLine,
-    int? modLine,
-    String? origAnchorText,
-    String? modAnchorText,
-  ) async {
-    await Future<void>.delayed(const Duration(milliseconds: 400));
-    for (var attempt = 0; attempt < 30; attempt++) {
-      if (!mounted) return;
-      final diff = _diff;
-      if (diff != null && _activeHeights != null) {
-        final idx = DiffTextIndex.of(diff);
-        int? hitEntry;
-        if (origAnchorText != null && origAnchorText.isNotEmpty) {
-          hitEntry = idx.firstEntryOf(origAnchorText);
-        }
-        if (hitEntry == null &&
-            modAnchorText != null &&
-            modAnchorText.isNotEmpty) {
-          hitEntry = idx.firstEntryOf(modAnchorText);
-        }
-        if (hitEntry != null) {
-          final target = hitEntry + 1 < diff.entries.length
-              ? hitEntry + 1
-              : hitEntry;
-          _scrollToEntry(target);
-          return;
-        }
-
-        final meta = _computeLineMeta(diff);
-        for (var i = 0; i < meta.length; i++) {
-          final m = meta[i];
-          if ((origLine != null && m.orig == origLine) ||
-              (modLine != null && m.mod == modLine)) {
-            _scrollToEntry(i);
-            return;
-          }
-        }
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 100));
     }
   }
 
