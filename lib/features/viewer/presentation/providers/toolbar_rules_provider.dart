@@ -59,7 +59,7 @@ class ToolbarRulesNotifier
   void remove(String id) {
     update(state.where((r) => r.id != id).toList());
     ref.read(toolbarOrderProvider.notifier).removeId(id);
-    // 同时清掉它的颜色设置。
+    // 顺便清掉这个按钮的颜色设置，避免残留。
     ref.read(toolbarButtonColorsProvider.notifier).remove(id);
   }
 
@@ -165,17 +165,35 @@ final toolbarRulesOrderedProvider =
   return result;
 });
 
-// ==================== 按钮独立颜色 ====================
+// ==================== 按钮颜色（新增） ====================
 
-/// 一个按钮的 3 个颜色。null = 用主题色。
+/// 每个按钮的三个颜色。值为 null 表示用主题色（跟随深浅模式）。
 class ToolbarButtonColor {
-  const ToolbarButtonColor({this.bg, this.fg, this.border});
+  const ToolbarButtonColor({
+    this.bg,
+    this.fg,
+    this.border,
+  });
 
   final Color? bg;
   final Color? fg;
   final Color? border;
 
   bool get isEmpty => bg == null && fg == null && border == null;
+
+  ToolbarButtonColor copyWith({
+    Color? bg,
+    Color? fg,
+    Color? border,
+    bool clearBg = false,
+    bool clearFg = false,
+    bool clearBorder = false,
+  }) =>
+      ToolbarButtonColor(
+        bg: clearBg ? null : (bg ?? this.bg),
+        fg: clearFg ? null : (fg ?? this.fg),
+        border: clearBorder ? null : (border ?? this.border),
+      );
 
   Map<String, dynamic> toJson() => {
         if (bg != null) 'bg': _colorToHex(bg!),
@@ -184,12 +202,10 @@ class ToolbarButtonColor {
       };
 
   factory ToolbarButtonColor.fromJson(Map<String, dynamic> j) {
-    Color? parse(Object? v) =>
-        v is String ? _hexToColor(v) : null;
     return ToolbarButtonColor(
-      bg: parse(j['bg']),
-      fg: parse(j['fg']),
-      border: parse(j['border']),
+      bg: _hexToColor(j['bg'] as String?),
+      fg: _hexToColor(j['fg'] as String?),
+      border: _hexToColor(j['border'] as String?),
     );
   }
 }
@@ -199,14 +215,17 @@ String _colorToHex(Color c) {
   return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
 }
 
-Color? _hexToColor(String s) {
-  if (s.length != 7 || !s.startsWith('#')) return null;
+Color? _hexToColor(String? s) {
+  if (s == null || s.length != 7 || !s.startsWith('#')) return null;
   final v = int.tryParse(s.substring(1), radix: 16);
   if (v == null) return null;
   return Color(0xFF000000 | v);
 }
 
-/// Map<ruleId, ToolbarButtonColor>，持久化。
+/// 按钮颜色的持久化 key。直接内联，避免改 pref_keys.dart。
+const String _toolbarColorsKey = 'jianming.toolbar.colors';
+
+/// 按钮颜色表：ruleId → 三个颜色。
 final toolbarButtonColorsProvider =
     NotifierProvider<ToolbarButtonColorsNotifier,
         Map<String, ToolbarButtonColor>>(
@@ -216,40 +235,40 @@ final toolbarButtonColorsProvider =
 class ToolbarButtonColorsNotifier
     extends PersistentNotifier<Map<String, ToolbarButtonColor>> {
   @override
-  String get key => PrefKeys.toolbarButtonColors;
+  String get key => _toolbarColorsKey;
 
   @override
   Map<String, ToolbarButtonColor> get defaultValue => const {};
 
   @override
   Map<String, ToolbarButtonColor> decode(String raw) {
-    final m = jsonDecode(raw) as Map<String, dynamic>;
-    return m.map(
-      (k, v) => MapEntry(
-        k,
-        ToolbarButtonColor.fromJson(v as Map<String, dynamic>),
-      ),
-    );
+    final map = jsonDecode(raw) as Map<String, dynamic>;
+    return map.map((k, v) => MapEntry(
+          k,
+          ToolbarButtonColor.fromJson(v as Map<String, dynamic>),
+        ));
   }
 
   @override
   String encode(Map<String, ToolbarButtonColor> value) =>
       jsonEncode(value.map((k, v) => MapEntry(k, v.toJson())));
 
-  /// 设置一个按钮的颜色。全部为 null 时删除这条记录。
-  void setColor(String id, ToolbarButtonColor color) {
+  /// 设置某个按钮的颜色。传全 null 的 color 视为删除。
+  void setOne(String ruleId, ToolbarButtonColor color) {
     final next = Map<String, ToolbarButtonColor>.from(state);
     if (color.isEmpty) {
-      next.remove(id);
+      next.remove(ruleId);
     } else {
-      next[id] = color;
+      next[ruleId] = color;
     }
     update(next);
   }
 
-  void remove(String id) {
-    if (!state.containsKey(id)) return;
-    final next = Map<String, ToolbarButtonColor>.from(state)..remove(id);
+  /// 删除某个按钮的颜色记录。
+  void remove(String ruleId) {
+    if (!state.containsKey(ruleId)) return;
+    final next = Map<String, ToolbarButtonColor>.from(state);
+    next.remove(ruleId);
     update(next);
   }
 }
