@@ -882,7 +882,7 @@ void _jumpToDocBottom() {
         return;
       }
     }
-    _scrollToEntry(indices.first);
+    _toast('到底了');
   }
 
   void _jumpToPrevDiff() {
@@ -904,7 +904,7 @@ void _jumpToDocBottom() {
         return;
       }
     }
-    _scrollToEntry(indices.last);
+    _toast('到顶了');
   }
 
   // ==================== 切视图 ====================
