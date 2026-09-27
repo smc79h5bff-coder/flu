@@ -607,7 +607,10 @@ void _openPreview(_EntryInfo info) {
       ref.read(originalFilePathProvider.notifier).state = result.original.path;
       ref.read(modifiedFilePathProvider.notifier).state = result.modified.path;
       ref.read(importRevisionProvider.notifier).state++;
-
+// 清掉上次编辑留下的内存改动，保证这次从磁盘原文开始。
+ref.read(editedOriginalProvider.notifier).state = null;
+ref.read(editedModifiedProvider.notifier).state = null;
+      
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => const DiffViewerScreen(),
