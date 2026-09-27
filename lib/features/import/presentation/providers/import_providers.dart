@@ -162,7 +162,8 @@ final originalRawTextProvider = StateProvider<String?>((ref) => null);
 final modifiedRawTextProvider = StateProvider<String?>((ref) => null);
 
 /// 用户在对比页编辑后的临时文本。
-/// null = 没有编辑过，走规则计算。
+/// null = 没有编辑过，走原文 + 规则。
+/// 非 null = 从这份内容开始跑规则（规则对它仍然生效）。
 final editedOriginalProvider = StateProvider<String?>((ref) => null);
 final editedModifiedProvider = StateProvider<String?>((ref) => null);
 
@@ -489,23 +490,23 @@ String _runPipeline(
 }
 
 /// 左边当前显示的文本。
+///
+/// 起点规则：
+///   · 有编辑（edited != null）→ 从编辑内容开始跑规则
+///   · 没有编辑            → 从原文开始跑规则
+/// 这样规则永远生效，不会因为"编辑过"而被冻结；
+/// 用户在设置里改开关，两边都会跟着变。
 final preprocessedOriginalProvider = Provider<String>((ref) {
   final edited = ref.watch(editedOriginalProvider);
-  if (edited != null) return edited;
-
   final raw = ref.watch(originalRawTextProvider);
-  if (raw == null) return '';
-
-  return _runPipeline(ref, raw: raw, isOriginal: true);
+  if (raw == null && edited == null) return '';
+  return _runPipeline(ref, raw: edited ?? raw!, isOriginal: true);
 });
 
-/// 右边当前显示的文本。
+/// 右边当前显示的文本。逻辑同上。
 final preprocessedModifiedProvider = Provider<String>((ref) {
   final edited = ref.watch(editedModifiedProvider);
-  if (edited != null) return edited;
-
   final raw = ref.watch(modifiedRawTextProvider);
-  if (raw == null) return '';
-
-  return _runPipeline(ref, raw: raw, isOriginal: false);
+  if (raw == null && edited == null) return '';
+  return _runPipeline(ref, raw: edited ?? raw!, isOriginal: false);
 });
