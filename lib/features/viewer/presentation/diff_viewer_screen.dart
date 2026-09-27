@@ -2216,7 +2216,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           color: selected
               ? s.primaryContainer
               : s.surfaceVariant.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: selected ? s.primary : s.outlineVariant,
           ),
