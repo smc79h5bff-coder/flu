@@ -42,8 +42,8 @@ jobs:
           fi
 
       - run: flutter pub get
-      - run: flutter build apk --release --flavor prod
-      - run: flutter build apk --release --flavor coexist
+      - run: flutter build apk --release --flavor prod --target-platform android-arm64
+      - run: flutter build apk --release --flavor coexist --target-platform android-arm64
 
       - name: 整理
         run: |
