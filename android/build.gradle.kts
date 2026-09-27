@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 allprojects {
     repositories {
         google()
@@ -22,9 +25,9 @@ subprojects {
     // 统一 Java / Kotlin 的 JVM target，修复 flutter_js 等旧插件
     // "Inconsistent JVM-target compatibility" 报错。
     afterEvaluate {
-        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-            kotlinOptions {
-                jvmTarget = "11"
+        tasks.withType<KotlinCompile>().configureEach {
+            compilerOptions {
+                jvmTarget.set(JvmTarget.JVM_11)
             }
         }
         tasks.withType<JavaCompile>().configureEach {
