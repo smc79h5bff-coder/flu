@@ -2538,7 +2538,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                           onLongPress: () => _editToolbarRule(r),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
+                              horizontal: 2,
                             ),
                             decoration: BoxDecoration(
                               color: bg,
