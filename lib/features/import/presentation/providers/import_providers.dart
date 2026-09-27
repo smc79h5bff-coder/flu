@@ -51,14 +51,15 @@ final AhoCorasick? _watermarkAc = builtinWatermarks.isEmpty
     : AhoCorasick(
         patterns: builtinWatermarks,
         replacements: List<String>.filled(builtinWatermarks.length, ''),
+        priorities:
+            List<int>.generate(builtinWatermarks.length, (i) => i),
       );
 
 // ==================== 关键词规则解析缓存 + AC 缓存 ====================
 
 class _ParsedKeywordRules {
-  const _ParsedKeywordRules(this.deleteAc, this.replaceAc);
-  final AhoCorasick? deleteAc;
-  final AhoCorasick? replaceAc;
+  const _ParsedKeywordRules(this.ac);
+  final AhoCorasick? ac;
 }
 
 const int _keywordRulesCacheCap = 16;
@@ -68,43 +69,40 @@ _ParsedKeywordRules _parseKeywordRules(String rulesText) {
   final hit = _keywordRulesCache[rulesText];
   if (hit != null) return hit;
 
-  final deletions = <String>[];
-  final replacements = <({String find, String replace})>[];
+  final patterns = <String>[];
+  final replacements = <String>[];
+  final priorities = <int>[];
 
+  var lineNo = 0;
   for (final raw in rulesText.split('\n')) {
+    final currentLine = lineNo;
+    lineNo++;
     final line = raw.trim();
     if (line.isEmpty) continue;
     final idx = line.indexOf('->=>');
     if (idx >= 0) {
       final find = line.substring(0, idx);
+      if (find.isEmpty) continue;
       final replace = line.substring(idx + 4);
-      if (find.isNotEmpty) {
-        replacements.add((find: find, replace: replace));
-      }
+      patterns.add(find);
+      replacements.add(_unescapeReplacement(replace));
+      priorities.add(currentLine);
     } else {
-      deletions.add(line);
+      patterns.add(line);
+      replacements.add('');
+      priorities.add(currentLine);
     }
   }
 
-  final deleteAc = deletions.isEmpty
+  final ac = patterns.isEmpty
       ? null
       : AhoCorasick(
-          patterns: deletions,
-          replacements: List<String>.filled(deletions.length, ''),
+          patterns: patterns,
+          replacements: replacements,
+          priorities: priorities,
         );
 
-  AhoCorasick? replaceAc;
-  if (replacements.isNotEmpty) {
-    final patterns = <String>[];
-    final reps = <String>[];
-    for (final r in replacements) {
-      patterns.add(r.find);
-      reps.add(_unescapeReplacement(r.replace));
-    }
-    replaceAc = AhoCorasick(patterns: patterns, replacements: reps);
-  }
-
-  final parsed = _ParsedKeywordRules(deleteAc, replaceAc);
+  final parsed = _ParsedKeywordRules(ac);
   if (_keywordRulesCache.length >= _keywordRulesCacheCap) {
     _keywordRulesCache.clear();
   }
@@ -205,7 +203,6 @@ class UserRulesNotifier extends PersistentNotifier<List<PreprocessingRule>> {
 
   void add(PreprocessingRule rule) {
     update([...state, rule]);
-    // 追加到统一顺序列表末尾。
     ref.read(ruleOrderProvider.notifier).append(rule.id);
   }
 
@@ -345,6 +342,28 @@ class RegexRulesTextNotifier extends StringPrefNotifier {
   RegexRulesTextNotifier() : super(key: PrefKeys.regexRulesText);
 }
 
+// ==================== 规则表详细说明（持久化，用户可编辑） ====================
+
+final keywordRulesHelpProvider =
+    NotifierProvider<KeywordRulesHelpNotifier, String>(
+  KeywordRulesHelpNotifier.new,
+);
+
+class KeywordRulesHelpNotifier extends StringPrefNotifier {
+  KeywordRulesHelpNotifier() : super(key: PrefKeys.keywordRulesHelp);
+}
+
+final regexRulesHelpProvider =
+    NotifierProvider<RegexRulesHelpNotifier, String>(
+  RegexRulesHelpNotifier.new,
+);
+
+class RegexRulesHelpNotifier extends StringPrefNotifier {
+  RegexRulesHelpNotifier() : super(key: PrefKeys.regexRulesHelp);
+}
+
+// ==================== 文本转义 ====================
+
 String _unescapeReplacement(String s) {
   if (!s.contains(r'\')) return s;
   final sb = StringBuffer();
@@ -380,7 +399,10 @@ String _unescapeReplacement(String s) {
   return sb.toString();
 }
 
-/// 关键词规则：整块 Aho-Corasick 一次扫。
+// ==================== 应用 ====================
+
+/// 规则表（普通文字）：所有规则合成一棵 AC 树，一次扫描。
+/// 同一位置多命中 → 行号最小的赢。
 String applyKeywordRules(String text, String rulesText) {
   if (text.isEmpty) return text;
 
@@ -393,16 +415,13 @@ String applyKeywordRules(String text, String rulesText) {
 
   if (rulesText.isEmpty) return out;
   final parsed = _parseKeywordRules(rulesText);
-  if (parsed.deleteAc != null) {
-    out = parsed.deleteAc!.replaceAll(out);
-  }
-  if (parsed.replaceAc != null) {
-    out = parsed.replaceAc!.replaceAll(out);
+  if (parsed.ac != null) {
+    out = parsed.ac!.replaceAll(out);
   }
   return out;
 }
 
-/// 正则规则：逐条 replaceAll。
+/// 规则表（支持正则）：逐条 replaceAll，严格按行顺序。
 String applyRegexRules(String text, String rulesText) {
   if (text.isEmpty || rulesText.isEmpty) return text;
 
