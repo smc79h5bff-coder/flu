@@ -22,25 +22,34 @@ subprojects {
 subprojects {
     project.evaluationDependsOn(":app")
 
-    // 统一 Kotlin 编译目标为 17
     tasks.withType<KotlinCompile>().configureEach {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
         }
     }
-
-    // 统一 Java 编译目标为 17。
-    // 关键：doFirst 保证在任务执行前最后覆盖一次——因为 flutter_js 插件
-    // 会用 AGP 的 compileOptions 覆盖我们的配置，只有 doFirst 才能压住它。
     tasks.withType<JavaCompile>().configureEach {
         sourceCompatibility = JavaVersion.VERSION_17.toString()
         targetCompatibility = JavaVersion.VERSION_17.toString()
-        doFirst {
-            sourceCompatibility = JavaVersion.VERSION_17.toString()
-            targetCompatibility = JavaVersion.VERSION_17.toString()
+    }
+}
+
+// ===== flutter_js 特殊处理 =====
+// flutter_js 插件自身的 Java 编译目标是 11，且它会强制覆盖 compileOptions，
+// 导致 Java(11) 和 Kotlin(17) 冲突。这里把它的 Kotlin 也降到 11，两边对齐。
+subprojects {
+    if (name == "flutter_js") {
+        tasks.withType<KotlinCompile>().configureEach {
+            compilerOptions {
+                jvmTarget.set(JvmTarget.JVM_11)
+            }
+        }
+        tasks.withType<JavaCompile>().configureEach {
+            sourceCompatibility = JavaVersion.VERSION_11.toString()
+            targetCompatibility = JavaVersion.VERSION_11.toString()
         }
     }
 }
+// ================================
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
