@@ -2136,7 +2136,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
                       final c = colors[r.id];
-                      final bg = c?.bg ?? s.primaryContainer;
+                      final bg = c?.bg ?? const Color(0xFFF5FBF5);
                       final fg = c?.fg ?? s.onPrimaryContainer;
                       final border =
                           c?.border ?? s.primary.withOpacity(0.3);
