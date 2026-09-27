@@ -334,7 +334,7 @@ class _ComparisonSettingsScreenState
         key: item.key,
         dragHandle: dragHandle,
         icon: Icons.text_fields,
-        title: '关键词规则',
+        title: '规则表（普通文字）',
         subtitle: '一整块文本 · ${item.lineCount} 行',
         onTap: () => _openReplaceRules(isRegex: false),
       );
@@ -344,7 +344,7 @@ class _ComparisonSettingsScreenState
       key: regexItem.key,
       dragHandle: dragHandle,
       icon: Icons.code,
-      title: '正则规则',
+      title: '规则表（支持正则）',
       subtitle: '一整块文本 · ${regexItem.lineCount} 行',
       onTap: () => _openReplaceRules(isRegex: true),
     );
