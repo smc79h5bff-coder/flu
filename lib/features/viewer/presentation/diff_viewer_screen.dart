@@ -146,7 +146,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return _matchEntries[_matchPos];
   }
 
-  /// 是否属于"只显示差异相关行"的视图。
   bool _isDiffOnlyMode(ViewMode m) =>
       m == ViewMode.diffOnly || m == ViewMode.diffOnlyPlain;
 
@@ -218,7 +217,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return e.text;
   }
 
-  /// 当前视图列表里实际会显示的行对应的 entry 下标集合。
   Set<int> _visibleEntriesFor(ViewMode mode, DiffResult diff) {
     final s = <int>{};
     switch (mode) {
@@ -252,8 +250,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _onFindInput(String q) {
     _findDebounce?.cancel();
     if (_isLargeFile) {
-      // 大文件：不自动扫描，仅更新用于高亮的查询词。
-      // 真正搜索只由回车 / 上/下一个 / 替换触发。
       setState(() => _findQuery = q);
       return;
     }
@@ -263,12 +259,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     });
   }
 
-  /// 搜索范围 = 当前视图列表里实际显示的行。
-  ///
-  /// 屏幕上"能滚到"的行才参与搜索；列表外的行不算命中、也不计数。
-  /// 这样"共 N 处"= 用户实际能跳到的次数。
-  ///
-  /// 若差异类视图搜不到，但全量里有命中，弹提示引导用户切视图。
   void _findChanged(String q, {bool autoScroll = true}) {
     _findQuery = q;
     _scannedQuery = q;
@@ -281,7 +271,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final p = _buildFindPattern();
       final mode = ref.read(viewModeProvider);
 
-      // 1. 只扫当前视图列表里会显示的行。
       final visible = _visibleEntriesFor(mode, diff);
       for (var i = 0; i < diff.entries.length; i++) {
         if (!visible.contains(i)) continue;
@@ -299,8 +288,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         if (hit) matches.add(i);
       }
 
-      // 2. 差异类视图搜不到时，看看全量里有没有命中。
-      //    有 → 提示用户切视图。
       if (matches.isEmpty && _isDiffOnlyMode(mode)) {
         for (var i = 0; i < diff.entries.length; i++) {
           final e = diff.entries[i];
@@ -316,7 +303,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
     }
 
-    // 从当前位置往下找第一个命中；往下没有就回卷到第一个。
     int newPos = 0;
     if (matches.isNotEmpty && diff != null) {
       final mode = ref.read(viewModeProvider);
@@ -345,8 +331,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   void _ensureFindApplied() {
     _findDebounce?.cancel();
-    // 只有"输入框内容和上次扫描过的不同"才重新扫描。
-    // 大文件下 _onFindInput 不会触发扫描，所以这里必然会扫一次。
     if (_scannedQuery != _findController.text) {
       _findChanged(_findController.text, autoScroll: false);
     }
@@ -530,15 +514,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 行数 / 行映射 ====================
 
-  int _renderedRows(DiffResult diff, ViewMode mode) {
-    if (mode == ViewMode.merged) return cachedMergedOrder(diff).length;
-    if (mode == ViewMode.sideBySide) return cachedAlignedRows(diff).length;
-    if (mode == ViewMode.diffOnlyPlain) {
-      return cachedDiffOnlyPlainRows(diff).length;
-    }
-    return cachedDiffOnlyRows(diff).length;
-  }
-
   Map<int, int> _entryToRowMapOf(DiffResult diff, ViewMode mode) {
     if (identical(_entryToRowMapFor, diff) &&
         _entryToRowMapMode == mode &&
@@ -590,7 +565,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         '${ref.read(importRevisionProvider)}|'
         '${ref.read(syncScrollProvider)}';
 
-    // diff 变了，或显示配置变了 → 全部作废，重新算。
     if (!identical(_heightFuturesFor, diff) ||
         _heightFuturesConfigKey != configKey) {
       _heightFutures.clear();
@@ -598,11 +572,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       _heightFuturesConfigKey = configKey;
     }
 
-    // 该视图已算过 → 直接返回同一个 future，不重算。
     final existing = _heightFutures[mode];
     if (existing != null) return existing;
 
-    // 没算过 → 创建。
     final f = _computeHeightBundle(diff, mode);
     _heightFutures[mode] = f;
     return f;
@@ -865,7 +837,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return list;
   }
 
-  /// "处"的计数：连续的差异行算 1 处。
   int _diffBlockCount(DiffResult diff) {
     var count = 0;
     var inBlock = false;
@@ -1529,6 +1500,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _matchEntries = const <int>[];
     _matchPos = -1;
     _noResultHint = null;
+    _scannedQuery = '';
     _cachedDiffIndices = null;
     _cachedDiffIndicesFor = null;
     _entryToRowMap = null;
@@ -1775,7 +1747,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             _pendingJumpEntry = null;
             _pendingJumpQueued = false;
 
-            // 等 ListView 完成第一次 measure（maxScrollExtent 才有真实值）。
             for (var attempt = 0; attempt < 5; attempt++) {
               if (!mounted) return;
               if (!_scrollController.hasClients) {
@@ -2139,6 +2110,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   Widget _buildToolbar() {
     final rules = ref.watch(toolbarRulesOrderedProvider);
+    final colors = ref.watch(toolbarButtonColorsProvider);
     final s = Theme.of(context).colorScheme;
 
     return Container(
@@ -2163,6 +2135,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                     itemCount: rules.length,
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
+                      final c = colors[r.id];
+                      final bg = c?.bg ?? s.primaryContainer;
+                      final fg = c?.fg ?? s.onPrimaryContainer;
+                      final border =
+                          c?.border ?? s.primary.withOpacity(0.3);
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 1,
@@ -2176,11 +2153,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                               horizontal: 8,
                             ),
                             decoration: BoxDecoration(
-                              color: s.primaryContainer,
+                              color: bg,
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: s.primary.withOpacity(0.3),
-                              ),
+                              border: Border.all(color: border),
                             ),
                             alignment: Alignment.center,
                             child: Text(
@@ -2189,7 +2164,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 11,
-                                color: s.onPrimaryContainer,
+                                color: fg,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -2603,7 +2578,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 ),
               ],
             ),
-            // 差异类视图搜不到、全量有结果时的提示条。
             if (_noResultHint != null)
               Container(
                 width: double.infinity,
@@ -3044,12 +3018,22 @@ class _ToolbarOrderDialogState extends ConsumerState<_ToolbarOrderDialog> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11),
               ),
-              trailing: IconButton(
-                tooltip: '删除',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () {
-                  setState(() => _rules.removeAt(i));
-                },
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: '设置颜色',
+                    icon: const Icon(Icons.palette),
+                    onPressed: () => _openColorPanel(r),
+                  ),
+                  IconButton(
+                    tooltip: '删除',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () {
+                      setState(() => _rules.removeAt(i));
+                    },
+                  ),
+                ],
               ),
             );
           },
@@ -3068,16 +3052,258 @@ class _ToolbarOrderDialogState extends ConsumerState<_ToolbarOrderDialog> {
     );
   }
 
+  void _openColorPanel(PreprocessingRule r) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _ButtonColorDialog(
+        ruleId: r.id,
+        ruleName: r.name,
+      ),
+    );
+  }
+
   void _save() {
     ref
         .read(toolbarOrderProvider.notifier)
         .setAll(_rules.map((r) => r.id).toList());
     ref.read(toolbarRulesProvider.notifier).setAll(_rules);
+
+    // 清理已被删除的按钮的颜色设置。
+    final newIds = _rules.map((r) => r.id).toSet();
+    final oldIds = widget.rules.map((r) => r.id).toSet();
+    final removedIds = oldIds.difference(newIds);
+    for (final id in removedIds) {
+      ref.read(toolbarButtonColorsProvider.notifier).remove(id);
+    }
+
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已保存')),
     );
   }
+}
+
+// ==================== 按钮颜色面板 ====================
+
+class _ButtonColorDialog extends ConsumerStatefulWidget {
+  const _ButtonColorDialog({
+    required this.ruleId,
+    required this.ruleName,
+  });
+
+  final String ruleId;
+  final String ruleName;
+
+  @override
+  ConsumerState<_ButtonColorDialog> createState() =>
+      _ButtonColorDialogState();
+}
+
+class _ButtonColorDialogState extends ConsumerState<_ButtonColorDialog> {
+  @override
+  Widget build(BuildContext context) {
+    final all = ref.watch(toolbarButtonColorsProvider);
+    final c = all[widget.ruleId] ?? const ToolbarButtonColor();
+    final s = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: Text(
+        '${widget.ruleName} · 按钮颜色',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _colorRow(
+              context: context,
+              label: '背景色',
+              isSet: c.bg != null,
+              color: c.bg ?? s.primaryContainer,
+              onPick: (v) => _setBg(v),
+            ),
+            _colorRow(
+              context: context,
+              label: '文字色',
+              isSet: c.fg != null,
+              color: c.fg ?? s.onPrimaryContainer,
+              onPick: (v) => _setFg(v),
+            ),
+            _colorRow(
+              context: context,
+              label: '边框色',
+              isSet: c.border != null,
+              color: c.border ?? s.primary.withOpacity(0.3),
+              onPick: (v) => _setBorder(v),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    );
+  }
+
+  void _setBg(Color? color) {
+    final all = ref.read(toolbarButtonColorsProvider);
+    final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
+    ref.read(toolbarButtonColorsProvider.notifier).setColor(
+          widget.ruleId,
+          ToolbarButtonColor(bg: color, fg: cur.fg, border: cur.border),
+        );
+  }
+
+  void _setFg(Color? color) {
+    final all = ref.read(toolbarButtonColorsProvider);
+    final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
+    ref.read(toolbarButtonColorsProvider.notifier).setColor(
+          widget.ruleId,
+          ToolbarButtonColor(bg: cur.bg, fg: color, border: cur.border),
+        );
+  }
+
+  void _setBorder(Color? color) {
+    final all = ref.read(toolbarButtonColorsProvider);
+    final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
+    ref.read(toolbarButtonColorsProvider.notifier).setColor(
+          widget.ruleId,
+          ToolbarButtonColor(bg: cur.bg, fg: cur.fg, border: color),
+        );
+  }
+
+  Widget _colorRow({
+    required BuildContext context,
+    required String label,
+    required bool isSet,
+    required Color color,
+    required void Function(Color?) onPick,
+  }) {
+    final s = Theme.of(context).colorScheme;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: Text(label),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            isSet ? colorToHex(color) : '默认',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: isSet ? s.onSurface : s.outline,
+            ),
+          ),
+          const SizedBox(width: 4),
+          if (isSet)
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                tooltip: '清空（回到默认）',
+                icon: const Icon(Icons.close, size: 14),
+                onPressed: () => onPick(null),
+              ),
+            ),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: () async {
+              final picked = await _pickColorDialog(context, color);
+              if (picked != null) onPick(picked);
+            },
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color,
+                border: Border.all(color: s.outline),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 通用取色弹窗。返回选中的颜色；用户取消返回 null。
+Future<Color?> _pickColorDialog(BuildContext context, Color initial) async {
+  var picked = initial;
+  final controller = TextEditingController(text: colorToHex(picked));
+
+  return showDialog<Color>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, setDialogState) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('选择颜色'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ColorPicker(
+                pickerColor: picked,
+                onColorChanged: (color) {
+                  picked = color;
+                  controller.text = colorToHex(color);
+                },
+                enableAlpha: false,
+                labelTypes: const [],
+                pickerAreaHeightPercent: 0.7,
+                displayThumbColor: true,
+                portraitOnly: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  hintText: '#RRGGBB',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onSubmitted: (v) {
+                  final parsed = hexToColor(v.trim());
+                  if (parsed != null) {
+                    picked = parsed;
+                    setDialogState(() {});
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '拖动上面的色板选颜色，或手动输入 #RRGGBB',
+                style: Theme.of(c).textTheme.labelSmall,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, picked),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 // ==================== 查找历史弹窗 ====================
