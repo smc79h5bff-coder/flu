@@ -855,7 +855,15 @@ int _diffBlockCount(DiffResult diff) {
     if (!_scrollController.hasClients) return null;
     return table.indexAt(_scrollController.position.pixels);
   }
+void _jumpToDocTop() {
+  if (!_scrollController.hasClients) return;
+  _scrollController.jumpTo(0);
+}
 
+void _jumpToDocBottom() {
+  if (!_scrollController.hasClients) return;
+  _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+}
   void _jumpToNextDiff() {
     final diff = _diff;
     if (diff == null) return;
@@ -1776,22 +1784,30 @@ final diffBlocks = _diffBlockCount(diff);
           style: TextStyle(fontSize: 11),
         ),
         actions: [
-          IconButton(
-            key: const Key('prev-diff'),
-            icon: const Icon(Icons.arrow_upward),
-            iconSize: 26,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            tooltip: '上一处差异',
-            onPressed: _jumpToPrevDiff,
-          ),
-          IconButton(
-            key: const Key('next-diff'),
-            icon: const Icon(Icons.arrow_downward),
-            iconSize: 26,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            tooltip: '下一处差异',
-            onPressed: _jumpToNextDiff,
-          ),
+Tooltip(
+  message: '上一处差异\n长按：跳到文档开头',
+  child: InkWell(
+    key: const Key('prev-diff'),
+    onTap: _jumpToPrevDiff,
+    onLongPress: _jumpToDocTop,
+    child: const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Icon(Icons.arrow_upward, size: 26),
+    ),
+  ),
+),
+Tooltip(
+  message: '下一处差异\n长按：跳到文档结尾',
+  child: InkWell(
+    key: const Key('next-diff'),
+    onTap: _jumpToNextDiff,
+    onLongPress: _jumpToDocBottom,
+    child: const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Icon(Icons.arrow_downward, size: 26),
+    ),
+  ),
+),
           IconButton(
             icon: const Icon(Icons.search),
             iconSize: 26,
