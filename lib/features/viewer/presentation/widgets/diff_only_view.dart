@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../diff/domain/diff_entry.dart';
 import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
+import '../../../import/presentation/providers/import_providers.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
@@ -54,11 +57,15 @@ class DiffOnlyView extends ConsumerWidget {
     final divider = Container(width: 1, color: s.outlineVariant);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    Widget header(String? name, Color color) {
+    Widget header(String? name, Color color, {required bool isOriginal}) {
       return Expanded(
         child: name == null
             ? const SizedBox.shrink()
-            : _PaneHeader(fileName: name, color: color),
+            : _PaneHeader(
+                fileName: name,
+                color: color,
+                isOriginal: isOriginal,
+              ),
       );
     }
 
@@ -66,9 +73,9 @@ class DiffOnlyView extends ConsumerWidget {
       children: [
         Row(
           children: [
-            header(originalFileName, s.error),
+            header(originalFileName, s.error, isOriginal: true),
             divider,
-            header(modifiedFileName, s.primary),
+            header(modifiedFileName, s.primary, isOriginal: false),
           ],
         ),
         Expanded(
@@ -567,24 +574,112 @@ class _DiffCell extends StatelessWidget {
   }
 }
 
-class _PaneHeader extends StatelessWidget {
-  const _PaneHeader({required this.fileName, required this.color});
+class _PaneHeader extends ConsumerWidget {
+  const _PaneHeader({
+    required this.fileName,
+    required this.color,
+    required this.isOriginal,
+  });
 
   final String fileName;
   final Color color;
+  final bool isOriginal;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: color.withValues(alpha: 0.08),
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-      child: Text(
-        fileName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style:
-            TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: color),
+  Widget build(BuildContext context, WidgetRef ref) {
+    return GestureDetector(
+      onLongPress: () => _showInfo(context, ref),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        color: color.withValues(alpha: 0.08),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        child: Text(
+          fileName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 8,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showInfo(BuildContext context, WidgetRef ref) async {
+    final path = ref.read(isOriginal
+        ? originalFilePathProvider
+        : modifiedFilePathProvider);
+    final encoding = ref.read(isOriginal
+        ? originalEncodingProvider
+        : modifiedEncodingProvider);
+
+    String sizeStr = '—';
+    String timeStr = '—';
+    if (path != null) {
+      try {
+        final st = await File(path).stat();
+        final s = st.size;
+        if (s < 1024) {
+          sizeStr = '$s B';
+        } else if (s < 1024 * 1024) {
+          sizeStr = '${(s / 1024).toStringAsFixed(1)} KB';
+        } else if (s < 1024 * 1024 * 1024) {
+          sizeStr = '${(s / 1024 / 1024).toStringAsFixed(1)} MB';
+        } else {
+          sizeStr = '${(s / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+        }
+        final t = st.modified;
+        String two(int n) => n < 10 ? '0$n' : '$n';
+        timeStr = '${t.year}-${two(t.month)}-${two(t.day)} '
+            '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+      } catch (_) {}
+    }
+
+    if (!context.mounted) return;
+
+    Widget row(String label, String value) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 2),
+              SelectableText(value),
+            ],
+          ),
+        );
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: Text(
+          fileName,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              row('路径', path ?? '（没有路径，来自剪贴板或粘贴）'),
+              row('大小', sizeStr),
+              row('修改时间', timeStr),
+              row('编码', encoding),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
       ),
     );
   }
