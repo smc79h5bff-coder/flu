@@ -1,22 +1,29 @@
-/// Aho-Corasick 多模式字符串替换器。
-///
-/// 一次扫描 O(n + m) 找出所有模式（n 文本长度，m 匹配数），
-/// 用于替换/删除多个关键词——比 N 个正则交替快得多。
+/// Aho-Corasick 多模式字符串替换器（方案 D：行号优先）。
 ///
 /// 语义：
-/// - 非重叠匹配（找到一次后从匹配起点之后继续）。
-/// - 同一位置多个模式命中时，最长模式优先。
+/// - 所有模式（删除 + 替换）合成一棵树，一次扫描。
+/// - 同一位置多条模式命中时，**选优先级最小（行号最小）的那条**。
+/// - 命中后跳到匹配结束位置继续扫。
+/// - 新产生的文本不再参与后续匹配。
 /// - 空模式会被忽略。
+///
+/// [priorities] 与 [patterns] 一一对应，数值越小越优先。
+/// 对于"规则表"场景，priority 等于该规则在文本里的物理行号。
 class AhoCorasick {
   AhoCorasick({
     required this.patterns,
     required this.replacements,
-  }) : assert(patterns.length == replacements.length) {
+    required this.priorities,
+  })  : assert(patterns.length == replacements.length),
+        assert(patterns.length == priorities.length) {
     _build();
   }
 
   final List<String> patterns;
   final List<String> replacements;
+
+  /// 每条模式的优先级，数值越小越优先。
+  final List<int> priorities;
 
   /// Trie 子节点：nodeId -> (charCode -> childNodeId)。
   final List<Map<int, int>> _children = <Map<int, int>>[<int, int>{}];
@@ -46,7 +53,6 @@ class AhoCorasick {
 
     // 2. 建 fail 指针（BFS）
     final queue = <int>[];
-    // 根的直接子节点：fail 指向根
     for (final child in _children[0].values) {
       _fail[child] = 0;
       queue.add(child);
@@ -56,14 +62,12 @@ class AhoCorasick {
     while (head < queue.length) {
       final node = queue[head++];
       _children[node].forEach((code, child) {
-        // 找 child 的 fail：沿 node 的 fail 链找有 code 转移的节点
         var f = _fail[node];
         while (f != 0 && _children[f][code] == null) {
           f = _fail[f];
         }
         final next = _children[f][code];
         _fail[child] = (next != null && next != child) ? next : 0;
-        // 继承 fail 节点的 output（此时 fail 的 output 已完整）
         _output[child] = <int>[
           ..._output[child],
           ..._output[_fail[child]],
@@ -73,47 +77,54 @@ class AhoCorasick {
     }
   }
 
-  /// 单次扫描，替换所有匹配。重叠时按最长模式优先，非重叠。
+  /// 单次扫描，按"行号最小优先"替换所有匹配。非重叠、贪心。
   String replaceAll(String text) {
     if (text.isEmpty || patterns.isEmpty) return text;
 
-    final buf = StringBuffer();
-    var last = 0;
-    var pos = 0;
+    // 第 1 遍：AC 扫描，记录所有候选 (start, patternIndex)。
+    // 用 List 而非 Map，位置是连续整数，O(1) 访问。
+    final candidatesByStart =
+        List<List<int>?>.filled(text.length, null);
     var node = 0;
-
-    while (pos < text.length) {
+    for (var pos = 0; pos < text.length; pos++) {
       final code = text.codeUnitAt(pos);
-      // 沿 fail 链回退，直到找到有 code 转移的节点或回到根
       while (node != 0 && _children[node][code] == null) {
         node = _fail[node];
       }
       node = _children[node][code] ?? 0;
-
       final outs = _output[node];
-      if (outs.isNotEmpty) {
-        // 同一位置可能有多个模式终止，选最长的
-        var bestLen = 0;
-        var bestIdx = -1;
-        for (final pi in outs) {
-          final len = patterns[pi].length;
-          if (len > bestLen) {
-            bestLen = len;
-            bestIdx = pi;
-          }
-        }
-        final matchStart = pos - bestLen + 1;
-        if (matchStart >= last) {
-          buf.write(text.substring(last, matchStart));
-          buf.write(replacements[bestIdx]);
-          last = pos + 1;
-        }
-        // 非重叠：重置到根
-        node = 0;
+      if (outs.isEmpty) continue;
+      for (final pi in outs) {
+        final len = patterns[pi].length;
+        final start = pos - len + 1;
+        if (start < 0) continue;
+        (candidatesByStart[start] ??= <int>[]).add(pi);
       }
-      pos++;
     }
 
+    // 第 2 遍：从位置 0 贪心选。
+    final buf = StringBuffer();
+    var last = 0;
+    var pos = 0;
+    while (pos < text.length) {
+      final list = candidatesByStart[pos];
+      if (list == null || list.isEmpty) {
+        pos++;
+        continue;
+      }
+      // 选优先级最小（行号最小）。
+      var best = list[0];
+      for (var k = 1; k < list.length; k++) {
+        if (priorities[list[k]] < priorities[best]) {
+          best = list[k];
+        }
+      }
+      final len = patterns[best].length;
+      buf.write(text.substring(last, pos));
+      buf.write(replacements[best]);
+      last = pos + len;
+      pos = last;
+    }
     if (last < text.length) {
       buf.write(text.substring(last));
     }
