@@ -648,3 +648,29 @@ Color? hexToColor(String s) {
   if (v == null) return null;
   return Color(0xFF000000 | v);
 }
+
+// ==================== 查找历史（持久化） ====================
+
+/// 上限 50 条，去重（最新在前）。
+final findHistoryProvider =
+    NotifierProvider<FindHistoryNotifier, List<String>>(
+  FindHistoryNotifier.new,
+);
+
+class FindHistoryNotifier extends StringListPrefNotifier {
+  FindHistoryNotifier() : super(key: PrefKeys.findHistory);
+
+  static const int _max = 50;
+
+  /// 记住一条。空串跳过；重复的挪到最前。
+  void add(String q) {
+    if (q.trim().isEmpty) return;
+    final next = <String>[q, ...state.where((s) => s != q)];
+    if (next.length > _max) next.removeRange(_max, next.length);
+    update(next);
+  }
+
+  void remove(String q) {
+    update(state.where((s) => s != q).toList());
+  }
+}
