@@ -38,7 +38,14 @@ class PrefKeys {
   /// `__block_keyword__` / `__block_regex__`。
   /// 用 \u0000 分隔的字符串存。
   static const String ruleOrder = '${_p}rules.order';
+/// 自定义规则编辑弹窗里，6 个开关的说明文字（用户可编辑）。
+static const String ruleFlagHelp = '${_p}rules.flagHelp';
 
+/// 规则表（普通文字）的详细说明（用户可编辑，为空表示用默认）。
+static const String keywordRulesHelp = '${_p}rules.keywordHelp';
+
+/// 规则表（支持正则）的详细说明（用户可编辑，为空表示用默认）。
+static const String regexRulesHelp = '${_p}rules.regexHelp';
   // ==================== 对比页按钮栏 ====================
   static const String toolbarRules = '${_p}toolbar.rules';
   static const String toolbarOrder = '${_p}toolbar.order';
