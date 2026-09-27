@@ -40,6 +40,12 @@ final RegExp _regexMeta = RegExp(r'[\^$.*+?()\[\]{}|\\]');
 
 bool _isPlainText(String s) => !_regexMeta.hasMatch(s);
 
+/// 规则文本按行切分。兼容 `\r\n` / `\r` / `\n` 三种换行。
+///
+/// **不做 trim**：行首行尾的空格/Tab/全角空格等一律保留，作为用户
+/// 输入的一部分。唯一被跳过的是"完全空白、长度为 0"的行。
+final RegExp _ruleLineSplitter = RegExp(r'\r\n|\r|\n');
+
 // ==================== 写死水印词库（可选） ====================
 
 const List<String> builtinWatermarks = <String>[
@@ -74,10 +80,11 @@ _ParsedKeywordRules _parseKeywordRules(String rulesText) {
   final priorities = <int>[];
 
   var lineNo = 0;
-  for (final raw in rulesText.split('\n')) {
+  for (final line in rulesText.split(_ruleLineSplitter)) {
     final currentLine = lineNo;
     lineNo++;
-    final line = raw.trim();
+    // 只跳过真正的空行（连续换行产生的空行）。
+    // 一行里哪怕只有一个空格，也当作有效查找词。
     if (line.isEmpty) continue;
     final idx = line.indexOf('->=>');
     if (idx >= 0) {
@@ -127,8 +134,8 @@ List<_ParsedRegexRule> _parseRegexRules(String rulesText) {
   if (hit != null) return hit;
 
   final out = <_ParsedRegexRule>[];
-  for (final raw in rulesText.split('\n')) {
-    final line = raw.trim();
+  for (final line in rulesText.split(_ruleLineSplitter)) {
+    // 同关键词表：只跳过空行，不 trim，空格一律保留。
     if (line.isEmpty) continue;
     final idx = line.indexOf('->=>');
     final find = idx >= 0 ? line.substring(0, idx) : line;
