@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'single_file_editor_screen.dart';
 import '../../parser/application/document_parser.dart';
 import '../../preprocessing/domain/encoding_type.dart';
 import '../../import/presentation/providers/import_providers.dart';
@@ -272,16 +272,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     });
   }
 
-  void _openPreview(_EntryInfo info) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => TextPreviewScreen(
-          filePath: info.entity.path,
-          fileName: info.name,
-        ),
-      ),
-    );
-  }
+void _openPreview(_EntryInfo info) {
+  final isText = _textExts.contains(_extOf(info.name));
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => isText
+          ? SingleFileEditorScreen(
+              filePath: info.entity.path,
+              fileName: info.name,
+            )
+          : TextPreviewScreen(
+              filePath: info.entity.path,
+              fileName: info.name,
+            ),
+    ),
+  );
+}
 
   /// 统一构造列表项左侧：可选的复选框 + 文件/文件夹图标。
   /// 复选框用 SizedBox 收窄，选中时不再替换掉图标。
