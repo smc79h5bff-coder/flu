@@ -31,13 +31,8 @@ class SideBySideView extends ConsumerStatefulWidget {
 
   final DiffResult result;
 
-  /// 同步滚动模式：每一行取左右栏较高值的高度表。
   final LineHeightTable syncHeightTable;
-
-  /// 独立滚动模式：左栏高度表。
   final LineHeightTable leftHeightTable;
-
-  /// 独立滚动模式：右栏高度表。
   final LineHeightTable rightHeightTable;
 
   final String? originalFileName;
@@ -92,8 +87,6 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     if (widget.syncScroll) return _buildSynced(context, c);
     return _buildIndependent(context, c);
   }
-
-  // ============ 同步滚动 ============
 
   Widget _buildSynced(BuildContext context, DiffColors c) {
     final meta = cachedLineMeta(widget.result);
@@ -195,8 +188,6 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       ],
     );
   }
-
-  // ============ 独立滚动 ============
 
   Widget _buildIndependent(BuildContext context, DiffColors c) {
     final meta = cachedLineMeta(widget.result);
@@ -615,8 +606,6 @@ class _CharDiff {
   final Color addedFg;
 }
 
-// ========== 查找高亮 spans 的 LRU 缓存 ==========
-
 const int _spansCacheCap = 512;
 final Map<String, List<InlineSpan>> _spansCache =
     <String, List<InlineSpan>>{};
@@ -710,9 +699,9 @@ class _Cell extends StatelessWidget {
     );
     final outline = Theme.of(context).colorScheme.outline;
 
-    final Widget content;
+    final Widget rawContent;
     if (charDiff != null) {
-      content = InlineCharDiff(
+      rawContent = InlineCharDiff(
         before: charDiff!.before,
         after: charDiff!.after,
         side: charDiff!.side,
@@ -727,17 +716,15 @@ class _Cell extends StatelessWidget {
     } else {
       final spans = _cachedSpans(
           text, findQuery, isCurrentMatch, matchYellow, matchPink);
-      if (noWrap) {
-        content = Text.rich(
-          TextSpan(style: body, children: spans),
-          softWrap: false,
-          overflow: TextOverflow.clip,
-          maxLines: 1,
-        );
-      } else {
-        content = Text.rich(TextSpan(style: body, children: spans));
-      }
+      rawContent = Text.rich(TextSpan(style: body, children: spans));
     }
+
+    final Widget content = noWrap
+        ? SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: rawContent,
+          )
+        : rawContent;
 
     return ColoredBox(
       color: bg,
@@ -835,8 +822,6 @@ List<({int orig, int mod})> _lineMeta(DiffResult result) {
   }
   return meta;
 }
-
-// ========== 派生数据缓存 ==========
 
 DiffResult? _lastAlignedRowsFor;
 List<AlignedRow>? _lastAlignedRows;
