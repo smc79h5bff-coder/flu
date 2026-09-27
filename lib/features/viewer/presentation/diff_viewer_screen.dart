@@ -1923,20 +1923,25 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         ),
     };
 
-    if (!noWrap) return inner;
+if (!noWrap) return inner;
 
-    final screenW = MediaQuery.of(context).size.width;
-    final contentW = _getContentWidth(diff, viewMode, screenW);
-    if (contentW <= screenW + 1) return inner;
+// 只有合并视图是单栏，仍走外层横滚。
+if (viewMode == ViewMode.merged) {
+  final screenW = MediaQuery.of(context).size.width;
+  final contentW = _getContentWidth(diff, viewMode, screenW);
+  if (contentW <= screenW + 1) return inner;
+  return SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    controller: _hScrollController,
+    child: SizedBox(
+      width: contentW,
+      child: inner,
+    ),
+  );
+}
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      controller: _hScrollController,
-      child: SizedBox(
-        width: contentW,
-        child: inner,
-      ),
-    );
+// 其余三个视图是双栏，交给它们各自内部横滚。
+return inner;
   }
 
   Widget _buildDiffScaffold(
