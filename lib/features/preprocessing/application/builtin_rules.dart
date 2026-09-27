@@ -4,6 +4,10 @@ import '../domain/preprocessing_rule.dart';
 ///
 /// 默认开：norm_eol / norm_ws / trim_line / norm_comma /
 ///         ig_invisible / ig_ws / ig_empty
+///
+/// 注：所有涉及空白匹配的规则都把全角空格 U+3000 一并纳入，
+/// 否则中文文本里行首的行首缩进（两个全角空格）不会被清理，
+/// 会导致看着一样的两行被判为"全红"。
 class BuiltinRules {
   const BuiltinRules._();
 
@@ -20,7 +24,7 @@ class BuiltinRules {
         PreprocessingRule(
           id: 'norm_ws',
           name: '折叠多余空白',
-          findPattern: r'[ \t]{2,}',
+          findPattern: r'[ \t\u3000]{2,}',
           replaceWith: ' ',
           enabled: true,
           isBuiltin: true,
@@ -28,7 +32,7 @@ class BuiltinRules {
         PreprocessingRule(
           id: 'trim_line',
           name: '去行首尾空白',
-          findPattern: r'^[ \t]+|[ \t]+$',
+          findPattern: r'^[ \t\u3000]+|[ \t\u3000]+$',
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
@@ -63,7 +67,7 @@ class BuiltinRules {
         PreprocessingRule(
           id: 'ig_ws',
           name: '删掉空白符号',
-          findPattern: r'[ \t]+',
+          findPattern: r'[ \t\u3000]+',
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
