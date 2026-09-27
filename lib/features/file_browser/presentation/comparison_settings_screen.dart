@@ -320,9 +320,10 @@ class _ComparisonSettingsScreenState
   Widget _buildTile(_RuleItem item, int index) {
     final dragHandle = ReorderableDragStartListener(
       index: index,
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 12),
-        child: Icon(Icons.drag_handle),
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(child: Icon(Icons.drag_handle)),
       ),
     );
 
@@ -352,55 +353,232 @@ class _ComparisonSettingsScreenState
 
   Widget _buildSingleTile(_SingleRuleItem item, Widget dragHandle) {
     final rule = item.rule;
-    final subtitle = ruleSubtitle(rule);
+    final preview = _shortPreview(rule);
 
-    return ListTile(
+    return Container(
       key: item.key,
-      leading: dragHandle,
-      title: Text(rule.name),
-      subtitle: Text(
-        subtitle,
-        maxLines: 3,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 12),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.only(right: 4),
+      child: Row(
         children: [
-          Switch(
-            value: rule.enabled,
-            onChanged: (v) {
-              if (rule.isBuiltin) {
-                ref
-                    .read(builtinRuleEnablesProvider.notifier)
-                    .setOne(rule.id, v);
-              } else {
-                ref
-                    .read(userRulesProvider.notifier)
-                    .updateRule(rule.copyWith(enabled: v));
-              }
-            },
+          dragHandle,
+          // 中间：规则名 + 一行摘要。长按打开详情弹窗。
+          Expanded(
+            child: GestureDetector(
+              onLongPress: () => _showRuleDetail(rule),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      rule.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-          if (!rule.isBuiltin) ...[
-            IconButton(
-              tooltip: '编辑',
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: () => _editUserRule(rule),
+          // 开关：长按（仅自定义规则）→ 删除确认
+          GestureDetector(
+            onLongPress: rule.isBuiltin
+                ? null
+                : () => _confirmDeleteRule(rule),
+            child: Switch(
+              value: rule.enabled,
+              onChanged: (v) {
+                if (rule.isBuiltin) {
+                  ref
+                      .read(builtinRuleEnablesProvider.notifier)
+                      .setOne(rule.id, v);
+                } else {
+                  ref
+                      .read(userRulesProvider.notifier)
+                      .updateRule(rule.copyWith(enabled: v));
+                }
+              },
             ),
-            IconButton(
-              tooltip: '删除',
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () =>
-                  ref.read(userRulesProvider.notifier).remove(rule.id),
-            ),
-          ] else
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Icon(Icons.lock_outline, size: 16),
+          ),
+          // 编辑按钮（仅自定义规则），加宽。
+          if (!rule.isBuiltin)
+            SizedBox(
+              width: 52,
+              child: IconButton(
+                tooltip: '编辑',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () => _editUserRule(rule),
+              ),
             ),
         ],
       ),
     );
+  }
+
+  /// 一行摘要，用于列表项副标题。
+  String _shortPreview(PreprocessingRule rule) {
+    if (rule.script != null && rule.script!.isNotEmpty) {
+      return '内置脚本 · ${rule.script}';
+    }
+    switch (rule.kind) {
+      case RuleKind.preset:
+        final preset = Presets.byId(rule.presetId ?? '');
+        return preset == null ? '预置功能' : '预置 · ${preset.name}';
+      case RuleKind.js:
+        return 'JS 脚本';
+      case RuleKind.replace:
+        if (rule.findPattern.isEmpty) return '(无内容)';
+        final action = rule.replaceWith.isEmpty
+            ? '删除'
+            : '替换为「${rule.replaceWith}」';
+        return '/${rule.findPattern}/ $action';
+    }
+  }
+
+  /// 长按规则名 → 弹出规则详情。
+  Future<void> _showRuleDetail(PreprocessingRule rule) async {
+    final detail = ruleSubtitle(rule);
+    final kindLabel = switch (rule.kind) {
+      RuleKind.replace => '查找替换',
+      RuleKind.preset => '预置功能',
+      RuleKind.js => 'JS 脚本',
+    };
+    final scopeLabel = switch (rule.scope) {
+      RuleScope.both => '两侧文件',
+      RuleScope.originalOnly => '仅左侧文件',
+      RuleScope.modifiedOnly => '仅右侧文件',
+    };
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) {
+        final s = Theme.of(c).colorScheme;
+        return AlertDialog(
+          insetPadding: const EdgeInsets.all(8),
+          titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  rule.name,
+                  style: const TextStyle(fontSize: 16),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (rule.isBuiltin)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(
+                    '内置',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: s.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.of(c).size.height * 0.6,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _tag(kindLabel, s),
+                      const SizedBox(width: 6),
+                      _tag(scopeLabel, s),
+                      const SizedBox(width: 6),
+                      _tag(rule.enabled ? '已启用' : '已禁用', s),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  SelectableText(
+                    detail.isEmpty ? '(无内容)' : detail,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.6,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _tag(String text, ColorScheme s) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: s.secondaryContainer.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          color: s.onSecondaryContainer,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteRule(PreprocessingRule rule) async {
+    if (rule.isBuiltin) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('删除规则？'),
+        content: Text(
+          '「${rule.name}」将被删除，无法恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      ref.read(userRulesProvider.notifier).remove(rule.id);
+      _toast('已删除「${rule.name}」');
+    }
   }
 
   Widget _buildBlockTile({
@@ -414,7 +592,7 @@ class _ComparisonSettingsScreenState
     final s = Theme.of(context).colorScheme;
     return Padding(
       key: key,
-      padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
+      padding: const EdgeInsets.fromLTRB(0, 4, 8, 4),
       child: Material(
         color: s.secondaryContainer.withOpacity(0.35),
         borderRadius: BorderRadius.circular(8),
