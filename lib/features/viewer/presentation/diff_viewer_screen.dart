@@ -1478,7 +1478,32 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (ok != true) return null;
     return (orig: origCtrl.text, mod: modCtrl.text);
   }
+/// 把"当前视图顶部所在的行"记进 _pendingJumpEntry，
+/// 让重算后跳回原位，而不是被打回文档开头。
+void _rememberCurrentRowForReset() {
+  final diff = _diff;
+  if (diff == null) return;
+  final topRow = _currentTopRow();
+  if (topRow == null) return;
+  final mode = ref.read(viewModeProvider);
+  final map = _entryToRowMapOf(diff, mode);
+  // 反查：当前顶行对应哪个 entry。
+  int? bestEntry;
+  var bestDist = 1 << 30;
+  for (final e in map.entries) {
+    final d = (e.value - topRow).abs();
+    if (d < bestDist) {
+      bestDist = d;
+      bestEntry = e.key;
+    }
+  }
+  if (bestEntry != null) {
+    _pendingJumpEntry = bestEntry;
+    _pendingJumpQueued = false;
+  }
+}
 
+void _resetViewAfterEdit() {
   void _resetViewAfterEdit() {
     _matchEntries = const <int>[];
     _matchPos = -1;
