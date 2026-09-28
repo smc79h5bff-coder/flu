@@ -2182,7 +2182,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final s = Theme.of(context).colorScheme;
 
     return Container(
-      height: 32,
+      height: 42,
       color: s.surfaceVariant.withOpacity(0.25),
       child: Row(
         children: [
@@ -2210,7 +2210,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 1,
-                          vertical: 4,
+                          vertical: 3,
                         ),
                         child: GestureDetector(
                           onTap: () => _onToolbarButtonTap(r),
