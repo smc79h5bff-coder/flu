@@ -56,6 +56,7 @@ class DisplaySettingsSheet extends ConsumerWidget {
     final bodySize = ref.watch(bodyFontSizeProvider);
     final gutterSize = ref.watch(gutterFontSizeProvider);
 
+final contextSize = ref.watch(contextFontSizeProvider);
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.of(context).size.height * 0.85,
@@ -118,6 +119,20 @@ class DisplaySettingsSheet extends ConsumerWidget {
                           .read(gutterFontSizeProvider.notifier)
                           .update(v),
                     ),
+                      Text(
+  '差异行上下2个相同行的字号：${contextSize.toStringAsFixed(0)}',
+  style: Theme.of(context).textTheme.labelMedium,
+),
+Slider(
+  min: 6,
+  max: 20,
+  divisions: 14,
+  value: contextSize,
+  label: contextSize.toStringAsFixed(0),
+  onChanged: (v) => ref
+      .read(contextFontSizeProvider.notifier)
+      .update(v),
+),
                     const Divider(height: 32),
                     Text(
                       '差异颜色',
