@@ -709,10 +709,11 @@ final configKey = '${mq.size.width}|'
           diff.entries[spec.del!].operation == DiffOperation.equal;
     }
 
-    final contextStyle = TextStyle(
-      fontSize: kContextFontSize,
-      height: 1.35,
-    );
+    final ctxSize = ref.read(contextFontSizeProvider);
+final contextStyle = TextStyle(
+  fontSize: ctxSize,
+  height: 1.35,
+);
 
     final table = await computeLineHeightsForTwoPane(
       itemCount: rows.length,
