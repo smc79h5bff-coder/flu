@@ -158,13 +158,22 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
         itemExtentBuilder: (index, dimensions) =>
             widget.heightTable.heightOf(index),
         itemBuilder: (ctx, i) {
-          final spec = rows[i];
-          final int? ei = isLeft ? spec.del : spec.ins;
-          if (ei == null) {
-            return const SizedBox.expand();
-          }
-          final int? otherEi = isLeft ? spec.ins : spec.del;
-          final String? otherText = otherEi != null
+  final spec = rows[i];
+  int? ei = isLeft ? spec.del : spec.ins;
+  if (ei == null) {
+    // 相同行（equal）只挂在 del 上，右侧要退回到对侧取。
+    final fallback = isLeft ? spec.ins : spec.del;
+    if (fallback != null &&
+        widget.result.entries[fallback].operation ==
+            DiffOperation.equal) {
+      ei = fallback;
+    }
+  }
+  if (ei == null) {
+    return const SizedBox.expand();
+  }
+  final int? otherEi = isLeft ? spec.ins : spec.del;
+            final String? otherText = otherEi != null
               ? widget.result.entries[otherEi].text
               : null;
           final e = widget.result.entries[ei];
