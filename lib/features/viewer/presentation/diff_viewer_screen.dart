@@ -1711,38 +1711,51 @@ void _rememberCurrentRowForReset() {
         final heights = snapshot.data!;
         _activeHeights = heights;
 
-        if (_pendingJumpEntry != null && !_pendingJumpQueued) {
-          _pendingJumpQueued = true;
-          final target = _pendingJumpEntry!;
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            if (!mounted) return;
-            _pendingJumpEntry = null;
-            _pendingJumpQueued = false;
 
-            for (var attempt = 0; attempt < 5; attempt++) {
-              if (!mounted) return;
-              if (!_scrollController.hasClients) {
-                await WidgetsBinding.instance.endOfFrame;
-                continue;
-              }
-              if (_scrollController.position.maxScrollExtent > 0 ||
-                  attempt >= 4) {
-                break;
-              }
-              await WidgetsBinding.instance.endOfFrame;
-            }
-            if (!mounted) return;
+        
 
-            if (target < 0) {
-              if (_scrollController.hasClients) {
-                _scrollController.jumpTo(0);
-              }
-            } else {
-              _scrollToEntry(target);
-            }
-          });
-        }
+     if (_pendingJumpEntry != null && !_pendingJumpQueued) {
+  _pendingJumpQueued = true;
+  final target = _pendingJumpEntry!;
+  _log('准备跳转: target=$target mode=${viewMode.name}');
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    if (!mounted) return;
+    _pendingJumpEntry = null;
+    _pendingJumpQueued = false;
 
+    for (var attempt = 0; attempt < 5; attempt++) {
+      if (!mounted) return;
+      if (!_scrollController.hasClients) {
+        await WidgetsBinding.instance.endOfFrame;
+        continue;
+      }
+      if (_scrollController.position.maxScrollExtent > 0 ||
+          attempt >= 4) {
+        break;
+      }
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!mounted) return;
+
+    if (target < 0) {
+      _log('跳转: 走 target<0 分支 → 跳到开头');
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    } else {
+      _log('跳转: 走 _scrollToEntry($target)');
+      _scrollToEntry(target);
+    }
+  });
+}
+
+
+
+
+
+
+
+        
         return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
       },
     );
