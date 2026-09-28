@@ -120,7 +120,7 @@ final contextSize = ref.watch(contextFontSizeProvider);
                           .update(v),
                     ),
                       Text(
-  '差异行上下2个相同行的字号：${contextSize.toStringAsFixed(0)}',
+  '差异上下文相同行的字号：${contextSize.toStringAsFixed(0)}',
   style: Theme.of(context).textTheme.labelMedium,
 ),
 Slider(
