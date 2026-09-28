@@ -15,7 +15,8 @@ import 'side_by_side_view.dart'
 import '../viewer_widgets.dart';
 
 /// 相同行（上下文）字号。比正文小，节省纵向空间。
-const double _contextFontSize = 8.0;
+/// 公开，供 diff_viewer_screen 算高度时保持一致。
+const double kContextFontSize = 8.0;
 
 class DiffOnlyView extends ConsumerStatefulWidget {
   const DiffOnlyView({
@@ -211,9 +212,7 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
         },
       );
 
-      // 左栏不画滚动条，右栏画一根。整屏只显示屏幕最右侧这一根滚动条，
-      // 但两栏 ScrollController 仍由 _syncLR / _syncRL 互相同步，
-      // 手指在任意一栏滑动、或拖动右栏滚动条，两边依旧一起滚。
+      // 左栏不画滚动条，右栏画一根。
       final Widget scrolled = isLeft
           ? list
           : buildViewerScrollbar(child: list, controller: ctrl);
@@ -548,14 +547,14 @@ class _DiffCell extends StatelessWidget {
   final double gutterFontSize;
   final bool noWrap;
 
-  /// 是否是"相同行（上下文）"。是的话：字号用 _contextFontSize，
+  /// 是否是"相同行（上下文）"。是的话：字号用 kContextFontSize，
   /// 并强制不换行（截断），用来节省纵向空间。
   final bool isContext;
 
   @override
   Widget build(BuildContext context) {
     final double effectiveFontSize =
-        isContext ? _contextFontSize : bodyFontSize;
+        isContext ? kContextFontSize : bodyFontSize;
     final bool effectiveNoWrap = isContext ? true : noWrap;
 
     final body = TextStyle(
@@ -608,7 +607,7 @@ class _DiffCell extends StatelessWidget {
                   line < 0 ? '' : '$line',
                   textAlign: TextAlign.end,
                   style: TextStyle(
-                    fontSize: isContext ? _contextFontSize : gutterFontSize,
+                    fontSize: isContext ? kContextFontSize : gutterFontSize,
                     color: outline,
                   ),
                 ),
