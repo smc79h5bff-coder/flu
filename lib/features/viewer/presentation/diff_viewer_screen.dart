@@ -1395,6 +1395,10 @@ final contextStyle = TextStyle(
     ref.read(importRevisionProvider.notifier).state++;
     _pendingJumpEntry = origEntryIdx ?? modEntryIdx;
     _pendingJumpQueued = false;
+    
+  _log('编辑行: pending=$_pendingJumpEntry origIdx=$origEntryIdx modIdx=$modEntryIdx');
+ 
+
     _resetViewAfterEdit();
   }
 
