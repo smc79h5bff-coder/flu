@@ -8,7 +8,6 @@ import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
 
-/// Merged single-pane view: original + modified interleaved.
 class MergedView extends ConsumerWidget {
   const MergedView({
     required this.result,
@@ -27,11 +26,7 @@ class MergedView extends ConsumerWidget {
   });
 
   final DiffResult result;
-
-  /// 每项精确高度表。ListView 用它做 itemExtent，
-  /// 滚动条 / 跳转都因此变成 100% 准。
   final LineHeightTable heightTable;
-
   final ScrollController? controller;
   final bool lineNumbers;
   final String findQuery;
@@ -50,6 +45,7 @@ class MergedView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final meta = cachedMergedMeta(result);
     final order = cachedMergedOrder(result);
+    final pairs = cachedMergedPairs(result);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final thumbColor = (isDark ? Colors.white : Colors.black)
         .withValues(alpha: 0.42);
@@ -71,7 +67,6 @@ class MergedView extends ConsumerWidget {
           addAutomaticKeepAlives: false,
           addRepaintBoundaries: false,
           cacheExtent: 100,
-          // 有了它，ListView 知道每项确切多高，不再估算 maxScrollExtent。
           itemExtentBuilder: (index, dimensions) {
             return heightTable.heightOf(index);
           },
@@ -82,6 +77,7 @@ class MergedView extends ConsumerWidget {
                 currentMatchEntry != null && ei == currentMatchEntry;
             final tile = _EntryTile(
               entry: e,
+              pairedText: pairs[ei],
               lineNumber: lineNumbers ? meta[ei].orig : 0,
               findQuery: findQuery,
               isCurrentMatch: isCurrent,
@@ -192,6 +188,52 @@ List<int> _mergedOrder(List<DiffEntry> entries) {
   return order;
 }
 
+/// entry 索引 → 配对的对侧文本。只有 (del, ins) 成对出现的那些 entry
+/// 才在 map 里。用来让行内字符高亮知道"对面长什么样"。
+DiffResult? _lastMergedPairsFor;
+Map<int, String>? _lastMergedPairs;
+
+Map<int, String> cachedMergedPairs(DiffResult result) {
+  if (identical(_lastMergedPairsFor, result) && _lastMergedPairs != null) {
+    return _lastMergedPairs!;
+  }
+  final map = <int, String>{};
+  final entries = result.entries;
+  var i = 0;
+  while (i < entries.length) {
+    final e = entries[i];
+    if (e.operation == DiffOperation.delete ||
+        e.operation == DiffOperation.insert) {
+      final delStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.delete) {
+        i++;
+      }
+      final delEnd = i;
+      final insStart = i;
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.insert) {
+        i++;
+      }
+      final insEnd = i;
+
+      final delCount = delEnd - delStart;
+      final insCount = insEnd - insStart;
+      final pairs = delCount < insCount ? delCount : insCount;
+
+      for (var k = 0; k < pairs; k++) {
+        map[delStart + k] = entries[insStart + k].text;
+        map[insStart + k] = entries[delStart + k].text;
+      }
+    } else {
+      i++;
+    }
+  }
+  _lastMergedPairs = map;
+  _lastMergedPairsFor = result;
+  return map;
+}
+
 // ========== 查找高亮 spans 的 LRU 缓存 ==========
 
 const int _spansCacheCap = 512;
@@ -248,6 +290,7 @@ List<InlineSpan> _buildSpans(
 class _EntryTile extends StatelessWidget {
   const _EntryTile({
     required this.entry,
+    required this.pairedText,
     required this.lineNumber,
     required this.findQuery,
     required this.isCurrentMatch,
@@ -260,6 +303,7 @@ class _EntryTile extends StatelessWidget {
   });
 
   final DiffEntry entry;
+  final String? pairedText;
   final int lineNumber;
   final String findQuery;
   final bool isCurrentMatch;
@@ -275,32 +319,48 @@ class _EntryTile extends StatelessWidget {
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color;
     final outline = Theme.of(context).colorScheme.outline;
 
+    // 被改行（有配对）：用"浅色 + 行内字符差异"
+    // 纯增/纯删（无配对）：用"整行纯色"
+    final bool isReplace =
+        pairedText != null && pairedText!.isNotEmpty;
+
     final Widget row = switch (entry.operation) {
       DiffOperation.equal => _plain(
           context,
           text: entry.text,
           color: defaultFg,
         ),
-      DiffOperation.insert => _highlighted(
+      DiffOperation.insert => isReplace
+          ? _replaceRow(
+              context,
+              before: pairedText!,
+              after: entry.text,
+              isLeft: false,
+            )
+          : _highlighted(
+              context,
+              text: entry.text,
+              color: AppColors.addedOf(context),
+              symbol: '+',
+            ),
+      DiffOperation.delete => isReplace
+          ? _replaceRow(
+              context,
+              before: entry.text,
+              after: pairedText!,
+              isLeft: true,
+            )
+          : _highlighted(
+              context,
+              text: entry.text,
+              color: AppColors.deletedOf(context),
+              symbol: '-',
+            ),
+      DiffOperation.replace => _replaceRow(
           context,
-          text: entry.text,
-          color: AppColors.addedOf(context),
-          symbol: '+',
-        ),
-      DiffOperation.delete => _highlighted(
-          context,
-          text: entry.text,
-          color: AppColors.deletedOf(context),
-          symbol: '-',
-        ),
-      DiffOperation.replace => _highlighted(
-          context,
-          text: entry.text,
-          color: AppColors.modifiedOf(context),
-          symbol: '~',
-          charDiffBefore: entry.oldText,
-          charDiffAfter: entry.newText.isEmpty ? entry.text : entry.newText,
-          charDiffSide: true,
+          before: entry.oldText.isEmpty ? entry.text : entry.oldText,
+          after: entry.newText.isEmpty ? entry.text : entry.newText,
+          isLeft: true,
         ),
     };
 
@@ -322,6 +382,68 @@ class _EntryTile extends StatelessWidget {
         ),
         Expanded(child: row),
       ],
+    );
+  }
+
+  /// 被改行：浅色背景 + 行内字符差异。
+  Widget _replaceRow(
+    BuildContext context, {
+    required String before,
+    required String after,
+    required bool isLeft,
+  }) {
+    final style = TextStyle(
+      fontSize: bodyFontSize,
+      color: isLeft
+          ? AppColors.deletedOf(context)
+          : AppColors.addedOf(context),
+      height: 1.35,
+    );
+
+    final content = InlineCharDiff(
+      before: before,
+      after: after,
+      side: !isLeft,
+      style: style,
+      findQuery: findQuery,
+      isCurrentMatch: isCurrentMatch,
+    );
+
+    final barColor = isLeft
+        ? AppColors.deletedOf(context)
+        : AppColors.addedOf(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
+      child: ColoredBox(
+        color: barColor.withValues(alpha: 0.12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 3, color: barColor),
+            const SizedBox(width: 4),
+            if (showLineNumbers)
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(
+                  '~',
+                  style: TextStyle(
+                    color: barColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: bodyFontSize,
+                  ),
+                ),
+              ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: content,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -353,9 +475,6 @@ class _EntryTile extends StatelessWidget {
     required String text,
     required Color color,
     required String symbol,
-    String? charDiffBefore,
-    String? charDiffAfter,
-    bool charDiffSide = true,
   }) {
     final style = TextStyle(
       fontSize: bodyFontSize,
@@ -363,32 +482,22 @@ class _EntryTile extends StatelessWidget {
       height: 1.35,
     );
 
-    final Widget content =
-        (charDiffAfter != null && charDiffBefore != null)
-            ? InlineCharDiff(
-                before: charDiffBefore,
-                after: charDiffAfter,
-                side: charDiffSide,
-                style: style,
-                findQuery: findQuery,
-                isCurrentMatch: isCurrentMatch,
-              )
-            : (noWrap
-                ? Text.rich(
-                    TextSpan(
-                      style: style,
-                      children: _cachedSpans(text, findQuery, isCurrentMatch,
-                          matchYellow, matchPink),
-                    ),
-                    softWrap: false,
-                    overflow: TextOverflow.clip,
-                    maxLines: 1,
-                  )
-                : Text.rich(TextSpan(
-                    style: style,
-                    children: _cachedSpans(text, findQuery, isCurrentMatch,
-                        matchYellow, matchPink),
-                  )));
+    final content = noWrap
+        ? Text.rich(
+            TextSpan(
+              style: style,
+              children: _cachedSpans(
+                  text, findQuery, isCurrentMatch, matchYellow, matchPink),
+            ),
+            softWrap: false,
+            overflow: TextOverflow.clip,
+            maxLines: 1,
+          )
+        : Text.rich(TextSpan(
+            style: style,
+            children: _cachedSpans(
+                text, findQuery, isCurrentMatch, matchYellow, matchPink),
+          ));
 
     return Padding(
       padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
