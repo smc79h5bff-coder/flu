@@ -12,7 +12,8 @@ class PrefKeys {
   static const String bodyFontSize = '${_p}display.bodyFontSize';
   static const String gutterFontSize = '${_p}display.gutterFontSize';
   static const String syncScroll = '${_p}display.syncScroll';
-
+static const String contextFontSize = '${_p}display.contextFontSize';
+  
   // ==================== 12 个差异颜色 ====================
   static const String colorDeleteRowBg = '${_p}color.deleteRowBg';
   static const String colorDeleteRowFg = '${_p}color.deleteRowFg';
