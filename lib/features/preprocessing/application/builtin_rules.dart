@@ -2,7 +2,7 @@ import '../domain/preprocessing_rule.dart';
 
 /// 内置规则。原「忽略项」那 8 条已并入这里，不再有单独的忽略体系。
 ///
-/// 默认开：norm_eol / norm_ws / trim_line / norm_comma /
+/// 默认开：norm_eol / norm_ws / trim_line /
 ///         ig_invisible / ig_ws / ig_empty
 ///
 /// 注：所有涉及空白匹配的规则都把全角空格 U+3000 一并纳入，
@@ -46,11 +46,10 @@ class BuiltinRules {
           isBuiltin: true,
         ),
         PreprocessingRule(
-          id: 'norm_comma',
-          name: '逗号空格归一',
-          findPattern: r'[,，] +',
-          replaceWith: '，',
-          enabled: true,
+          id: 'half_to_full',
+          name: '半角转全角',
+          script: 'halfToFull',
+          enabled: false,
           isBuiltin: true,
         ),
 
