@@ -1505,7 +1505,7 @@ void _rememberCurrentRowForReset() {
   }
 }
 
-void _resetViewAfterEdit() {
+
   void _resetViewAfterEdit() {
     _matchEntries = const <int>[];
     _matchPos = -1;
