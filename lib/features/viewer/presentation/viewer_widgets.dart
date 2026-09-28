@@ -9,6 +9,42 @@ import '../../preprocessing/domain/preprocessing_rule.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'providers/toolbar_rules_provider.dart';
 
+// ==================== 四个视图统一的竖向滚动条 ====================
+
+/// 四个视图（差异行+上下文 / 仅差异行 / 并排 / 合并）共用的竖向滚动条。
+///
+/// 想调样式只改这一处：
+///   - 颜色 / 透明度
+///   - 粗细 thickness
+///   - 圆角 radius
+///   - 最小长度 minThumbLength
+///   - 是否显示轨道 trackVisibility
+///
+/// 三个双栏视图（前三个）只给右栏画、左栏不画，
+/// 整屏只显示屏幕最右侧这一根滚动条。
+Widget buildViewerScrollbar({
+  required Widget child,
+  ScrollController? controller,
+}) {
+  return ScrollbarTheme(
+    data: ScrollbarThemeData(
+      // #D4D4DC @ 40%。深浅模式都用这个颜色。
+      thumbColor: WidgetStatePropertyAll(
+        const Color(0xFFD4D4DC).withValues(alpha: 0.40),
+      ),
+      thickness: const WidgetStatePropertyAll(16),
+      radius: const Radius.circular(8),
+      minThumbLength: 40,
+      trackVisibility: const WidgetStatePropertyAll(false),
+    ),
+    child: Scrollbar(
+      controller: controller,
+      interactive: true,
+      child: child,
+    ),
+  );
+}
+
 // ==================== 显示设置底部面板 ====================
 
 class DisplaySettingsSheet extends ConsumerWidget {
