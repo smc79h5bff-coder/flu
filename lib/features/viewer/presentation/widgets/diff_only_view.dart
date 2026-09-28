@@ -158,22 +158,22 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
         itemExtentBuilder: (index, dimensions) =>
             widget.heightTable.heightOf(index),
         itemBuilder: (ctx, i) {
-  final spec = rows[i];
-  int? ei = isLeft ? spec.del : spec.ins;
-  if (ei == null) {
-    // 相同行（equal）只挂在 del 上，右侧要退回到对侧取。
-    final fallback = isLeft ? spec.ins : spec.del;
-    if (fallback != null &&
-        widget.result.entries[fallback].operation ==
-            DiffOperation.equal) {
-      ei = fallback;
-    }
-  }
-  if (ei == null) {
-    return const SizedBox.expand();
-  }
-  final int? otherEi = isLeft ? spec.ins : spec.del;
-            final String? otherText = otherEi != null
+          final spec = rows[i];
+          int? ei = isLeft ? spec.del : spec.ins;
+          if (ei == null) {
+            // 相同行（equal）只挂在 del 上，右侧要退回到对侧取。
+            final fallback = isLeft ? spec.ins : spec.del;
+            if (fallback != null &&
+                widget.result.entries[fallback].operation ==
+                    DiffOperation.equal) {
+              ei = fallback;
+            }
+          }
+          if (ei == null) {
+            return const SizedBox.expand();
+          }
+          final int? otherEi = isLeft ? spec.ins : spec.del;
+          final String? otherText = otherEi != null
               ? widget.result.entries[otherEi].text
               : null;
           final e = widget.result.entries[ei];
@@ -267,8 +267,18 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
         final n = t.runes.length;
         if (n > maxL) maxL = n;
       }
-      if (spec.ins != null) {
-        final t = _displayFor(widget.result.entries[spec.ins!], false);
+      // 右侧：优先用 ins；没有的话，若对侧 del 是相同行，借它来算宽度。
+      // （相同行只挂在 del 上，否则右侧相同行不会被计入宽度，
+      //   不换行模式下右侧长行会被截断。）
+      int? rightEi = spec.ins;
+      if (rightEi == null &&
+          spec.del != null &&
+          widget.result.entries[spec.del!].operation ==
+              DiffOperation.equal) {
+        rightEi = spec.del;
+      }
+      if (rightEi != null) {
+        final t = _displayFor(widget.result.entries[rightEi], false);
         final n = t.runes.length;
         if (n > maxR) maxR = n;
       }
