@@ -12,6 +12,7 @@ import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
 import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
+import 'viewer_widgets.dart';
 
 class DiffOnlyView extends ConsumerStatefulWidget {
   const DiffOnlyView({
@@ -120,7 +121,6 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
     final rows = cachedDiffOnlyRows(widget.result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final mq = MediaQuery.of(context);
     final viewportW = mq.size.width;
@@ -143,28 +143,6 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
                 color: color,
                 isOriginal: isOriginal,
               ),
-      );
-    }
-
-    Widget wrapScrollbar({
-      required Widget child,
-      required ScrollController ctrl,
-    }) {
-      return ScrollbarTheme(
-        data: ScrollbarThemeData(
-          thumbColor: WidgetStatePropertyAll(
-            (isDark ? Colors.black : Colors.white).withValues(alpha: 0.22),
-),
-              thickness: const WidgetStatePropertyAll(16),
-          radius: const Radius.circular(8),
-          minThumbLength: 40,
-          trackVisibility: const WidgetStatePropertyAll(false),
-        ),
-        child: Scrollbar(
-          controller: ctrl,
-          interactive: true,
-          child: child,
-        ),
       );
     }
 
@@ -220,17 +198,24 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
         },
       );
 
+      // 左栏不画滚动条，右栏画一根。整屏只显示屏幕最右侧这一根滚动条，
+      // 但两栏 ScrollController 仍由 _syncLR / _syncRL 互相同步，
+      // 手指在任意一栏滑动、或拖动右栏滚动条，两边依旧一起滚。
+      final Widget scrolled = isLeft
+          ? list
+          : buildViewerScrollbar(child: list, controller: ctrl);
+
       if (widget.noWrap) {
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
             width: contentWidth,
             height: double.infinity,
-            child: wrapScrollbar(child: list, ctrl: ctrl),
+            child: scrolled,
           ),
         );
       }
-      return wrapScrollbar(child: list, ctrl: ctrl);
+      return scrolled;
     }
 
     return Column(
