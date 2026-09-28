@@ -775,23 +775,26 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 滚动 / 跳转 ====================
 
-  /// 【新增】在新 diff 里按"原文行号"反查最接近的 entry 索引。
-  /// 找不到就返回 null。用来跨重算稳定跳转。
-  int? _findEntryByOrigLine(DiffResult diff, int origLine) {
-    final meta = _computeLineMeta(diff);
-    int? best;
-    var bestDist = 1 << 30;
-    for (var i = 0; i < meta.length; i++) {
-      final o = meta[i].orig;
-      if (o < 0) continue;
-      final d = (o - origLine).abs();
-      if (d < bestDist) {
-        bestDist = d;
-        best = i;
-      }
+/// 【新增】在新 diff 里按"原文行号"反查最接近的 entry 索引。
+/// **只在当前视图可见的 entries 里找**，否则反查出来的 entry
+/// 可能在 _entryToRowMapOf 里不存在，导致 _scrollToEntry 静默失败。
+int? _findEntryByOrigLine(DiffResult diff, int origLine) {
+  final mode = ref.read(viewModeProvider);
+  final visible = _visibleEntriesFor(mode, diff);
+  final meta = _computeLineMeta(diff);
+  int? best;
+  var bestDist = 1 << 30;
+  for (final i in visible) {
+    final o = meta[i].orig;
+    if (o < 0) continue;
+    final d = (o - origLine).abs();
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
     }
-    return best;
   }
+  return best;
+}
 
   void _scrollToEntry(int entryIndex) {
     final diff = _diff;
