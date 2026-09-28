@@ -1839,7 +1839,8 @@ void _rememberCurrentRowForReset() {
           showLineNumbers: ref.watch(showLineNumbersProvider),
           bodyFontSize: ref.watch(bodyFontSizeProvider),
           gutterFontSize: ref.watch(gutterFontSizeProvider),
-          noWrap: noWrap,
+          contextFontSize: ref.watch(contextFontSizeProvider),
+        noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
       ViewMode.diffOnlyPlain => DiffOnlyPlainView(
