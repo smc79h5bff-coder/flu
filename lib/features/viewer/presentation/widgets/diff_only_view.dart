@@ -153,8 +153,8 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       return ScrollbarTheme(
         data: ScrollbarThemeData(
           thumbColor: WidgetStatePropertyAll(
-            (isDark ? Colors.white : Colors.black).withValues(alpha: 0.22),
-          ),
+  Colors.white.withValues(alpha: 0.22),
+),
           thickness: const WidgetStatePropertyAll(16),
           radius: const Radius.circular(8),
           minThumbLength: 40,
