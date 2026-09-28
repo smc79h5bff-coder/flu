@@ -808,19 +808,28 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   List<int> _diffIndices() {
-    final diff = _diff;
-    if (diff == null) return const <int>[];
-    if (identical(_cachedDiffIndicesFor, diff) && _cachedDiffIndices != null) {
-      return _cachedDiffIndices!;
-    }
-    final list = <int>[
-      for (var i = 0; i < diff.entries.length; i++)
-        if (diff.entries[i].operation != DiffOperation.equal) i,
-    ];
-    _cachedDiffIndices = list;
-    _cachedDiffIndicesFor = diff;
-    return list;
+  final diff = _diff;
+  if (diff == null) return const <int>[];
+  if (identical(_cachedDiffIndicesFor, diff) && _cachedDiffIndices != null) {
+    return _cachedDiffIndices!;
   }
+  // 按"连续差异块"取：一段连续的非 equal 行只取第一个。
+  // 中间只要夹了 equal 行，就算新的一段。
+  final list = <int>[];
+  var inBlock = false;
+  for (var i = 0; i < diff.entries.length; i++) {
+    final isDiff = diff.entries[i].operation != DiffOperation.equal;
+    if (isDiff && !inBlock) {
+      list.add(i);
+      inBlock = true;
+    } else if (!isDiff) {
+      inBlock = false;
+    }
+  }
+  _cachedDiffIndices = list;
+  _cachedDiffIndicesFor = diff;
+  return list;
+}
 
   int _diffBlockCount(DiffResult diff) {
     var count = 0;
