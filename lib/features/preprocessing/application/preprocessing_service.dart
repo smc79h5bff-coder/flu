@@ -150,6 +150,8 @@ String _applyReplace(String text, PreprocessingRule rule) {
         return unifyToAnsi(text);
       case 'halfToFull':
         return halfToFull(text);
+      case 'enPunctToCn':
+        return enPunctToCn(text);
     }
     return text;
   }
@@ -237,4 +239,28 @@ String halfToFull(String text) {
     if (c == 0x20) return 0x3000;
     return c;
   }));
+}
+
+/// 英文标点 → 中文标点。
+/// 只转下表列出的常见英文标点，其它字符不动。
+const Map<String, String> _enToCnPunct = {
+  ',': '，',
+  '.': '。',
+  '!': '！',
+  '?': '？',
+  '＊': '*',
+  ';': '；',
+  ':': '：',
+  '(': '（',
+  ')': '）',
+  '-': '—',
+  '~': '～',
+};
+
+String enPunctToCn(String text) {
+  var out = text;
+  for (final e in _enToCnPunct.entries) {
+    out = out.replaceAll(e.key, e.value);
+  }
+  return out;
 }
