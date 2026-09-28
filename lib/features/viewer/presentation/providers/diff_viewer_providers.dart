@@ -614,7 +614,7 @@ class DeleteRowBgNotifier extends ColorPrefNotifier {
   DeleteRowBgNotifier()
       : super(
           key: PrefKeys.colorDeleteRowBg,
-          initial: const Color(0xFFFF0000),
+          initial: const Color(0xFFFFA6A6),
         );
 }
 
@@ -636,7 +636,7 @@ class InsertRowBgNotifier extends ColorPrefNotifier {
   InsertRowBgNotifier()
       : super(
           key: PrefKeys.colorInsertRowBg,
-          initial: const Color(0xFF00FF00),
+          initial: const Color(0xFF7DFF5E),
         );
 }
 
@@ -660,7 +660,7 @@ class ReplaceLeftBgNotifier extends ColorPrefNotifier {
   ReplaceLeftBgNotifier()
       : super(
           key: PrefKeys.colorReplaceLeftBg,
-          initial: const Color(0xFFFFCDD2),
+          initial: const Color(0xFFFFEEEF),
         );
 }
 
@@ -686,7 +686,7 @@ class ReplaceRightBgNotifier extends ColorPrefNotifier {
   ReplaceRightBgNotifier()
       : super(
           key: PrefKeys.colorReplaceRightBg,
-          initial: const Color(0xFFC8E6C9),
+          initial: const Color(0xFFD8FFDA),
         );
 }
 
@@ -732,7 +732,7 @@ class CharInsertBgNotifier extends ColorPrefNotifier {
   CharInsertBgNotifier()
       : super(
           key: PrefKeys.colorCharInsertBg,
-          initial: const Color(0xFF1B5E20),
+          initial: const Color(0xFF007709),
         );
 }
 
