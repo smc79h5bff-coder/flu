@@ -52,6 +52,13 @@ class BuiltinRules {
           enabled: false,
           isBuiltin: true,
         ),
+        PreprocessingRule(
+          id: 'en_punct_to_cn',
+          name: '英文标点转中文',
+          script: 'enPunctToCn',
+          enabled: false,
+          isBuiltin: true,
+        ),
 
         // ============ 原「忽略项」搬入 ============
         PreprocessingRule(
@@ -76,14 +83,6 @@ class BuiltinRules {
           name: '删掉空行',
           script: 'dropEmptyLines',
           enabled: true,
-          isBuiltin: true,
-        ),
-        PreprocessingRule(
-          id: 'ig_comma',
-          name: '忽略逗号',
-          findPattern: r'[,，]',
-          replaceWith: '',
-          enabled: false,
           isBuiltin: true,
         ),
         PreprocessingRule(
