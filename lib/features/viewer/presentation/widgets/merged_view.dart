@@ -7,6 +7,7 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
+import 'viewer_widgets.dart';
 
 class MergedView extends ConsumerWidget {
   const MergedView({
@@ -46,66 +47,54 @@ class MergedView extends ConsumerWidget {
     final meta = cachedMergedMeta(result);
     final order = cachedMergedOrder(result);
     final pairs = cachedMergedPairs(result);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final thumbColor = (isDark ? Colors.white : Colors.black)
-        .withValues(alpha: 0.42);
 
-    return ScrollbarTheme(
-      data: ScrollbarThemeData(
-        thumbColor: WidgetStatePropertyAll(thumbColor),
-        thickness: const WidgetStatePropertyAll(12),
-        radius: const Radius.circular(6),
-        trackVisibility: const WidgetStatePropertyAll(false),
-      ),
-      child: Scrollbar(
+    return buildViewerScrollbar(
+      controller: controller,
+      child: ListView.builder(
         controller: controller,
-        interactive: true,
-        child: ListView.builder(
-          controller: controller,
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          itemCount: order.length,
-          addAutomaticKeepAlives: false,
-          addRepaintBoundaries: false,
-          cacheExtent: 100,
-          itemExtentBuilder: (index, dimensions) {
-            return heightTable.heightOf(index);
-          },
-          itemBuilder: (ctx, i) {
-            final ei = order[i];
-            final e = result.entries[ei];
-            final isCurrent =
-                currentMatchEntry != null && ei == currentMatchEntry;
-            final tile = _EntryTile(
-              entry: e,
-              pairedText: pairs[ei],
-              lineNumber: lineNumbers ? meta[ei].orig : 0,
-              findQuery: findQuery,
-              isCurrentMatch: isCurrent,
-              matchYellow: _matchYellow,
-              matchPink: _matchPink,
-              showLineNumbers: showLineNumbers,
-              bodyFontSize: bodyFontSize,
-              gutterFontSize: gutterFontSize,
-              noWrap: noWrap,
-            );
-            final wrapped = onLongPressEntry == null
-                ? tile
-                : GestureDetector(
-                    onLongPress: () => onLongPressEntry!(ei),
-                    behavior: HitTestBehavior.opaque,
-                    child: tile,
-                  );
-            final Widget framed = (jumpedToEntry == ei)
-                ? Container(
-                    foregroundDecoration: BoxDecoration(
-                      border: Border.all(color: Colors.black, width: 2),
-                    ),
-                    child: wrapped,
-                  )
-                : wrapped;
-            return KeyedSubtree(key: ValueKey<int>(ei), child: framed);
-          },
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        itemCount: order.length,
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
+        cacheExtent: 100,
+        itemExtentBuilder: (index, dimensions) {
+          return heightTable.heightOf(index);
+        },
+        itemBuilder: (ctx, i) {
+          final ei = order[i];
+          final e = result.entries[ei];
+          final isCurrent =
+              currentMatchEntry != null && ei == currentMatchEntry;
+          final tile = _EntryTile(
+            entry: e,
+            pairedText: pairs[ei],
+            lineNumber: lineNumbers ? meta[ei].orig : 0,
+            findQuery: findQuery,
+            isCurrentMatch: isCurrent,
+            matchYellow: _matchYellow,
+            matchPink: _matchPink,
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
+            noWrap: noWrap,
+          );
+          final wrapped = onLongPressEntry == null
+              ? tile
+              : GestureDetector(
+                  onLongPress: () => onLongPressEntry!(ei),
+                  behavior: HitTestBehavior.opaque,
+                  child: tile,
+                );
+          final Widget framed = (jumpedToEntry == ei)
+              ? Container(
+                  foregroundDecoration: BoxDecoration(
+                    border: Border.all(color: Colors.black, width: 2),
+                  ),
+                  child: wrapped,
+                )
+              : wrapped;
+          return KeyedSubtree(key: ValueKey<int>(ei), child: framed);
+        },
       ),
     );
   }
