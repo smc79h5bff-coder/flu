@@ -693,6 +693,26 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           ? _HeightBundle(diffOnlyPlain: cached)
           : _HeightBundle(diffOnly: cached);
     }
+
+    // 差异行+上下文视图：相同行用小字号 + 不换行（截断）。
+    // 仅差异行视图不显示相同行，不需要 override。
+    final bool needContextOverride = !isPlain;
+
+    // 判断 AlignedRow 是不是"相同行"。
+    // 相同行在 computeAlignedRows 里只挂在 del 上，ins 为 null。
+    bool isContextRow(int i) {
+      if (i < 0 || i >= rows.length) return false;
+      final spec = rows[i];
+      return spec.ins == null &&
+          spec.del != null &&
+          diff.entries[spec.del!].operation == DiffOperation.equal;
+    }
+
+    final contextStyle = TextStyle(
+      fontSize: kContextFontSize,
+      height: 1.35,
+    );
+
     final table = await computeLineHeightsForTwoPane(
       itemCount: rows.length,
       leftWidth: contentW,
@@ -723,6 +743,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       textScaler: scaler,
       noWrap: noWrap,
       extraVerticalPadding: 4,
+      styleForItem: needContextOverride
+          ? (i) => isContextRow(i) ? contextStyle : null
+          : null,
+      noWrapForItem: needContextOverride
+          ? (i) => isContextRow(i) ? true : noWrap
+          : null,
     );
     LineHeightCache.instance.put(k, table);
     ViewerDiag.mark('高度: 完成 (${mode.name})');
@@ -808,28 +834,28 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   List<int> _diffIndices() {
-  final diff = _diff;
-  if (diff == null) return const <int>[];
-  if (identical(_cachedDiffIndicesFor, diff) && _cachedDiffIndices != null) {
-    return _cachedDiffIndices!;
-  }
-  // 按"连续差异块"取：一段连续的非 equal 行只取第一个。
-  // 中间只要夹了 equal 行，就算新的一段。
-  final list = <int>[];
-  var inBlock = false;
-  for (var i = 0; i < diff.entries.length; i++) {
-    final isDiff = diff.entries[i].operation != DiffOperation.equal;
-    if (isDiff && !inBlock) {
-      list.add(i);
-      inBlock = true;
-    } else if (!isDiff) {
-      inBlock = false;
+    final diff = _diff;
+    if (diff == null) return const <int>[];
+    if (identical(_cachedDiffIndicesFor, diff) && _cachedDiffIndices != null) {
+      return _cachedDiffIndices!;
     }
+    // 按"连续差异块"取：一段连续的非 equal 行只取第一个。
+    // 中间只要夹了 equal 行，就算新的一段。
+    final list = <int>[];
+    var inBlock = false;
+    for (var i = 0; i < diff.entries.length; i++) {
+      final isDiff = diff.entries[i].operation != DiffOperation.equal;
+      if (isDiff && !inBlock) {
+        list.add(i);
+        inBlock = true;
+      } else if (!isDiff) {
+        inBlock = false;
+      }
+    }
+    _cachedDiffIndices = list;
+    _cachedDiffIndicesFor = diff;
+    return list;
   }
-  _cachedDiffIndices = list;
-  _cachedDiffIndicesFor = diff;
-  return list;
-}
 
   int _diffBlockCount(DiffResult diff) {
     var count = 0;
@@ -1110,79 +1136,21 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   Future<void> _openComparisonSettings() async {
-  final changed = await Navigator.of(context).push<bool>(
-    MaterialPageRoute<bool>(
-      builder: (_) => const ComparisonSettingsScreen(
-        confirmOnExit: true,
-      ),
-    ),
-  );
-  if (!mounted) return;
-  if (changed != true) {
-    _log('比较设置返回，规则未变，跳过重算');
-    return;
-  }
-  _log('比较设置返回，规则已变，重算');
-  ref.read(importRevisionProvider.notifier).state++;
-  _resetViewAfterEdit();
-}
-
-  // ==================== 行诊断 ====================
-
-  Future<void> _showRowDiagnoseDialog(String left, String right) async {
-    final maxLen = left.length > right.length ? left.length : right.length;
-    final diffAt = <int>{};
-    for (var i = 0; i < maxLen; i++) {
-      final l = i < left.length ? left.codeUnitAt(i) : -1;
-      final r = i < right.length ? right.codeUnitAt(i) : -1;
-      if (l != r) diffAt.add(i);
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: Text(
-          diffAt.isEmpty ? '两边完全一样' : '差异 ${diffAt.length} 处（★ 标记）',
-          style: const TextStyle(fontSize: 14),
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const ComparisonSettingsScreen(
+          confirmOnExit: true,
         ),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.75,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('左长度 ${left.length}，右长度 ${right.length}',
-                    style: Theme.of(c).textTheme.labelSmall),
-                const Divider(),
-                const Text('左：',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                SelectableText(
-                  dumpChars(left, diffAt: diffAt),
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 12, height: 1.5),
-                ),
-                const SizedBox(height: 16),
-                const Text('右：',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                SelectableText(
-                  dumpChars(right, diffAt: diffAt),
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 12, height: 1.5),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
       ),
     );
+    if (!mounted) return;
+    if (changed != true) {
+      _log('比较设置返回，规则未变，跳过重算');
+      return;
+    }
+    _log('比较设置返回，规则已变，重算');
+    ref.read(importRevisionProvider.notifier).state++;
+    _resetViewAfterEdit();
   }
 
   // ==================== 导出差异 ====================
@@ -1311,7 +1279,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
-  // ==================== 长按：复制 / 就地编辑 / 诊断 ====================
+  // ==================== 长按：直接编辑 ====================
 
   List<({int orig, int mod})> _computeLineMeta(DiffResult result) {
     final meta = <({int orig, int mod})>[];
@@ -1398,36 +1366,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       if (m >= 0) modLine = m;
     }
 
-    final action = await _showRowActionSheet(
-      origText: origText,
-      modText: modText,
-    );
-    if (!mounted || action == null) return;
-
-    switch (action) {
-      case 'copyOrig':
-        if (origText != null) {
-          await Clipboard.setData(ClipboardData(text: origText));
-          if (mounted) _toast('已复制左边此行');
-        }
-        return;
-      case 'copyMod':
-        if (modText != null) {
-          await Clipboard.setData(ClipboardData(text: modText));
-          if (mounted) _toast('已复制右边此行');
-        }
-        return;
-      case 'diagnose':
-        if (origText != null && modText != null) {
-          await _showRowDiagnoseDialog(origText, modText);
-        }
-        return;
-      case 'edit':
-        break;
-      default:
-        return;
-    }
-
     final edited = await _showRowEditDialog(
       origText: origText,
       modText: modText,
@@ -1456,58 +1394,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _resetViewAfterEdit();
   }
 
-  Future<String?> _showRowActionSheet({
-    required String? origText,
-    required String? modText,
-  }) {
-    return showModalBottomSheet<String>(
-      context: context,
-      builder: (c) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (origText != null)
-              ListTile(
-                leading: const Icon(Icons.copy),
-                title: const Text('复制左边此行'),
-                subtitle: Text(
-                  origText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(c).textTheme.labelSmall,
-                ),
-                onTap: () => Navigator.pop(c, 'copyOrig'),
-              ),
-            if (modText != null)
-              ListTile(
-                leading: const Icon(Icons.copy),
-                title: const Text('复制右边此行'),
-                subtitle: Text(
-                  modText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(c).textTheme.labelSmall,
-                ),
-                onTap: () => Navigator.pop(c, 'copyMod'),
-              ),
-            if (origText != null && modText != null)
-              ListTile(
-                leading: const Icon(Icons.bug_report),
-                title: const Text('诊断此行（逐字符对比）'),
-                onTap: () => Navigator.pop(c, 'diagnose'),
-              ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('编辑此行'),
-              onTap: () => Navigator.pop(c, 'edit'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<({String orig, String mod})?> _showRowEditDialog({
     required String? origText,
     required String? modText,
@@ -1516,53 +1402,77 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final modCtrl = TextEditingController(text: modText ?? '');
     final ok = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('编辑此行'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (origText != null) ...[
-                const Text('左边'),
-                const SizedBox(height: 4),
-                TextField(
-                  controller: origCtrl,
-                  maxLines: null,
-                  autofocus: modText == null,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-              if (modText != null) ...[
-                if (origText != null) const SizedBox(height: 12),
-                const Text('右边'),
-                const SizedBox(height: 4),
-                TextField(
-                  controller: modCtrl,
-                  maxLines: null,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
+      builder: (c) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('编辑此行'),
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: '取消',
+              onPressed: () => Navigator.pop(c, false),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('确定'),
+              ),
             ],
           ),
+          body: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (origText != null) ...[
+                  const Text('左边'),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: TextField(
+                      controller: origCtrl,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      autofocus: modText == null,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.all(10),
+                      ),
+                    ),
+                  ),
+                ],
+                if (origText != null && modText != null)
+                  const SizedBox(height: 12),
+                if (modText != null) ...[
+                  const Text('右边'),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: TextField(
+                      controller: modCtrl,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      autofocus: true,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.all(10),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('确定'),
-          ),
-        ],
       ),
     );
     if (ok != true) return null;
