@@ -556,9 +556,8 @@ class _DiffCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double effectiveFontSize =
-        isContext ? kContextFontSize : bodyFontSize;
-    final bool effectiveNoWrap = isContext ? true : noWrap;
-
+    isContext ? contextFontSize : bodyFontSize;
+final bool effectiveNoWrap = isContext ? true : noWrap;
     final body = TextStyle(
       fontSize: effectiveFontSize,
       color: fg,
