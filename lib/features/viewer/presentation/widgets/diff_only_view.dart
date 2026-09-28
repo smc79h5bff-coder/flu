@@ -159,19 +159,20 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
             widget.heightTable.heightOf(index),
         itemBuilder: (ctx, i) {
           final spec = rows[i];
-          int? ei = isLeft ? spec.del : spec.ins;
-          if (ei == null) {
+          int? eiOpt = isLeft ? spec.del : spec.ins;
+          if (eiOpt == null) {
             // 相同行（equal）只挂在 del 上，右侧要退回到对侧取。
             final fallback = isLeft ? spec.ins : spec.del;
             if (fallback != null &&
                 widget.result.entries[fallback].operation ==
                     DiffOperation.equal) {
-              ei = fallback;
+              eiOpt = fallback;
             }
           }
-          if (ei == null) {
+          if (eiOpt == null) {
             return const SizedBox.expand();
           }
+          final int ei = eiOpt;
           final int? otherEi = isLeft ? spec.ins : spec.del;
           final String? otherText = otherEi != null
               ? widget.result.entries[otherEi].text
