@@ -49,6 +49,19 @@ class GutterFontSizeNotifier extends DoublePrefNotifier {
       : super(key: PrefKeys.gutterFontSize, initial: 11.0);
 }
 
+
+final contextFontSizeProvider =
+    NotifierProvider<ContextFontSizeNotifier, double>(
+  ContextFontSizeNotifier.new,
+);
+
+class ContextFontSizeNotifier extends DoublePrefNotifier {
+  ContextFontSizeNotifier()
+      : super(key: PrefKeys.contextFontSize, initial: 10.0);
+}
+
+
+
 final syncScrollProvider =
     NotifierProvider<SyncScrollNotifier, bool>(SyncScrollNotifier.new);
 
