@@ -54,7 +54,7 @@ class BuiltinRules {
         ),
         PreprocessingRule(
           id: 'en_punct_to_cn',
-          name: '英文标点转中文',
+          name: '忽略标点符号',
           script: 'enPunctToCn',
           enabled: false,
           isBuiltin: true,
