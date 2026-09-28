@@ -463,7 +463,7 @@ class _ButtonColorDialogState extends ConsumerState<ButtonColorDialog> {
               context: context,
               label: '边框色',
               isSet: c.border != null,
-              c.border ?? Colors.black.withOpacity(0.5),
+              color: c.border ?? Colors.black.withOpacity(0.5),
               onPick: (v) => _setBorder(v),
             ),
           ],
