@@ -111,6 +111,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String? _cachedContentWidthConfig;
 
   int? _pendingJumpEntry;
+  // 【新增】按"原文行号"做跳转锚点。跨重算稳定。
+  int? _pendingJumpOrigLine;
   bool _pendingJumpQueued = false;
 
   Timer? _findDebounce;
@@ -436,7 +438,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _applyRawChanges(isOriginal: false, changes: _pendingModChanges);
     _pendingOrigChanges.clear();
     _pendingModChanges.clear();
-_rememberCurrentRowForReset();
+    _rememberCurrentRowForReset();
     _log('应用替换（重算中）');
     ref.read(importRevisionProvider.notifier).state++;
     _resetViewAfterEdit();
@@ -563,13 +565,13 @@ _rememberCurrentRowForReset();
 
   Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
     final mq = MediaQuery.of(context);
-final configKey = '${mq.size.width}|'
-    '${ref.read(bodyFontSizeProvider)}|'
-    '${ref.read(contextFontSizeProvider)}|'
-    '${ref.read(noWrapProvider)}|'
-    '${ref.read(showLineNumbersProvider)}|'
-    '${ref.read(importRevisionProvider)}';
-    
+    final configKey = '${mq.size.width}|'
+        '${ref.read(bodyFontSizeProvider)}|'
+        '${ref.read(contextFontSizeProvider)}|'
+        '${ref.read(noWrapProvider)}|'
+        '${ref.read(showLineNumbersProvider)}|'
+        '${ref.read(importRevisionProvider)}';
+
     if (!identical(_heightFuturesFor, diff) ||
         _heightFuturesConfigKey != configKey) {
       _heightFutures.clear();
@@ -695,12 +697,8 @@ final configKey = '${mq.size.width}|'
           : _HeightBundle(diffOnly: cached);
     }
 
-    // 差异行+上下文视图：相同行用小字号 + 不换行（截断）。
-    // 仅差异行视图不显示相同行，不需要 override。
     final bool needContextOverride = !isPlain;
 
-    // 判断 AlignedRow 是不是"相同行"。
-    // 相同行在 computeAlignedRows 里只挂在 del 上，ins 为 null。
     bool isContextRow(int i) {
       if (i < 0 || i >= rows.length) return false;
       final spec = rows[i];
@@ -710,10 +708,10 @@ final configKey = '${mq.size.width}|'
     }
 
     final ctxSize = ref.read(contextFontSizeProvider);
-final contextStyle = TextStyle(
-  fontSize: ctxSize,
-  height: 1.35,
-);
+    final contextStyle = TextStyle(
+      fontSize: ctxSize,
+      height: 1.35,
+    );
 
     final table = await computeLineHeightsForTwoPane(
       itemCount: rows.length,
@@ -777,42 +775,59 @@ final contextStyle = TextStyle(
 
   // ==================== 滚动 / 跳转 ====================
 
+  /// 【新增】在新 diff 里按"原文行号"反查最接近的 entry 索引。
+  /// 找不到就返回 null。用来跨重算稳定跳转。
+  int? _findEntryByOrigLine(DiffResult diff, int origLine) {
+    final meta = _computeLineMeta(diff);
+    int? best;
+    var bestDist = 1 << 30;
+    for (var i = 0; i < meta.length; i++) {
+      final o = meta[i].orig;
+      if (o < 0) continue;
+      final d = (o - origLine).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
   void _scrollToEntry(int entryIndex) {
-  final diff = _diff;
-  if (diff == null) {
-    _log('_scrollToEntry($entryIndex): 中断 diff==null');
-    return;
-  }
-  final mode = ref.read(viewModeProvider);
-  final table = _activeTableFor(mode);
-  if (table == null) {
-    _log('_scrollToEntry($entryIndex): 中断 table==null');
-    return;
-  }
-  if (!_scrollController.hasClients) {
-    _log('_scrollToEntry($entryIndex): 中断 noClients');
-    return;
+    final diff = _diff;
+    if (diff == null) {
+      _log('_scrollToEntry($entryIndex): 中断 diff==null');
+      return;
+    }
+    final mode = ref.read(viewModeProvider);
+    final table = _activeTableFor(mode);
+    if (table == null) {
+      _log('_scrollToEntry($entryIndex): 中断 table==null');
+      return;
+    }
+    if (!_scrollController.hasClients) {
+      _log('_scrollToEntry($entryIndex): 中断 noClients');
+      return;
+    }
+
+    final map = _entryToRowMapOf(diff, mode);
+    final row = map[entryIndex];
+    if (row == null) {
+      _log('_scrollToEntry($entryIndex): 中断 row==null');
+      return;
+    }
+
+    final offset = table.offsetOf(row);
+    final max = _scrollController.position.maxScrollExtent;
+    final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
+    _log('_scrollToEntry($entryIndex): row=$row offset=$offset max=$max clamped=$clamped');
+    _scrollController.jumpTo(clamped);
+
+    if (_jumpedToEntry != entryIndex) {
+      setState(() => _jumpedToEntry = entryIndex);
+    }
   }
 
-  final map = _entryToRowMapOf(diff, mode);
-  final row = map[entryIndex];
-  if (row == null) {
-    _log('_scrollToEntry($entryIndex): 中断 row==null');
-    return;
-  }
-
-  final offset = table.offsetOf(row);
-  final max = _scrollController.position.maxScrollExtent;
-  final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
-  _log('_scrollToEntry($entryIndex): row=$row offset=$offset max=$max clamped=$clamped');
-  _scrollController.jumpTo(clamped);
-
-  if (_jumpedToEntry != entryIndex) {
-    setState(() => _jumpedToEntry = entryIndex);
-  }
-}
-
-  
   void _nextMatch() {
     _ensureFindApplied();
     _recordFindHistory();
@@ -855,8 +870,6 @@ final contextStyle = TextStyle(
     if (identical(_cachedDiffIndicesFor, diff) && _cachedDiffIndices != null) {
       return _cachedDiffIndices!;
     }
-    // 按"连续差异块"取：一段连续的非 equal 行只取第一个。
-    // 中间只要夹了 equal 行，就算新的一段。
     final list = <int>[];
     var inBlock = false;
     for (var i = 0; i < diff.entries.length; i++) {
@@ -979,6 +992,7 @@ final contextStyle = TextStyle(
 
     final target = choice.isTop ? -1 : (choice.targetEntry ?? -1);
     _pendingJumpEntry = target;
+    _pendingJumpOrigLine = null; // 【新增】切视图走 entry 索引，清掉 origLine
     _pendingJumpQueued = false;
     setState(() {});
   }
@@ -1407,12 +1421,11 @@ final contextStyle = TextStyle(
 
     _log('编辑行（重算中）');
     ref.read(importRevisionProvider.notifier).state++;
-    _pendingJumpEntry = origEntryIdx ?? modEntryIdx;
+    // 【新增】用"原文行号"当锚点，跨重算稳定
+    _pendingJumpEntry = null;
+    _pendingJumpOrigLine = origLine ?? modLine;
     _pendingJumpQueued = false;
-    
-  _log('编辑行: pending=$_pendingJumpEntry origIdx=$origEntryIdx modIdx=$modEntryIdx');
- 
-
+    _log('编辑行: pendingOrigLine=$_pendingJumpOrigLine origLine=$origLine modLine=$modLine');
     _resetViewAfterEdit();
   }
 
@@ -1500,31 +1513,36 @@ final contextStyle = TextStyle(
     if (ok != true) return null;
     return (orig: origCtrl.text, mod: modCtrl.text);
   }
-/// 把"当前视图顶部所在的行"记进 _pendingJumpEntry，
-/// 让重算后跳回原位，而不是被打回文档开头。
-void _rememberCurrentRowForReset() {
-  final diff = _diff;
-  if (diff == null) return;
-  final topRow = _currentTopRow();
-  if (topRow == null) return;
-  final mode = ref.read(viewModeProvider);
-  final map = _entryToRowMapOf(diff, mode);
-  // 反查：当前顶行对应哪个 entry。
-  int? bestEntry;
-  var bestDist = 1 << 30;
-  for (final e in map.entries) {
-    final d = (e.value - topRow).abs();
-    if (d < bestDist) {
-      bestDist = d;
-      bestEntry = e.key;
+
+  /// 把"当前视图顶部所在的行"记进 _pendingJumpOrigLine，
+  /// 让重算后跳回原位，而不是被打回文档开头。
+  void _rememberCurrentRowForReset() {
+    final diff = _diff;
+    if (diff == null) return;
+    final topRow = _currentTopRow();
+    if (topRow == null) return;
+    final mode = ref.read(viewModeProvider);
+    final map = _entryToRowMapOf(diff, mode);
+    // 反查：当前顶行对应哪个 entry。
+    int? bestEntry;
+    var bestDist = 1 << 30;
+    for (final e in map.entries) {
+      final d = (e.value - topRow).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        bestEntry = e.key;
+      }
+    }
+    if (bestEntry != null) {
+      // 【新增】entry 索引转成原文行号存下来，跨重算稳定。
+      final meta = _computeLineMeta(diff);
+      final o = meta[bestEntry].orig;
+      final m = meta[bestEntry].mod;
+      _pendingJumpEntry = null;
+      _pendingJumpOrigLine = o >= 0 ? o : (m >= 0 ? m : null);
+      _pendingJumpQueued = false;
     }
   }
-  if (bestEntry != null) {
-    _pendingJumpEntry = bestEntry;
-    _pendingJumpQueued = false;
-  }
-}
-
 
   void _resetViewAfterEdit() {
     _matchEntries = const <int>[];
@@ -1545,7 +1563,7 @@ void _rememberCurrentRowForReset() {
     DiffTextIndex.invalidate();
     setState(() {});
 
-    if (_pendingJumpEntry == null) {
+    if (_pendingJumpEntry == null && _pendingJumpOrigLine == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -1725,51 +1743,53 @@ void _rememberCurrentRowForReset() {
         final heights = snapshot.data!;
         _activeHeights = heights;
 
+        // 【新增】兼容 entry 索引和 origLine 两种锚点。
+        if ((_pendingJumpEntry != null || _pendingJumpOrigLine != null) &&
+            !_pendingJumpQueued) {
+          _pendingJumpQueued = true;
 
-        
+          int? targetEntry = _pendingJumpEntry;
+          if (targetEntry == null && _pendingJumpOrigLine != null) {
+            targetEntry = _findEntryByOrigLine(diff, _pendingJumpOrigLine!);
+            _log('按 origLine=${_pendingJumpOrigLine} 反查到 entry=$targetEntry');
+          }
+          final target = targetEntry ?? -1;
+          _pendingJumpEntry = null;
+          _pendingJumpOrigLine = null;
+          _log('准备跳转: target=$target mode=${viewMode.name}');
 
-     if (_pendingJumpEntry != null && !_pendingJumpQueued) {
-  _pendingJumpQueued = true;
-  final target = _pendingJumpEntry!;
-  _log('准备跳转: target=$target mode=${viewMode.name}');
-  WidgetsBinding.instance.addPostFrameCallback((_) async {
-    if (!mounted) return;
-    _pendingJumpEntry = null;
-    _pendingJumpQueued = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            _pendingJumpEntry = null;
+            _pendingJumpOrigLine = null;
+            _pendingJumpQueued = false;
 
-    for (var attempt = 0; attempt < 5; attempt++) {
-      if (!mounted) return;
-      if (!_scrollController.hasClients) {
-        await WidgetsBinding.instance.endOfFrame;
-        continue;
-      }
-      if (_scrollController.position.maxScrollExtent > 0 ||
-          attempt >= 4) {
-        break;
-      }
-      await WidgetsBinding.instance.endOfFrame;
-    }
-    if (!mounted) return;
+            for (var attempt = 0; attempt < 5; attempt++) {
+              if (!mounted) return;
+              if (!_scrollController.hasClients) {
+                await WidgetsBinding.instance.endOfFrame;
+                continue;
+              }
+              if (_scrollController.position.maxScrollExtent > 0 ||
+                  attempt >= 4) {
+                break;
+              }
+              await WidgetsBinding.instance.endOfFrame;
+            }
+            if (!mounted) return;
 
-    if (target < 0) {
-      _log('跳转: 走 target<0 分支 → 跳到开头');
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(0);
-      }
-    } else {
-      _log('跳转: 走 _scrollToEntry($target)');
-      _scrollToEntry(target);
-    }
-  });
-}
+            if (target < 0) {
+              _log('跳转: 走 target<0 分支 → 跳到开头');
+              if (_scrollController.hasClients) {
+                _scrollController.jumpTo(0);
+              }
+            } else {
+              _log('跳转: 走 _scrollToEntry($target)');
+              _scrollToEntry(target);
+            }
+          });
+        }
 
-
-
-
-
-
-
-        
         return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
       },
     );
@@ -1873,7 +1893,7 @@ void _rememberCurrentRowForReset() {
           bodyFontSize: ref.watch(bodyFontSizeProvider),
           gutterFontSize: ref.watch(gutterFontSizeProvider),
           contextFontSize: ref.watch(contextFontSizeProvider),
-        noWrap: noWrap,
+          noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
       ViewMode.diffOnlyPlain => DiffOnlyPlainView(
@@ -2365,7 +2385,7 @@ void _rememberCurrentRowForReset() {
           ref.read(editedModifiedProvider.notifier).state = next;
         }
       }
-_rememberCurrentRowForReset();
+      _rememberCurrentRowForReset();
 
       _log('按钮规则: ${rule.name} → $side');
       ref.read(importRevisionProvider.notifier).state++;
