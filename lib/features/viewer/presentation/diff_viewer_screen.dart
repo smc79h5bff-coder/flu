@@ -778,27 +778,41 @@ final contextStyle = TextStyle(
   // ==================== 滚动 / 跳转 ====================
 
   void _scrollToEntry(int entryIndex) {
-    final diff = _diff;
-    if (diff == null) return;
-    final mode = ref.read(viewModeProvider);
-    final table = _activeTableFor(mode);
-    if (table == null) return;
-    if (!_scrollController.hasClients) return;
-
-    final map = _entryToRowMapOf(diff, mode);
-    final row = map[entryIndex];
-    if (row == null) return;
-
-    final offset = table.offsetOf(row);
-    final max = _scrollController.position.maxScrollExtent;
-    final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
-    _scrollController.jumpTo(clamped);
-
-    if (_jumpedToEntry != entryIndex) {
-      setState(() => _jumpedToEntry = entryIndex);
-    }
+  final diff = _diff;
+  if (diff == null) {
+    _log('_scrollToEntry($entryIndex): 中断 diff==null');
+    return;
+  }
+  final mode = ref.read(viewModeProvider);
+  final table = _activeTableFor(mode);
+  if (table == null) {
+    _log('_scrollToEntry($entryIndex): 中断 table==null');
+    return;
+  }
+  if (!_scrollController.hasClients) {
+    _log('_scrollToEntry($entryIndex): 中断 noClients');
+    return;
   }
 
+  final map = _entryToRowMapOf(diff, mode);
+  final row = map[entryIndex];
+  if (row == null) {
+    _log('_scrollToEntry($entryIndex): 中断 row==null');
+    return;
+  }
+
+  final offset = table.offsetOf(row);
+  final max = _scrollController.position.maxScrollExtent;
+  final clamped = offset < 0 ? 0.0 : (offset > max ? max : offset);
+  _log('_scrollToEntry($entryIndex): row=$row offset=$offset max=$max clamped=$clamped');
+  _scrollController.jumpTo(clamped);
+
+  if (_jumpedToEntry != entryIndex) {
+    setState(() => _jumpedToEntry = entryIndex);
+  }
+}
+
+  
   void _nextMatch() {
     _ensureFindApplied();
     _recordFindHistory();
