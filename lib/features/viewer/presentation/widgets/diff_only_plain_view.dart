@@ -12,7 +12,7 @@ import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
 import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
-import 'viewer_widgets.dart';
+import '../viewer_widgets.dart';
 
 class DiffOnlyPlainView extends ConsumerStatefulWidget {
   const DiffOnlyPlainView({
