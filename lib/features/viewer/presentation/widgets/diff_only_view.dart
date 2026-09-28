@@ -28,6 +28,7 @@ class DiffOnlyView extends ConsumerStatefulWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+      this.contextFontSize = 10.0,
     this.noWrap = false,
     this.jumpedToEntry,
     this.onLongPressEntry,
