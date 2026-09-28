@@ -1148,6 +1148,8 @@ _rememberCurrentRowForReset();
       _log('比较设置返回，规则未变，跳过重算');
       return;
     }
+    _rememberCurrentRowForReset();
+
     _log('比较设置返回，规则已变，重算');
     ref.read(importRevisionProvider.notifier).state++;
     _resetViewAfterEdit();
