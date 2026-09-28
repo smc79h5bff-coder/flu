@@ -1101,17 +1101,35 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   Future<void> _openComparisonSettings() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const ComparisonSettingsScreen(),
-      ),
-    );
-    if (!mounted) return;
-    _log('比较设置返回，重算');
-    ref.read(importRevisionProvider.notifier).state++;
-    _resetViewAfterEdit();
+  final before = _comparisonSettingsSnapshot();
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => const ComparisonSettingsScreen(),
+    ),
+  );
+  if (!mounted) return;
+  final after = _comparisonSettingsSnapshot();
+  if (before == after) {
+    _log('比较设置返回，规则未变，跳过重算');
+    return;
   }
-
+  _log('比较设置返回，规则已变，重算');
+  ref.read(importRevisionProvider.notifier).state++;
+  _resetViewAfterEdit();
+}
+/// 比较设置相关规则的快照。用于判断"进去转一圈到底改没改东西"。
+/// 不含笔记（笔记不影响渲染），只含真正会改变显示内容的规则状态。
+String _comparisonSettingsSnapshot() {
+  return jsonEncode({
+    'order': ref.read(ruleOrderProvider),
+    'userRules': [
+      for (final r in ref.read(userRulesProvider)) r.toJson(),
+    ],
+    'builtinEnables': ref.read(builtinRuleEnablesProvider),
+    'keywordText': ref.read(keywordRulesTextProvider),
+    'regexText': ref.read(regexRulesTextProvider),
+  });
+}
   // ==================== 行诊断 ====================
 
   Future<void> _showRowDiagnoseDialog(String left, String right) async {
