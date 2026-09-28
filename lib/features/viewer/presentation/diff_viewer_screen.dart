@@ -563,12 +563,13 @@ _rememberCurrentRowForReset();
 
   Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
     final mq = MediaQuery.of(context);
-    final configKey = '${mq.size.width}|'
-        '${ref.read(bodyFontSizeProvider)}|'
-        '${ref.read(noWrapProvider)}|'
-        '${ref.read(showLineNumbersProvider)}|'
-        '${ref.read(importRevisionProvider)}';
-
+final configKey = '${mq.size.width}|'
+    '${ref.read(bodyFontSizeProvider)}|'
+    '${ref.read(contextFontSizeProvider)}|'
+    '${ref.read(noWrapProvider)}|'
+    '${ref.read(showLineNumbersProvider)}|'
+    '${ref.read(importRevisionProvider)}';
+    
     if (!identical(_heightFuturesFor, diff) ||
         _heightFuturesConfigKey != configKey) {
       _heightFutures.clear();
