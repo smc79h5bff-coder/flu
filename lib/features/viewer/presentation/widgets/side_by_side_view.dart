@@ -10,7 +10,7 @@ import '../../../import/presentation/providers/import_providers.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
-import 'viewer_widgets.dart';
+import '../viewer_widgets.dart';
 
 class SideBySideView extends ConsumerStatefulWidget {
   const SideBySideView({
