@@ -185,6 +185,11 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
           if (ei == null) {
             return const SizedBox.expand();
           }
+          // 对面的 entry（配对判断用）
+          final int? otherEi = isLeft ? spec.ins : spec.del;
+          final String? otherText = otherEi != null
+              ? widget.result.entries[otherEi].text
+              : null;
           final e = widget.result.entries[ei];
           final m = meta[ei];
           final isCurrent = widget.currentMatchEntry == ei;
@@ -194,6 +199,7 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
             isLeft ? m.orig : m.mod,
             isLeft: isLeft,
             isCurrentMatch: isCurrent,
+            otherText: otherText,
             c: c,
           );
           final out = widget.onLongPressEntry == null
@@ -299,6 +305,7 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
     required bool isLeft,
     required bool isCurrentMatch,
     required DiffColors c,
+    String? otherText,
   }) {
     final s = Theme.of(context).colorScheme;
     final plainBg = Theme.of(context).brightness == Brightness.dark
@@ -322,30 +329,56 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       fg = defaultFg;
     } else if (e.operation == DiffOperation.delete) {
       text = e.text;
-      symbol = '−';
-      bg = c.deleteRowBg;
-      fg = c.deleteRowFg;
+      if (otherText != null) {
+        // 配对 → 被改行（左）：浅红 + 字符高亮
+        symbol = '~';
+        bg = c.replaceLeftBg;
+        fg = c.replaceLeftFg;
+        charDiff = _CharDiff(
+          before: text,
+          after: otherText,
+          side: false,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+      } else {
+        // 单独删除：纯红
+        symbol = '−';
+        bg = c.deleteRowBg;
+        fg = c.deleteRowFg;
+      }
     } else if (e.operation == DiffOperation.insert) {
       text = e.text;
-      symbol = '+';
-      bg = c.insertRowBg;
-      fg = c.insertRowFg;
+      if (otherText != null) {
+        // 配对 → 被改行（右）：浅绿 + 字符高亮
+        symbol = '~';
+        bg = c.replaceRightBg;
+        fg = c.replaceRightFg;
+        charDiff = _CharDiff(
+          before: otherText,
+          after: text,
+          side: true,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+      } else {
+        // 单独插入：纯绿
+        symbol = '+';
+        bg = c.insertRowBg;
+        fg = c.insertRowFg;
+      }
     } else {
+      // replace（正常流程不会走到，兜底）
       text = isLeft
           ? (e.oldText.isEmpty ? e.text : e.oldText)
           : (e.newText.isEmpty ? e.text : e.newText);
       symbol = '~';
       bg = isLeft ? c.replaceLeftBg : c.replaceRightBg;
       fg = isLeft ? c.replaceLeftFg : c.replaceRightFg;
-      charDiff = _CharDiff(
-        before: e.oldText.isEmpty ? e.text : e.oldText,
-        after: e.newText.isEmpty ? e.text : e.newText,
-        side: !isLeft,
-        removedBg: c.charDeleteBg,
-        removedFg: c.charDeleteFg,
-        addedBg: c.charInsertBg,
-        addedFg: c.charInsertFg,
-      );
     }
 
     return _DiffCell(
@@ -564,7 +597,7 @@ class _DiffCell extends StatelessWidget {
                   textAlign: TextAlign.end,
                   style: TextStyle(fontSize: gutterFontSize, color: outline),
                 ),
-              ),
+              ],
               if (symbol.isNotEmpty) ...[
                 const SizedBox(width: 4),
                 Text(
