@@ -14,6 +14,9 @@ import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
 import '../viewer_widgets.dart';
 
+/// 相同行（上下文）字号。比正文小，节省纵向空间。
+const double _contextFontSize = 8.0;
+
 class DiffOnlyView extends ConsumerStatefulWidget {
   const DiffOnlyView({
     required this.result,
@@ -269,8 +272,6 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
         if (n > maxL) maxL = n;
       }
       // 右侧：优先用 ins；没有的话，若对侧 del 是相同行，借它来算宽度。
-      // （相同行只挂在 del 上，否则右侧相同行不会被计入宽度，
-      //   不换行模式下右侧长行会被截断。）
       int? rightEi = spec.ins;
       if (rightEi == null &&
           spec.del != null &&
@@ -380,6 +381,8 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       fg = isLeft ? c.replaceLeftFg : c.replaceRightFg;
     }
 
+    final bool isContext = e.operation == DiffOperation.equal;
+
     return _DiffCell(
       text: text,
       line: line,
@@ -395,6 +398,7 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       bodyFontSize: widget.bodyFontSize,
       gutterFontSize: widget.gutterFontSize,
       noWrap: widget.noWrap,
+      isContext: isContext,
     );
   }
 }
@@ -526,6 +530,7 @@ class _DiffCell extends StatelessWidget {
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
     this.noWrap = false,
+    this.isContext = false,
   });
 
   final String text;
@@ -543,10 +548,18 @@ class _DiffCell extends StatelessWidget {
   final double gutterFontSize;
   final bool noWrap;
 
+  /// 是否是"相同行（上下文）"。是的话：字号用 _contextFontSize，
+  /// 并强制不换行（截断），用来节省纵向空间。
+  final bool isContext;
+
   @override
   Widget build(BuildContext context) {
+    final double effectiveFontSize =
+        isContext ? _contextFontSize : bodyFontSize;
+    final bool effectiveNoWrap = isContext ? true : noWrap;
+
     final body = TextStyle(
-      fontSize: bodyFontSize,
+      fontSize: effectiveFontSize,
       color: fg,
       height: 1.35,
     );
@@ -569,7 +582,7 @@ class _DiffCell extends StatelessWidget {
     } else {
       final spans = _cachedSpans(
           text, findQuery, isCurrentMatch, matchYellow, matchPink);
-      if (noWrap) {
+      if (effectiveNoWrap) {
         content = Text.rich(
           TextSpan(style: body, children: spans),
           softWrap: false,
@@ -594,7 +607,10 @@ class _DiffCell extends StatelessWidget {
                 child: Text(
                   line < 0 ? '' : '$line',
                   textAlign: TextAlign.end,
-                  style: TextStyle(fontSize: gutterFontSize, color: outline),
+                  style: TextStyle(
+                    fontSize: isContext ? _contextFontSize : gutterFontSize,
+                    color: outline,
+                  ),
                 ),
               ),
               if (symbol.isNotEmpty) ...[
@@ -604,7 +620,7 @@ class _DiffCell extends StatelessWidget {
                   style: TextStyle(
                     color: fg,
                     fontWeight: FontWeight.bold,
-                    fontSize: bodyFontSize,
+                    fontSize: effectiveFontSize,
                   ),
                 ),
               ],
