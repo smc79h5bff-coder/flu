@@ -436,7 +436,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _applyRawChanges(isOriginal: false, changes: _pendingModChanges);
     _pendingOrigChanges.clear();
     _pendingModChanges.clear();
-
+_rememberCurrentRowForReset();
     _log('应用替换（重算中）');
     ref.read(importRevisionProvider.notifier).state++;
     _resetViewAfterEdit();
