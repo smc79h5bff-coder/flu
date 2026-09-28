@@ -6,11 +6,8 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart'
-    hide colorToHex, hexToColor;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/storage/persistent_notifier.dart';
 import '../../diff/application/diff_cache.dart';
 import '../../diff/domain/diff_entry.dart';
 import '../../diff/domain/diff_operation.dart';
@@ -18,154 +15,20 @@ import '../../diff/domain/diff_result.dart';
 import '../../edit/presentation/edit_screen.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
+import '../../preprocessing/application/preprocessing_service.dart';
+import '../../preprocessing/domain/preprocessing_rule.dart';
+import 'diagnostic_screen.dart';
 import 'diff_text_index.dart';
 import 'line_height_cache.dart';
 import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
+import 'providers/toolbar_rules_provider.dart';
 import 'regex_help_screen.dart';
+import 'viewer_widgets.dart';
 import 'widgets/diff_only_plain_view.dart';
 import 'widgets/diff_only_view.dart';
 import 'widgets/merged_view.dart';
 import 'widgets/side_by_side_view.dart';
-import '../../preprocessing/application/preprocessing_service.dart';
-import '../../preprocessing/domain/preprocessing_rule.dart';
-import '../../file_browser/presentation/comparison_settings_screen.dart'
-    show RuleEditorDialog, ruleSubtitle;
-import 'providers/toolbar_rules_provider.dart';
-
-// ==================== 诊断工具 ====================
-
-class ViewerDiag {
-  ViewerDiag._();
-  static final List<({String tag, int ms})> _entries = [];
-  static final Stopwatch _sw = Stopwatch()..start();
-
-  static void reset() {
-    _entries.clear();
-    _sw.reset();
-    _sw.start();
-  }
-
-  static void mark(String tag) {
-    _entries.add((tag: tag, ms: _sw.elapsedMilliseconds));
-  }
-
-  static List<({String tag, int ms})> get entries =>
-      List.unmodifiable(_entries);
-}
-
-/// 本次会话的操作历史。
-///
-/// - 只在 app 进程内存活；进程死 → 清空。
-/// - 是否记录由 [diagHistoryEnabledProvider] 控制（关时不耗）。
-/// - 上限 500 条，超了从头部删。
-class DiagHistory {
-  DiagHistory._();
-  static const int _max = 500;
-  static final List<({DateTime time, String msg})> _entries = [];
-
-  static void record(String msg) {
-    _entries.add((time: DateTime.now(), msg: msg));
-    if (_entries.length > _max) _entries.removeAt(0);
-  }
-
-  static List<({DateTime time, String msg})> get entries =>
-      List.unmodifiable(_entries);
-
-  static void clear() => _entries.clear();
-}
-
-/// 4 个诊断开关。非持久化：app 进程活就一直在，进程死归零。
-final diagPerfEnabledProvider = StateProvider<bool>((ref) => false);
-final diagFileEnabledProvider = StateProvider<bool>((ref) => false);
-final diagTimeEnabledProvider = StateProvider<bool>((ref) => false);
-final diagHistoryEnabledProvider = StateProvider<bool>((ref) => false);
-
-/// 把一个字符串逐字符列出来，带码点。★ 标出与另一边不同的位置。
-String _dumpChars(String s, {Set<int> diffAt = const {}}) {
-  final sb = StringBuffer();
-  for (var i = 0; i < s.length; i++) {
-    final c = s.codeUnitAt(i);
-    final mark = diffAt.contains(i) ? '★' : ' ';
-    String vis;
-    if (c == 0x0D) {
-      vis = r'\r';
-    } else if (c == 0x0A) {
-      vis = r'\n';
-    } else if (c == 0x09) {
-      vis = r'\t';
-    } else if (c == 0x20) {
-      vis = '␣';
-    } else if (c == 0x3000) {
-      vis = '全角空格';
-    } else if (c == 0xA0) {
-      vis = 'NBSP';
-    } else if (c == 0x200B) {
-      vis = 'ZWSP';
-    } else if (c == 0x200C) {
-      vis = 'ZWNJ';
-    } else if (c == 0x200D) {
-      vis = 'ZWJ';
-    } else if (c == 0xFEFF) {
-      vis = 'BOM';
-    } else if (c == 0x2028) {
-      vis = '行分隔符';
-    } else if (c == 0x2029) {
-      vis = '段分隔符';
-    } else if (c < 0x20 || c == 0x7F) {
-      vis = '控制字符';
-    } else {
-      vis = String.fromCharCode(c);
-    }
-    sb.writeln(
-        '$mark[$i] $vis  U+${c.toRadixString(16).toUpperCase().padLeft(4, '0')}');
-  }
-  return sb.toString();
-}
-
-/// 统计一段文本里各类特殊字符的数量。
-Map<String, int> _charStats(String s) {
-  var crlf = 0;
-  var lf = 0;
-  var cr = 0;
-  var fwSpace = 0;
-  var nbsp = 0;
-  var zwsp = 0;
-  var bom = 0;
-  var tab = 0;
-  for (var i = 0; i < s.length; i++) {
-    final c = s.codeUnitAt(i);
-    if (c == 0x0A) {
-      if (i > 0 && s.codeUnitAt(i - 1) == 0x0D) {
-        crlf++;
-      } else {
-        lf++;
-      }
-    } else if (c == 0x0D) {
-      cr++;
-    } else if (c == 0x3000) {
-      fwSpace++;
-    } else if (c == 0xA0) {
-      nbsp++;
-    } else if (c == 0x200B) {
-      zwsp++;
-    } else if (c == 0xFEFF) {
-      bom++;
-    } else if (c == 0x09) {
-      tab++;
-    }
-  }
-  return {
-    'CRLF(\\r\\n)': crlf,
-    'LF(\\n)': lf,
-    'CR(\\r)': cr,
-    '全角空格 U+3000': fwSpace,
-    'NBSP U+00A0': nbsp,
-    'ZWSP U+200B': zwsp,
-    'BOM U+FEFF': bom,
-    'Tab': tab,
-  };
-}
 
 class DiffViewerScreen extends ConsumerStatefulWidget {
   const DiffViewerScreen({super.key});
@@ -174,7 +37,6 @@ class DiffViewerScreen extends ConsumerStatefulWidget {
   ConsumerState<DiffViewerScreen> createState() => _DiffViewerScreenState();
 }
 
-/// 切视图时用户选择的目标。
 class _SwitchChoice {
   const _SwitchChoice.top()
       : targetEntry = null,
@@ -185,7 +47,6 @@ class _SwitchChoice {
   final bool isTop;
 }
 
-/// 一次 view build 需要的高度表集合。
 class _HeightBundle {
   const _HeightBundle({
     this.merged,
@@ -244,7 +105,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   int? _jumpedToEntry;
 
   _HeightBundle? _activeHeights;
-  ViewMode? _activeHeightsMode;
 
   double? _cachedContentWidth;
   DiffResult? _cachedContentWidthFor;
@@ -294,7 +154,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return diff != null && diff.entries.length > 2000;
   }
 
-  /// 往历史里记一条。只有开关打开时才真正耗任何东西。
   void _log(String msg) {
     if (!ref.read(diagHistoryEnabledProvider)) return;
     DiagHistory.record(msg);
@@ -490,7 +349,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   Future<void> _showFindHistory() async {
     await showDialog<void>(
       context: context,
-      builder: (_) => _FindHistoryDialog(
+      builder: (_) => FindHistoryDialog(
         onPick: (q) {
           _findController.text = q;
           setState(() => _findQuery = q);
@@ -784,7 +643,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       return _HeightBundle(merged: table);
     }
 
-    // 三个两栏视图：统一走"同步高度表"（做法 B）。
     if (mode == ViewMode.sideBySide) {
       final rows = cachedAlignedRows(diff);
       final panelW = (viewportW - 1) / 2;
@@ -1238,7 +1096,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _DisplaySettingsSheet(),
+      builder: (_) => const DisplaySettingsSheet(),
     );
   }
 
@@ -1254,7 +1112,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _resetViewAfterEdit();
   }
 
-  // ==================== 行诊断（长按某行） ====================
+  // ==================== 行诊断 ====================
 
   Future<void> _showRowDiagnoseDialog(String left, String right) async {
     final maxLen = left.length > right.length ? left.length : right.length;
@@ -1286,7 +1144,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 const Text('左：',
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 SelectableText(
-                  _dumpChars(left, diffAt: diffAt),
+                  dumpChars(left, diffAt: diffAt),
                   style: const TextStyle(
                       fontFamily: 'monospace', fontSize: 12, height: 1.5),
                 ),
@@ -1294,7 +1152,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 const Text('右：',
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 SelectableText(
-                  _dumpChars(right, diffAt: diffAt),
+                  dumpChars(right, diffAt: diffAt),
                   style: const TextStyle(
                       fontFamily: 'monospace', fontSize: 12, height: 1.5),
                 ),
@@ -1894,7 +1752,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         ViewerDiag.mark('视图就绪');
         final heights = snapshot.data!;
         _activeHeights = heights;
-        _activeHeightsMode = viewMode;
 
         if (_pendingJumpEntry != null && !_pendingJumpQueued) {
           _pendingJumpQueued = true;
@@ -1976,7 +1833,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return computed;
   }
 
-  // ==================== 视图（可选横向滚动包裹） ====================
+  // ==================== 视图 ====================
 
   Widget _buildActiveView(
     DiffResult diff,
@@ -2014,7 +1871,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           showLineNumbers: ref.watch(showLineNumbersProvider),
           bodyFontSize: ref.watch(bodyFontSizeProvider),
           gutterFontSize: ref.watch(gutterFontSizeProvider),
-          // 做法 B：同步滚动永远开启，不再给用户切换。
           syncScroll: true,
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
@@ -2053,7 +1909,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     if (!noWrap) return inner;
 
-    // 只有合并视图是单栏，仍走外层横滚。
     if (viewMode == ViewMode.merged) {
       final screenW = MediaQuery.of(context).size.width;
       final contentW = _getContentWidth(diff, viewMode, screenW);
@@ -2068,7 +1923,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       );
     }
 
-    // 其余三个视图是双栏，交给它们各自内部横滚。
     return inner;
   }
 
@@ -2579,7 +2433,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
     await showDialog<void>(
       context: context,
-      builder: (c) => _ToolbarOrderDialog(rules: rules),
+      builder: (c) => ToolbarOrderDialog(rules: rules),
     );
   }
 
@@ -2922,963 +2776,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           ],
         ),
       ),
-    );
-  }
-}
-
-// ==================== 诊断页 ====================
-
-class DiagnosticScreen extends ConsumerWidget {
-  const DiagnosticScreen({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('诊断'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              DiagHistory.clear();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('历史已清空')),
-              );
-            },
-            child: const Text('清空历史'),
-          ),
-        ],
-      ),
-      body: ListView(
-        children: [
-          _DiagRow(
-            title: '性能',
-            subtitle: '最近一次 diff 的耗时与行数',
-            enabled: ref.watch(diagPerfEnabledProvider),
-            onToggle: (v) =>
-                ref.read(diagPerfEnabledProvider.notifier).state = v,
-            onTap: () => _showPerf(context, ref),
-          ),
-          _DiagRow(
-            title: '文件',
-            subtitle: '两份文件的行数、特殊字符统计、前 20 行预览',
-            enabled: ref.watch(diagFileEnabledProvider),
-            onToggle: (v) =>
-                ref.read(diagFileEnabledProvider.notifier).state = v,
-            onTap: () => _showFile(context, ref),
-          ),
-          _DiagRow(
-            title: '耗时',
-            subtitle: '本次渲染各阶段的耗时明细',
-            enabled: ref.watch(diagTimeEnabledProvider),
-            onToggle: (v) =>
-                ref.read(diagTimeEnabledProvider.notifier).state = v,
-            onTap: () => _showTime(context, ref),
-          ),
-          _DiagRow(
-            title: '历史',
-            subtitle: '本次会话的操作记录（${DiagHistory.entries.length} 条）',
-            enabled: ref.watch(diagHistoryEnabledProvider),
-            onToggle: (v) =>
-                ref.read(diagHistoryEnabledProvider.notifier).state = v,
-            onTap: () => _showHistory(context, ref),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showPerf(BuildContext context, WidgetRef ref) async {
-    final perf = ref.read(lastDiffPerfProvider);
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: const Text('性能', style: TextStyle(fontSize: 14)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.6,
-          child: perf == null
-              ? const Center(child: Text('还没有 diff 结果'))
-              : SingleChildScrollView(
-                  child: SelectableText(
-                    perf.oneLine,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showFile(BuildContext context, WidgetRef ref) async {
-    final orig = ref.read(preprocessedOriginalProvider);
-    final mod = ref.read(preprocessedModifiedProvider);
-    final oStats = _charStats(orig);
-    final mStats = _charStats(mod);
-    final oLines = orig.split('\n');
-    final mLines = mod.split('\n');
-
-    const preview = 20;
-
-    Widget statBlock(String title, Map<String, int> stats) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-          for (final e in stats.entries)
-            Text('  ${e.key}: ${e.value}',
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-        ],
-      );
-    }
-
-    Widget lineBlock(String title, List<String> lines) {
-      final sb = StringBuffer();
-      for (var i = 0; i < lines.length && i < preview; i++) {
-        final t = lines[i];
-        final shown = t.length > 40 ? '${t.substring(0, 40)}…' : t;
-        final w = t.runes.length;
-        sb.writeln('${(i + 1).toString().padLeft(3)} [$w] $shown');
-      }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-          SelectableText(
-            sb.toString(),
-            style: const TextStyle(
-                fontFamily: 'monospace', fontSize: 11, height: 1.4),
-          ),
-        ],
-      );
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: const Text('文件诊断', style: TextStyle(fontSize: 14)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.8,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '左总长 ${orig.length}（行 ${oLines.length}）  '
-                  '右总长 ${mod.length}（行 ${mLines.length}）',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const Divider(),
-                statBlock('左边特殊字符', oStats),
-                const SizedBox(height: 8),
-                statBlock('右边特殊字符', mStats),
-                const Divider(),
-                lineBlock('左边前 $preview 行', oLines),
-                const SizedBox(height: 12),
-                lineBlock('右边前 $preview 行', mLines),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showTime(BuildContext context, WidgetRef ref) async {
-    final entries = ViewerDiag.entries;
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: const Text('耗时诊断', style: TextStyle(fontSize: 14)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.6,
-          child: entries.isEmpty
-              ? const Center(child: Text('还没有记录'))
-              : ListView.builder(
-                  itemCount: entries.length,
-                  itemBuilder: (ctx, i) {
-                    final e = entries[i];
-                    final prev = i == 0 ? 0 : entries[i - 1].ms;
-                    final delta = e.ms - prev;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Text(
-                        '+${delta}ms  (累计 ${e.ms}ms)  ${e.tag}',
-                        style: const TextStyle(
-                            fontFamily: 'monospace', fontSize: 12),
-                      ),
-                    );
-                  },
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showHistory(BuildContext context, WidgetRef ref) async {
-    final entries = DiagHistory.entries;
-
-    String fmt(DateTime t) {
-      String two(int n) => n < 10 ? '0$n' : '$n';
-      return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: const Text('历史', style: TextStyle(fontSize: 14)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.75,
-          child: entries.isEmpty
-              ? const Center(child: Text('还没有记录'))
-              : ListView.builder(
-                  itemCount: entries.length,
-                  itemBuilder: (ctx, i) {
-                    final e = entries[entries.length - 1 - i];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${fmt(e.time)}  ',
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              e.msg,
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DiagRow extends StatelessWidget {
-  const _DiagRow({
-    required this.title,
-    required this.subtitle,
-    required this.enabled,
-    required this.onToggle,
-    required this.onTap,
-  });
-
-  final String title;
-  final String subtitle;
-  final bool enabled;
-  final ValueChanged<bool> onToggle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = Theme.of(context).colorScheme;
-    return Column(
-      children: [
-        ListTile(
-          enabled: enabled,
-          title: Text(
-            title,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: enabled ? null : s.onSurface.withOpacity(0.4),
-            ),
-          ),
-          subtitle: Text(
-            enabled ? subtitle : '关闭',
-            style: TextStyle(
-              fontSize: 12,
-              color: enabled ? s.onSurfaceVariant : s.outline,
-            ),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (enabled)
-                Icon(Icons.chevron_right, color: s.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Switch(
-                value: enabled,
-                onChanged: onToggle,
-              ),
-            ],
-          ),
-          onTap: enabled ? onTap : null,
-        ),
-        const Divider(height: 1),
-      ],
-    );
-  }
-}
-
-// ==================== 显示设置底部面板 ====================
-
-class _DisplaySettingsSheet extends ConsumerWidget {
-  const _DisplaySettingsSheet();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final showLine = ref.watch(showLineNumbersProvider);
-    final bodySize = ref.watch(bodyFontSizeProvider);
-    final gutterSize = ref.watch(gutterFontSizeProvider);
-
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.85,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: Column(
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '显示设置',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView(
-                  children: [
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('显示行号'),
-                      value: showLine,
-                      onChanged: (v) => ref
-                          .read(showLineNumbersProvider.notifier)
-                          .update(v),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '正文字号：${bodySize.toStringAsFixed(0)}',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    Slider(
-                      min: 2,
-                      max: 38,
-                      divisions: 36,
-                      value: bodySize,
-                      label: bodySize.toStringAsFixed(0),
-                      onChanged: (v) =>
-                          ref.read(bodyFontSizeProvider.notifier).update(v),
-                    ),
-                    Text(
-                      '行号字号：${gutterSize.toStringAsFixed(0)}',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    Slider(
-                      min: 2,
-                      max: 38,
-                      divisions: 36,
-                      value: gutterSize,
-                      label: gutterSize.toStringAsFixed(0),
-                      onChanged: (v) => ref
-                          .read(gutterFontSizeProvider.notifier)
-                          .update(v),
-                    ),
-                    const Divider(height: 32),
-                    Text(
-                      '差异颜色',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    _colorRow(context, ref, '左文件独有行 · 整行底色',
-                        deleteRowBgProvider),
-                    _colorRow(context, ref, '左文件独有行 · 文字颜色',
-                        deleteRowFgProvider),
-                    _colorRow(context, ref, '右文件独有行 · 整行底色',
-                        insertRowBgProvider),
-                    _colorRow(context, ref, '右文件独有行 · 文字颜色',
-                        insertRowFgProvider),
-                    _colorRow(context, ref, '被改行（左）· 整行底色',
-                        replaceLeftBgProvider),
-                    _colorRow(context, ref, '被改行（左）· 文字颜色',
-                        replaceLeftFgProvider),
-                    _colorRow(context, ref, '被改行（右）· 整行底色',
-                        replaceRightBgProvider),
-                    _colorRow(context, ref, '被改行（右）· 文字颜色',
-                        replaceRightFgProvider),
-                    _colorRow(context, ref, '行内删掉的字 · 底色',
-                        charDeleteBgProvider),
-                    _colorRow(context, ref, '行内删掉的字 · 文字颜色',
-                        charDeleteFgProvider),
-                    _colorRow(context, ref, '行内新增的字 · 底色',
-                        charInsertBgProvider),
-                    _colorRow(context, ref, '行内新增的字 · 文字颜色',
-                        charInsertFgProvider),
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _colorRow(
-    BuildContext context,
-    WidgetRef ref,
-    String label,
-    NotifierProvider<ColorPrefNotifier, Color> provider,
-  ) {
-    final color = ref.watch(provider);
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      title: Text(label),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            colorToHex(color),
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(width: 8),
-          InkWell(
-            onTap: () => _pickColor(context, ref, label, provider),
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: color,
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _pickColor(
-    BuildContext context,
-    WidgetRef ref,
-    String label,
-    NotifierProvider<ColorPrefNotifier, Color> provider,
-  ) async {
-    var picked = ref.read(provider);
-    final controller = TextEditingController(text: colorToHex(picked));
-
-    await showDialog<void>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (c, setDialogState) => AlertDialog(
-          title: Text(label),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ColorPicker(
-                  pickerColor: picked,
-                  onColorChanged: (color) {
-                    picked = color;
-                    controller.text = colorToHex(color);
-                  },
-                  enableAlpha: false,
-                  labelTypes: const [],
-                  pickerAreaHeightPercent: 0.7,
-                  displayThumbColor: true,
-                  portraitOnly: true,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: controller,
-                  decoration: const InputDecoration(
-                    hintText: '#RRGGBB',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  onSubmitted: (v) {
-                    final parsed = hexToColor(v.trim());
-                    if (parsed != null) {
-                      picked = parsed;
-                      setDialogState(() {});
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '拖动上面的色板选颜色，或手动输入 #RRGGBB',
-                  style: Theme.of(c).textTheme.labelSmall,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () {
-                ref.read(provider.notifier).update(picked);
-                Navigator.pop(c);
-              },
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ToolbarOrderDialog extends ConsumerStatefulWidget {
-  const _ToolbarOrderDialog({required this.rules});
-
-  final List<PreprocessingRule> rules;
-
-  @override
-  ConsumerState<_ToolbarOrderDialog> createState() =>
-      _ToolbarOrderDialogState();
-}
-
-class _ToolbarOrderDialogState extends ConsumerState<_ToolbarOrderDialog> {
-  late List<PreprocessingRule> _rules;
-
-  @override
-  void initState() {
-    super.initState();
-    _rules = List<PreprocessingRule>.from(widget.rules);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      insetPadding: const EdgeInsets.all(8),
-      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-      title: const Text('按钮排序'),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: MediaQuery.of(context).size.height * 0.7,
-        child: ReorderableListView.builder(
-          itemCount: _rules.length,
-          onReorder: (oldIndex, newIndex) {
-            setState(() {
-              if (newIndex > oldIndex) newIndex--;
-              final item = _rules.removeAt(oldIndex);
-              _rules.insert(newIndex, item);
-            });
-          },
-          itemBuilder: (ctx, i) {
-            final r = _rules[i];
-            return ListTile(
-              key: ValueKey<String>('order:${r.id}'),
-              leading: const Icon(Icons.drag_handle),
-              title: Text(r.name),
-              subtitle: Text(
-                ruleSubtitle(r),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: '设置颜色',
-                    icon: const Icon(Icons.palette),
-                    onPressed: () => _openColorPanel(r),
-                  ),
-                  IconButton(
-                    tooltip: '删除',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () {
-                      setState(() => _rules.removeAt(i));
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: _save,
-          child: const Text('保存'),
-        ),
-      ],
-    );
-  }
-
-  void _openColorPanel(PreprocessingRule r) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => _ButtonColorDialog(
-        ruleId: r.id,
-        ruleName: r.name,
-      ),
-    );
-  }
-
-  void _save() {
-    ref
-        .read(toolbarOrderProvider.notifier)
-        .setAll(_rules.map((r) => r.id).toList());
-    ref.read(toolbarRulesProvider.notifier).setAll(_rules);
-
-    final newIds = _rules.map((r) => r.id).toSet();
-    final oldIds = widget.rules.map((r) => r.id).toSet();
-    final removedIds = oldIds.difference(newIds);
-    for (final id in removedIds) {
-      ref.read(toolbarButtonColorsProvider.notifier).remove(id);
-    }
-
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已保存')),
-    );
-  }
-}
-
-// ==================== 按钮颜色面板 ====================
-
-class _ButtonColorDialog extends ConsumerStatefulWidget {
-  const _ButtonColorDialog({
-    required this.ruleId,
-    required this.ruleName,
-  });
-
-  final String ruleId;
-  final String ruleName;
-
-  @override
-  ConsumerState<_ButtonColorDialog> createState() =>
-      _ButtonColorDialogState();
-}
-
-class _ButtonColorDialogState extends ConsumerState<_ButtonColorDialog> {
-  @override
-  Widget build(BuildContext context) {
-    final all = ref.watch(toolbarButtonColorsProvider);
-    final c = all[widget.ruleId] ?? const ToolbarButtonColor();
-    final s = Theme.of(context).colorScheme;
-
-    return AlertDialog(
-      insetPadding: const EdgeInsets.all(8),
-      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-      title: Text(
-        '${widget.ruleName} · 按钮颜色',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _colorRow(
-              context: context,
-              label: '背景色',
-              isSet: c.bg != null,
-              color: c.bg ?? s.primaryContainer,
-              onPick: (v) => _setBg(v),
-            ),
-            _colorRow(
-              context: context,
-              label: '文字色',
-              isSet: c.fg != null,
-              color: c.fg ?? s.onPrimaryContainer,
-              onPick: (v) => _setFg(v),
-            ),
-            _colorRow(
-              context: context,
-              label: '边框色',
-              isSet: c.border != null,
-              color: c.border ?? s.primary.withOpacity(0.3),
-              onPick: (v) => _setBorder(v),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
-        ),
-      ],
-    );
-  }
-
-  void _setBg(Color? color) {
-    final all = ref.read(toolbarButtonColorsProvider);
-    final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
-    ref.read(toolbarButtonColorsProvider.notifier).setOne(
-          widget.ruleId,
-          ToolbarButtonColor(bg: color, fg: cur.fg, border: cur.border),
-        );
-  }
-
-  void _setFg(Color? color) {
-    final all = ref.read(toolbarButtonColorsProvider);
-    final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
-    ref.read(toolbarButtonColorsProvider.notifier).setOne(
-          widget.ruleId,
-          ToolbarButtonColor(bg: cur.bg, fg: color, border: cur.border),
-        );
-  }
-
-  void _setBorder(Color? color) {
-    final all = ref.read(toolbarButtonColorsProvider);
-    final cur = all[widget.ruleId] ?? const ToolbarButtonColor();
-    ref.read(toolbarButtonColorsProvider.notifier).setOne(
-          widget.ruleId,
-          ToolbarButtonColor(bg: cur.bg, fg: cur.fg, border: color),
-        );
-  }
-
-  Widget _colorRow({
-    required BuildContext context,
-    required String label,
-    required bool isSet,
-    required Color color,
-    required void Function(Color?) onPick,
-  }) {
-    final s = Theme.of(context).colorScheme;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      title: Text(label),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            isSet ? colorToHex(color) : '默认',
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              color: isSet ? s.onSurface : s.outline,
-            ),
-          ),
-          const SizedBox(width: 4),
-          if (isSet)
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: IconButton(
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                tooltip: '清空（回到默认）',
-                icon: const Icon(Icons.close, size: 14),
-                onPressed: () => onPick(null),
-              ),
-            ),
-          const SizedBox(width: 4),
-          InkWell(
-            onTap: () async {
-              final picked = await _pickColorDialog(context, color);
-              if (picked != null) onPick(picked);
-            },
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: color,
-                border: Border.all(color: s.outline),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 通用取色弹窗。返回选中的颜色；用户取消返回 null。
-Future<Color?> _pickColorDialog(BuildContext context, Color initial) async {
-  var picked = initial;
-  final controller = TextEditingController(text: colorToHex(picked));
-
-  return showDialog<Color>(
-    context: context,
-    builder: (c) => StatefulBuilder(
-      builder: (c, setDialogState) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: const Text('选择颜色'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ColorPicker(
-                pickerColor: picked,
-                onColorChanged: (color) {
-                  picked = color;
-                  controller.text = colorToHex(color);
-                },
-                enableAlpha: false,
-                labelTypes: const [],
-                pickerAreaHeightPercent: 0.7,
-                displayThumbColor: true,
-                portraitOnly: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                decoration: const InputDecoration(
-                  hintText: '#RRGGBB',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onSubmitted: (v) {
-                  final parsed = hexToColor(v.trim());
-                  if (parsed != null) {
-                    picked = parsed;
-                    setDialogState(() {});
-                  }
-                },
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '拖动上面的色板选颜色，或手动输入 #RRGGBB',
-                style: Theme.of(c).textTheme.labelSmall,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(c, picked),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-// ==================== 查找历史弹窗 ====================
-
-class _FindHistoryDialog extends ConsumerWidget {
-  const _FindHistoryDialog({required this.onPick});
-
-  final ValueChanged<String> onPick;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final history = ref.watch(findHistoryProvider);
-
-    return AlertDialog(
-      insetPadding: const EdgeInsets.all(8),
-      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-      title: const Text('查找历史'),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: MediaQuery.of(context).size.height * 0.7,
-        child: history.isEmpty
-            ? const Center(child: Text('还没有查找记录'))
-            : ListView.builder(
-                itemCount: history.length,
-                itemBuilder: (ctx, i) {
-                  final q = history[i];
-                  return ListTile(
-                    dense: true,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 8),
-                    title: Text(
-                      q,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      tooltip: '删除',
-                      onPressed: () {
-                        ref.read(findHistoryProvider.notifier).remove(q);
-                      },
-                    ),
-                    onTap: () {
-                      onPick(q);
-                      Navigator.pop(context);
-                    },
-                  );
-                },
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
-        ),
-      ],
     );
   }
 }
