@@ -33,11 +33,9 @@ class SideBySideView extends ConsumerStatefulWidget {
   });
 
   final DiffResult result;
-
   final LineHeightTable syncHeightTable;
   final LineHeightTable leftHeightTable;
   final LineHeightTable rightHeightTable;
-
   final String? originalFileName;
   final String? modifiedFileName;
   final ScrollController? controller;
@@ -59,34 +57,22 @@ class SideBySideView extends ConsumerStatefulWidget {
 }
 
 class _SideBySideViewState extends ConsumerState<SideBySideView> {
-  /// 左栏纵向 controller。外部传入的 controller 直接复用，这样外部跳转
-  /// （上一处 / 下一处差异、跳转到第 N 行）会作用到左栏，右栏同步跟上。
   late final ScrollController _leftCtrl;
   late final ScrollController _rightCtrl;
-  final bool _ownLeftCtrl;
-
-  /// 防止联动时的循环触发。
   bool _syncing = false;
 
-  // 左右内容宽度缓存（只在 diff 或显示参数变化时重算）。
-  DiffResult? _cachedWidthsFor;
-  double? _cachedWidthsFontSize;
-  double _cachedLeftWidth = 0;
-  double _cachedRightWidth = 0;
-
-  _SideBySideViewState()
-      : _ownLeftCtrl = true,
-        _leftCtrl = ScrollController(),
-        _rightCtrl = ScrollController();
-
-  // 说明：上面的初始化写法和"复用外部 controller"有冲突，用 initState 重做。
-  // 见下方 initState。
+  DiffResult? _widthsFor;
+  double _widthsFontSize = -1;
+  bool _widthsNoWrap = false;
+  double _leftWidth = 0;
+  double _rightWidth = 0;
 
   @override
   void initState() {
     super.initState();
     _leftCtrl = widget.controller ?? ScrollController();
     _leftCtrl.addListener(_syncFromLeft);
+    _rightCtrl = ScrollController();
     _rightCtrl.addListener(_syncFromRight);
   }
 
@@ -152,8 +138,8 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     double rightWidth = halfW;
     if (widget.noWrap) {
       _ensureWidths(rows, widget.result);
-      leftWidth = _cachedLeftWidth > halfW ? _cachedLeftWidth : halfW;
-      rightWidth = _cachedRightWidth > halfW ? _cachedRightWidth : halfW;
+      leftWidth = _leftWidth > halfW ? _leftWidth : halfW;
+      rightWidth = _rightWidth > halfW ? _rightWidth : halfW;
     }
 
     Widget header(String? name, Color color, {required bool isOriginal}) {
@@ -182,7 +168,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
         itemExtentBuilder: (index, dimensions) => table.heightOf(index),
         itemBuilder: (ctx, i) {
           final spec = rows[i];
-          final int? ei = isLeft ? spec.del : spec.ins;
+          final int? ei = _entryIdxForSpec(spec, isLeft);
           if (ei == null) {
             return const SizedBox.expand();
           }
@@ -271,9 +257,26 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     );
   }
 
+  /// 取这一行的 entry 索引。
+  ///
+  /// - 有自己那一侧就用自己那一侧
+  /// - 自己那侧是 null，但对面是"相同行"→ 借用对面（相同行两边内容一样）
+  /// - 其它情况（自己是 null 且对面是删/插）→ 返回 null，那一侧留空
+  int? _entryIdxForSpec(AlignedRow spec, bool isLeft) {
+    final own = isLeft ? spec.del : spec.ins;
+    if (own != null) return own;
+    final fallback = isLeft ? spec.ins : spec.del;
+    if (fallback != null &&
+        widget.result.entries[fallback].operation == DiffOperation.equal) {
+      return fallback;
+    }
+    return null;
+  }
+
   void _ensureWidths(List<AlignedRow> rows, DiffResult diff) {
-    if (identical(_cachedWidthsFor, diff) &&
-        _cachedWidthsFontSize == widget.bodyFontSize) {
+    if (identical(_widthsFor, diff) &&
+        _widthsFontSize == widget.bodyFontSize &&
+        _widthsNoWrap == widget.noWrap) {
       return;
     }
     var maxL = 0;
@@ -292,10 +295,11 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     }
     final charWidth = widget.bodyFontSize * 0.9;
     final extra = widget.showLineNumbers ? 56.0 : 24.0;
-    _cachedLeftWidth = maxL * charWidth + extra;
-    _cachedRightWidth = maxR * charWidth + extra;
-    _cachedWidthsFor = diff;
-    _cachedWidthsFontSize = widget.bodyFontSize;
+    _leftWidth = maxL * charWidth + extra;
+    _rightWidth = maxR * charWidth + extra;
+    _widthsFor = diff;
+    _widthsFontSize = widget.bodyFontSize;
+    _widthsNoWrap = widget.noWrap;
   }
 
   String _displayTextFor(DiffEntry e, bool isLeft) {
@@ -325,6 +329,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     String symbol;
     Color bg;
     Color fg;
+    _CharDiff? charDiff;
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white
@@ -352,6 +357,15 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       symbol = '~';
       bg = isLeft ? c.replaceLeftBg : c.replaceRightBg;
       fg = isLeft ? c.replaceLeftFg : c.replaceRightFg;
+      charDiff = _CharDiff(
+        before: e.oldText.isEmpty ? e.text : e.oldText,
+        after: e.newText.isEmpty ? e.text : e.newText,
+        side: !isLeft,
+        removedBg: c.charDeleteBg,
+        removedFg: c.charDeleteFg,
+        addedBg: c.charInsertBg,
+        addedFg: c.charInsertFg,
+      );
     }
 
     return _Cell(
@@ -364,7 +378,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       isCurrentMatch: isCurrentMatch,
       matchYellow: SideBySideView._matchYellow,
       matchPink: SideBySideView._matchPink,
-      charDiff: null,
+      charDiff: charDiff,
       showLineNumbers: widget.showLineNumbers,
       bodyFontSize: widget.bodyFontSize,
       gutterFontSize: widget.gutterFontSize,
