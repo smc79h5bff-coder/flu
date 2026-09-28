@@ -59,44 +59,102 @@ class SideBySideView extends ConsumerStatefulWidget {
 }
 
 class _SideBySideViewState extends ConsumerState<SideBySideView> {
-  final ScrollController _leftCtrl = ScrollController();
-  final ScrollController _rightCtrl = ScrollController();
+  /// 左栏纵向 controller。外部传入的 controller 直接复用，这样外部跳转
+  /// （上一处 / 下一处差异、跳转到第 N 行）会作用到左栏，右栏同步跟上。
+  late final ScrollController _leftCtrl;
+  late final ScrollController _rightCtrl;
+  final bool _ownLeftCtrl;
+
+  /// 防止联动时的循环触发。
+  bool _syncing = false;
+
+  // 左右内容宽度缓存（只在 diff 或显示参数变化时重算）。
+  DiffResult? _cachedWidthsFor;
+  double? _cachedWidthsFontSize;
+  double _cachedLeftWidth = 0;
+  double _cachedRightWidth = 0;
+
+  _SideBySideViewState()
+      : _ownLeftCtrl = true,
+        _leftCtrl = ScrollController(),
+        _rightCtrl = ScrollController();
+
+  // 说明：上面的初始化写法和"复用外部 controller"有冲突，用 initState 重做。
+  // 见下方 initState。
+
+  @override
+  void initState() {
+    super.initState();
+    _leftCtrl = widget.controller ?? ScrollController();
+    _leftCtrl.addListener(_syncFromLeft);
+    _rightCtrl.addListener(_syncFromRight);
+  }
 
   @override
   void dispose() {
-    _leftCtrl.dispose();
+    _leftCtrl.removeListener(_syncFromLeft);
+    _rightCtrl.removeListener(_syncFromRight);
+    if (widget.controller == null) {
+      _leftCtrl.dispose();
+    }
     _rightCtrl.dispose();
     super.dispose();
   }
 
-  Widget _scrollbarTheme({required Widget child}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ScrollbarTheme(
-      data: ScrollbarThemeData(
-        thumbColor: WidgetStatePropertyAll(
-          (isDark ? Colors.white : Colors.black).withValues(alpha: 0.42),
-        ),
-        thickness: const WidgetStatePropertyAll(12),
-        radius: const Radius.circular(6),
-        trackVisibility: const WidgetStatePropertyAll(false),
-      ),
-      child: child,
-    );
+  void _syncFromLeft() {
+    if (_syncing) return;
+    if (!_rightCtrl.hasClients || !_leftCtrl.hasClients) return;
+    final leftOffset = _leftCtrl.offset;
+    if ((_rightCtrl.offset - leftOffset).abs() < 0.5) return;
+    _syncing = true;
+    try {
+      _rightCtrl.jumpTo(leftOffset.clamp(
+        _rightCtrl.position.minScrollExtent,
+        _rightCtrl.position.maxScrollExtent,
+      ));
+    } catch (_) {}
+    _syncing = false;
+  }
+
+  void _syncFromRight() {
+    if (_syncing) return;
+    if (!_leftCtrl.hasClients || !_rightCtrl.hasClients) return;
+    final rightOffset = _rightCtrl.offset;
+    if ((_leftCtrl.offset - rightOffset).abs() < 0.5) return;
+    _syncing = true;
+    try {
+      _leftCtrl.jumpTo(rightOffset.clamp(
+        _leftCtrl.position.minScrollExtent,
+        _leftCtrl.position.maxScrollExtent,
+      ));
+    } catch (_) {}
+    _syncing = false;
   }
 
   @override
   Widget build(BuildContext context) {
     final c = watchDiffColors(ref);
-    if (widget.syncScroll) return _buildSynced(context, c);
-    return _buildIndependent(context, c);
+    return _build(context, c);
   }
 
-  Widget _buildSynced(BuildContext context, DiffColors c) {
+  Widget _build(BuildContext context, DiffColors c) {
     final meta = cachedLineMeta(widget.result);
     final rows = cachedAlignedRows(widget.result);
     final table = widget.syncHeightTable;
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
+
+    final mq = MediaQuery.of(context);
+    final viewportW = mq.size.width;
+    final halfW = (viewportW - 1) / 2;
+
+    double leftWidth = halfW;
+    double rightWidth = halfW;
+    if (widget.noWrap) {
+      _ensureWidths(rows, widget.result);
+      leftWidth = _cachedLeftWidth > halfW ? _cachedLeftWidth : halfW;
+      rightWidth = _cachedRightWidth > halfW ? _cachedRightWidth : halfW;
+    }
 
     Widget header(String? name, Color color, {required bool isOriginal}) {
       return Expanded(
@@ -110,6 +168,75 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       );
     }
 
+    Widget pane({
+      required ScrollController ctrl,
+      required bool isLeft,
+      required double contentWidth,
+    }) {
+      final list = ListView.builder(
+        controller: ctrl,
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
+        cacheExtent: 100,
+        itemCount: rows.length,
+        itemExtentBuilder: (index, dimensions) => table.heightOf(index),
+        itemBuilder: (ctx, i) {
+          final spec = rows[i];
+          final int? ei = isLeft ? spec.del : spec.ins;
+          if (ei == null) {
+            return const SizedBox.expand();
+          }
+          final e = widget.result.entries[ei];
+          final m = meta[ei];
+          final isCurrent = widget.currentMatchEntry == ei;
+          final tile = _singleSideTile(
+            context,
+            e,
+            isLeft ? m.orig : m.mod,
+            isLeft: isLeft,
+            isCurrentMatch: isCurrent,
+            c: c,
+          );
+          final out = widget.onLongPressEntry == null
+              ? tile
+              : GestureDetector(
+                  onLongPress: () => widget.onLongPressEntry!(<int>[ei]),
+                  behavior: HitTestBehavior.opaque,
+                  child: tile,
+                );
+          final framed = widget.jumpedToEntry == ei
+              ? Container(
+                  foregroundDecoration: BoxDecoration(
+                    border: Border.all(color: Colors.black, width: 2),
+                  ),
+                  child: out,
+                )
+              : out;
+          return KeyedSubtree(key: ValueKey<int>(ei), child: framed);
+        },
+      );
+
+      if (widget.noWrap) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: contentWidth,
+            height: double.infinity,
+            child: Scrollbar(
+              controller: ctrl,
+              interactive: true,
+              child: list,
+            ),
+          ),
+        );
+      }
+      return Scrollbar(
+        controller: ctrl,
+        interactive: true,
+        child: list,
+      );
+    }
+
     return Column(
       children: [
         Row(
@@ -120,223 +247,21 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
           ],
         ),
         Expanded(
-          child: _scrollbarTheme(
-            child: Scrollbar(
-              controller: widget.controller,
-              interactive: true,
-              child: ListView.builder(
-                key: const Key('side-by-side-list'),
-                controller: widget.controller,
-                addAutomaticKeepAlives: false,
-                addRepaintBoundaries: false,
-                cacheExtent: 100,
-                itemCount: rows.length,
-                itemExtentBuilder: (index, dimensions) =>
-                    table.heightOf(index),
-                itemBuilder: (ctx, i) {
-                  final spec = rows[i];
-                  final isCurrent = widget.currentMatchEntry != null &&
-                      (spec.del == widget.currentMatchEntry ||
-                          spec.ins == widget.currentMatchEntry);
-                  final Widget row;
-                  final List<int> keyOwners;
-                  if (spec.del != null && spec.ins != null) {
-                    row = _comboRow(
-                      context,
-                      widget.result.entries[spec.del!],
-                      widget.result.entries[spec.ins!],
-                      meta[spec.del!],
-                      meta[spec.ins!],
-                      c,
-                      isCurrent,
-                    );
-                    keyOwners = <int>[spec.del!, spec.ins!];
-                  } else if (spec.del != null) {
-                    final ei = spec.del!;
-                    row = _alignedRow(ctx, widget.result.entries[ei],
-                        meta[ei], c, isCurrent);
-                    keyOwners = <int>[ei];
-                  } else {
-                    final ei = spec.ins!;
-                    row = _alignedRow(ctx, widget.result.entries[ei],
-                        meta[ei], c, isCurrent);
-                    keyOwners = <int>[ei];
-                  }
-                  final Widget out;
-                  if (widget.onLongPressEntry != null) {
-                    out = GestureDetector(
-                      onLongPress: () => widget.onLongPressEntry!(keyOwners),
-                      behavior: HitTestBehavior.opaque,
-                      child: row,
-                    );
-                  } else {
-                    out = row;
-                  }
-                  final bool isJumped = widget.jumpedToEntry != null &&
-                      (spec.del == widget.jumpedToEntry ||
-                          spec.ins == widget.jumpedToEntry);
-                  final Widget framed = isJumped
-                      ? Container(
-                          foregroundDecoration: BoxDecoration(
-                            border: Border.all(color: Colors.black, width: 2),
-                          ),
-                          child: out,
-                        )
-                      : out;
-                  final key = spec.del != null && spec.ins != null
-                      ? ValueKey<String>('${spec.del}-${spec.ins}')
-                      : ValueKey<int>(spec.del ?? spec.ins!);
-                  return KeyedSubtree(key: key, child: framed);
-                },
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildIndependent(BuildContext context, DiffColors c) {
-    final meta = cachedLineMeta(widget.result);
-    final s = Theme.of(context).colorScheme;
-    final divider = Container(width: 1, color: s.outlineVariant);
-
-    final leftIndices = <int>[];
-    final rightIndices = <int>[];
-    for (var i = 0; i < widget.result.entries.length; i++) {
-      final op = widget.result.entries[i].operation;
-      if (op != DiffOperation.insert) leftIndices.add(i);
-      if (op != DiffOperation.delete) rightIndices.add(i);
-    }
-
-    Widget header(String? name, Color color, {required bool isOriginal}) {
-      return name == null
-          ? const SizedBox.shrink()
-          : _PaneHeader(
-              fileName: name,
-              color: color,
-              isOriginal: isOriginal,
-            );
-    }
-
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: header(widget.originalFileName, s.error,
-                  isOriginal: true),
-            ),
-            divider,
-            Expanded(
-              child: header(widget.modifiedFileName, s.primary,
-                  isOriginal: false),
-            ),
-          ],
-        ),
-        Expanded(
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: _scrollbarTheme(
-                  child: Scrollbar(
-                    controller: _leftCtrl,
-                    interactive: true,
-                    child: ListView.builder(
-                      key: const Key('sbs-left-list'),
-                      controller: _leftCtrl,
-                      addAutomaticKeepAlives: false,
-                      addRepaintBoundaries: false,
-                      cacheExtent: 100,
-                      itemCount: leftIndices.length,
-                      itemExtentBuilder: (index, dimensions) =>
-                          widget.leftHeightTable.heightOf(index),
-                      itemBuilder: (ctx, i) {
-                        final ei = leftIndices[i];
-                        final isCurrent = widget.currentMatchEntry != null &&
-                            ei == widget.currentMatchEntry;
-                        final tile = _singleSideTile(
-                          context,
-                          widget.result.entries[ei],
-                          meta[ei].orig,
-                          isLeft: true,
-                          isCurrentMatch: isCurrent,
-                          c: c,
-                        );
-                        final out = widget.onLongPressEntry == null
-                            ? tile
-                            : GestureDetector(
-                                onLongPress: () =>
-                                    widget.onLongPressEntry!(<int>[ei]),
-                                behavior: HitTestBehavior.opaque,
-                                child: tile,
-                              );
-                        final Widget framed = (widget.jumpedToEntry == ei)
-                            ? Container(
-                                foregroundDecoration: BoxDecoration(
-                                  border:
-                                      Border.all(color: Colors.black, width: 2),
-                                ),
-                                child: out,
-                              )
-                            : out;
-                        return KeyedSubtree(
-                            key: ValueKey<int>(ei), child: framed);
-                      },
-                    ),
-                  ),
+                child: pane(
+                  ctrl: _leftCtrl,
+                  isLeft: true,
+                  contentWidth: leftWidth,
                 ),
               ),
               divider,
               Expanded(
-                child: _scrollbarTheme(
-                  child: Scrollbar(
-                    controller: _rightCtrl,
-                    interactive: true,
-                    child: ListView.builder(
-                      key: const Key('sbs-right-list'),
-                      controller: _rightCtrl,
-                      addAutomaticKeepAlives: false,
-                      addRepaintBoundaries: false,
-                      cacheExtent: 100,
-                      itemCount: rightIndices.length,
-                      itemExtentBuilder: (index, dimensions) =>
-                          widget.rightHeightTable.heightOf(index),
-                      itemBuilder: (ctx, i) {
-                        final ei = rightIndices[i];
-                        final isCurrent = widget.currentMatchEntry != null &&
-                            ei == widget.currentMatchEntry;
-                        final tile = _singleSideTile(
-                          context,
-                          widget.result.entries[ei],
-                          meta[ei].mod,
-                          isLeft: false,
-                          isCurrentMatch: isCurrent,
-                          c: c,
-                        );
-                        final out = widget.onLongPressEntry == null
-                            ? tile
-                            : GestureDetector(
-                                onLongPress: () =>
-                                    widget.onLongPressEntry!(<int>[ei]),
-                                behavior: HitTestBehavior.opaque,
-                                child: tile,
-                              );
-                        final Widget framed = (widget.jumpedToEntry == ei)
-                            ? Container(
-                                foregroundDecoration: BoxDecoration(
-                                  border:
-                                      Border.all(color: Colors.black, width: 2),
-                                ),
-                                child: out,
-                              )
-                            : out;
-                        return KeyedSubtree(
-                            key: ValueKey<int>(ei), child: framed);
-                      },
-                    ),
-                  ),
+                child: pane(
+                  ctrl: _rightCtrl,
+                  isLeft: false,
+                  contentWidth: rightWidth,
                 ),
               ),
             ],
@@ -344,6 +269,42 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
         ),
       ],
     );
+  }
+
+  void _ensureWidths(List<AlignedRow> rows, DiffResult diff) {
+    if (identical(_cachedWidthsFor, diff) &&
+        _cachedWidthsFontSize == widget.bodyFontSize) {
+      return;
+    }
+    var maxL = 0;
+    var maxR = 0;
+    for (final spec in rows) {
+      if (spec.del != null) {
+        final t = _displayTextFor(diff.entries[spec.del!], true);
+        final n = t.runes.length;
+        if (n > maxL) maxL = n;
+      }
+      if (spec.ins != null) {
+        final t = _displayTextFor(diff.entries[spec.ins!], false);
+        final n = t.runes.length;
+        if (n > maxR) maxR = n;
+      }
+    }
+    final charWidth = widget.bodyFontSize * 0.9;
+    final extra = widget.showLineNumbers ? 56.0 : 24.0;
+    _cachedLeftWidth = maxL * charWidth + extra;
+    _cachedRightWidth = maxR * charWidth + extra;
+    _cachedWidthsFor = diff;
+    _cachedWidthsFontSize = widget.bodyFontSize;
+  }
+
+  String _displayTextFor(DiffEntry e, bool isLeft) {
+    if (e.operation == DiffOperation.replace) {
+      return isLeft
+          ? (e.oldText.isEmpty ? e.text : e.oldText)
+          : (e.newText.isEmpty ? e.text : e.newText);
+    }
+    return e.text;
   }
 
   Widget _singleSideTile(
@@ -355,10 +316,11 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     required DiffColors c,
   }) {
     final s = Theme.of(context).colorScheme;
-    final plainBg = Theme.of(context).brightness == Brightness.dark
-    ? s.surface
-    : Colors.white;
-    
+    final plainBg =
+        Theme.of(context).brightness == Brightness.dark
+            ? s.surface
+            : Colors.white;
+
     String text;
     String symbol;
     Color bg;
@@ -407,198 +369,6 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       bodyFontSize: widget.bodyFontSize,
       gutterFontSize: widget.gutterFontSize,
       noWrap: widget.noWrap,
-    );
-  }
-
-  Widget _comboRow(
-    BuildContext context,
-    DiffEntry del,
-    DiffEntry ins,
-    ({int orig, int mod}) delMeta,
-    ({int orig, int mod}) insMeta,
-    DiffColors c,
-    bool isCurrentMatch,
-  ) {
-    final s = Theme.of(context).colorScheme;
-    final leftText = del.text;
-    final rightText = ins.text;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: _Cell(
-            text: leftText,
-            line: delMeta.orig,
-            symbol: '~',
-            bg: c.replaceLeftBg,
-            fg: c.replaceLeftFg,
-            findQuery: widget.findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: SideBySideView._matchYellow,
-            matchPink: SideBySideView._matchPink,
-            charDiff: _CharDiff(
-              before: leftText,
-              after: rightText,
-              side: false,
-              removedBg: c.charDeleteBg,
-              removedFg: c.charDeleteFg,
-              addedBg: c.charInsertBg,
-              addedFg: c.charInsertFg,
-            ),
-            showLineNumbers: widget.showLineNumbers,
-            bodyFontSize: widget.bodyFontSize,
-            gutterFontSize: widget.gutterFontSize,
-            noWrap: widget.noWrap,
-          ),
-        ),
-        Container(width: 1, color: s.outlineVariant),
-        Expanded(
-          child: _Cell(
-            text: rightText,
-            line: insMeta.mod,
-            symbol: '~',
-            bg: c.replaceRightBg,
-            fg: c.replaceRightFg,
-            findQuery: widget.findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: SideBySideView._matchYellow,
-            matchPink: SideBySideView._matchPink,
-            charDiff: _CharDiff(
-              before: leftText,
-              after: rightText,
-              side: true,
-              removedBg: c.charDeleteBg,
-              removedFg: c.charDeleteFg,
-              addedBg: c.charInsertBg,
-              addedFg: c.charInsertFg,
-            ),
-            showLineNumbers: widget.showLineNumbers,
-            bodyFontSize: widget.bodyFontSize,
-            gutterFontSize: widget.gutterFontSize,
-            noWrap: widget.noWrap,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _alignedRow(
-    BuildContext context,
-    DiffEntry e,
-    ({int orig, int mod}) m,
-    DiffColors c,
-    bool isCurrentMatch,
-  ) {
-    final s = Theme.of(context).colorScheme;
-final isDark = Theme.of(context).brightness == Brightness.dark;
-final plainBg = isDark ? s.surface : Colors.white;
-final plainLeftBg = plainBg;
-final plainRightBg = plainBg;
-    final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
-        (Theme.of(context).brightness == Brightness.dark
-            ? Colors.white
-            : Colors.black);
-
-    String leftText = '';
-    String rightText = '';
-    Color leftBg = plainLeftBg;
-    Color rightBg = plainRightBg;
-    Color leftFg = defaultFg;
-    Color rightFg = defaultFg;
-    String leftSym = '';
-    String rightSym = '';
-    _CharDiff? leftCharDiff;
-    _CharDiff? rightCharDiff;
-
-    switch (e.operation) {
-      case DiffOperation.equal:
-        leftText = e.text;
-        rightText = e.text;
-        break;
-      case DiffOperation.delete:
-        leftText = e.text;
-        leftBg = c.deleteRowBg;
-        leftFg = c.deleteRowFg;
-        leftSym = '−';
-        break;
-      case DiffOperation.insert:
-        rightText = e.text;
-        rightBg = c.insertRowBg;
-        rightFg = c.insertRowFg;
-        rightSym = '+';
-        break;
-      case DiffOperation.replace:
-        leftText = e.oldText.isEmpty ? e.text : e.oldText;
-        rightText = e.newText.isEmpty ? e.text : e.newText;
-        leftBg = c.replaceLeftBg;
-        leftFg = c.replaceLeftFg;
-        rightBg = c.replaceRightBg;
-        rightFg = c.replaceRightFg;
-        leftSym = '~';
-        rightSym = '~';
-        leftCharDiff = _CharDiff(
-          before: leftText,
-          after: rightText,
-          side: false,
-          removedBg: c.charDeleteBg,
-          removedFg: c.charDeleteFg,
-          addedBg: c.charInsertBg,
-          addedFg: c.charInsertFg,
-        );
-        rightCharDiff = _CharDiff(
-          before: leftText,
-          after: rightText,
-          side: true,
-          removedBg: c.charDeleteBg,
-          removedFg: c.charDeleteFg,
-          addedBg: c.charInsertBg,
-          addedFg: c.charInsertFg,
-        );
-        break;
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: _Cell(
-            text: leftText,
-            line: m.orig,
-            symbol: leftSym,
-            bg: leftBg,
-            fg: leftFg,
-            findQuery: widget.findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: SideBySideView._matchYellow,
-            matchPink: SideBySideView._matchPink,
-            charDiff: leftCharDiff,
-            showLineNumbers: widget.showLineNumbers,
-            bodyFontSize: widget.bodyFontSize,
-            gutterFontSize: widget.gutterFontSize,
-            noWrap: widget.noWrap,
-          ),
-        ),
-        Container(width: 1, color: s.outlineVariant),
-        Expanded(
-          child: _Cell(
-            text: rightText,
-            line: m.mod,
-            symbol: rightSym,
-            bg: rightBg,
-            fg: rightFg,
-            findQuery: widget.findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: SideBySideView._matchYellow,
-            matchPink: SideBySideView._matchPink,
-            charDiff: rightCharDiff,
-            showLineNumbers: widget.showLineNumbers,
-            bodyFontSize: widget.bodyFontSize,
-            gutterFontSize: widget.gutterFontSize,
-            noWrap: widget.noWrap,
-          ),
-        ),
-      ],
     );
   }
 }
@@ -716,9 +486,9 @@ class _Cell extends StatelessWidget {
     );
     final outline = Theme.of(context).colorScheme.outline;
 
-    final Widget rawContent;
+    final Widget content;
     if (charDiff != null) {
-      rawContent = InlineCharDiff(
+      content = InlineCharDiff(
         before: charDiff!.before,
         after: charDiff!.after,
         side: charDiff!.side,
@@ -733,15 +503,17 @@ class _Cell extends StatelessWidget {
     } else {
       final spans = _cachedSpans(
           text, findQuery, isCurrentMatch, matchYellow, matchPink);
-      rawContent = Text.rich(TextSpan(style: body, children: spans));
+      if (noWrap) {
+        content = Text.rich(
+          TextSpan(style: body, children: spans),
+          softWrap: false,
+          overflow: TextOverflow.clip,
+          maxLines: 1,
+        );
+      } else {
+        content = Text.rich(TextSpan(style: body, children: spans));
+      }
     }
-
-    final Widget content = noWrap
-        ? SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: rawContent,
-          )
-        : rawContent;
 
     return ColoredBox(
       color: bg,
@@ -889,7 +661,7 @@ class _PaneHeader extends ConsumerWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: FontWeight.w600,
             color: color,
           ),
