@@ -147,7 +147,10 @@ class _DiffOnlyPlainViewState extends ConsumerState<DiffOnlyPlainView> {
       );
     }
 
-    Widget wrapScrollbar({required Widget child, required ScrollController ctrl}) {
+    Widget wrapScrollbar({
+      required Widget child,
+      required ScrollController ctrl,
+    }) {
       return ScrollbarTheme(
         data: ScrollbarThemeData(
           thumbColor: WidgetStatePropertyAll(
@@ -183,6 +186,10 @@ class _DiffOnlyPlainViewState extends ConsumerState<DiffOnlyPlainView> {
           if (ei == null) {
             return const SizedBox.expand();
           }
+          final int? otherEi = isLeft ? spec.ins : spec.del;
+          final String? otherText = otherEi != null
+              ? widget.result.entries[otherEi].text
+              : null;
           final e = widget.result.entries[ei];
           final m = meta[ei];
           final isCurrent = widget.currentMatchEntry == ei;
@@ -192,6 +199,7 @@ class _DiffOnlyPlainViewState extends ConsumerState<DiffOnlyPlainView> {
             isLeft ? m.orig : m.mod,
             isLeft: isLeft,
             isCurrentMatch: isCurrent,
+            otherText: otherText,
             c: c,
           );
           final out = widget.onLongPressEntry == null
@@ -297,6 +305,7 @@ class _DiffOnlyPlainViewState extends ConsumerState<DiffOnlyPlainView> {
     required bool isLeft,
     required bool isCurrentMatch,
     required DiffColors c,
+    String? otherText,
   }) {
     final s = Theme.of(context).colorScheme;
     final plainBg = Theme.of(context).brightness == Brightness.dark
@@ -320,14 +329,44 @@ class _DiffOnlyPlainViewState extends ConsumerState<DiffOnlyPlainView> {
       fg = defaultFg;
     } else if (e.operation == DiffOperation.delete) {
       text = e.text;
-      symbol = '−';
-      bg = c.deleteRowBg;
-      fg = c.deleteRowFg;
+      if (otherText != null) {
+        symbol = '~';
+        bg = c.replaceLeftBg;
+        fg = c.replaceLeftFg;
+        charDiff = _CharDiff(
+          before: text,
+          after: otherText,
+          side: false,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+      } else {
+        symbol = '−';
+        bg = c.deleteRowBg;
+        fg = c.deleteRowFg;
+      }
     } else if (e.operation == DiffOperation.insert) {
       text = e.text;
-      symbol = '+';
-      bg = c.insertRowBg;
-      fg = c.insertRowFg;
+      if (otherText != null) {
+        symbol = '~';
+        bg = c.replaceRightBg;
+        fg = c.replaceRightFg;
+        charDiff = _CharDiff(
+          before: otherText,
+          after: text,
+          side: true,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+      } else {
+        symbol = '+';
+        bg = c.insertRowBg;
+        fg = c.insertRowFg;
+      }
     } else {
       text = isLeft
           ? (e.oldText.isEmpty ? e.text : e.oldText)
@@ -335,15 +374,6 @@ class _DiffOnlyPlainViewState extends ConsumerState<DiffOnlyPlainView> {
       symbol = '~';
       bg = isLeft ? c.replaceLeftBg : c.replaceRightBg;
       fg = isLeft ? c.replaceLeftFg : c.replaceRightFg;
-      charDiff = _CharDiff(
-        before: e.oldText.isEmpty ? e.text : e.oldText,
-        after: e.newText.isEmpty ? e.text : e.newText,
-        side: !isLeft,
-        removedBg: c.charDeleteBg,
-        removedFg: c.charDeleteFg,
-        addedBg: c.charInsertBg,
-        addedFg: c.charInsertFg,
-      );
     }
 
     return _DiffCell(
