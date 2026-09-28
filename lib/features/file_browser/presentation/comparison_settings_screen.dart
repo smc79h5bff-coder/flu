@@ -260,11 +260,17 @@ class _ComparisonSettingsScreenState
     // 取消：什么都不做，停在比较设置页，让用户接着改。
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final items = _buildItems();
+@override
+Widget build(BuildContext context) {
+  final items = _buildItems();
 
-    return Scaffold(
+  return PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, _) async {
+      if (didPop) return;
+      await _handleBack();
+    },
+    child: Scaffold(
       appBar: AppBar(
         title: const Text('比较设置'),
         actions: [
@@ -295,8 +301,9 @@ class _ComparisonSettingsScreenState
           _buildAddButton(),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   List<_RuleItem> _buildItems() {
     final order = ref.watch(ruleOrderProvider);
@@ -2089,4 +2096,19 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
       ),
     );
   }
+}
+
+
+/// 规则快照。用于判断"进比较设置转一圈到底改没改东西"。
+/// 不含笔记（笔记不影响渲染），只含会改变对比结果的规则状态。
+String comparisonRulesSnapshot(WidgetRef ref) {
+  return jsonEncode({
+    'order': ref.read(ruleOrderProvider),
+    'userRules': [
+      for (final r in ref.read(userRulesProvider)) r.toJson(),
+    ],
+    'builtinEnables': ref.read(builtinRuleEnablesProvider),
+    'keywordText': ref.read(keywordRulesTextProvider),
+    'regexText': ref.read(regexRulesTextProvider),
+  });
 }
