@@ -153,8 +153,7 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       return ScrollbarTheme(
         data: ScrollbarThemeData(
           thumbColor: WidgetStatePropertyAll(
-  Colors.white.withValues(alpha: 0.22),
-),
+            (isDark ? Colors.black : Colors.white).withValues(alpha: 0.22),
           thickness: const WidgetStatePropertyAll(16),
           radius: const Radius.circular(8),
           minThumbLength: 40,
@@ -185,7 +184,6 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
           if (ei == null) {
             return const SizedBox.expand();
           }
-          // 对面的 entry（配对判断用）
           final int? otherEi = isLeft ? spec.ins : spec.del;
           final String? otherText = otherEi != null
               ? widget.result.entries[otherEi].text
@@ -330,7 +328,6 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
     } else if (e.operation == DiffOperation.delete) {
       text = e.text;
       if (otherText != null) {
-        // 配对 → 被改行（左）：浅红 + 字符高亮
         symbol = '~';
         bg = c.replaceLeftBg;
         fg = c.replaceLeftFg;
@@ -344,7 +341,6 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
           addedFg: c.charInsertFg,
         );
       } else {
-        // 单独删除：纯红
         symbol = '−';
         bg = c.deleteRowBg;
         fg = c.deleteRowFg;
@@ -352,7 +348,6 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
     } else if (e.operation == DiffOperation.insert) {
       text = e.text;
       if (otherText != null) {
-        // 配对 → 被改行（右）：浅绿 + 字符高亮
         symbol = '~';
         bg = c.replaceRightBg;
         fg = c.replaceRightFg;
@@ -366,13 +361,11 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
           addedFg: c.charInsertFg,
         );
       } else {
-        // 单独插入：纯绿
         symbol = '+';
         bg = c.insertRowBg;
         fg = c.insertRowFg;
       }
     } else {
-      // replace（正常流程不会走到，兜底）
       text = isLeft
           ? (e.oldText.isEmpty ? e.text : e.oldText)
           : (e.newText.isEmpty ? e.text : e.newText);
@@ -597,7 +590,7 @@ class _DiffCell extends StatelessWidget {
                   textAlign: TextAlign.end,
                   style: TextStyle(fontSize: gutterFontSize, color: outline),
                 ),
-              ],
+              ),
               if (symbol.isNotEmpty) ...[
                 const SizedBox(width: 4),
                 Text(
