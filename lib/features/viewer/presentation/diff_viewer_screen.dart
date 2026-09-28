@@ -2329,6 +2329,7 @@ void _resetViewAfterEdit() {
           ref.read(editedModifiedProvider.notifier).state = next;
         }
       }
+_rememberCurrentRowForReset();
 
       _log('按钮规则: ${rule.name} → $side');
       ref.read(importRevisionProvider.notifier).state++;
