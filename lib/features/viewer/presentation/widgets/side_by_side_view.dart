@@ -172,6 +172,10 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
           if (ei == null) {
             return const SizedBox.expand();
           }
+          final int? otherEi = isLeft ? spec.ins : spec.del;
+          final String? otherText = otherEi != null
+              ? widget.result.entries[otherEi].text
+              : null;
           final e = widget.result.entries[ei];
           final m = meta[ei];
           final isCurrent = widget.currentMatchEntry == ei;
@@ -181,6 +185,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
             isLeft ? m.orig : m.mod,
             isLeft: isLeft,
             isCurrentMatch: isCurrent,
+            otherText: otherText,
             c: c,
           );
           final out = widget.onLongPressEntry == null
@@ -257,11 +262,6 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     );
   }
 
-  /// 取这一行的 entry 索引。
-  ///
-  /// - 有自己那一侧就用自己那一侧
-  /// - 自己那侧是 null，但对面是"相同行"→ 借用对面（相同行两边内容一样）
-  /// - 其它情况（自己是 null 且对面是删/插）→ 返回 null，那一侧留空
   int? _entryIdxForSpec(AlignedRow spec, bool isLeft) {
     final own = isLeft ? spec.del : spec.ins;
     if (own != null) return own;
@@ -318,6 +318,7 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
     required bool isLeft,
     required bool isCurrentMatch,
     required DiffColors c,
+    String? otherText,
   }) {
     final s = Theme.of(context).colorScheme;
     final plainBg =
@@ -342,14 +343,44 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       fg = defaultFg;
     } else if (e.operation == DiffOperation.delete) {
       text = e.text;
-      symbol = '−';
-      bg = c.deleteRowBg;
-      fg = c.deleteRowFg;
+      if (otherText != null) {
+        symbol = '~';
+        bg = c.replaceLeftBg;
+        fg = c.replaceLeftFg;
+        charDiff = _CharDiff(
+          before: text,
+          after: otherText,
+          side: false,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+      } else {
+        symbol = '−';
+        bg = c.deleteRowBg;
+        fg = c.deleteRowFg;
+      }
     } else if (e.operation == DiffOperation.insert) {
       text = e.text;
-      symbol = '+';
-      bg = c.insertRowBg;
-      fg = c.insertRowFg;
+      if (otherText != null) {
+        symbol = '~';
+        bg = c.replaceRightBg;
+        fg = c.replaceRightFg;
+        charDiff = _CharDiff(
+          before: otherText,
+          after: text,
+          side: true,
+          removedBg: c.charDeleteBg,
+          removedFg: c.charDeleteFg,
+          addedBg: c.charInsertBg,
+          addedFg: c.charInsertFg,
+        );
+      } else {
+        symbol = '+';
+        bg = c.insertRowBg;
+        fg = c.insertRowFg;
+      }
     } else {
       text = isLeft
           ? (e.oldText.isEmpty ? e.text : e.oldText)
@@ -357,15 +388,6 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
       symbol = '~';
       bg = isLeft ? c.replaceLeftBg : c.replaceRightBg;
       fg = isLeft ? c.replaceLeftFg : c.replaceRightFg;
-      charDiff = _CharDiff(
-        before: e.oldText.isEmpty ? e.text : e.oldText,
-        after: e.newText.isEmpty ? e.text : e.newText,
-        side: !isLeft,
-        removedBg: c.charDeleteBg,
-        removedFg: c.charDeleteFg,
-        addedBg: c.charInsertBg,
-        addedFg: c.charInsertFg,
-      );
     }
 
     return _Cell(
