@@ -1345,9 +1345,10 @@ ref.read(editedModifiedProvider.notifier).state = null;
             child: Text(
               c.label,
               style: TextStyle(
-                fontSize: 13,
-                color: isLast ? s.onSurface : s.primary,
-                fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
+                fontSize: 12,
+                color: isLast ? Colors.black : Colors.black54,
+  fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+
               ),
             ),
           ),
