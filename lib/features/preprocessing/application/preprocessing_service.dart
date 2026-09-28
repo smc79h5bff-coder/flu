@@ -148,6 +148,8 @@ String _applyReplace(String text, PreprocessingRule rule) {
         return text.split('\n').where((l) => l.trim().isNotEmpty).join('\n');
       case 'unifyAnsi':
         return unifyToAnsi(text);
+      case 'halfToFull':
+        return halfToFull(text);
     }
     return text;
   }
@@ -224,4 +226,15 @@ String unifyToAnsi(String text) {
     } catch (_) {}
   }
   return sb.toString();
+}
+
+/// 半角 → 全角。
+/// U+0021 ~ U+007E 每个 +0xFEE0 变成对应全角；U+0020 → U+3000。
+/// 覆盖字母、数字、常见标点（含半角逗号 , → 全角逗号 ，）。
+String halfToFull(String text) {
+  return String.fromCharCodes(text.runes.map((c) {
+    if (c >= 0x21 && c <= 0x7E) return c + 0xFEE0;
+    if (c == 0x20) return 0x3000;
+    return c;
+  }));
 }
