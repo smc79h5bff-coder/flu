@@ -12,7 +12,7 @@ import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
 import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
-import 'viewer_widgets.dart';
+import '../viewer_widgets.dart';
 
 class DiffOnlyView extends ConsumerStatefulWidget {
   const DiffOnlyView({
