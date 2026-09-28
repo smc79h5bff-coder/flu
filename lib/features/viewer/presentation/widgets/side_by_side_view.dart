@@ -10,6 +10,7 @@ import '../../../import/presentation/providers/import_providers.dart';
 import '../providers/diff_viewer_providers.dart';
 import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
+import 'viewer_widgets.dart';
 
 class SideBySideView extends ConsumerStatefulWidget {
   const SideBySideView({
@@ -207,25 +208,22 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
         },
       );
 
+      // 左栏不画滚动条，右栏画一根。
+      final Widget scrolled = isLeft
+          ? list
+          : buildViewerScrollbar(child: list, controller: ctrl);
+
       if (widget.noWrap) {
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
             width: contentWidth,
             height: double.infinity,
-            child: Scrollbar(
-              controller: ctrl,
-              interactive: true,
-              child: list,
-            ),
+            child: scrolled,
           ),
         );
       }
-      return Scrollbar(
-        controller: ctrl,
-        interactive: true,
-        child: list,
-      );
+      return scrolled;
     }
 
     return Column(
