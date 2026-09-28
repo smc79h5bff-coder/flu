@@ -13,7 +13,7 @@ import '../line_height_calculator.dart';
 import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
 
-class DiffOnlyView extends ConsumerWidget {
+class DiffOnlyView extends ConsumerStatefulWidget {
   const DiffOnlyView({
     required this.result,
     required this.heightTable,
@@ -49,13 +49,90 @@ class DiffOnlyView extends ConsumerWidget {
   static const Color _matchPink = Color(0xFFFF4081);
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DiffOnlyView> createState() => _DiffOnlyViewState();
+}
+
+class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
+  late final ScrollController _leftCtrl;
+  late final ScrollController _rightCtrl;
+  bool _syncing = false;
+
+  DiffResult? _widthsFor;
+  double _widthsFontSize = -1;
+  bool _widthsNoWrap = false;
+  double _leftWidth = 0;
+  double _rightWidth = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _leftCtrl = widget.controller ?? ScrollController();
+    _leftCtrl.addListener(_syncLR);
+    _rightCtrl = ScrollController();
+    _rightCtrl.addListener(_syncRL);
+  }
+
+  @override
+  void dispose() {
+    _leftCtrl.removeListener(_syncLR);
+    _rightCtrl.removeListener(_syncRL);
+    if (widget.controller == null) {
+      _leftCtrl.dispose();
+    }
+    _rightCtrl.dispose();
+    super.dispose();
+  }
+
+  void _syncLR() {
+    if (_syncing) return;
+    if (!_leftCtrl.hasClients || !_rightCtrl.hasClients) return;
+    final o = _leftCtrl.offset;
+    if ((_rightCtrl.offset - o).abs() < 0.5) return;
+    _syncing = true;
+    try {
+      _rightCtrl.jumpTo(o.clamp(
+        _rightCtrl.position.minScrollExtent,
+        _rightCtrl.position.maxScrollExtent,
+      ));
+    } catch (_) {}
+    _syncing = false;
+  }
+
+  void _syncRL() {
+    if (_syncing) return;
+    if (!_leftCtrl.hasClients || !_rightCtrl.hasClients) return;
+    final o = _rightCtrl.offset;
+    if ((_leftCtrl.offset - o).abs() < 0.5) return;
+    _syncing = true;
+    try {
+      _leftCtrl.jumpTo(o.clamp(
+        _leftCtrl.position.minScrollExtent,
+        _leftCtrl.position.maxScrollExtent,
+      ));
+    } catch (_) {}
+    _syncing = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = watchDiffColors(ref);
-    final meta = cachedLineMeta(result);
-    final rows = cachedDiffOnlyRows(result);
+    final meta = cachedLineMeta(widget.result);
+    final rows = cachedDiffOnlyRows(widget.result);
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final mq = MediaQuery.of(context);
+    final viewportW = mq.size.width;
+    final halfW = (viewportW - 1) / 2;
+
+    double leftWidth = halfW;
+    double rightWidth = halfW;
+    if (widget.noWrap) {
+      _ensureWidths(rows);
+      leftWidth = _leftWidth > halfW ? _leftWidth : halfW;
+      rightWidth = _rightWidth > halfW ? _rightWidth : halfW;
+    }
 
     Widget header(String? name, Color color, {required bool isOriginal}) {
       return Expanded(
@@ -69,290 +146,223 @@ class DiffOnlyView extends ConsumerWidget {
       );
     }
 
+    Widget wrapScrollbar({
+      required Widget child,
+      required ScrollController ctrl,
+    }) {
+      return ScrollbarTheme(
+        data: ScrollbarThemeData(
+          thumbColor: WidgetStatePropertyAll(
+            (isDark ? Colors.white : Colors.black).withValues(alpha: 0.22),
+          ),
+          thickness: const WidgetStatePropertyAll(16),
+          radius: const Radius.circular(8),
+          minThumbLength: 40,
+          trackVisibility: const WidgetStatePropertyAll(false),
+        ),
+        child: Scrollbar(
+          controller: ctrl,
+          interactive: true,
+          child: child,
+        ),
+      );
+    }
+
+    Widget pane({required bool isLeft, required double contentWidth}) {
+      final ctrl = isLeft ? _leftCtrl : _rightCtrl;
+      final list = ListView.builder(
+        key: Key(isLeft ? 'do-left-list' : 'do-right-list'),
+        controller: ctrl,
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
+        cacheExtent: 100,
+        itemCount: rows.length,
+        itemExtentBuilder: (index, dimensions) =>
+            widget.heightTable.heightOf(index),
+        itemBuilder: (ctx, i) {
+          final spec = rows[i];
+          final int? ei = isLeft ? spec.del : spec.ins;
+          if (ei == null) {
+            return const SizedBox.expand();
+          }
+          final e = widget.result.entries[ei];
+          final m = meta[ei];
+          final isCurrent = widget.currentMatchEntry == ei;
+          final tile = _singleSideTile(
+            context,
+            e,
+            isLeft ? m.orig : m.mod,
+            isLeft: isLeft,
+            isCurrentMatch: isCurrent,
+            c: c,
+          );
+          final out = widget.onLongPressEntry == null
+              ? tile
+              : GestureDetector(
+                  onLongPress: () => widget.onLongPressEntry!(<int>[ei]),
+                  behavior: HitTestBehavior.opaque,
+                  child: tile,
+                );
+          final framed = widget.jumpedToEntry == ei
+              ? Container(
+                  foregroundDecoration: BoxDecoration(
+                    border: Border.all(color: Colors.black, width: 2),
+                  ),
+                  child: out,
+                )
+              : out;
+          return KeyedSubtree(key: ValueKey<int>(ei), child: framed);
+        },
+      );
+
+      if (widget.noWrap) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: contentWidth,
+            height: double.infinity,
+            child: wrapScrollbar(child: list, ctrl: ctrl),
+          ),
+        );
+      }
+      return wrapScrollbar(child: list, ctrl: ctrl);
+    }
+
     return Column(
       children: [
         Row(
           children: [
-            header(originalFileName, s.error, isOriginal: true),
+            header(widget.originalFileName, s.error, isOriginal: true),
             divider,
-            header(modifiedFileName, s.primary, isOriginal: false),
+            header(widget.modifiedFileName, s.primary, isOriginal: false),
           ],
         ),
         Expanded(
-          child: ScrollbarTheme(
-            data: ScrollbarThemeData(
-thumbColor: WidgetStatePropertyAll(
-  (isDark ? Colors.white : Colors.black).withValues(alpha: 0.22),
-),
-thickness: const WidgetStatePropertyAll(16),
-radius: const Radius.circular(8),
-minThumbLength: 40,
-              trackVisibility: const WidgetStatePropertyAll(false),
-            ),
-            child: Scrollbar(
-              controller: controller,
-              interactive: true,
-              child: ListView.builder(
-                key: const Key('diff-only-list'),
-                controller: controller,
-                addAutomaticKeepAlives: false,
-                addRepaintBoundaries: false,
-                cacheExtent: 100,
-                itemCount: rows.length,
-                itemExtentBuilder: (index, dimensions) =>
-                    heightTable.heightOf(index),
-                itemBuilder: (ctx, i) {
-                  final spec = rows[i];
-                  final isCurrent = currentMatchEntry != null &&
-                      (spec.del == currentMatchEntry ||
-                          spec.ins == currentMatchEntry);
-                  final Widget row;
-                  final List<int> keyOwners;
-                  if (spec.del != null && spec.ins != null) {
-                    row = _comboRow(
-                      context,
-                      result.entries[spec.del!],
-                      result.entries[spec.ins!],
-                      meta[spec.del!],
-                      meta[spec.ins!],
-                      c,
-                      isCurrent,
-                    );
-                    keyOwners = <int>[spec.del!, spec.ins!];
-                  } else if (spec.del != null) {
-                    final ei = spec.del!;
-                    row = _alignedRow(
-                        ctx, result.entries[ei], meta[ei], c, isCurrent);
-                    keyOwners = <int>[ei];
-                  } else {
-                    final ei = spec.ins!;
-                    row = _alignedRow(
-                        ctx, result.entries[ei], meta[ei], c, isCurrent);
-                    keyOwners = <int>[ei];
-                  }
-                  final Widget out;
-                  if (onLongPressEntry != null) {
-                    out = GestureDetector(
-                      onLongPress: () => onLongPressEntry!(keyOwners),
-                      behavior: HitTestBehavior.opaque,
-                      child: row,
-                    );
-                  } else {
-                    out = row;
-                  }
-                  final bool isJumped = jumpedToEntry != null &&
-                      (spec.del == jumpedToEntry ||
-                          spec.ins == jumpedToEntry);
-                  final Widget framed = isJumped
-                      ? Container(
-                          foregroundDecoration: BoxDecoration(
-                            border: Border.all(color: Colors.black, width: 2),
-                          ),
-                          child: out,
-                        )
-                      : out;
-                  final key = spec.del != null && spec.ins != null
-                      ? ValueKey<String>('${spec.del}-${spec.ins}')
-                      : ValueKey<int>(spec.del ?? spec.ins!);
-                  return KeyedSubtree(key: key, child: framed);
-                },
+          child: Row(
+            children: [
+              Expanded(
+                child: pane(isLeft: true, contentWidth: leftWidth),
               ),
-            ),
+              divider,
+              Expanded(
+                child: pane(isLeft: false, contentWidth: rightWidth),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _comboRow(
-    BuildContext context,
-    DiffEntry del,
-    DiffEntry ins,
-    ({int orig, int mod}) delMeta,
-    ({int orig, int mod}) insMeta,
-    DiffColors c,
-    bool isCurrentMatch,
-  ) {
-    final s = Theme.of(context).colorScheme;
-    final leftText = del.text;
-    final rightText = ins.text;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: _DiffCell(
-            text: leftText,
-            line: delMeta.orig,
-            symbol: '~',
-            bg: c.replaceLeftBg,
-            fg: c.replaceLeftFg,
-            findQuery: findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchPink: _matchPink,
-            charDiff: _CharDiff(
-              before: leftText,
-              after: rightText,
-              side: false,
-              removedBg: c.charDeleteBg,
-              removedFg: c.charDeleteFg,
-              addedBg: c.charInsertBg,
-              addedFg: c.charInsertFg,
-            ),
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
-            noWrap: noWrap,
-          ),
-        ),
-        Container(width: 1, color: s.outlineVariant),
-        Expanded(
-          child: _DiffCell(
-            text: rightText,
-            line: insMeta.mod,
-            symbol: '~',
-            bg: c.replaceRightBg,
-            fg: c.replaceRightFg,
-            findQuery: findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchPink: _matchPink,
-            charDiff: _CharDiff(
-              before: leftText,
-              after: rightText,
-              side: true,
-              removedBg: c.charDeleteBg,
-              removedFg: c.charDeleteFg,
-              addedBg: c.charInsertBg,
-              addedFg: c.charInsertFg,
-            ),
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
-            noWrap: noWrap,
-          ),
-        ),
-      ],
-    );
+  void _ensureWidths(List<AlignedRow> rows) {
+    if (identical(_widthsFor, widget.result) &&
+        _widthsFontSize == widget.bodyFontSize &&
+        _widthsNoWrap == widget.noWrap) {
+      return;
+    }
+    var maxL = 0;
+    var maxR = 0;
+    for (final spec in rows) {
+      if (spec.del != null) {
+        final t = _displayFor(widget.result.entries[spec.del!], true);
+        final n = t.runes.length;
+        if (n > maxL) maxL = n;
+      }
+      if (spec.ins != null) {
+        final t = _displayFor(widget.result.entries[spec.ins!], false);
+        final n = t.runes.length;
+        if (n > maxR) maxR = n;
+      }
+    }
+    final cw = widget.bodyFontSize * 0.9;
+    final extra = widget.showLineNumbers ? 56.0 : 24.0;
+    _leftWidth = maxL * cw + extra;
+    _rightWidth = maxR * cw + extra;
+    _widthsFor = widget.result;
+    _widthsFontSize = widget.bodyFontSize;
+    _widthsNoWrap = widget.noWrap;
   }
 
-  Widget _alignedRow(
+  String _displayFor(DiffEntry e, bool isLeft) {
+    if (e.operation == DiffOperation.replace) {
+      return isLeft
+          ? (e.oldText.isEmpty ? e.text : e.oldText)
+          : (e.newText.isEmpty ? e.text : e.newText);
+    }
+    return e.text;
+  }
+
+  Widget _singleSideTile(
     BuildContext context,
     DiffEntry e,
-    ({int orig, int mod}) m,
-    DiffColors c,
-    bool isCurrentMatch,
-  ) {
+    int line, {
+    required bool isLeft,
+    required bool isCurrentMatch,
+    required DiffColors c,
+  }) {
     final s = Theme.of(context).colorScheme;
-final isDark = Theme.of(context).brightness == Brightness.dark;
-final plainBg = isDark ? s.surface : Colors.white;
-final plainLeftBg = plainBg;
-final plainRightBg = plainBg;
+    final plainBg = Theme.of(context).brightness == Brightness.dark
+        ? s.surface
+        : Colors.white;
+
+    String text;
+    String symbol;
+    Color bg;
+    Color fg;
+    _CharDiff? charDiff;
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white
             : Colors.black);
 
-    String leftText = '';
-    String rightText = '';
-    Color leftBg = plainLeftBg;
-    Color rightBg = plainRightBg;
-    Color leftFg = defaultFg;
-    Color rightFg = defaultFg;
-    String leftSym = '';
-    String rightSym = '';
-    _CharDiff? leftCharDiff;
-    _CharDiff? rightCharDiff;
-
-    switch (e.operation) {
-      case DiffOperation.equal:
-        leftText = e.text;
-        rightText = e.text;
-        break;
-      case DiffOperation.delete:
-        leftText = e.text;
-        leftBg = c.deleteRowBg;
-        leftFg = c.deleteRowFg;
-        leftSym = '−';
-        break;
-      case DiffOperation.insert:
-        rightText = e.text;
-        rightBg = c.insertRowBg;
-        rightFg = c.insertRowFg;
-        rightSym = '+';
-        break;
-      case DiffOperation.replace:
-        leftText = e.oldText.isEmpty ? e.text : e.oldText;
-        rightText = e.newText.isEmpty ? e.text : e.newText;
-        leftBg = c.replaceLeftBg;
-        leftFg = c.replaceLeftFg;
-        rightBg = c.replaceRightBg;
-        rightFg = c.replaceRightFg;
-        leftSym = '~';
-        rightSym = '~';
-        leftCharDiff = _CharDiff(
-          before: leftText,
-          after: rightText,
-          side: false,
-          removedBg: c.charDeleteBg,
-          removedFg: c.charDeleteFg,
-          addedBg: c.charInsertBg,
-          addedFg: c.charInsertFg,
-        );
-        rightCharDiff = _CharDiff(
-          before: leftText,
-          after: rightText,
-          side: true,
-          removedBg: c.charDeleteBg,
-          removedFg: c.charDeleteFg,
-          addedBg: c.charInsertBg,
-          addedFg: c.charInsertFg,
-        );
-        break;
+    if (e.operation == DiffOperation.equal) {
+      text = e.text;
+      symbol = '';
+      bg = plainBg;
+      fg = defaultFg;
+    } else if (e.operation == DiffOperation.delete) {
+      text = e.text;
+      symbol = '−';
+      bg = c.deleteRowBg;
+      fg = c.deleteRowFg;
+    } else if (e.operation == DiffOperation.insert) {
+      text = e.text;
+      symbol = '+';
+      bg = c.insertRowBg;
+      fg = c.insertRowFg;
+    } else {
+      text = isLeft
+          ? (e.oldText.isEmpty ? e.text : e.oldText)
+          : (e.newText.isEmpty ? e.text : e.newText);
+      symbol = '~';
+      bg = isLeft ? c.replaceLeftBg : c.replaceRightBg;
+      fg = isLeft ? c.replaceLeftFg : c.replaceRightFg;
+      charDiff = _CharDiff(
+        before: e.oldText.isEmpty ? e.text : e.oldText,
+        after: e.newText.isEmpty ? e.text : e.newText,
+        side: !isLeft,
+        removedBg: c.charDeleteBg,
+        removedFg: c.charDeleteFg,
+        addedBg: c.charInsertBg,
+        addedFg: c.charInsertFg,
+      );
     }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: _DiffCell(
-            text: leftText,
-            line: m.orig,
-            symbol: leftSym,
-            bg: leftBg,
-            fg: leftFg,
-            findQuery: findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchPink: _matchPink,
-            charDiff: leftCharDiff,
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
-            noWrap: noWrap,
-          ),
-        ),
-        Container(width: 1, color: s.outlineVariant),
-        Expanded(
-          child: _DiffCell(
-            text: rightText,
-            line: m.mod,
-            symbol: rightSym,
-            bg: rightBg,
-            fg: rightFg,
-            findQuery: findQuery,
-            isCurrentMatch: isCurrentMatch,
-            matchYellow: _matchYellow,
-            matchPink: _matchPink,
-            charDiff: rightCharDiff,
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            gutterFontSize: gutterFontSize,
-            noWrap: noWrap,
-          ),
-        ),
-      ],
+    return _DiffCell(
+      text: text,
+      line: line,
+      symbol: symbol,
+      bg: bg,
+      fg: fg,
+      findQuery: widget.findQuery,
+      isCurrentMatch: isCurrentMatch,
+      matchYellow: DiffOnlyView._matchYellow,
+      matchPink: DiffOnlyView._matchPink,
+      charDiff: charDiff,
+      showLineNumbers: widget.showLineNumbers,
+      bodyFontSize: widget.bodyFontSize,
+      gutterFontSize: widget.gutterFontSize,
+      noWrap: widget.noWrap,
     );
   }
 }
@@ -510,9 +520,9 @@ class _DiffCell extends StatelessWidget {
     );
     final outline = Theme.of(context).colorScheme.outline;
 
-    final Widget rawContent;
+    final Widget content;
     if (charDiff != null) {
-      rawContent = InlineCharDiff(
+      content = InlineCharDiff(
         before: charDiff!.before,
         after: charDiff!.after,
         side: charDiff!.side,
@@ -527,15 +537,17 @@ class _DiffCell extends StatelessWidget {
     } else {
       final spans = _cachedSpans(
           text, findQuery, isCurrentMatch, matchYellow, matchPink);
-      rawContent = Text.rich(TextSpan(style: body, children: spans));
+      if (noWrap) {
+        content = Text.rich(
+          TextSpan(style: body, children: spans),
+          softWrap: false,
+          overflow: TextOverflow.clip,
+          maxLines: 1,
+        );
+      } else {
+        content = Text.rich(TextSpan(style: body, children: spans));
+      }
     }
-
-    final Widget content = noWrap
-        ? SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: rawContent,
-          )
-        : rawContent;
 
     return ColoredBox(
       color: bg,
