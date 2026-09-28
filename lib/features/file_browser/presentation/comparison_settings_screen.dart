@@ -199,8 +199,14 @@ class _RegexBlockItem extends _RuleItem {
 /// ==================== 比较设置页 ====================
 
 class ComparisonSettingsScreen extends ConsumerStatefulWidget {
-  const ComparisonSettingsScreen({super.key});
+  const ComparisonSettingsScreen({
+    super.key,
+    this.confirmOnExit = false,
+  });
 
+  /// 从对比页进入时传 true：返回时若规则变了，弹窗确认。
+  /// 从文件浏览器进入时保持默认 false：静默返回。
+  final bool confirmOnExit;
   @override
   ConsumerState<ComparisonSettingsScreen> createState() =>
       _ComparisonSettingsScreenState();
@@ -208,6 +214,52 @@ class ComparisonSettingsScreen extends ConsumerStatefulWidget {
 
 class _ComparisonSettingsScreenState
     extends ConsumerState<ComparisonSettingsScreen> {
+  late final String _initialSnapshot;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialSnapshot = comparisonRulesSnapshot(ref);
+  }
+
+  Future<void> _handleBack() async {
+    final current = comparisonRulesSnapshot(ref);
+    final changed = current != _initialSnapshot;
+
+    // 没改，或不需要确认（文件浏览器入口）：直接返回。
+    if (!changed || !widget.confirmOnExit) {
+      if (mounted) Navigator.of(context).pop(changed);
+      return;
+    }
+
+    // 改了 + 需要确认：弹窗。
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('规则已修改'),
+        content: const Text(
+          '返回后，左右两边会在当前内容基础上，重新套一遍所有生效的规则。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('确定返回'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (ok == true) {
+      Navigator.of(context).pop(true);
+    }
+    // 取消：什么都不做，停在比较设置页，让用户接着改。
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = _buildItems();
