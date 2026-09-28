@@ -165,6 +165,10 @@ Future<LineHeightTable> computeLineHeights({
 }
 
 /// 并排 / 仅差异模式：每一行有两栏，高度取两栏的较大值。
+///
+/// [styleForItem] / [noWrapForItem]：可选。传了的话，每一行可以用不同的
+/// 字号 / 换行策略（例如"相同行不换行 + 小字号"）。不传就用全局的
+/// [style] / [noWrap]，行为和以前完全一样。
 Future<LineHeightTable> computeLineHeightsForTwoPane({
   required int itemCount,
   required double leftWidth,
@@ -175,10 +179,81 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
   required TextScaler textScaler,
   bool noWrap = false,
   double extraVerticalPadding = 0,
+  TextStyle? Function(int index)? styleForItem,
+  bool? Function(int index)? noWrapForItem,
   void Function(int done, int total)? onProgress,
 }) async {
   if (itemCount == 0) return LineHeightTable.empty;
 
+  // 有 override → 逐行独立计算。
+  if (styleForItem != null || noWrapForItem != null) {
+    final heights = List<double>.filled(itemCount, 0);
+    final sw = Stopwatch()..start();
+    for (var i = 0; i < itemCount; i++) {
+      final s = styleForItem?.call(i) ?? style;
+      final nw = noWrapForItem?.call(i) ?? noWrap;
+      final lt = leftTextForItem(i);
+      final rt = rightTextForItem(i);
+
+      if (nw) {
+        final hL = measureTextHeight(
+          text: lt,
+          maxWidth: leftWidth,
+          style: s,
+          textScaler: textScaler,
+          noWrap: true,
+          extraVerticalPadding: extraVerticalPadding,
+        );
+        final hR = measureTextHeight(
+          text: rt,
+          maxWidth: rightWidth,
+          style: s,
+          textScaler: textScaler,
+          noWrap: true,
+          extraVerticalPadding: extraVerticalPadding,
+        );
+        heights[i] = hL > hR ? hL : hR;
+      } else if (lt == rt) {
+        heights[i] = measureTextHeight(
+          text: lt,
+          maxWidth: leftWidth,
+          style: s,
+          textScaler: textScaler,
+          noWrap: false,
+          extraVerticalPadding: extraVerticalPadding,
+        );
+      } else {
+        final hL = measureTextHeight(
+          text: lt,
+          maxWidth: leftWidth,
+          style: s,
+          textScaler: textScaler,
+          noWrap: false,
+          extraVerticalPadding: extraVerticalPadding,
+        );
+        final hR = measureTextHeight(
+          text: rt,
+          maxWidth: rightWidth,
+          style: s,
+          textScaler: textScaler,
+          noWrap: false,
+          extraVerticalPadding: extraVerticalPadding,
+        );
+        heights[i] = hL > hR ? hL : hR;
+      }
+
+      if ((i & 0x1FF) == 0x1FF &&
+          sw.elapsedMilliseconds >= _yieldThresholdMs) {
+        onProgress?.call(i + 1, itemCount);
+        await Future<void>.delayed(Duration.zero);
+        sw.reset();
+      }
+    }
+    onProgress?.call(itemCount, itemCount);
+    return LineHeightTable.fromHeights(heights);
+  }
+
+  // 无 override → 走原来的快路径，行为不变。
   if (noWrap) {
     final hL = measureTextHeight(
       text: 'M',
