@@ -154,7 +154,7 @@ class _DiffOnlyPlainViewState extends ConsumerState<DiffOnlyPlainView> {
       return ScrollbarTheme(
         data: ScrollbarThemeData(
 thumbColor: WidgetStatePropertyAll(
-  Colors.white.withValues(alpha: 0.22),
+  (isDark ? Colors.black : Colors.white).withValues(alpha: 0.22),
 ),
           thickness: const WidgetStatePropertyAll(16),
           radius: const Radius.circular(8),
