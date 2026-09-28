@@ -7,7 +7,7 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import 'inline_char_diff.dart';
 import '../line_height_calculator.dart';
-import 'viewer_widgets.dart';
+import '../viewer_widgets.dart';
 
 class MergedView extends ConsumerWidget {
   const MergedView({
