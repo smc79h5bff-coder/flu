@@ -54,6 +54,33 @@ class ViewerDiag {
       List.unmodifiable(_entries);
 }
 
+/// 本次会话的操作历史。
+///
+/// - 只在 app 进程内存活；进程死 → 清空。
+/// - 是否记录由 [diagHistoryEnabledProvider] 控制（关时不耗）。
+/// - 上限 500 条，超了从头部删。
+class DiagHistory {
+  DiagHistory._();
+  static const int _max = 500;
+  static final List<({DateTime time, String msg})> _entries = [];
+
+  static void record(String msg) {
+    _entries.add((time: DateTime.now(), msg: msg));
+    if (_entries.length > _max) _entries.removeAt(0);
+  }
+
+  static List<({DateTime time, String msg})> get entries =>
+      List.unmodifiable(_entries);
+
+  static void clear() => _entries.clear();
+}
+
+/// 4 个诊断开关。非持久化：app 进程活就一直在，进程死归零。
+final diagPerfEnabledProvider = StateProvider<bool>((ref) => false);
+final diagFileEnabledProvider = StateProvider<bool>((ref) => false);
+final diagTimeEnabledProvider = StateProvider<bool>((ref) => false);
+final diagHistoryEnabledProvider = StateProvider<bool>((ref) => false);
+
 /// 把一个字符串逐字符列出来，带码点。★ 标出与另一边不同的位置。
 String _dumpChars(String s, {Set<int> diffAt = const {}}) {
   final sb = StringBuffer();
@@ -179,8 +206,6 @@ class _HeightBundle {
 
 class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   final ScrollController _scrollController = ScrollController();
-
-  /// 不换行模式下，外层横向滚动。
   final ScrollController _hScrollController = ScrollController();
 
   final TextEditingController _findController = TextEditingController();
@@ -221,7 +246,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   _HeightBundle? _activeHeights;
   ViewMode? _activeHeightsMode;
 
-  // 内容宽度缓存（不换行模式横向滚动用）。
   double? _cachedContentWidth;
   DiffResult? _cachedContentWidthFor;
   String? _cachedContentWidthConfig;
@@ -268,6 +292,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   bool get _isLargeFile {
     final diff = _diff;
     return diff != null && diff.entries.length > 2000;
+  }
+
+  /// 往历史里记一条。只有开关打开时才真正耗任何东西。
+  void _log(String msg) {
+    if (!ref.read(diagHistoryEnabledProvider)) return;
+    DiagHistory.record(msg);
   }
 
   // ==================== 查找 / 替换基础逻辑 ====================
@@ -548,6 +578,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _pendingOrigChanges.clear();
     _pendingModChanges.clear();
 
+    _log('应用替换（重算中）');
     ref.read(importRevisionProvider.notifier).state++;
     _resetViewAfterEdit();
     _toast('已应用替换');
@@ -677,8 +708,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         '${ref.read(bodyFontSizeProvider)}|'
         '${ref.read(noWrapProvider)}|'
         '${ref.read(showLineNumbersProvider)}|'
-        '${ref.read(importRevisionProvider)}|'
-        '${ref.read(syncScrollProvider)}';
+        '${ref.read(importRevisionProvider)}';
 
     if (!identical(_heightFuturesFor, diff) ||
         _heightFuturesConfigKey != configKey) {
@@ -700,6 +730,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     ViewMode mode,
   ) async {
     ViewerDiag.mark('高度: 开始 (${mode.name})');
+    _log('开始计算高度: ${mode.name}');
 
     final mq = MediaQuery.of(context);
     final viewportW = mq.size.width;
@@ -735,6 +766,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final cached = LineHeightCache.instance.get(k);
       if (cached != null) {
         ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
+        _log('高度完成(缓存): ${mode.name}');
         return _HeightBundle(merged: cached);
       }
       final table = await computeLineHeights(
@@ -748,86 +780,45 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       );
       LineHeightCache.instance.put(k, table);
       ViewerDiag.mark('高度: 完成 (${mode.name})');
+      _log('高度完成: ${mode.name}');
       return _HeightBundle(merged: table);
     }
 
+    // 三个两栏视图：统一走"同步高度表"（做法 B）。
     if (mode == ViewMode.sideBySide) {
-      if (ref.read(syncScrollProvider)) {
-        final rows = cachedAlignedRows(diff);
-        final panelW = (viewportW - 1) / 2;
-        final contentW = panelW - 52.0;
-        final k = cacheKey('sbs_sync');
-        final cached = LineHeightCache.instance.get(k);
-        if (cached != null) {
-          ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
-          return _HeightBundle(sbsSync: cached);
-        }
-        final table = await computeLineHeightsForTwoPane(
-          itemCount: rows.length,
-          leftWidth: contentW,
-          rightWidth: contentW,
-          leftTextForItem: (i) {
-            final spec = rows[i];
-            if (spec.del != null) return diff.entries[spec.del!].text;
-            return '';
-          },
-          rightTextForItem: (i) {
-            final spec = rows[i];
-            if (spec.ins != null) return diff.entries[spec.ins!].text;
-            return '';
-          },
-          style: style,
-          textScaler: scaler,
-          noWrap: noWrap,
-          extraVerticalPadding: 12,
-        );
-        LineHeightCache.instance.put(k, table);
-        ViewerDiag.mark('高度: 完成 (${mode.name})');
-        return _HeightBundle(sbsSync: table);
-      } else {
-        final entries = diff.entries;
-        final leftIndices = <int>[];
-        final rightIndices = <int>[];
-        for (var i = 0; i < entries.length; i++) {
-          final op = entries[i].operation;
-          if (op != DiffOperation.insert) leftIndices.add(i);
-          if (op != DiffOperation.delete) rightIndices.add(i);
-        }
-        final panelW = (viewportW - 1) / 2;
-        final contentW = panelW - 52.0;
-
-        final lk = cacheKey('sbs_left');
-        final rk = cacheKey('sbs_right');
-        final cachedL = LineHeightCache.instance.get(lk);
-        final cachedR = LineHeightCache.instance.get(rk);
-
-        final leftTable = cachedL ??
-            await computeLineHeights(
-              itemCount: leftIndices.length,
-              widthForItem: (_) => contentW,
-              textForItem: (i) => entries[leftIndices[i]].text,
-              style: style,
-              textScaler: scaler,
-              noWrap: noWrap,
-              extraVerticalPadding: 12,
-            );
-        if (cachedL == null) LineHeightCache.instance.put(lk, leftTable);
-
-        final rightTable = cachedR ??
-            await computeLineHeights(
-              itemCount: rightIndices.length,
-              widthForItem: (_) => contentW,
-              textForItem: (i) => entries[rightIndices[i]].text,
-              style: style,
-              textScaler: scaler,
-              noWrap: noWrap,
-              extraVerticalPadding: 12,
-            );
-        if (cachedR == null) LineHeightCache.instance.put(rk, rightTable);
-
-        ViewerDiag.mark('高度: 完成 (${mode.name})');
-        return _HeightBundle(sbsLeft: leftTable, sbsRight: rightTable);
+      final rows = cachedAlignedRows(diff);
+      final panelW = (viewportW - 1) / 2;
+      final contentW = panelW - 52.0;
+      final k = cacheKey('sbs_sync');
+      final cached = LineHeightCache.instance.get(k);
+      if (cached != null) {
+        ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
+        _log('高度完成(缓存): ${mode.name}');
+        return _HeightBundle(sbsSync: cached);
       }
+      final table = await computeLineHeightsForTwoPane(
+        itemCount: rows.length,
+        leftWidth: contentW,
+        rightWidth: contentW,
+        leftTextForItem: (i) {
+          final spec = rows[i];
+          if (spec.del != null) return diff.entries[spec.del!].text;
+          return '';
+        },
+        rightTextForItem: (i) {
+          final spec = rows[i];
+          if (spec.ins != null) return diff.entries[spec.ins!].text;
+          return '';
+        },
+        style: style,
+        textScaler: scaler,
+        noWrap: noWrap,
+        extraVerticalPadding: 12,
+      );
+      LineHeightCache.instance.put(k, table);
+      ViewerDiag.mark('高度: 完成 (${mode.name})');
+      _log('高度完成: ${mode.name}');
+      return _HeightBundle(sbsSync: table);
     }
 
     final isPlain = mode == ViewMode.diffOnlyPlain;
@@ -839,6 +830,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final cached = LineHeightCache.instance.get(k);
     if (cached != null) {
       ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
+      _log('高度完成(缓存): ${mode.name}');
       return isPlain
           ? _HeightBundle(diffOnlyPlain: cached)
           : _HeightBundle(diffOnly: cached);
@@ -876,6 +868,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
     LineHeightCache.instance.put(k, table);
     ViewerDiag.mark('高度: 完成 (${mode.name})');
+    _log('高度完成: ${mode.name}');
     return isPlain
         ? _HeightBundle(diffOnlyPlain: table)
         : _HeightBundle(diffOnly: table);
@@ -950,6 +943,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
   }
 
+  void _openDiagnostic() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const DiagnosticScreen()),
+    );
+  }
+
   List<int> _diffIndices() {
     final diff = _diff;
     if (diff == null) return const <int>[];
@@ -1014,6 +1013,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     for (final ei in indices) {
       final r = map[ei];
       if (r != null && r > currentRow) {
+        _log('跳转: 下一处差异');
         _scrollToEntry(ei);
         return;
       }
@@ -1036,6 +1036,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       final ei = indices[i];
       final r = map[ei];
       if (r != null && r < currentRow) {
+        _log('跳转: 上一处差异');
         _scrollToEntry(ei);
         return;
       }
@@ -1049,7 +1050,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
 
-    // 点按钮就先把行高表算起来，别等选完跳转位置才开算。
     final diff = _diff;
     if (diff != null) {
       unawaited(_getHeightFuture(diff, newMode));
@@ -1065,6 +1065,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
     if (!mounted || choice == null) return;
 
+    _log('切视图: ${_viewModeName(newMode)}');
     ref.read(viewModeProvider.notifier).state = newMode;
 
     final target = choice.isTop ? -1 : (choice.targetEntry ?? -1);
@@ -1073,17 +1074,25 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     setState(() {});
   }
 
+  String _viewModeName(ViewMode m) {
+    switch (m) {
+      case ViewMode.merged:
+        return '合并';
+      case ViewMode.sideBySide:
+        return '并排';
+      case ViewMode.diffOnly:
+        return '差异行+上下文';
+      case ViewMode.diffOnlyPlain:
+        return '仅差异行';
+    }
+  }
+
   Future<_SwitchChoice?> _showSwitchChoiceDialog({
     required ViewMode newMode,
     required bool hasSearch,
     required int? searchEntry,
   }) async {
-    final modeName = switch (newMode) {
-      ViewMode.sideBySide => '并排',
-      ViewMode.merged => '合并',
-      ViewMode.diffOnly => '差异上下文行',
-      ViewMode.diffOnlyPlain => '纯差异',
-    };
+    final modeName = _viewModeName(newMode);
 
     final diff = _diff;
     final mode = ref.read(viewModeProvider);
@@ -1240,12 +1249,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       ),
     );
     if (!mounted) return;
-    // 从比较设置回来，规则可能变了，主动让对比和布局都重算。
+    _log('比较设置返回，重算');
     ref.read(importRevisionProvider.notifier).state++;
     _resetViewAfterEdit();
   }
 
-  // ==================== 诊断弹窗 ====================
+  // ==================== 行诊断（长按某行） ====================
 
   Future<void> _showRowDiagnoseDialog(String left, String right) async {
     final maxLen = left.length > right.length ? left.length : right.length;
@@ -1292,127 +1301,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
               ],
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showFileDiagnoseDialog() async {
-    final orig = ref.read(preprocessedOriginalProvider);
-    final mod = ref.read(preprocessedModifiedProvider);
-    final oStats = _charStats(orig);
-    final mStats = _charStats(mod);
-    final oLines = orig.split('\n');
-    final mLines = mod.split('\n');
-
-    const preview = 20;
-
-    Widget statBlock(String title, Map<String, int> stats) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-          for (final e in stats.entries)
-            Text('  ${e.key}: ${e.value}',
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-        ],
-      );
-    }
-
-    Widget lineBlock(String title, List<String> lines) {
-      final sb = StringBuffer();
-      for (var i = 0; i < lines.length && i < preview; i++) {
-        final t = lines[i];
-        final shown = t.length > 40 ? '${t.substring(0, 40)}…' : t;
-        final w = t.runes.length;
-        sb.writeln('${(i + 1).toString().padLeft(3)} [$w] $shown');
-      }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-          SelectableText(
-            sb.toString(),
-            style: const TextStyle(
-                fontFamily: 'monospace', fontSize: 11, height: 1.4),
-          ),
-        ],
-      );
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: const Text('文件诊断', style: TextStyle(fontSize: 14)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.8,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '左总长 ${orig.length}（行 ${oLines.length}）  '
-                  '右总长 ${mod.length}（行 ${mLines.length}）',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const Divider(),
-                statBlock('左边特殊字符', oStats),
-                const SizedBox(height: 8),
-                statBlock('右边特殊字符', mStats),
-                const Divider(),
-                lineBlock('左边前 $preview 行', oLines),
-                const SizedBox(height: 12),
-                lineBlock('右边前 $preview 行', mLines),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showTimingDialog() async {
-    final entries = ViewerDiag.entries;
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: const Text('耗时诊断', style: TextStyle(fontSize: 14)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.6,
-          child: entries.isEmpty
-              ? const Center(child: Text('还没有记录'))
-              : ListView.builder(
-                  itemCount: entries.length,
-                  itemBuilder: (ctx, i) {
-                    final e = entries[i];
-                    final prev = i == 0 ? 0 : entries[i - 1].ms;
-                    final delta = e.ms - prev;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Text(
-                        '+${delta}ms  (累计 ${e.ms}ms)  ${e.tag}',
-                        style: const TextStyle(
-                            fontFamily: 'monospace', fontSize: 12),
-                      ),
-                    );
-                  },
-                ),
         ),
         actions: [
           TextButton(
@@ -1688,8 +1576,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       );
     }
 
+    _log('编辑行（重算中）');
     ref.read(importRevisionProvider.notifier).state++;
-    // 直接跳到"编辑的那一行"——用 entry index 最稳，不靠 anchor 文字。
     _pendingJumpEntry = origEntryIdx ?? modEntryIdx;
     _pendingJumpQueued = false;
     _resetViewAfterEdit();
@@ -1827,8 +1715,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     DiffTextIndex.invalidate();
     setState(() {});
 
-    // 如果有排队跳转，交给 _buildWithHeights 里处理。
-    // 否则滚回顶部。
     if (_pendingJumpEntry == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -1983,6 +1869,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       _lastDiagDiff = diff;
       ViewerDiag.reset();
       ViewerDiag.mark('diff 计算完成，进入渲染');
+      _log('diff 已就绪，准备渲染');
     }
 
     final future = _getHeightFuture(diff, viewMode);
@@ -2078,26 +1965,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       }
       computed = numW + maxChars * charWidth + pad;
     } else {
-      final rows = mode == ViewMode.sideBySide
-          ? cachedAlignedRows(diff)
-          : (mode == ViewMode.diffOnlyPlain
-              ? cachedDiffOnlyPlainRows(diff)
-              : cachedDiffOnlyRows(diff));
-      var maxL = 0;
-      var maxR = 0;
-      for (final spec in rows) {
-        if (spec.del != null) {
-          final t = diff.entries[spec.del!].text;
-          if (t.length > maxL) maxL = t.length;
-        }
-        if (spec.ins != null) {
-          final t = diff.entries[spec.ins!].text;
-          if (t.length > maxR) maxR = t.length;
-        }
-      }
-      final panelChars = maxL > maxR ? maxL : maxR;
-      final panelW = numW + panelChars * charWidth + pad;
-      computed = panelW * 2 + 1;
+      computed = viewportW;
     }
 
     if (computed < viewportW) computed = viewportW;
@@ -2146,7 +2014,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           showLineNumbers: ref.watch(showLineNumbersProvider),
           bodyFontSize: ref.watch(bodyFontSizeProvider),
           gutterFontSize: ref.watch(gutterFontSizeProvider),
-          syncScroll: ref.watch(syncScrollProvider),
+          // 做法 B：同步滚动永远开启，不再给用户切换。
+          syncScroll: true,
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
@@ -2259,12 +2128,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 _deleteSide(isOriginal: false);
               } else if (v == 'orientation') {
                 _toggleOrientation();
-              } else if (v == 'perf') {
-                final cur = ref.read(showPerfOverlayProvider);
-                ref.read(showPerfOverlayProvider.notifier).state = !cur;
-              } else if (v == 'syncScroll') {
-                final cur = ref.read(syncScrollProvider);
-                ref.read(syncScrollProvider.notifier).update(!cur);
               } else if (v == 'noWrap') {
                 final cur = ref.read(noWrapProvider);
                 ref.read(noWrapProvider.notifier).state = !cur;
@@ -2275,10 +2138,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 _openDisplaySettings();
               } else if (v == 'comparisonSettings') {
                 _openComparisonSettings();
-              } else if (v == 'diagFile') {
-                _showFileDiagnoseDialog();
-              } else if (v == 'diagTime') {
-                _showTimingDialog();
+              } else if (v == 'diagnostic') {
+                _openDiagnostic();
               }
             },
             itemBuilder: (context) => [
@@ -2358,59 +2219,18 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   ],
                 ),
               ),
-              PopupMenuItem<String>(
-                value: 'syncScroll',
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'diagnostic',
                 child: Row(
                   children: [
-                    Icon(
-                      ref.watch(syncScrollProvider)
-                          ? Icons.sync
-                          : Icons.sync_disabled,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(ref.watch(syncScrollProvider)
-                        ? '关闭两栏同步滚动'
-                        : '开启两栏同步滚动'),
-                  ],
-                ),
-              ),
-              PopupMenuItem<String>(
-                value: 'perf',
-                child: Row(
-                  children: [
-                    Icon(
-                      ref.watch(showPerfOverlayProvider)
-                          ? Icons.speed
-                          : Icons.speed_outlined,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(ref.watch(showPerfOverlayProvider)
-                        ? '关闭性能面板'
-                        : '开启性能面板'),
+                    Icon(Icons.bug_report),
+                    SizedBox(width: 10),
+                    Text('诊断'),
                   ],
                 ),
               ),
               const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'diagFile',
-                child: Row(
-                  children: [
-                    Icon(Icons.description),
-                    SizedBox(width: 10),
-                    Text('诊断：看文件差异细节'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'diagTime',
-                child: Row(
-                  children: [
-                    Icon(Icons.timer),
-                    SizedBox(width: 10),
-                    Text('诊断：看每步耗时'),
-                  ],
-                ),
-              ),
               PopupMenuItem<String>(
                 value: 'orientation',
                 child: Row(
@@ -2436,7 +2256,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           _buildEncodingBanner(),
           if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
-          if (ref.watch(showPerfOverlayProvider)) _buildPerfOverlay(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
             child: Row(
@@ -2707,6 +2526,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         }
       }
 
+      _log('按钮规则: ${rule.name} → $side');
       ref.read(importRevisionProvider.notifier).state++;
       _resetViewAfterEdit();
 
@@ -2838,26 +2658,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildPerfOverlay() {
-    final perf = ref.watch(lastDiffPerfProvider);
-    if (perf == null) return const SizedBox.shrink();
-    final s = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: s.tertiaryContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: SelectableText(
-        perf.oneLine,
-        style: TextStyle(
-          fontSize: 10,
-          fontFamily: 'monospace',
-          color: s.onTertiaryContainer,
-        ),
-        maxLines: 3,
       ),
     );
   }
@@ -3126,7 +2926,338 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 }
 
-/// 显示设置底部面板。
+// ==================== 诊断页 ====================
+
+class DiagnosticScreen extends ConsumerWidget {
+  const DiagnosticScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('诊断'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              DiagHistory.clear();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('历史已清空')),
+              );
+            },
+            child: const Text('清空历史'),
+          ),
+        ],
+      ),
+      body: ListView(
+        children: [
+          _DiagRow(
+            title: '性能',
+            subtitle: '最近一次 diff 的耗时与行数',
+            enabled: ref.watch(diagPerfEnabledProvider),
+            onToggle: (v) =>
+                ref.read(diagPerfEnabledProvider.notifier).state = v,
+            onTap: () => _showPerf(context, ref),
+          ),
+          _DiagRow(
+            title: '文件',
+            subtitle: '两份文件的行数、特殊字符统计、前 20 行预览',
+            enabled: ref.watch(diagFileEnabledProvider),
+            onToggle: (v) =>
+                ref.read(diagFileEnabledProvider.notifier).state = v,
+            onTap: () => _showFile(context, ref),
+          ),
+          _DiagRow(
+            title: '耗时',
+            subtitle: '本次渲染各阶段的耗时明细',
+            enabled: ref.watch(diagTimeEnabledProvider),
+            onToggle: (v) =>
+                ref.read(diagTimeEnabledProvider.notifier).state = v,
+            onTap: () => _showTime(context, ref),
+          ),
+          _DiagRow(
+            title: '历史',
+            subtitle: '本次会话的操作记录（${DiagHistory.entries.length} 条）',
+            enabled: ref.watch(diagHistoryEnabledProvider),
+            onToggle: (v) =>
+                ref.read(diagHistoryEnabledProvider.notifier).state = v,
+            onTap: () => _showHistory(context, ref),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showPerf(BuildContext context, WidgetRef ref) async {
+    final perf = ref.read(lastDiffPerfProvider);
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('性能', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.6,
+          child: perf == null
+              ? const Center(child: Text('还没有 diff 结果'))
+              : SingleChildScrollView(
+                  child: SelectableText(
+                    perf.oneLine,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showFile(BuildContext context, WidgetRef ref) async {
+    final orig = ref.read(preprocessedOriginalProvider);
+    final mod = ref.read(preprocessedModifiedProvider);
+    final oStats = _charStats(orig);
+    final mStats = _charStats(mod);
+    final oLines = orig.split('\n');
+    final mLines = mod.split('\n');
+
+    const preview = 20;
+
+    Widget statBlock(String title, Map<String, int> stats) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          for (final e in stats.entries)
+            Text('  ${e.key}: ${e.value}',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+        ],
+      );
+    }
+
+    Widget lineBlock(String title, List<String> lines) {
+      final sb = StringBuffer();
+      for (var i = 0; i < lines.length && i < preview; i++) {
+        final t = lines[i];
+        final shown = t.length > 40 ? '${t.substring(0, 40)}…' : t;
+        final w = t.runes.length;
+        sb.writeln('${(i + 1).toString().padLeft(3)} [$w] $shown');
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          SelectableText(
+            sb.toString(),
+            style: const TextStyle(
+                fontFamily: 'monospace', fontSize: 11, height: 1.4),
+          ),
+        ],
+      );
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('文件诊断', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '左总长 ${orig.length}（行 ${oLines.length}）  '
+                  '右总长 ${mod.length}（行 ${mLines.length}）',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const Divider(),
+                statBlock('左边特殊字符', oStats),
+                const SizedBox(height: 8),
+                statBlock('右边特殊字符', mStats),
+                const Divider(),
+                lineBlock('左边前 $preview 行', oLines),
+                const SizedBox(height: 12),
+                lineBlock('右边前 $preview 行', mLines),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showTime(BuildContext context, WidgetRef ref) async {
+    final entries = ViewerDiag.entries;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('耗时诊断', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.6,
+          child: entries.isEmpty
+              ? const Center(child: Text('还没有记录'))
+              : ListView.builder(
+                  itemCount: entries.length,
+                  itemBuilder: (ctx, i) {
+                    final e = entries[i];
+                    final prev = i == 0 ? 0 : entries[i - 1].ms;
+                    final delta = e.ms - prev;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        '+${delta}ms  (累计 ${e.ms}ms)  ${e.tag}',
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showHistory(BuildContext context, WidgetRef ref) async {
+    final entries = DiagHistory.entries;
+
+    String fmt(DateTime t) {
+      String two(int n) => n < 10 ? '0$n' : '$n';
+      return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('历史', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.75,
+          child: entries.isEmpty
+              ? const Center(child: Text('还没有记录'))
+              : ListView.builder(
+                  itemCount: entries.length,
+                  itemBuilder: (ctx, i) {
+                    final e = entries[entries.length - 1 - i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${fmt(e.time)}  ',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              e.msg,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiagRow extends StatelessWidget {
+  const _DiagRow({
+    required this.title,
+    required this.subtitle,
+    required this.enabled,
+    required this.onToggle,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool enabled;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        ListTile(
+          enabled: enabled,
+          title: Text(
+            title,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: enabled ? null : s.onSurface.withOpacity(0.4),
+            ),
+          ),
+          subtitle: Text(
+            enabled ? subtitle : '关闭',
+            style: TextStyle(
+              fontSize: 12,
+              color: enabled ? s.onSurfaceVariant : s.outline,
+            ),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (enabled)
+                Icon(Icons.chevron_right, color: s.onSurfaceVariant),
+              const SizedBox(width: 4),
+              Switch(
+                value: enabled,
+                onChanged: onToggle,
+              ),
+            ],
+          ),
+          onTap: enabled ? onTap : null,
+        ),
+        const Divider(height: 1),
+      ],
+    );
+  }
+}
+
+// ==================== 显示设置底部面板 ====================
+
 class _DisplaySettingsSheet extends ConsumerWidget {
   const _DisplaySettingsSheet();
 
