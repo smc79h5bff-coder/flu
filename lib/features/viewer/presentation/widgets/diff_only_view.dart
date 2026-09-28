@@ -608,9 +608,9 @@ final bool effectiveNoWrap = isContext ? true : noWrap;
                   line < 0 ? '' : '$line',
                   textAlign: TextAlign.end,
                   style: TextStyle(
-                    fontSize: isContext ? kContextFontSize : gutterFontSize,
-                    color: outline,
-                  ),
+  fontSize: isContext ? contextFontSize : gutterFontSize,
+  color: outline,
+),
                 ),
               ),
               if (symbol.isNotEmpty) ...[
