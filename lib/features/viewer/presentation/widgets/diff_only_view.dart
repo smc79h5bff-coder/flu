@@ -395,6 +395,7 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       showLineNumbers: widget.showLineNumbers,
       bodyFontSize: widget.bodyFontSize,
       gutterFontSize: widget.gutterFontSize,
+        contextFontSize: widget.contextFontSize,
       noWrap: widget.noWrap,
       isContext: isContext,
     );
@@ -545,6 +546,7 @@ class _DiffCell extends StatelessWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+    final double contextFontSize;
   final bool noWrap;
 
   /// 是否是"相同行（上下文）"。是的话：字号用 kContextFontSize，
