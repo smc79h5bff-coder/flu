@@ -14,9 +14,7 @@ import 'side_by_side_view.dart'
     show AlignedRow, cachedAlignedRows, cachedLineMeta;
 import '../viewer_widgets.dart';
 
-/// 相同行（上下文）字号。比正文小，节省纵向空间。
-/// 公开，供 diff_viewer_screen 算高度时保持一致。
-const double kContextFontSize = 8.0;
+
 
 class DiffOnlyView extends ConsumerStatefulWidget {
   const DiffOnlyView({
@@ -46,6 +44,7 @@ class DiffOnlyView extends ConsumerStatefulWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+    final double contextFontSize;
   final bool noWrap;
   final int? jumpedToEntry;
   final void Function(List<int> entryIndices)? onLongPressEntry;
@@ -528,6 +527,7 @@ class _DiffCell extends StatelessWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+      this.contextFontSize = 10.0,
     this.noWrap = false,
     this.isContext = false,
   });
