@@ -1922,59 +1922,70 @@ itemBuilder: (context) => [
             _formatSize(hit.size),
             _formatTime(hit.modified),
           ].where((s) => s.isNotEmpty).join(' · ');
-          return ListTile(
-            dense: true,
-            isThreeLine: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-            selected: selected,
-            selectedTileColor: Theme.of(context)
-                .colorScheme
-                .primary
-                .withOpacity(0.12),
-            leading: _leading(
-              selectionMode: _selectionMode,
-              selected: selected,
-              isDir: false,
-              name: hit.name,
-              onToggle: () => _toggleSelectionPath(hit.path),
-            ),
-            title: Text(
-              hit.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              
-  style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (metaLine.isNotEmpty)
-                  Text(
-                    metaLine,
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                Text(
-                  hit.path,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface,
-                        
-                      ),
-                  softWrap: true,
-                ),
-              ],
-            ),
-  onTap: () {
-  if (_selectionMode) {
-    _toggleSelectionPath(hit.path);
-    return;
-  }
-  _openFile(hit.path, hit.name, hit.size);
-},
-            onLongPress: () => _toggleSelectionPath(hit.path),
-          );
+      
+          
+        return Container(
+  decoration: selected
+      ? BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary,
+            width: 2,
+          ),
+        )
+      : null,
+  child: ListTile(
+    dense: true,
+    isThreeLine: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+    selected: selected,
+    selectedTileColor: Theme.of(context)
+        .colorScheme
+        .primary
+        .withOpacity(0.12),
+    leading: _leading(
+      selectionMode: _selectionMode,
+      selected: selected,
+      isDir: false,
+      name: hit.name,
+      onToggle: () => _toggleSelectionPath(hit.path),
+    ),
+    title: Text(
+      hit.name,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontWeight: FontWeight.bold),
+    ),
+    subtitle: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (metaLine.isNotEmpty)
+          Text(
+            metaLine,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        Text(
+          hit.path,
+          style: Theme.of(context)
+              .textTheme
+              .labelSmall
+              ?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+          softWrap: true,
+        ),
+      ],
+    ),
+    onTap: () {
+      if (_selectionMode) {
+        _toggleSelectionPath(hit.path);
+        return;
+      }
+      _openFile(hit.path, hit.name, hit.size);
+    },
+    onLongPress: () => _toggleSelectionPath(hit.path),
+  ),
+);
+          
         },
       );
     }
