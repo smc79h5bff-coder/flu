@@ -2485,7 +2485,7 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
       titlePadding: _dlgTitlePadG,
       contentPadding: EdgeInsets.zero,
       actionsPadding: _dlgActionsPadG,
-      title: const Text('选择搜索文件夹'),
+      title: const Text('勾选要搜索的文件夹'),
       content: SizedBox(
         width: double.maxFinite,
         height: MediaQuery.of(context).size.height * 0.85,
