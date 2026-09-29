@@ -1518,62 +1518,71 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   }
 
   List<Widget> _buildJsContent() {
-    return [
-      _sectionHeader('JS 脚本'),
-      const SizedBox(height: 6),
-      Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          '脚本里有变量 text（输入的整段文本）。\n'
-          '最后一行写你的处理结果（表达式），作为输出。\n'
-          '支持 ES2019 语法。想调试可以用 console.log。',
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.5,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+  return [
+    _sectionHeader('JS 脚本'),
+    const SizedBox(height: 12),
+    Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '这是「用代码处理文本」的入口。\n'
+        '\n'
+        '脚本里有一个变量 text，就是整篇文本。\n'
+        '脚本的最后一行，就是处理结果。\n'
+        '\n'
+        '比如删掉所有空行：\n'
+        '    text.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')\n'
+        '\n'
+        '不懂编程的话，用「预置功能」更省事。\n'
+        '想试试的话，点下方「使用说明」按钮，\n'
+        '里面有从零开始的教程和 30 多个现成例子。',
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.6,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
-      const SizedBox(height: 8),
-      TextField(
-        controller: _jsCtrl,
-        minLines: 12,
-        maxLines: 24,
-        style: const TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 13,
-          height: 1.5,
-        ),
-        decoration: const InputDecoration(
-          hintText: '// 例如：删除空行\ntext.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')',
-          border: OutlineInputBorder(),
-          contentPadding: EdgeInsets.all(10),
-        ),
+    ),
+    const SizedBox(height: 8),
+    TextField(
+      controller: _jsCtrl,
+      minLines: 12,
+      maxLines: 24,
+      style: const TextStyle(
+        fontFamily: 'monospace',
+        fontSize: 13,
+        height: 1.5,
       ),
-      const SizedBox(height: 8),
-      Row(
-        children: [
-          OutlinedButton.icon(
-            icon: const Icon(Icons.restore, size: 16),
-            label: const Text('填入模板'),
-            onPressed: () {
-              setState(() => _jsCtrl.text = defaultJsTemplate);
-            },
-          ),
-          const Spacer(),
-          TextButton.icon(
-            icon: const Icon(Icons.info_outline, size: 16),
-            label: const Text('示例'),
-            onPressed: _showJsExamples,
-          ),
-        ],
+      decoration: const InputDecoration(
+        hintText: '// 例如：删除空行\ntext.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')',
+        border: OutlineInputBorder(),
+        contentPadding: EdgeInsets.all(10),
       ),
-    ];
-  }
+    ),
+    const SizedBox(height: 8),
+    Row(
+      children: [
+        OutlinedButton.icon(
+          icon: const Icon(Icons.restore, size: 16),
+          label: const Text('用基础模板'),
+          onPressed: () {
+            setState(() => _jsCtrl.text = defaultJsTemplate);
+          },
+        ),
+        const Spacer(),
+        TextButton.icon(
+          icon: const Icon(Icons.info_outline, size: 16),
+          label: const Text('使用说明'),
+          onPressed: _showJsExamples,
+        ),
+      ],
+    ),
+  ];
+}
+  
 
   void _showJsExamples() {
     showDialog<void>(
