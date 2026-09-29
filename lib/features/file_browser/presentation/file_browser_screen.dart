@@ -2519,16 +2519,22 @@ class _DirectoryPickerDialogState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
           child: TextField(
             controller: _filterCtrl,
             decoration: const InputDecoration(
               hintText: '过滤子目录',
-              prefixIcon: Icon(Icons.search, size: 18),
+              prefixIcon: Icon(Icons.search, size: 16),
+              
+    prefixIconConstraints: BoxConstraints(
+      minWidth: 28,       // ← 加这个
+      minHeight: 0,
+    ),
+              
               isDense: true,
               border: OutlineInputBorder(),
               contentPadding:
-                  EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  EdgeInsets.symmetric(horizontal: 2, vertical: 2),
             ),
             onChanged: (v) => setState(() => _filterQuery = v),
           ),
