@@ -2561,6 +2561,8 @@ Widget build(BuildContext context) {
                             final name = d.path.split('/').last;
                             return ListTile(
                               dense: true,
+                              
+  horizontalTitleGap: 2,            
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8),
                               leading: const Icon(Icons.folder,
