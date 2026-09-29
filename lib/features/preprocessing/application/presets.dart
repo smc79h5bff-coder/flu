@@ -277,21 +277,6 @@ class Presets {
           ],
           apply: _mergeAllLines,
         ),
-
-        // ==================== 字符替换 ====================
-        // （第 2 部分继续）
-      ];
-
-  /// 按 id 查找。
-  static Preset? byId(String id) {
-    for (final p in all()) {
-      if (p.id == id) return p;
-    }
-    return null;
-  }
-}
-
-
         // ==================== 字符替换 ====================
         Preset(
           id: 'deleteString',
