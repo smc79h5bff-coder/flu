@@ -1589,7 +1589,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       context: context,
       builder: (c) => AlertDialog(
         insetPadding: const EdgeInsets.all(8),
-        title: const Text('JS 示例'),
+        title: const Text('JS 脚本 · 使用说明'),
         content: SizedBox(
           width: double.maxFinite,
           height: MediaQuery.of(c).size.height * 0.7,
