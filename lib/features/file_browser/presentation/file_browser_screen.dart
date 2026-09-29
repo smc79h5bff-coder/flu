@@ -1950,6 +1950,8 @@ itemBuilder: (context) => [
               hit.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
+              
+  style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
