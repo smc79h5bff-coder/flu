@@ -14,6 +14,20 @@ import '../../../import/presentation/providers/import_providers.dart';
 enum ViewMode { merged, sideBySide, diffOnly, diffOnlyPlain }
 
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
+/// 进入对比页时的默认视图。用户可在菜单里改。
+final defaultViewModeProvider =
+    NotifierProvider<DefaultViewModeNotifier, ViewMode>(
+  DefaultViewModeNotifier.new,
+);
+
+class DefaultViewModeNotifier extends EnumPrefNotifier<ViewMode> {
+  DefaultViewModeNotifier()
+      : super(
+          key: PrefKeys.defaultViewMode,
+          values: ViewMode.values,
+          initial: ViewMode.diffOnly,
+        );
+}
 
 final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
 
