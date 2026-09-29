@@ -1527,24 +1527,55 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(
-        '这是「用代码处理文本」的入口。\n'
-        '\n'
-        '脚本里有一个变量 text，就是整篇文本。\n'
-        '脚本的最后一行，就是处理结果。\n'
-        '\n'
-        '比如删掉所有空行：\n'
-        '    text.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')\n'
-        '\n'
-        '不懂编程的话，用「预置功能」更省事。\n'
-        '想试试的话，点下方「使用说明」按钮，\n'
-        '里面有从零开始的教程和 30 多个现成例子。',
-        style: TextStyle(
-          fontSize: 12,
-          height: 1.6,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ),
+      
+
+child: Text(
+  '这是「用代码处理文本」的入口。\n'
+  '\n'
+  '脚本里有一个变量 text，就是整篇文本。\n'
+  '脚本的最后一行，就是处理结果。\n'
+  '\n'
+  '比如删掉所有空行：\n'
+  '    text.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')\n'
+  '\n'
+  '不懂编程的话，用「预置功能」更省事。\n'
+  '想试试的话，点下方「使用说明」按钮，\n'
+  '里面有从零开始的教程和 30 多个现成例子。\n'
+  '\n'
+  '【关于 JS 版本】\n'
+  '支持 ES2019 及更早的 JavaScript 语法。\n'
+  '网上新写法（2020 年以后）可能不支持，遇到报错换老写法试试。\n'
+  '\n'
+  '常见的不支持写法对照：\n'
+  '  text?.length        老写法：text ? text.length : 0\n'
+  '  a ?? b              老写法：a !== null && a !== undefined ? a : b\n'
+  '  a ||= b             老写法：a = a || b\n'
+  '  a &&= b             老写法：a = a && b\n'
+  '  a ??= b             老写法：if (a === null || a === undefined) a = b\n'
+  '  text.replaceAll()   老写法：text.replace(/x/g, \'y\') 或 text.split(\'x\').join(\'y\')\n'
+  '  arr.at(-1)          老写法：arr[arr.length - 1]\n'
+  '  arr.at(0)           老写法：arr[0]\n'
+  '  arr.flat()          老写法：手写循环合并\n'
+  '  arr.flatMap()       老写法：先 map 再手写合并\n'
+  '  arr.findLast()      老写法：先 reverse 再 find\n'
+  '  Object.fromEntries() 老写法：手写 reduce\n'
+  '  Object.hasOwn()     老写法：obj.hasOwnProperty(key)\n'
+  '  str.matchAll()      老写法：while 循环 + exec\n'
+  '  Promise.allSettled() 老写法：Promise.all + catch 包裹\n'
+  '  1_000_000（数字分隔符） 老写法：1000000\n'
+  '  123n（BigInt）      老写法：用 Number，别用 BigInt\n'
+  '  #private（私有字段） 老写法：不用类，用普通变量\n'
+  '  top-level await     老写法：(async () => { ... })()\n'
+  '  arr.toSorted()      老写法：[...arr].sort()\n'
+  '  structuredClone(o)  老写法：JSON.parse(JSON.stringify(o))',
+  style: TextStyle(
+    fontSize: 12,
+    height: 1.6,
+    color: Theme.of(context).colorScheme.onSurfaceVariant,
+  ),
+),
+
+      
     ),
     const SizedBox(height: 8),
     TextField(
