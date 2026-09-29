@@ -1822,12 +1822,15 @@ itemBuilder: (context) => [
                 ),
                 const SizedBox(width: 6),
                 Expanded(
-                  flex: 1,
-                  child: FilledButton.tonal(
-                    onPressed: canProps ? _copyPath : null,
-                    child: const Text('复制路径'),
-                  ),
-                ),
+  flex: 1,
+  child: FilledButton.tonal(
+    style: FilledButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+    ),
+    onPressed: canProps ? _copyPath : null,
+    child: const Text('复制路径'),
+  ),
+),
               ],
             ),
             const SizedBox(height: 4),
