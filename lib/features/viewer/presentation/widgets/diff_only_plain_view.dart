@@ -554,7 +554,7 @@ class _DiffCell extends StatelessWidget {
               SizedBox(
                 width: 30,
                 child: Text(
-                  line < 0 ? '' : '$line',
+                  line < 0 ? '' : '${line + 1}',
                   textAlign: TextAlign.end,
                   style: TextStyle(fontSize: gutterFontSize, color: outline),
                 ),
