@@ -1837,7 +1837,7 @@ if (raw.isEmpty) {
         return PreprocessingRule(
           id: widget.initial?.id ??
               'user_${DateTime.now().microsecondsSinceEpoch}',
-          name: name,
+          name: raw,
           kind: RuleKind.replace,
           findPattern: find,
           replaceWith: _replaceCtrl.text,
@@ -1861,7 +1861,7 @@ if (raw.isEmpty) {
         return PreprocessingRule(
           id: widget.initial?.id ??
               'user_${DateTime.now().microsecondsSinceEpoch}',
-          name: name,
+          name: raw,
           kind: RuleKind.preset,
           scope: _scope,
           enabled: widget.initial?.enabled ?? true,
@@ -1879,7 +1879,7 @@ if (raw.isEmpty) {
         return PreprocessingRule(
           id: widget.initial?.id ??
               'user_${DateTime.now().microsecondsSinceEpoch}',
-          name: name,
+          name: raw,
           kind: RuleKind.js,
           scope: _scope,
           enabled: widget.initial?.enabled ?? true,
