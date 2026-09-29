@@ -13,7 +13,7 @@ class PrefKeys {
   static const String gutterFontSize = '${_p}display.gutterFontSize';
   static const String syncScroll = '${_p}display.syncScroll';
 static const String contextFontSize = '${_p}display.contextFontSize';
-  
+  static const String defaultViewMode = '${_p}viewer.defaultViewMode';
   // ==================== 12 个差异颜色 ====================
   static const String colorDeleteRowBg = '${_p}color.deleteRowBg';
   static const String colorDeleteRowFg = '${_p}color.deleteRowFg';
