@@ -2650,8 +2650,9 @@ class _DirectoryPickerDialogState
   }
 
   Widget _shortcutTile(String path, {required bool isFavorite}) {
-    final name = path.split('/').last;
-    final displayName = name.isEmpty ? '/' : name;
+final name = path.split('/').last;
+final displayName = path == widget.rootPath ? '/' : name;
+    
     final relPath = _relPath(path);
 
     return ListTile(
