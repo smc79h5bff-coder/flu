@@ -1243,6 +1243,12 @@ Future<void> _importConfig() async {
         fail++;
       }
     }
+
+    if (ok > 0) {
+    ref.read(recentMoveTargetsProvider.notifier).add(target);
+  }
+
+    
     _clearSelection();
     _load();
     _toast('已移动 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
@@ -1270,6 +1276,10 @@ Future<void> _importConfig() async {
         fail++;
       }
     }
+
+    if (ok > 0) {
+    ref.read(recentMoveTargetsProvider.notifier).add(target);
+  }
     _clearSelection();
     _load();
     _toast('已复制 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
