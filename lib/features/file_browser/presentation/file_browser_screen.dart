@@ -2657,6 +2657,7 @@ final displayName = path == widget.rootPath ? '/' : name;
 
     return ListTile(
       dense: true,
+      horizontalTitleGap: 2,                            // ← 加这行
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
       leading: Icon(
         isFavorite ? Icons.star : Icons.history,
