@@ -598,7 +598,7 @@ final bool effectiveNoWrap = isContext ? true : noWrap;
     return ColoredBox(
       color: bg,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 2),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
