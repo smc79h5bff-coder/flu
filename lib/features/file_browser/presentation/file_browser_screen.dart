@@ -291,22 +291,29 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
     });
   }
 
-void _openPreview(_EntryInfo info) {
-  final isText = _textExts.contains(_extOf(info.name));
+  /// 点击文件的统一入口：小文本直接编辑，大文件走预览。
+void _openFile(String path, String name, int? size) {
+  final isText = _textExts.contains(_extOf(name));
+  final canEdit =
+      isText && (size == null || size < _editSizeThreshold);
   Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => isText
+      builder: (_) => canEdit
           ? SingleFileEditorScreen(
-              filePath: info.entity.path,
-              fileName: info.name,
+              filePath: path,
+              fileName: name,
             )
           : TextPreviewScreen(
-              filePath: info.entity.path,
-              fileName: info.name,
+              filePath: path,
+              fileName: name,
             ),
     ),
   );
 }
+void _openPreview(_EntryInfo info) {
+  _openFile(info.entity.path, info.name, info.size);
+}
+  
 
   /// 统一构造列表项左侧：可选的复选框 + 文件/文件夹图标。
   /// 复选框用 SizedBox 收窄，选中时不再替换掉图标。
