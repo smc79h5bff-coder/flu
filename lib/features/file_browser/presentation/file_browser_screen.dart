@@ -1702,13 +1702,12 @@ itemBuilder: (context) => [
                     : null,
               ),
               child: Icon(
-                isCustom ? Icons.tune : Icons.search,
-                color: isCustom
-                    ? Theme.of(context).colorScheme.primary
-                    : (hasText
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurfaceVariant),
-              ),
+  Icons.search,
+  color: hasText
+      ? Theme.of(context).colorScheme.primary
+      : Theme.of(context).colorScheme.onSurfaceVariant,
+),
+              
             ),
           ),
           const SizedBox(width: 4),
