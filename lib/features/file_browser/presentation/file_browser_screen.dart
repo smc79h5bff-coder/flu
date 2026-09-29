@@ -2559,8 +2559,8 @@ class _DirectoryPickerDialogState
                                   color: Colors.amber),
                               title: Text(
                                 name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+  
+  softWrap: true,
                               ),
                               onTap: () {
                                 setState(() {
