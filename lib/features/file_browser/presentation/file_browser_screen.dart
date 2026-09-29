@@ -345,6 +345,10 @@ Widget _leading({
   void _doSearch() {
     final q = _searchCtrl.text;
     if (q.isEmpty) return;
+
+    ref.read(browserSearchHistoryProvider.notifier).add(q);   // ← 加这行
+
+    
     setState(() => _searchActive = true);
     _startSearch(q);
   }
