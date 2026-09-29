@@ -125,9 +125,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(viewModeProvider.notifier).state = ViewMode.diffOnly;
-    });
+  if (!mounted) return;
+  ref.read(viewModeProvider.notifier).state =
+      ref.read(defaultViewModeProvider);
+});
   }
 
   @override
