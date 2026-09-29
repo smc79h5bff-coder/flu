@@ -1398,7 +1398,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
 
     return [
       _sectionHeader('预置功能'),
-      const SizedBox(height: 6),
+      const SizedBox(height: 9),
       DropdownButtonFormField<String>(
         value: _presetId,
         isExpanded: true,
