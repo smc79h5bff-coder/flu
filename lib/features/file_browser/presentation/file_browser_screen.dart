@@ -2426,7 +2426,7 @@ class _DirectoryPickerDialogState
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                padding: const EdgeInsets.fromLTRB(8, 1, 8, 0),
                 child: Row(
                   children: [
                     Expanded(
