@@ -2462,13 +2462,15 @@ class _DirectoryPickerDialogState
                       visualDensity: VisualDensity.compact,
                     ),
                     Expanded(
-                      child: Text(
-                        _relPath(_path),
-                        style: Theme.of(context).textTheme.labelMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
+  child: SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Text(
+      _relPath(_path),
+      style: Theme.of(context).textTheme.labelMedium,
+      maxLines: 1,
+    ),
+  ),
+),
                   ],
                 ),
               ),
