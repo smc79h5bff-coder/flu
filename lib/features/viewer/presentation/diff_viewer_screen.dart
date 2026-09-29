@@ -1150,7 +1150,28 @@ int? _findEntryByOrigLine(DiffResult diff, int origLine) {
       },
     );
   }
-
+Future<void> _pickDefaultViewMode() async {
+  final current = ref.read(defaultViewModeProvider);
+  final picked = await showDialog<ViewMode>(
+    context: context,
+    builder: (c) => SimpleDialog(
+      title: const Text('进入对比页时默认显示'),
+      children: [
+        for (final m in ViewMode.values)
+          RadioListTile<ViewMode>(
+            value: m,
+            groupValue: current,
+            title: Text(_viewModeName(m)),
+            onChanged: (v) => Navigator.pop(c, v),
+          ),
+      ],
+    ),
+  );
+  if (picked != null && mounted) {
+    ref.read(defaultViewModeProvider.notifier).update(picked);
+    _toast('默认视图已设为「${_viewModeName(picked)}」');
+  }
+}
   Future<void> _toggleOrientation() async {
     setState(() => _landscape = !_landscape);
     await SystemChrome.setPreferredOrientations(_landscape
