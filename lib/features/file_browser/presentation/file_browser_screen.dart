@@ -1658,14 +1658,16 @@ itemBuilder: (context) => [
   }
 
   PreferredSizeWidget _buildSelectionAppBar() {
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.close),
-        onPressed: () => setState(_clearSelection),
-      ),
-      title: Text('已选 ${_selectedPaths.length} 个'),
-    );
-  }
+  return AppBar(
+    toolbarHeight: kToolbarHeight + 28,   // ← 加这行，默认 56 + 28 = 84
+    leading: IconButton(
+      icon: const Icon(Icons.close),
+      onPressed: () => setState(_clearSelection),
+    ),
+    title: Text('已选 ${_selectedPaths.length} 个'),
+  );
+}
+  
 
   // ==================== 搜索栏 UI ====================
 
