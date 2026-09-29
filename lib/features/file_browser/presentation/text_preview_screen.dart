@@ -105,12 +105,30 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.fileName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+  title: Text(
+    widget.fileName,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+  ),
+  actions: [
+    if (_truncated)
+      IconButton(
+        icon: const Icon(Icons.edit),
+        tooltip: '编辑全文',
+        onPressed: () {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(
+              builder: (_) => SingleFileEditorScreen(
+                filePath: widget.filePath,
+                fileName: widget.fileName,
+              ),
+            ),
+          );
+        },
       ),
+  ],
+),
+      
       body: _buildBody(),
     );
   }
