@@ -2023,10 +2023,13 @@ itemBuilder: (context) => [
           metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
         }
 
-        return ListTile(
-          isThreeLine: true,
-          selected: selected,
-          selectedTileColor:
+return ListTile(
+  dense: true,
+  isThreeLine: true,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+  selected: selected,
+  selectedTileColor:
+     
               Theme.of(context).colorScheme.primary.withOpacity(0.12),
           leading: _leading(
             selectionMode: _selectionMode,
