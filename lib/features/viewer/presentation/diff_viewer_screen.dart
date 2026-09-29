@@ -2062,6 +2062,8 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
                 _openComparisonSettings();
               } else if (v == 'diagnostic') {
                 _openDiagnostic();
+              }else if (v == 'defaultView') {
+  _pickDefaultViewMode();
               }
             },
             itemBuilder: (context) => [
