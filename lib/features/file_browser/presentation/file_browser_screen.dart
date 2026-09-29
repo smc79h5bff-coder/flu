@@ -1510,13 +1510,17 @@ Widget build(BuildContext context) {
       child: Scaffold(
         appBar: _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
         body: Column(
-          children: [
-            if (!_selectionMode) _buildBreadcrumbs(),
-            if (!_selectionMode || _searchActive) _buildSearchBar(),
-            if (_searchActive) _buildSearchStatusBar(),
-            Expanded(child: _buildBody()),
-          ],
-        ),
+  children: [
+    if (!_selectionMode) _buildBreadcrumbs(),
+    IgnorePointer(
+      ignoring: _selectionMode,
+      child: _buildSearchBar(),
+    ),
+    if (_searchActive) _buildSearchStatusBar(),
+    Expanded(child: _buildBody()),
+  ],
+),
+        
         bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
         floatingActionButton: _selectionMode
             ? null
