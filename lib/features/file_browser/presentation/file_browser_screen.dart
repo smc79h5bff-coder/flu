@@ -334,7 +334,10 @@ void _openPreview(_EntryInfo info) {
               visualDensity: VisualDensity.compact,
             ),
           ),
-        Icon(icon, color: color),
+        Padding(
+  padding: const EdgeInsets.only(top: 4),
+  child: Icon(icon, color: color),
+),
       ],
     );
   }
