@@ -630,7 +630,7 @@ ref.read(editedModifiedProvider.notifier).state = null;
       // 对比页可能删过文件；返回后清掉选中，并把已经不存在的
       // 搜索结果从列表里剔除。目录列表不需要动。
       setState(() {
-        _clearSelection();
+        
         _pruneSearchResults();
       });
     } catch (e) {
