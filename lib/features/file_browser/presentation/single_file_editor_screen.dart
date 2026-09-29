@@ -473,14 +473,14 @@ class _SingleFileEditorScreenState
                           onLongPress: () => _editToolbarRule(r),
                           child: Container(
                             constraints:
-                                const BoxConstraints(maxWidth: 160),
+                                
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12),
                             decoration: BoxDecoration(
-                              color: s.primaryContainer,
+                              color: Colors.white,
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: s.primary.withOpacity(0.3),
+                                color: Colors.black.withOpacity(0.5),
                               ),
                             ),
                             alignment: Alignment.center,
@@ -490,7 +490,7 @@ class _SingleFileEditorScreenState
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: s.onPrimaryContainer,
+                                color: Colors.black,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
