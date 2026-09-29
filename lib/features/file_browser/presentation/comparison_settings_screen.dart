@@ -1639,10 +1639,11 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   final preset = Presets.byId(_presetId ?? '');
   hint = preset?.helpText ?? '请先选择一个功能';
   break;
-      case RuleKind.js:
-        hint = 'JS 脚本在规则顺序里执行，速度比原生规则慢。\n'
-            '大文本时尽量把 JS 规则排到最后。';
-        break;
+        case RuleKind.js:
+  hint = '脚本最后一行就是处理结果。\n'
+      '返回数字、布尔值会自动转成文本。\n'
+      '不懂编程的话，建议用「预置功能」。';
+  break;
     }
     return Container(
       width: double.infinity,
