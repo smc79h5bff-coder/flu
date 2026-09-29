@@ -1716,9 +1716,11 @@ itemBuilder: (context) => [
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: isCustom && customFolders.isEmpty
-                    ? '长按左侧设置搜索范围'
-                    : '输入关键词',
+                hintText: _selectionMode
+    ? '选择模式下禁止点击'
+    : (isCustom && customFolders.isEmpty
+        ? '长按左侧设置搜索范围'
+        : '输入关键词'),
                 isDense: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
