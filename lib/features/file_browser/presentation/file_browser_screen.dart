@@ -1961,7 +1961,8 @@ itemBuilder: (context) => [
                       .textTheme
                       .labelSmall
                       ?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
+                        color: Theme.of(context).colorScheme.onSurface,
+                        
                       ),
                   softWrap: true,
                 ),
