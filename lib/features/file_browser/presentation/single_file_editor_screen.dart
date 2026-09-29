@@ -472,7 +472,7 @@ class _SingleFileEditorScreenState
                           onTap: () => _applyToolbarRule(r),
                           onLongPress: () => _editToolbarRule(r),
                           child: Container(
-                            constraints:
+                            
                                 
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12),
@@ -488,11 +488,11 @@ class _SingleFileEditorScreenState
                               r.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.black,
-                                fontWeight: FontWeight.w500,
-                              ),
+                              style: const TextStyle(
+  fontSize: 12,
+  color: Colors.black,
+  fontWeight: FontWeight.w500,
+),
                             ),
                           ),
                         ),
