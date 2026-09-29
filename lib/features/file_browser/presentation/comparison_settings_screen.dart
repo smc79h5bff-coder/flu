@@ -1900,66 +1900,242 @@ if (raw.isEmpty) {
 }
 
 // ==================== JS 示例文本 ====================
-
 const String _jsExamples = r'''
-【去掉重复行】
+【一、JS 脚本是干嘛的】
+
+App 会把整篇文本交给一段"小程序"，
+小程序处理完，把结果交回来。
+
+跟其它两个选项的区别：
+  · 查找替换：填个词，全篇替换
+  · 预置功能：选一个做好的操作
+  · JS 脚本：自己写"怎么做"
+
+举个例子：你想删掉所有空行。
+  用预置功能：选「删除空行」→ 完事。
+  用 JS 脚本：你得写一行代码：
+      text.split('\n').filter(l => l.trim()).join('\n')
+
+结果一样，但 JS 脚本要你自己写。
+
+为什么要用它？
+因为预置功能只有那么几十个。
+你遇到一个「预置功能里没有」的操作，
+就可能需要 JS 脚本。
+或者，你想把好几个操作合并成一步做。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【二、脚本里有什么】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+脚本里有一个变量，叫 text。
+它就是整篇文本。你可以对 text 做各种操作。
+
+比如：
+  text.length          数一数字符有多少个
+  text.toUpperCase()   全部变成大写
+  text.trim()          去掉开头和结尾的空格
+  text.split('\n')     按换行切成一行一行的
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【三、脚本的"输出"】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+关键规则：脚本最后一行，就是处理结果。
+App 会拿最后一行的值，替换掉原来的文本。
+
+对：
+  text.trim()
+  text.split('\n').reverse().join('\n')
+  text.length
+
+错：
+  console.log(text);      会返回 undefined
+  let result = text;      最后一行是赋值语句，不是值
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【四、完整例子：删掉所有空行】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+需求：删掉所有空行。
+
+步骤拆解：
+  第 1 步：把文本按行拆开
+      text.split('\n')
+      结果：['第一行', '', '第二行', '', '第三行']
+
+  第 2 步：删掉空的行
+      .filter(l => l.trim())
+      结果：['第一行', '第二行', '第三行']
+
+  第 3 步：再拼回一整段
+      .join('\n')
+      结果："第一行\n第二行\n第三行"
+
+连起来写：
+  text.split('\n').filter(l => l.trim()).join('\n')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【五、通用套路：切 → 处理 → 拼】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+几乎所有"按行处理"的需求，都是这个套路：
+
+  text.split('\n')      切
+       ↓
+  .filter(...)           处理（改这里）
+       ↓
+  .join('\n')            拼
+
+你只要改"处理"那一步就行。
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【六、基础例子 · 按行操作】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+■ 去掉重复行
 [...new Set(text.split('\n'))].join('\n')
 
-【去掉空行】
+■ 去掉空行
 text.split('\n').filter(l => l.trim()).join('\n')
 
-【每行前加行号】
+■ 每行前加行号
 text.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n')
 
-【只保留含"第X章"的行】
-text.split('\n').filter(l => /^第\d+章/.test(l)).join('\n')
-
-【删除含"广告"的行】
-text.split('\n').filter(l => !l.includes('广告')).join('\n')
-
-【大写转小写】
-text.toLowerCase()
-
-【首字母大写】
-text.replace(/\b\w/g, c => c.toUpperCase())
-
-【倒序排列每行】
-text.split('\n').reverse().join('\n')
-
-【按长度排序（短到长）】
-text.split('\n').sort((a, b) => a.length - b.length).join('\n')
-
-【每行去首尾空格】
+■ 每行去首尾空格
 text.split('\n').map(l => l.trim()).join('\n')
 
-【数字加千分位】
-text.replace(/\d+/g, n => Number(n).toLocaleString())
+■ 倒序排列每行
+text.split('\n').reverse().join('\n')
 
-【删除 HTML 标签】
-text.replace(/<[^>]+>/g, '')
+■ 按长度排序（短到长）
+text.split('\n').sort((a, b) => a.length - b.length).join('\n')
 
-【两个空格变一个】
-text.replace(/  +/g, ' ')
-
-【每行倒序字符】
+■ 每行倒序字符
 text.split('\n').map(l => [...l].reverse().join('')).join('\n')
 
-【段落合并（连续非空行合并成一行）】
-text.split(/\n\s*\n/).map(p => p.split('\n').join(' ')).join('\n\n')
-
-【只保留前 100 行】
+■ 只保留前 100 行
 text.split('\n').slice(0, 100).join('\n')
 
-【去掉前后空白】
+■ 只保留后 100 行
+text.split('\n').slice(-100).join('\n')
+
+■ 行间插入空行
+text.split('\n').join('\n\n')
+
+■ 每隔一行取一行
+text.split('\n').filter((_, i) => i % 2 === 0).join('\n')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【七、基础例子 · 按条件筛选】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+■ 只保留含"第X章"的行
+text.split('\n').filter(l => /^第\d+章/.test(l)).join('\n')
+
+■ 删除含"广告"的行
+text.split('\n').filter(l => !l.includes('广告')).join('\n')
+
+■ 只保留以"！"结尾的行
+text.split('\n').filter(l => l.endsWith('！')).join('\n')
+
+■ 只保留长度超过 20 的行
+text.split('\n').filter(l => l.length > 20).join('\n')
+
+■ 删除以"//"开头的行（注释）
+text.split('\n').filter(l => !l.startsWith('//')).join('\n')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【八、基础例子 · 整篇操作】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+■ 大写转小写
+text.toLowerCase()
+
+■ 小写转大写
+text.toUpperCase()
+
+■ 去掉前后空白
 text.trim()
 
-【统计行数】
-text.split('\n').length.toString()
+■ 两个空格变一个
+text.replace(/  +/g, ' ')
 
-【最长的一行】
-text.split('\n').reduce((a, b) => a.length > b.length ? a : b)
+■ 删除 HTML 标签
+text.replace(/<[^>]+>/g, '')
 
-【词频统计（前 20 个）】
+■ 首字母大写（每个单词）
+text.replace(/\b\w/g, c => c.toUpperCase())
+
+■ 数字加千分位
+text.replace(/\d+/g, n => Number(n).toLocaleString())
+
+■ 把 a 换成 b（全篇）
+text.replace(/a/g, 'b')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【九、进阶例子 · 多步骤处理】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+■ 删空行 + 每行去首尾空格
+text.split('\n')
+    .map(l => l.trim())
+    .filter(l => l)
+    .join('\n')
+
+■ 每行去重 + 每行倒序字符
+[...new Set(text.split('\n'))]
+    .map(l => [...l].reverse().join(''))
+    .join('\n')
+
+■ 只保留含"第X章"的行 + 每行前加行号
+text.split('\n')
+    .filter(l => /^第\d+章/.test(l))
+    .map((l, i) => `${i + 1}. ${l}`)
+    .join('\n')
+
+■ 按行首字母排序（忽略大小写）
+text.split('\n')
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+    .join('\n')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【十、进阶例子 · 段落处理】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+■ 段落合并（连续非空行合并成一行）
+text.split(/\n\s*\n/).map(p => p.split('\n').join(' ')).join('\n\n')
+
+■ 每段之间加一个空行
+text.split(/\n\s*\n/).join('\n\n\n')
+
+■ 每段前后加括号
+text.split(/\n\s*\n/).map(p => '【' + p + '】').join('\n\n')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【十一、进阶例子 · 自定义函数】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+一行代码写不下时，可以用箭头函数包起来。
+末尾写一个"立即执行函数"，
+最后一个 return 的值就是结果。
+
+■ 统计行数
+(() => {
+  return text.split('\n').length;
+})()
+
+■ 词频统计（前 20 个）
 (() => {
   const words = text.split(/\s+/);
   const freq = {};
@@ -1970,7 +2146,72 @@ text.split('\n').reduce((a, b) => a.length > b.length ? a : b)
     .map(([w, n]) => `${w}: ${n}`)
     .join('\n');
 })()
+
+■ 最长的一行
+text.split('\n').reduce((a, b) => a.length > b.length ? a : b)
+
+■ 找出含"标题"的行，并去重
+(() => {
+  const lines = text.split('\n').filter(l => l.includes('标题'));
+  return [...new Set(lines)].join('\n');
+})()
+
+■ 检测敏感词（有则返回"【警告】"，无则返回原文）
+(() => {
+  const bad = ['广告', '推广', '联系我'];
+  if (bad.some(w => text.includes(w))) return '【警告】';
+  return text;
+})()
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【十二、进阶例子 · 正则替换】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+■ 删除所有数字
+text.replace(/\d+/g, '')
+
+■ 删除所有英文
+text.replace(/[a-zA-Z]+/g, '')
+
+■ 删除所有中文
+text.replace(/[\u4e00-\u9fa5]+/g, '')
+
+■ 只保留中文
+text.replace(/[^\u4e00-\u9fa5]/g, '')
+
+■ 把连续空格压成一个
+text.replace(/ +/g, ' ')
+
+■ 把连续换行压成一个
+text.replace(/\n+/g, '\n')
+
+■ 把"数字-数字"改成"数字 到 数字"
+text.replace(/(\d+)-(\d+)/g, '$1 到 $2')
+
+■ 日期格式转换 YYYY-MM-DD → YYYY年MM月DD日
+text.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$1年$2月$3日')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【十三、一些提示】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. 脚本最后一行就是结果。
+   不要写分号，不要写 console.log。
+
+2. 想调试可以写 console.log，
+   但最后一行还得是一个值。
+
+3. 出错不会崩，只会"这次处理无效"，原文不变。
+
+4. JS 脚本比预置功能慢。
+
+5. 更多 JS 语法去网上搜：
+   "JavaScript 数组方法"
+   "JavaScript 字符串方法"
 ''';
+
 
 // ==================== 开关说明对话框 ====================
 
