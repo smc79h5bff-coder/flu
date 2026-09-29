@@ -61,7 +61,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   static const EdgeInsets _dlgContentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
   static const EdgeInsets _dlgActionsPad =
       EdgeInsets.fromLTRB(4, 0, 4, 4);
-
+static const int _editSizeThreshold = 200 * 1024;   // 200KB
   // ==================== 扩展名 → 图标颜色 ====================
 
   /// 文本类扩展名（与 TextPreviewScreen 保持一致）。
