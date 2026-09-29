@@ -1190,57 +1190,60 @@ int? _findEntryByOrigLine(DiffResult diff, int origLine) {
 
   // ==================== 导出差异 ====================
 
-  ({List<String> left, List<String> right}) _collectDiffParts(
-      DiffResult diff) {
-    final leftParts = <String>[];
-    final rightParts = <String>[];
+({List<String> left, List<String> right}) _collectDiffParts(
+    DiffResult diff) {
+  final leftParts = <String>[];
+  final rightParts = <String>[];
 
-    final entries = diff.entries;
-    var i = 0;
-    while (i < entries.length) {
-      if (entries[i].operation == DiffOperation.equal) {
-        i++;
-        continue;
-      }
-      final delLines = <String>[];
-      while (i < entries.length &&
-          entries[i].operation == DiffOperation.delete) {
-        delLines.add(entries[i].text);
-        i++;
-      }
-      final insLines = <String>[];
-      while (i < entries.length &&
-          entries[i].operation == DiffOperation.insert) {
-        insLines.add(entries[i].text);
-        i++;
-      }
-
-      final pairs = delLines.length < insLines.length
-          ? delLines.length
-          : insLines.length;
-
-      for (var k = 0; k < pairs; k++) {
-        final segs =
-            DiffCache.instance.charSegments(delLines[k], insLines[k]);
-        for (final (op, text) in segs) {
-  if (text.isEmpty) continue;
-  if (op == -1) {
-    leftParts.add(text);
-  } else if (op == 1) {
-    rightParts.add(text);
-  }
-}
-
-      for (var k = pairs; k < delLines.length; k++) {
-        leftParts.add(delLines[k]);
-      }
-      for (var k = pairs; k < insLines.length; k++) {
-        rightParts.add(insLines[k]);
-      }
+  final entries = diff.entries;
+  var i = 0;
+  while (i < entries.length) {
+    if (entries[i].operation == DiffOperation.equal) {
+      i++;
+      continue;
+    }
+    final delLines = <String>[];
+    while (i < entries.length &&
+        entries[i].operation == DiffOperation.delete) {
+      delLines.add(entries[i].text);
+      i++;
+    }
+    final insLines = <String>[];
+    while (i < entries.length &&
+        entries[i].operation == DiffOperation.insert) {
+      insLines.add(entries[i].text);
+      i++;
     }
 
-    return (left: leftParts, right: rightParts);
-  }
+    final pairs = delLines.length < insLines.length
+        ? delLines.length
+        : insLines.length;
+
+    // 成对的行：做字符级 diff，各取独有片段
+    for (var k = 0; k < pairs; k++) {
+      final segs =
+          DiffCache.instance.charSegments(delLines[k], insLines[k]);
+      for (final (op, text) in segs) {
+        if (text.isEmpty) continue;
+        if (op == -1) {
+          leftParts.add(text);
+        } else if (op == 1) {
+          rightParts.add(text);
+        }
+      }
+    }   // ← D 在这里关闭
+
+    // 多出来的行：整行加入对应侧（只跑一次，不在 D 里）
+    for (var k = pairs; k < delLines.length; k++) {
+      leftParts.add(delLines[k]);
+    }
+    for (var k = pairs; k < insLines.length; k++) {
+      rightParts.add(insLines[k]);
+    }
+  }   // ← while 在这里关闭
+
+  return (left: leftParts, right: rightParts);
+}
 
   Future<void> _exportDiff() async {
     final diff = _diff;
