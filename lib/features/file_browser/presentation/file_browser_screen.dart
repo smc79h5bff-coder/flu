@@ -315,39 +315,22 @@ void _openPreview(_EntryInfo info) {
 }
   
 
-  /// 统一构造列表项左侧：可选的复选框 + 文件/文件夹图标。
-  /// 复选框用 SizedBox 收窄，选中时不再替换掉图标。
-  Widget _leading({
-    required bool selectionMode,
-    required bool selected,
-    required bool isDir,
-    required String name,
-    required VoidCallback onToggle,
-  }) {
-    final icon = isDir ? Icons.folder : Icons.insert_drive_file_outlined;
-    final color = isDir ? Colors.amber.shade600 : _fileColor(name);
+  
+Widget _leading({
+  required bool selectionMode,
+  required bool selected,
+  required bool isDir,
+  required String name,
+  required VoidCallback onToggle,
+}) {
+  final icon = isDir ? Icons.folder : Icons.insert_drive_file_outlined;
+  final color = isDir ? Colors.amber.shade600 : _fileColor(name);
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (selectionMode)
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: Checkbox(
-              value: selected,
-              onChanged: (_) => onToggle(),
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-        Padding(
-  padding: const EdgeInsets.only(top: 4),
-  child: Icon(icon, color: color),
-),
-      ],
-    );
-  }
+  return Padding(
+    padding: const EdgeInsets.only(top: 4),
+    child: Icon(icon, color: color),
+  );
+}
 
   // ==================== 搜索 ====================
 
