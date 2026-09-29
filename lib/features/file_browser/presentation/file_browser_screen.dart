@@ -1574,6 +1574,9 @@ title: GestureDetector(
       _showSortDialog();
     case 'favorites':
       _showFavorites();
+      
+    case 'newFolder':                
+      _newFolder();
   }
 },
 
