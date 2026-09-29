@@ -932,7 +932,47 @@ ref.read(editedModifiedProvider.notifier).state = null;
     ref.read(favoritesProvider.notifier).toggle(_currentPath);
     _toast(wasFav ? '已取消收藏' : '已收藏当前目录');
   }
+Future<void> _exportConfig() async {
+  try {
+    final ok = await ConfigIoService.instance.export();
+    if (!mounted) return;
+    if (ok) _toast('配置已导出');
+    // 用户取消：静默返回
+  } catch (e) {
+    if (mounted) _toast('导出失败：$e');
+  }
+}
 
+Future<void> _importConfig() async {
+  final result = await ConfigIoService.instance.import();
+  if (!mounted) return;
+
+  // 用户取消
+  if (!result.ok && result.message == null) return;
+
+  // 失败
+  if (!result.ok) {
+    _toast(result.message ?? '导入失败');
+    return;
+  }
+
+  // 成功：提示重启
+  await showDialog<void>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('导入成功'),
+      content: const Text(
+        '配置已导入。请手动退出 App 再重新打开，配置才会生效。',
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(c),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
+}
   Future<void> _showFavorites() async {
     final picked = await showDialog<String>(
       context: context,
@@ -1523,48 +1563,76 @@ title: GestureDetector(
           icon: const Icon(Icons.more_vert),
           tooltip: '更多',
           onSelected: (v) {
-            switch (v) {
-              case 'refresh':
-                _load();
-              case 'sort':
-                _showSortDialog();
-              case 'favorites':
-                _showFavorites();
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem<String>(
-              value: 'refresh',
-              child: Row(
-                children: [
-                  Icon(Icons.refresh),
-                  SizedBox(width: 10),
-                  Text('刷新'),
-                ],
-              ),
-            ),
-            const PopupMenuItem<String>(
-              value: 'sort',
-              child: Row(
-                children: [
-                  Icon(Icons.sort),
-                  SizedBox(width: 10),
-                  Text('排序方式'),
-                ],
-              ),
-            ),
-            const PopupMenuDivider(),
-            PopupMenuItem<String>(
-              value: 'favorites',
-              child: Row(
-                children: [
-                  const Icon(Icons.bookmarks_outlined),
-                  const SizedBox(width: 10),
-                  Text('已收藏目录 (${favorites.length})'),
-                ],
-              ),
-            ),
-          ],
+  switch (v) {
+    case 'exportConfig':
+      _exportConfig();
+    case 'importConfig':
+      _importConfig();
+    case 'refresh':
+      _load();
+    case 'sort':
+      _showSortDialog();
+    case 'favorites':
+      _showFavorites();
+  }
+},
+
+itemBuilder: (context) => [
+  const PopupMenuItem<String>(
+    value: 'exportConfig',
+    child: Row(
+      children: [
+        Icon(Icons.upload_file),
+        SizedBox(width: 10),
+        Text('导出配置'),
+      ],
+    ),
+  ),
+  const PopupMenuItem<String>(
+    value: 'importConfig',
+    child: Row(
+      children: [
+        Icon(Icons.download),
+        SizedBox(width: 10),
+        Text('导入配置'),
+      ],
+    ),
+  ),
+  const PopupMenuDivider(),
+  const PopupMenuItem<String>(
+    value: 'refresh',
+    child: Row(
+      children: [
+        Icon(Icons.refresh),
+        SizedBox(width: 10),
+        Text('刷新'),
+      ],
+    ),
+  ),
+  const PopupMenuItem<String>(
+    value: 'sort',
+    child: Row(
+      children: [
+        Icon(Icons.sort),
+        SizedBox(width: 10),
+        Text('排序方式'),
+      ],
+    ),
+  ),
+  const PopupMenuDivider(),
+  PopupMenuItem<String>(
+    value: 'favorites',
+    child: Row(
+      children: [
+        const Icon(Icons.bookmarks_outlined),
+        const SizedBox(width: 10),
+        Text('已收藏目录 (${favorites.length})'),
+      ],
+    ),
+  ),
+],
+          
+          
         ),
       ],
     );
