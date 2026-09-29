@@ -55,6 +55,7 @@ static const String contextFontSize = '${_p}display.contextFontSize';
 
   // ==================== 文件浏览器 ====================
   static const String sortField = '${_p}browser.sortField';
+ static const String recentMoveTargets = '${_p}browser.recentMoveTargets';
   static const String sortAsc = '${_p}browser.sortAsc';
   static const String favorites = '${_p}browser.favorites';
   static const String customSearchFolders = '${_p}browser.searchFolders';
