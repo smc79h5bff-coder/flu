@@ -1928,7 +1928,7 @@ itemBuilder: (context) => [
       
           
         return Container(
-  decoration: selected
+  foregroundDecoration: selected
       ? BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.primary,
@@ -2037,7 +2037,7 @@ itemBuilder: (context) => [
         }
 
 return Container(
-  decoration: selected
+  foregroundDecoration: selected
       ? BoxDecoration(
           border: Border.all(
             color: Theme.of(context).colorScheme.primary,
