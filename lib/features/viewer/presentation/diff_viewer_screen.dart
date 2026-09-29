@@ -1222,20 +1222,14 @@ int? _findEntryByOrigLine(DiffResult diff, int origLine) {
       for (var k = 0; k < pairs; k++) {
         final segs =
             DiffCache.instance.charSegments(delLines[k], insLines[k]);
-        final leftOnly = <String>[];
-        final rightOnly = <String>[];
         for (final (op, text) in segs) {
-          if (text.isEmpty) continue;
-          if (op == -1) leftOnly.add(text);
-          if (op == 1) rightOnly.add(text);
-        }
-        if (leftOnly.isEmpty) {
-          leftParts.addAll(rightOnly);
-        } else {
-          leftParts.addAll(leftOnly);
-          rightParts.addAll(rightOnly);
-        }
-      }
+  if (text.isEmpty) continue;
+  if (op == -1) {
+    leftParts.add(text);
+  } else if (op == 1) {
+    rightParts.add(text);
+  }
+}
 
       for (var k = pairs; k < delLines.length; k++) {
         leftParts.add(delLines[k]);
@@ -1295,11 +1289,72 @@ int? _findEntryByOrigLine(DiffResult diff, int origLine) {
       return;
     }
 
-    final buf = StringBuffer();
-    for (final p in list) {
-      buf.writeln(p);
-    }
-    final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
+    final fileName = isLeft
+    ? ref.read(originalFileNameProvider)
+    : ref.read(modifiedFileNameProvider);
+final hasEdit = ref.read(
+      isLeft ? editedOriginalProvider : editedModifiedProvider,
+    ) !=
+    null;
+
+final buf = StringBuffer();
+
+// ---------- 头部说明 ----------
+buf.writeln('# ============================================================');
+buf.writeln('# DocDiff 差异导出');
+buf.writeln('# ============================================================');
+buf.writeln('#');
+buf.writeln('# 导出侧：${isLeft ? "左边（原文件）" : "右边（修改版）"}');
+if (fileName != null && fileName.isNotEmpty) {
+  buf.writeln('# 文件：$fileName');
+}
+buf.writeln('# 内容来源：对比页当前显示的内容'
+    '${hasEdit ? "（含你在对比页上的编辑）" : ""}，');
+buf.writeln('#           已套用当前所有生效的比较规则。');
+buf.writeln('# 导出时间：${DateTime.now()}');
+buf.writeln('#');
+buf.writeln('# ------------------------------------------------------------');
+buf.writeln('# 【本文件导出的是什么】');
+buf.writeln('# ------------------------------------------------------------');
+buf.writeln('#');
+buf.writeln('# 只包含「这一侧独有的差异字符片段」，相同内容一律不导出。');
+buf.writeln('# 每个片段单独占一行。');
+buf.writeln('#');
+buf.writeln('# 因为做了字符级比对，一个词、一句话可能被切开，');
+buf.writeln('# 只把"变化的那几个字"拿出来。脱离原句单看可能难以理解，');
+buf.writeln('# 这是正常现象。');
+buf.writeln('#');
+buf.writeln('# 举例一：');
+buf.writeln('#   左边：今天我回来是要吃饭的。');
+buf.writeln('#   右边：明天我回来是要吃饭的。');
+buf.writeln('#   本侧导出：明');
+buf.writeln('#   （意思是这句里"今"被改成了"明"）');
+buf.writeln('#');
+buf.writeln('# 举例二：');
+buf.writeln('#   左边：2024-01-01');
+buf.writeln('#   右边：2024-02-02');
+buf.writeln('#   本侧导出：');
+buf.writeln('#     2');
+buf.writeln('#     2');
+buf.writeln('#   （意思是这行有两处数字变了：月份、日期各一处）');
+buf.writeln('#');
+buf.writeln('# 想看完整句子的对照？请回到对比页，');
+buf.writeln('# 用「并排」或「合并」视图查看。');
+buf.writeln('#');
+buf.writeln('# 下面的说明行以 # 开头，删除它们不影响正文内容。');
+buf.writeln('# ------------------------------------------------------------');
+buf.writeln('# 以下为差异片段正文');
+buf.writeln('# ------------------------------------------------------------');
+buf.writeln();
+
+// ---------- 正文 ----------
+for (final p in list) {
+  buf.writeln(p);
+}
+
+final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
+    
+    
     final out = await FilePicker.saveFile(
       fileName:
           'docdiff-${isLeft ? "left" : "right"}-${DateTime.now().millisecondsSinceEpoch}.txt',
