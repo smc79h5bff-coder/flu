@@ -1956,25 +1956,12 @@ itemBuilder: (context) => [
                 ),
               ],
             ),
-            onTap: () {
+  onTap: () {
   if (_selectionMode) {
     _toggleSelectionPath(hit.path);
     return;
   }
-  final isText = _textExts.contains(_extOf(hit.name));
-  Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => isText
-          ? SingleFileEditorScreen(
-              filePath: hit.path,
-              fileName: hit.name,
-            )
-          : TextPreviewScreen(
-              filePath: hit.path,
-              fileName: hit.name,
-            ),
-    ),
-  );
+  _openFile(hit.path, hit.name, hit.size);
 },
             onLongPress: () => _toggleSelectionPath(hit.path),
           );
