@@ -401,7 +401,7 @@ void _openPreview(_EntryInfo info) {
         CheckedPopupMenuItem<String>(
           value: 'custom',
           checked: scope == SearchScope.custom,
-          child: Text('自定义范围（${customFolders.length}）'),
+          child: Text('自定义搜索范围（${customFolders.length}）'),
         ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
@@ -411,7 +411,7 @@ void _openPreview(_EntryInfo info) {
             children: [
               Icon(Icons.edit_location_alt, size: 18),
               SizedBox(width: 8),
-              Text('管理已勾选文件夹'),
+              Text('管理自定义搜索范围'),
             ],
           ),
         ),
