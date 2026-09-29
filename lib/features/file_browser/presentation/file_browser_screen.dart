@@ -2038,11 +2038,16 @@ return ListTile(
             name: info.name,
             onToggle: () => _toggleSelection(e),
           ),
-          title: Text(
-            info.name,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
+         title: Text(
+  info.name,
+  maxLines: 2,
+  overflow: TextOverflow.ellipsis,
+  style: const TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.bold,     // ← 加这行
+  ),
+),
+  
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
