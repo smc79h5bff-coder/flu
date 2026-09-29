@@ -76,62 +76,117 @@ final contextSize = ref.watch(contextFontSizeProvider);
               ),
               const SizedBox(height: 12),
               Text(
-                '显示设置',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView(
-                  children: [
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('显示行号'),
-                      value: showLine,
-                      onChanged: (v) => ref
-                          .read(showLineNumbersProvider.notifier)
-                          .update(v),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '正文字号：${bodySize.toStringAsFixed(0)}',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    Slider(
-                      min: 2,
-                      max: 38,
-                      divisions: 36,
-                      value: bodySize,
-                      label: bodySize.toStringAsFixed(0),
-                      onChanged: (v) =>
-                          ref.read(bodyFontSizeProvider.notifier).update(v),
-                    ),
-                    Text(
-                      '行号字号：${gutterSize.toStringAsFixed(0)}',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    Slider(
-                      min: 2,
-                      max: 38,
-                      divisions: 36,
-                      value: gutterSize,
-                      label: gutterSize.toStringAsFixed(0),
-                      onChanged: (v) => ref
-                          .read(gutterFontSizeProvider.notifier)
-                          .update(v),
-                    ),
-                      Text(
+  '正文字号：${bodySize.toStringAsFixed(0)}',
+  style: Theme.of(context).textTheme.labelMedium,
+),
+Row(
+  children: [
+    IconButton(
+      icon: const Icon(Icons.remove),
+      tooltip: '减 1',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final v = (bodySize - 1).clamp(1.0, 60.0);
+        ref.read(bodyFontSizeProvider.notifier).update(v);
+      },
+    ),
+    Expanded(
+      child: Slider(
+        min: 1,
+        max: 60,
+        divisions: 59,
+        value: bodySize.clamp(1.0, 60.0),
+        label: bodySize.toStringAsFixed(0),
+        onChanged: (v) =>
+            ref.read(bodyFontSizeProvider.notifier).update(v),
+      ),
+    ),
+    IconButton(
+      icon: const Icon(Icons.add),
+      tooltip: '加 1',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final v = (bodySize + 1).clamp(1.0, 60.0);
+        ref.read(bodyFontSizeProvider.notifier).update(v);
+      },
+    ),
+  ],
+),
+Text(
+  '行号字号：${gutterSize.toStringAsFixed(0)}',
+  style: Theme.of(context).textTheme.labelMedium,
+),
+Row(
+  children: [
+    IconButton(
+      icon: const Icon(Icons.remove),
+      tooltip: '减 1',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final v = (gutterSize - 1).clamp(1.0, 60.0);
+        ref.read(gutterFontSizeProvider.notifier).update(v);
+      },
+    ),
+    Expanded(
+      child: Slider(
+        min: 1,
+        max: 60,
+        divisions: 59,
+        value: gutterSize.clamp(1.0, 60.0),
+        label: gutterSize.toStringAsFixed(0),
+        onChanged: (v) => ref
+            .read(gutterFontSizeProvider.notifier)
+            .update(v),
+      ),
+    ),
+    IconButton(
+      icon: const Icon(Icons.add),
+      tooltip: '加 1',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final v = (gutterSize + 1).clamp(1.0, 60.0);
+        ref.read(gutterFontSizeProvider.notifier).update(v);
+      },
+    ),
+  ],
+),
+Text(
   '差异上下文相同行的字号：${contextSize.toStringAsFixed(0)}',
   style: Theme.of(context).textTheme.labelMedium,
 ),
-Slider(
-  min: 6,
-  max: 20,
-  divisions: 14,
-  value: contextSize,
-  label: contextSize.toStringAsFixed(0),
-  onChanged: (v) => ref
-      .read(contextFontSizeProvider.notifier)
-      .update(v),
+Row(
+  children: [
+    IconButton(
+      icon: const Icon(Icons.remove),
+      tooltip: '减 1',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final v = (contextSize - 1).clamp(1.0, 60.0);
+        ref.read(contextFontSizeProvider.notifier).update(v);
+      },
+    ),
+    Expanded(
+      child: Slider(
+        min: 1,
+        max: 60,
+        divisions: 59,
+        value: contextSize.clamp(1.0, 60.0),
+        label: contextSize.toStringAsFixed(0),
+        onChanged: (v) => ref
+            .read(contextFontSizeProvider.notifier)
+            .update(v),
+      ),
+    ),
+    IconButton(
+      icon: const Icon(Icons.add),
+      tooltip: '加 1',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final v = (contextSize + 1).clamp(1.0, 60.0);
+        ref.read(contextFontSizeProvider.notifier).update(v);
+      },
+    ),
+  ],
 ),
                     const Divider(height: 32),
                     Text(
