@@ -1879,19 +1879,25 @@ title: GestureDetector(
               ],
             ),
             onTap: () {
-              if (_selectionMode) {
-                _toggleSelectionPath(hit.path);
-                return;
-              }
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => TextPreviewScreen(
-                    filePath: hit.path,
-                    fileName: hit.name,
-                  ),
-                ),
-              );
-            },
+  if (_selectionMode) {
+    _toggleSelectionPath(hit.path);
+    return;
+  }
+  final isText = _textExts.contains(_extOf(hit.name));
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => isText
+          ? SingleFileEditorScreen(
+              filePath: hit.path,
+              fileName: hit.name,
+            )
+          : TextPreviewScreen(
+              filePath: hit.path,
+              fileName: hit.name,
+            ),
+    ),
+  );
+},
             onLongPress: () => _toggleSelectionPath(hit.path),
           );
         },
