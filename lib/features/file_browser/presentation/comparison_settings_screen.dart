@@ -1810,8 +1810,8 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   }
 
   PreprocessingRule? _buildRule() {
-    final name = _nameCtrl.text.trim();
-    if (name.isEmpty) {
+    final raw = _nameCtrl.text;
+if (raw.isEmpty) {
       _toast('规则名不能为空');
       return null;
     }
