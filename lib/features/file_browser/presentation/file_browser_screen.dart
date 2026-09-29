@@ -2685,19 +2685,42 @@ final displayName = path == widget.rootPath ? '/' : name;
         softWrap: true,
       ),
       onTap: () => _selectShortcut(path),
-      onLongPress: () {
-        if (isFavorite) {
-          ref.read(favoritesProvider.notifier).remove(path);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已取消收藏')),
-          );
-        } else {
-          ref.read(recentMoveTargetsProvider.notifier).remove(path);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已从最近移除')),
-          );
-        }
-      },
+      
+onLongPress: () async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (c) => AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      title: Text(isFavorite ? '取消收藏？' : '从最近移除？'),
+      content: Text(displayName),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(c, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('确定'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true || !mounted) return;
+
+  if (isFavorite) {
+    ref.read(favoritesProvider.notifier).remove(path);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已取消收藏')),
+    );
+  } else {
+    ref.read(recentMoveTargetsProvider.notifier).remove(path);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已从最近移除')),
+    );
+  }
+},
+
+      
     );
   }
 }
