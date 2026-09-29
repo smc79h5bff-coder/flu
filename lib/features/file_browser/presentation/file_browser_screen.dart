@@ -1944,7 +1944,7 @@ itemBuilder: (context) => [
     selectedTileColor: Theme.of(context)
         .colorScheme
         .primary
-        .withOpacity(0.12),
+        .withOpacity(0.08),
     leading: _leading(
       selectionMode: _selectionMode,
       selected: selected,
@@ -2051,7 +2051,7 @@ return Container(
     contentPadding: const EdgeInsets.symmetric(horizontal: 8),
     selected: selected,
     selectedTileColor:
-        Theme.of(context).colorScheme.primary.withOpacity(0.12),
+        Theme.of(context).colorScheme.primary.withOpacity(0.08),
     leading: _leading(
       selectionMode: _selectionMode,
       selected: selected,
