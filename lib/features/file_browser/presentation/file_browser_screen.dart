@@ -384,20 +384,14 @@ Widget _leading({
         CheckedPopupMenuItem<String>(
           value: 'custom',
           checked: scope == SearchScope.custom,
-          child: Text('自定义搜索范围（${customFolders.length}）'),
+          child: Text('自定义的搜索范围（${customFolders.length}）'),
         ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
-          value: 'manage',
-          enabled: scope == SearchScope.custom,
-          child: const Row(
-            children: [
-              Icon(Icons.edit_location_alt, size: 18),
-              SizedBox(width: 8),
-              Text('管理自定义搜索范围'),
-            ],
-          ),
-        ),
+  value: 'manage',
+  enabled: scope == SearchScope.custom,
+  child: const Text('管理自定义的搜索范围'),
+),
       ],
     );
 
