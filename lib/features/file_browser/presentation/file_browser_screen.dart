@@ -2033,56 +2033,64 @@ itemBuilder: (context) => [
           metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
         }
 
-return ListTile(
-  dense: true,
-  isThreeLine: true,
-  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-  selected: selected,
-  selectedTileColor:
-     
-              Theme.of(context).colorScheme.primary.withOpacity(0.12),
-          leading: _leading(
-            selectionMode: _selectionMode,
-            selected: selected,
-            isDir: info.isDir,
-            name: info.name,
-            onToggle: () => _toggleSelection(e),
+return Container(
+  decoration: selected
+      ? BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary,
+            width: 2,
           ),
-         title: Text(
-  info.name,
-  maxLines: 2,
-  overflow: TextOverflow.ellipsis,
-  style: const TextStyle(
-    fontSize: 15,
-    fontWeight: FontWeight.bold,     
+        )
+      : null,
+  child: ListTile(
+    dense: true,
+    isThreeLine: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+    selected: selected,
+    selectedTileColor:
+        Theme.of(context).colorScheme.primary.withOpacity(0.12),
+    leading: _leading(
+      selectionMode: _selectionMode,
+      selected: selected,
+      isDir: info.isDir,
+      name: info.name,
+      onToggle: () => _toggleSelection(e),
+    ),
+    title: Text(
+      info.name,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+    subtitle: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (metaLine.isNotEmpty)
+          Text(
+            metaLine,
+            style: Theme.of(context).textTheme.labelSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+      ],
+    ),
+    onTap: () {
+      if (_selectionMode) {
+        _toggleSelection(e);
+        return;
+      }
+      if (info.isDir) {
+        _navigateTo(e.path);
+      } else {
+        _openPreview(info);
+      }
+    },
+    onLongPress: () => _toggleSelection(e),
   ),
-),
-  
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (metaLine.isNotEmpty)
-                Text(
-                  metaLine,
-                  style: Theme.of(context).textTheme.labelSmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-            ],
-          ),
-          onTap: () {
-            if (_selectionMode) {
-              _toggleSelection(e);
-              return;
-            }
-            if (info.isDir) {
-              _navigateTo(e.path);
-            } else {
-              _openPreview(info);
-            }
-          },
-          onLongPress: () => _toggleSelection(e),
-        );
+);
       },
     );
   }
