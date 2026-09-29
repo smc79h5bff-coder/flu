@@ -1257,11 +1257,11 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
           ),
           const Spacer(),
           if (_kind == RuleKind.replace)
-            IconButton(
-              tooltip: '恢复默认',
-              icon: const Icon(Icons.restore),
-              onPressed: _resetToDefault,
-            ),
+  TextButton.icon(
+    icon: const Icon(Icons.restore, size: 16),
+    label: const Text('恢复默认'),
+    onPressed: _resetToDefault,
+  ),
           IconButton(
             icon: const Icon(Icons.close),
             onPressed: () => Navigator.pop(context),
