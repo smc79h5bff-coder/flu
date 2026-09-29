@@ -2409,10 +2409,15 @@ class _DirectoryPickerDialogState
     }
     return fullPath;
   }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog.fullscreen(
+@override
+Widget build(BuildContext context) {
+  return PopScope(
+    canPop: !_canGoUp,
+    onPopInvokedWithResult: (didPop, _) {
+      if (didPop) return;
+      if (_canGoUp) _goUp();
+    },
+    child: Dialog.fullscreen(
       child: Scaffold(
         appBar: AppBar(
           title: Text(widget.title),
@@ -2509,6 +2514,7 @@ class _DirectoryPickerDialogState
                 ),
               ),
             ],
+             ),       
           ),
         ),
       ),
