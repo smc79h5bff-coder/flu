@@ -79,8 +79,8 @@ class ImportScreen extends ConsumerWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '选择两份文档开始对比：支持查找、逐行编辑与自动备份、'
-                      '三种视图、忽略选项及横屏。右上角 ? 查看完整说明。',
+                      '选择两份文档开始对比：支持查找替换、逐行编辑'
+                      '4种视图、可自定义主页。',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
