@@ -2260,8 +2260,17 @@ class _TextInputDialogState extends State<_TextInputDialog> {
   }
 }
 
+
+
+
+
+
+
+
+
+
 /// 只显示目录的路径选择器。用于"移动到 / 复制到"。
-class _DirectoryPickerDialog extends StatefulWidget {
+class _DirectoryPickerDialog extends ConsumerStatefulWidget {
   const _DirectoryPickerDialog({
     required this.title,
     required this.rootPath,
@@ -2273,12 +2282,16 @@ class _DirectoryPickerDialog extends StatefulWidget {
   final String initialPath;
 
   @override
-  State<_DirectoryPickerDialog> createState() => _DirectoryPickerDialogState();
+  ConsumerState<_DirectoryPickerDialog> createState() =>
+      _DirectoryPickerDialogState();
 }
 
-class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
+class _DirectoryPickerDialogState
+    extends ConsumerState<_DirectoryPickerDialog> {
   late String _path;
   late final TextEditingController _jumpCtrl;
+  late final TextEditingController _filterCtrl;
+  String _filterQuery = '';
   List<Directory> _dirs = const [];
   bool _loading = true;
 
@@ -2287,12 +2300,14 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
     super.initState();
     _path = widget.initialPath;
     _jumpCtrl = TextEditingController();
+    _filterCtrl = TextEditingController();
     _load();
   }
 
   @override
   void dispose() {
     _jumpCtrl.dispose();
+    _filterCtrl.dispose();
     super.dispose();
   }
 
@@ -2326,7 +2341,11 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
     if (!_canGoUp) return;
     final parent = Directory(_path).parent.path;
     if (parent.length < widget.rootPath.length) return;
-    setState(() => _path = parent);
+    setState(() {
+      _path = parent;
+      _filterCtrl.clear();
+      _filterQuery = '';
+    });
     _load();
   }
 
@@ -2348,117 +2367,334 @@ class _DirectoryPickerDialogState extends State<_DirectoryPickerDialog> {
       );
       return;
     }
-    setState(() => _path = target);
+    setState(() {
+      _path = target;
+      _filterCtrl.clear();
+      _filterQuery = '';
+    });
     _load();
+  }
+
+  void _selectShortcut(String path) {
+    if (!Directory(path).existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('目录已不存在，已移除')),
+      );
+      ref.read(favoritesProvider.notifier).remove(path);
+      ref.read(recentMoveTargetsProvider.notifier).remove(path);
+      return;
+    }
+    if (path == _path) return;
+    setState(() {
+      _path = path;
+      _filterCtrl.clear();
+      _filterQuery = '';
+    });
+    _load();
+  }
+
+  List<Directory> get _filteredDirs {
+    if (_filterQuery.isEmpty) return _dirs;
+    final q = _filterQuery.toLowerCase();
+    return _dirs.where((d) {
+      final name = d.path.split('/').last.toLowerCase();
+      return name.contains(q);
+    }).toList();
+  }
+
+  String _relPath(String fullPath) {
+    if (fullPath == widget.rootPath) return '/';
+    if (fullPath.startsWith('${widget.rootPath}/')) {
+      return fullPath.substring(widget.rootPath.length);
+    }
+    return fullPath;
   }
 
   @override
   Widget build(BuildContext context) {
-    final relPath = _path == widget.rootPath
-        ? '~/'
-        : '~${_path.substring(widget.rootPath.length)}';
-
-    return AlertDialog(
-      insetPadding: _dlgInsetG,
-      titlePadding: _dlgTitlePadG,
-      contentPadding: EdgeInsets.zero,
-      actionsPadding: _dlgActionsPadG,
-      title: Text(widget.title),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: MediaQuery.of(context).size.height * 0.85,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _jumpCtrl,
-                      decoration: const InputDecoration(
-                        hintText: '粘贴路径跳转',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+    return Dialog.fullscreen(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.title),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: '取消',
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _jumpCtrl,
+                        decoration: const InputDecoration(
+                          hintText: '粘贴路径跳转',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 8),
+                        ),
+                        onSubmitted: (v) => _jumpToPath(v.trim()),
                       ),
-                      onSubmitted: (v) => _jumpToPath(v.trim()),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(Icons.arrow_forward),
-                    tooltip: '跳转',
-                    onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_upward),
-                    onPressed: _canGoUp ? _goUp : null,
-                    tooltip: '上一级',
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  Expanded(
-                    child: Text(
-                      relPath,
-                      style: Theme.of(context).textTheme.labelSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_forward),
+                      tooltip: '跳转',
+                      onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_upward),
+                      onPressed: _canGoUp ? _goUp : null,
+                      tooltip: '上一级',
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    Expanded(
+                      child: Text(
+                        _relPath(_path),
+                        style: Theme.of(context).textTheme.labelMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(flex: 6, child: _buildLeftPane()),
+                    Container(
+                      width: 1,
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                    Expanded(flex: 4, child: _buildRightPane()),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('取消'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(context, _path),
+                        child: const Text('选这个目录'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeftPane() {
+    final filtered = _filteredDirs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+          child: TextField(
+            controller: _filterCtrl,
+            decoration: const InputDecoration(
+              hintText: '过滤子目录',
+              prefixIcon: Icon(Icons.search, size: 18),
+              isDense: true,
+              border: OutlineInputBorder(),
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             ),
-            const Divider(height: 1),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _dirs.isEmpty
-                      ? const Center(child: Text('（无子目录）'))
+            onChanged: (v) => setState(() => _filterQuery = v),
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _dirs.isEmpty
+                  ? const Center(child: Text('（无子目录）'))
+                  : filtered.isEmpty
+                      ? const Center(child: Text('（无匹配）'))
                       : ListView.builder(
-                          itemCount: _dirs.length,
+                          itemCount: filtered.length,
                           itemBuilder: (ctx, i) {
-                            final d = _dirs[i];
+                            final d = filtered[i];
                             final name = d.path.split('/').last;
                             return ListTile(
                               dense: true,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8),
                               leading: const Icon(Icons.folder,
                                   color: Colors.amber),
-                              title: Text(name),
+                              title: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               onTap: () {
-                                setState(() => _path = d.path);
+                                setState(() {
+                                  _path = d.path;
+                                  _filterCtrl.clear();
+                                  _filterQuery = '';
+                                });
                                 _load();
                               },
                             );
                           },
                         ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _path),
-          child: const Text('选这个目录'),
         ),
       ],
     );
   }
+
+  Widget _buildRightPane() {
+    final favorites = ref.watch(favoritesProvider);
+    final recents = ref.watch(recentMoveTargetsProvider);
+    final isFav = favorites.contains(_path);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+          child: Row(
+            children: [
+              Text(
+                '收藏 / 最近',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+              const Spacer(),
+              IconButton(
+                icon: Icon(
+                  isFav ? Icons.star : Icons.star_border,
+                  color: isFav ? Colors.amber : null,
+                  size: 20,
+                ),
+                tooltip: isFav ? '取消收藏当前目录' : '收藏当前目录',
+                onPressed: () {
+                  ref.read(favoritesProvider.notifier).toggle(_path);
+                },
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: (favorites.isEmpty && recents.isEmpty)
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text(
+                      '还没有收藏，也没有移动记录',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                )
+              : ListView(
+                  children: [
+                    if (favorites.isNotEmpty) ...[
+                      _sectionLabel('收藏'),
+                      for (final p in favorites)
+                        _shortcutTile(p, isFavorite: true),
+                    ],
+                    if (recents.isNotEmpty) ...[
+                      _sectionLabel('最近'),
+                      for (final p in recents)
+                        _shortcutTile(p, isFavorite: false),
+                    ],
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _shortcutTile(String path, {required bool isFavorite}) {
+    final name = path.split('/').last;
+    final displayName = name.isEmpty ? '/' : name;
+    final relPath = _relPath(path);
+
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      leading: Icon(
+        isFavorite ? Icons.star : Icons.history,
+        size: 18,
+        color: isFavorite ? Colors.amber : null,
+      ),
+      title: Text(
+        displayName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 13),
+      ),
+      subtitle: Text(
+        relPath,
+        style: TextStyle(
+          fontSize: 11,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        softWrap: true,
+      ),
+      onTap: () => _selectShortcut(path),
+      onLongPress: () {
+        if (isFavorite) {
+          ref.read(favoritesProvider.notifier).remove(path);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已取消收藏')),
+          );
+        } else {
+          ref.read(recentMoveTargetsProvider.notifier).remove(path);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已从最近移除')),
+          );
+        }
+      },
+    );
+  }
 }
+
+
 
 /// 自定义搜索文件夹的勾选器。
 class _SearchFolderPickerDialog extends StatefulWidget {
