@@ -252,19 +252,23 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   /// 对比页删文件后返回、或外部改动后调用。
   /// **自身不调用 setState**，调用方负责在合适的时机刷新 UI。
   void _pruneSearchResults() {
-    if (_searchResults.isEmpty) return;
-    final still = <_SearchHit>[];
-    var removed = 0;
-    for (final hit in _searchResults) {
-      if (FileSystemEntity.typeSync(hit.path) !=
-          FileSystemEntityType.notFound) {
-        still.add(hit);
-      } else {
-        removed++;
-      }
+  if (_searchResults.isEmpty) return;
+  final still = <_SearchHit>[];
+  var removed = 0;
+  for (final hit in _searchResults) {
+    if (FileSystemEntity.typeSync(hit.path) !=
+        FileSystemEntityType.notFound) {
+      still.add(hit);
+    } else {
+      removed++;
+      _selectedPaths.remove(hit.path);   // ← 新增
     }
-    if (removed == 0) return;
-    _searchResults = still;
+  }
+  if (removed == 0) return;
+  _searchResults = still;
+  if (_selectedPaths.isEmpty) {          // ← 新增
+    _selectionMode = false;              // 选中全没了，退出选择模式
+  }
   }
 
   void _toggleSelection(FileSystemEntity e) {
