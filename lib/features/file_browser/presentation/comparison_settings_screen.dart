@@ -1162,22 +1162,60 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   }
 
   void _resetToDefault() {
-    setState(() {
-      _findRegex = true;
-      _findLiteral = false;
-      _findEscape = false;
-      _replaceDollar = true;
-      _replaceBackslash = false;
-      _replaceLiteral = false;
-      _replaceEscape = false;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('已恢复默认开关'),
-        duration: Duration(seconds: 1),
+  setState(() {
+    _findRegex = true;
+    _findLiteral = false;
+    _findEscape = false;
+    _replaceDollar = true;
+    _replaceBackslash = false;
+    _replaceLiteral = false;
+    _replaceEscape = false;
+  });
+  _showFloatHint('已恢复默认开关');
+}
+
+/// 悬浮提示：屏幕底部弹一个小黑条，2 秒后自动消失。
+/// 用 Overlay 实现，不会被 Dialog 盖住。
+void _showFloatHint(String msg) {
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (ctx) => Positioned(
+      bottom: 80,
+      left: 0,
+      right: 0,
+      child: IgnorePointer(
+        child: Center(
+          child: Material(
+            color: Colors.black.withOpacity(0.85),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              child: Text(
+                msg,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
-    );
-  }
+    ),
+  );
+  overlay.insert(entry);
+  Future<void>.delayed(const Duration(seconds: 2), () {
+    try {
+      entry.remove();
+    } catch (_) {
+      // 已被移除则忽略
+    }
+  });
+}
 
   // ==================== 说明弹窗 ====================
 
