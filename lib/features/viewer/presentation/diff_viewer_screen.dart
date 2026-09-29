@@ -2538,7 +2538,7 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
     if (origEnc == modEnc) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
-      color: Colors.amber.shade100,
+      color: Colors.amber.shade50,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Row(
         children: [
@@ -2548,7 +2548,7 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
             child: Text(
               '两份文件编码不同（$origEnc / $modEnc），已分别解码后对比',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 color: Colors.amber.shade900,
               ),
             ),
