@@ -2882,14 +2882,17 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                     tooltip: '上一级',
                     visualDensity: VisualDensity.compact,
                   ),
+
                   Expanded(
-                    child: Text(
-                      relPath,
-                      style: Theme.of(context).textTheme.labelSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+  child: SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Text(
+      relPath,
+      style: Theme.of(context).textTheme.labelSmall,
+      maxLines: 1,
+    ),
+  ),
+),
                 ],
               ),
             ),
