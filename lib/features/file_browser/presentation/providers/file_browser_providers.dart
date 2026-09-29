@@ -52,6 +52,30 @@ class FavoritesNotifier extends StringListPrefNotifier {
   }
 }
 
+
+/// 最近移动/复制到的目录（持久化）。
+final recentMoveTargetsProvider =
+    NotifierProvider<RecentMoveTargetsNotifier, List<String>>(
+  RecentMoveTargetsNotifier.new,
+);
+
+class RecentMoveTargetsNotifier extends StringListPrefNotifier {
+  RecentMoveTargetsNotifier() : super(key: PrefKeys.recentMoveTargets);
+
+  static const int _max = 10;
+
+  void add(String path) {
+    if (path.isEmpty) return;
+    final next = <String>[path, ...state.where((s) => s != path)];
+    if (next.length > _max) next.removeRange(_max, next.length);
+    update(next);
+  }
+
+  void remove(String path) {
+    update(state.where((s) => s != path).toList());
+  }
+}
+
 /// 自定义搜索文件夹（持久化）。
 final customSearchFoldersProvider =
     NotifierProvider<CustomSearchFoldersNotifier, List<String>>(
