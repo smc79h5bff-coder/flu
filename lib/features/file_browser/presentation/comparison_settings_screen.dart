@@ -1866,13 +1866,11 @@ child: Text(
       params: rule.params,
       jsScript: rule.jsScript,
     );
-    ref.read(userRulesProvider.notifier).add(copied);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已复制到预处理规则列表')),
-    );
-    widget.onCopyToPreprocess?.call(copied);
-  }
+     ref.read(userRulesProvider.notifier).add(copied);
+  if (!mounted) return;
+  _showFloatHint('已复制到预处理规则列表');
+  widget.onCopyToPreprocess?.call(copied);
+}
 
   void _submit() {
     final rule = _buildRule();
