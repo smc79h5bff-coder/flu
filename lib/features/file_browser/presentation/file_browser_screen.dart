@@ -1505,13 +1505,7 @@ Widget build(BuildContext context) {
 ),
         
         bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
-        floatingActionButton: _selectionMode
-            ? null
-            : FloatingActionButton(
-                tooltip: '新建文件夹',
-                onPressed: _newFolder,
-                child: const Icon(Icons.create_new_folder),
-              ),
+        floatingActionButton: null,
       ),
     );
   }
@@ -1636,6 +1630,17 @@ itemBuilder: (context) => [
       ],
     ),
   ),
+  const PopupMenuDivider(),
+const PopupMenuItem<String>(
+  value: 'newFolder',
+  child: Row(
+    children: [
+      Icon(Icons.create_new_folder),
+      SizedBox(width: 10),
+      Text('新建文件夹'),
+    ],
+  ),
+),
 ],
           
           
