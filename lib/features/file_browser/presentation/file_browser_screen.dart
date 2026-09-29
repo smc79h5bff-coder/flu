@@ -1714,6 +1714,8 @@ itemBuilder: (context) => [
           Expanded(
             child: TextField(
               controller: _searchCtrl,
+              
+  enabled: !_selectionMode,     
               decoration: InputDecoration(
                 hintText: _selectionMode
     ? '选择模式下禁止点击'
