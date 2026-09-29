@@ -1636,9 +1636,9 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
             '长按任一开关的标签，可查看并编辑详细说明。';
         break;
       case RuleKind.preset:
-        hint = '预置功能处理文本，参数由上方表单填写。\n'
-            '想了解每个功能的具体行为，去「使用说明」里查。';
-        break;
+  final preset = Presets.byId(_presetId ?? '');
+  hint = preset?.helpText ?? '请先选择一个功能';
+  break;
       case RuleKind.js:
         hint = 'JS 脚本在规则顺序里执行，速度比原生规则慢。\n'
             '大文本时尽量把 JS 规则排到最后。';
