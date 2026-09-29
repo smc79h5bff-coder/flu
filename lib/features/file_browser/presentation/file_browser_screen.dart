@@ -248,6 +248,25 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
     _selectedPaths.clear();
   }
 
+  /// 检查搜索结果，把磁盘上已经不存在的条目剔除。
+  /// 对比页删文件后返回、或外部改动后调用。
+  /// **自身不调用 setState**，调用方负责在合适的时机刷新 UI。
+  void _pruneSearchResults() {
+    if (_searchResults.isEmpty) return;
+    final still = <_SearchHit>[];
+    var removed = 0;
+    for (final hit in _searchResults) {
+      if (FileSystemEntity.typeSync(hit.path) !=
+          FileSystemEntityType.notFound) {
+        still.add(hit);
+      } else {
+        removed++;
+      }
+    }
+    if (removed == 0) return;
+    _searchResults = still;
+  }
+
   void _toggleSelection(FileSystemEntity e) {
     setState(() {
       _selectionMode = true;
@@ -610,12 +629,19 @@ void _openPreview(_EntryInfo info) {
 // 清掉上次编辑留下的内存改动，保证这次从磁盘原文开始。
 ref.read(editedOriginalProvider.notifier).state = null;
 ref.read(editedModifiedProvider.notifier).state = null;
-      
+
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => const DiffViewerScreen(),
         ),
       );
+      if (!mounted) return;
+      // 对比页可能删过文件；返回后清掉选中，并把已经不存在的
+      // 搜索结果从列表里剔除。目录列表不需要动。
+      setState(() {
+        _clearSelection();
+        _pruneSearchResults();
+      });
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -1172,7 +1198,7 @@ ref.read(editedModifiedProvider.notifier).state = null;
     );
     if (!ok) return;
 
-    var deleted = 0;
+    final deletedPaths = <String>{};
     var fail = 0;
     for (final p in _selectedPaths.toList()) {
       try {
@@ -1181,13 +1207,31 @@ ref.read(editedModifiedProvider.notifier).state = null;
         } else {
           await File(p).delete();
         }
-        deleted++;
+        deletedPaths.add(p);
       } catch (_) {
         fail++;
       }
     }
+
+    final deleted = deletedPaths.length;
     _clearSelection();
-    _load();
+
+    if (_searchActive) {
+      // 搜索结果模式：把删掉的条目从列表里剔除。
+      // 目录被删时，目录里的所有文件也算删掉，一并移除。
+      setState(() {
+        _searchResults = _searchResults.where((h) {
+          if (deletedPaths.contains(h.path)) return false;
+          for (final dp in deletedPaths) {
+            if (h.path.startsWith('$dp/')) return false;
+          }
+          return true;
+        }).toList();
+      });
+    } else {
+      _load();
+    }
+
     _toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
 
@@ -1404,10 +1448,11 @@ Widget build(BuildContext context) {
     canPop: !_canGoUp && !_selectionMode && !_searchActive,
     onPopInvokedWithResult: (didPop, _) {
       if (didPop) return;
-      if (_searchActive) {
-        _clearSearch();
-      } else if (_selectionMode) {
+      // 返回键优先级：先取消选中 → 再退搜索 → 最后上一级。
+      if (_selectionMode) {
         setState(_clearSelection);
+      } else if (_searchActive) {
+        _clearSearch();
       } else if (_canGoUp) {
         _goUp();
       }
