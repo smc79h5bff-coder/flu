@@ -1540,12 +1540,18 @@ title: GestureDetector(
     style: const TextStyle(fontSize: 14),
   ),
 ),
-      leading: _canGoUp
-          ? IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: _goUp,
-            )
-          : null,
+     leading: _searchActive
+    ? IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: _clearSearch,
+      )
+    : (_canGoUp
+        ? IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: _goUp,
+          )
+        : null),
+      
       actions: [
         // 收藏/取消收藏
         IconButton(
