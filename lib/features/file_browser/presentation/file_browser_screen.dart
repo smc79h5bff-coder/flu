@@ -1536,7 +1536,10 @@ Widget build(BuildContext context) {
 title: GestureDetector(
   onLongPress: _showJumpToPathDialog,
   child: Text(
-    _title,
+    (_searchActive &&
+            ref.watch(searchScopeProvider) == SearchScope.custom)
+        ? '搜索范围：用户已选定的文件夹'
+        : _title,
     style: const TextStyle(fontSize: 14),
   ),
 ),
