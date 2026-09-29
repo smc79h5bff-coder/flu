@@ -1701,11 +1701,14 @@ itemBuilder: (context) => [
                         .withOpacity(0.12)
                     : null,
               ),
-              child: Icon(
+              
+  child: Icon(
   Icons.search,
-  color: hasText
-      ? Theme.of(context).colorScheme.primary
-      : Theme.of(context).colorScheme.onSurfaceVariant,
+  color: _selectionMode
+      ? Colors.grey
+      : (hasText
+          ? Theme.of(context).colorScheme.primary
+          : Theme.of(context).colorScheme.onSurfaceVariant),
 ),
               
             ),
@@ -1732,11 +1735,14 @@ itemBuilder: (context) => [
             ),
           ),
           if (hasText)
-            IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: '清空',
-              onPressed: _clearSearch,
-            ),
+  IconButton(
+    icon: Icon(
+      Icons.clear,
+      color: _selectionMode ? Colors.grey : null,
+    ),
+    tooltip: '清空',
+    onPressed: _clearSearch,
+  ),
         ],
       ),
     );
