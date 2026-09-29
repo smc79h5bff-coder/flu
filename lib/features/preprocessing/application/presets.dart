@@ -4,6 +4,7 @@
 ///   - id：稳定标识，存进 PreprocessingRule.presetId
 ///   - name：显示名
 ///   - description：一句话说明
+///   - helpText：详细说明（对话框灰框显示）
 ///   - params：参数定义（UI 根据它生成表单）
 ///   - apply：真正干活的函数
 ///
@@ -67,6 +68,7 @@ class Preset {
     required this.id,
     required this.name,
     required this.description,
+    required this.helpText,
     required this.params,
     required this.apply,
   });
@@ -74,6 +76,7 @@ class Preset {
   final String id;
   final String name;
   final String description;
+  final String helpText;
   final List<PresetParam> params;
   final String Function(String text, Map<String, String> params) apply;
 }
@@ -89,6 +92,11 @@ class Presets {
           id: 'lineFilter',
           name: '按关键词过滤行',
           description: '按关键词保留或删除整行',
+          helpText: '逐行检查：命中关键词的行删除或保留，其余照原样保留。\n'
+              '「模式」：删除匹配的行 / 只保留匹配的行。\n'
+              '「匹配方式」：包含 / 等于整行 / 开头是 / 结尾是 / 用正则。\n'
+              '「区分大小写」：只影响英文字母，对中文无影响。\n'
+              '例：删掉含"广告"的行 → 模式=删除，关键词=广告，匹配方式=包含。',
           params: [
             PresetParam(
               key: 'mode',
@@ -130,6 +138,10 @@ class Presets {
           id: 'sliceLines',
           name: '截取第 N 到第 M 行',
           description: '只保留指定范围的行',
+          helpText: '按行号截取：把 N 到 M 行留下，其它全删。\n'
+              '行号从 1 开始数。N=1 表示从头开始。\n'
+              'M 如果比总行数大，就是到末尾。\n'
+              '例：N=10, M=20 → 只保留第 10~20 行。',
           params: [
             PresetParam(
               key: 'start',
@@ -151,6 +163,9 @@ class Presets {
           id: 'removeEmptyLines',
           name: '删除空行',
           description: '删除长度为 0 的行',
+          helpText: '删掉完全空白的行（一个字符都没有的行）。\n'
+              '含空格或 Tab 的行不删——那些用"删除纯空白行"。\n'
+              '常用于：清理段落之间的多余空行。',
           params: [],
           apply: _removeEmptyLines,
         ),
@@ -158,6 +173,9 @@ class Presets {
           id: 'removeBlankLines',
           name: '删除纯空白行',
           description: '删除只有空格/Tab 的行',
+          helpText: '删掉只有空格、Tab 的行（内容为空白的行）。\n'
+              '真正的空行（一个字符都没有）也会一起删。\n'
+              '比"删除空行"彻底——那个只删完全空的。',
           params: [],
           apply: _removeBlankLines,
         ),
@@ -165,6 +183,12 @@ class Presets {
           id: 'addLineNumbers',
           name: '加行号',
           description: '每行前加序号，空行也编号',
+          helpText: '在每行开头加上序号前缀。\n'
+              '「起始号」：从几开始编。填 1 就是 1、2、3……\n'
+              '「格式」：N 会被替换成数字。\n'
+              '  例：格式 "N. " → "1. 第一行"、"2. 第二行"\n'
+              '  例：格式 "[N] " → "[1] 第一行"\n'
+              '空行也编号（不想给空行编号用"非空行加行号"）。',
           params: [
             PresetParam(
               key: 'start',
@@ -186,6 +210,9 @@ class Presets {
           id: 'addLineNumbersSkipEmpty',
           name: '非空行加行号',
           description: '跳过空行和纯空白行',
+          helpText: '跟"加行号"一样，但空行和纯空白行不加前缀。\n'
+              '序号只在有内容的行上递增。\n'
+              '适合：给正文加序号，不要给空行加。',
           params: [
             PresetParam(
               key: 'start',
@@ -207,6 +234,9 @@ class Presets {
           id: 'trimLines',
           name: '行首尾去空白',
           description: '删掉每行开头和结尾的空格/Tab',
+          helpText: '把每行开头和结尾的空格、Tab 删掉。\n'
+              '行中间的空格不动。\n'
+              '用于：清理复制粘贴来的文本，通常会带多余缩进。',
           params: [],
           apply: _trimLines,
         ),
@@ -214,6 +244,8 @@ class Presets {
           id: 'trimLinesLeft',
           name: '行首去空白',
           description: '只删每行开头的空白',
+          helpText: '只删每行开头的空格和 Tab，行尾不动。\n'
+              '用于：去掉缩进，但保留行尾对齐的空格。',
           params: [],
           apply: _trimLinesLeft,
         ),
@@ -221,6 +253,8 @@ class Presets {
           id: 'trimLinesRight',
           name: '行尾去空白',
           description: '只删每行结尾的空白',
+          helpText: '只删每行结尾的空格和 Tab，行首不动。\n'
+              '用于：清理行尾多打的空格。',
           params: [],
           apply: _trimLinesRight,
         ),
@@ -228,6 +262,10 @@ class Presets {
           id: 'mergeAllLines',
           name: '合并所有行为一行',
           description: '用连接符把所有行拼成一行',
+          helpText: '把整篇文本的所有行拼成一行，中间用「连接符」接起来。\n'
+              '「连接符」留空 = 直接贴在一起，不加任何字符。\n'
+              '支持转义：\\n 是换行，\\t 是 Tab。\n'
+              '例：连接符填 " " → 每行之间加一个空格。',
           params: [
             PresetParam(
               key: 'separator',
@@ -241,10 +279,27 @@ class Presets {
         ),
 
         // ==================== 字符替换 ====================
+        // （第 2 部分继续）
+      ];
+
+  /// 按 id 查找。
+  static Preset? byId(String id) {
+    for (final p in all()) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+}
+
+
+        // ==================== 字符替换 ====================
         Preset(
           id: 'deleteString',
           name: '删除所有出现的字符串',
           description: '全篇查找一个固定字符串并删除',
+          helpText: '把文中所有出现的「要删除的字符串」全部删掉。\n'
+              '按字面匹配，不做正则解析，特殊符号没有特殊含义。\n'
+              '例：要删除 "<广告>" → 文中所有 "<广告>" 消失。',
           params: [
             PresetParam(
               key: 'target',
@@ -258,6 +313,10 @@ class Presets {
           id: 'replaceString',
           name: '替换所有出现的字符串',
           description: '全篇查找一个固定字符串并替换',
+          helpText: '把文中所有出现的「查找」文字替换成「替换为」。\n'
+              '按字面匹配，不做正则解析。\n'
+              '替换为留空 = 等同于删除。\n'
+              '例：查找 "旧名"，替换为 "新名"。',
           params: [
             PresetParam(
               key: 'target',
@@ -279,6 +338,9 @@ class Presets {
           id: 'removeAllSpaces',
           name: '删除所有空格',
           description: '删掉全部半角空格（不含 Tab 和全角空格）',
+          helpText: '删掉所有半角空格字符（按键盘空格键那个）。\n'
+              '不删 Tab，不删全角空格。\n'
+              '例："a b c" → "abc"。',
           params: [],
           apply: _removeAllSpaces,
         ),
@@ -286,6 +348,9 @@ class Presets {
           id: 'removeAllTabs',
           name: '删除所有 Tab',
           description: '删掉全部 Tab 制表符',
+          helpText: '删掉所有 Tab 制表符。\n'
+              '不删空格。\n'
+              '用于：清理缩进或对齐用的 Tab。',
           params: [],
           apply: _removeAllTabs,
         ),
@@ -293,6 +358,10 @@ class Presets {
           id: 'removeAllWhitespace',
           name: '删除所有空白',
           description: '删掉所有空格、Tab、换行、全角空格（危险，会连成一片）',
+          helpText: '把所有空白字符都删掉，包括：\n'
+              '半角空格、Tab、换行、回车、全角空格、各种 Unicode 空白。\n'
+              '⚠ 删完所有行会连成一整段，慎用。\n'
+              '例："a b\\nc" → "abc"。',
           params: [],
           apply: _removeAllWhitespace,
         ),
@@ -300,6 +369,9 @@ class Presets {
           id: 'removePunctuation',
           name: '删除所有标点',
           description: '删掉中英文标点，保留字母数字汉字',
+          helpText: '删掉常见的中文和英文标点符号。\n'
+              '保留：字母、数字、汉字、空格、全角空格。\n'
+              '例："你好，世界！" → "你好世界"。',
           params: [],
           apply: _removePunctuation,
         ),
@@ -307,6 +379,9 @@ class Presets {
           id: 'removeDigits',
           name: '删除所有数字',
           description: '删掉全部半角数字 0-9',
+          helpText: '删掉所有半角数字 0-9。\n'
+              '全角数字（０-９）不删。\n'
+              '例："abc123" → "abc"。',
           params: [],
           apply: _removeDigits,
         ),
@@ -314,6 +389,9 @@ class Presets {
           id: 'removeEnglish',
           name: '删除所有英文',
           description: '删掉全部英文字母 a-z A-Z',
+          helpText: '删掉所有英文字母（大小写都删）。\n'
+              '数字、标点、汉字保留。\n'
+              '例："abc 你好" → " 你好"。',
           params: [],
           apply: _removeEnglish,
         ),
@@ -321,6 +399,9 @@ class Presets {
           id: 'removeNonChinese',
           name: '删除所有非中文',
           description: '只保留常用汉字，其它全删',
+          helpText: '只保留常用汉字（U+4E00 ~ U+9FA5 区段），\n'
+              '其它所有字符（标点、字母、数字、空格）全部删掉。\n'
+              '例："你好，世界！abc123" → "你好世界"。',
           params: [],
           apply: _removeNonChinese,
         ),
@@ -328,6 +409,9 @@ class Presets {
           id: 'removeInvisible',
           name: '删除不可见字符',
           description: '删掉零宽空格、BOM、方向控制符等看不见的字符',
+          helpText: '删掉看不见但存在的字符：\n'
+              '零宽空格、零宽连字符、BOM、方向控制符、软连字符等。\n'
+              '这些字符从某些网页复制粘贴时会混进来，导致看着一样的文字比较不相等。',
           params: [],
           apply: _removeInvisible,
         ),
@@ -335,6 +419,9 @@ class Presets {
           id: 'collapseSpaces',
           name: '连续空白折叠成一个空格',
           description: '多个连续空格/Tab/全角空格压成一个半角空格',
+          helpText: '把连续的空格、Tab、全角空格压成一个半角空格。\n'
+              '例："a    b" → "a b"。\n'
+              '例："a\\t\\tb" → "a b"。',
           params: [],
           apply: _collapseSpaces,
         ),
@@ -342,6 +429,9 @@ class Presets {
           id: 'collapseNewlines',
           name: '连续换行折叠成一个',
           description: '多个连续换行压成一个，删掉所有空行',
+          helpText: '把连续多个换行压成一个换行（即删掉所有空行）。\n'
+              '\\r\\n 和 \\r 会先归一成 \\n 再压。\n'
+              '例："a\\n\\n\\nb" → "a\\nb"。',
           params: [],
           apply: _collapseNewlines,
         ),
@@ -349,6 +439,11 @@ class Presets {
           id: 'foldNewlines',
           name: '连续 N 换行折成 M 个',
           description: '连续超过 N 个换行压到 M 个（N=3 M=2 → 最多留一个空行）',
+          helpText: '连续换行数超过 N 时，压缩到 M 个。\n'
+              '例：N=3, M=2 时：\n'
+              '  3 个及以上连续换行 → 压成 2 个（保留一个空行）\n'
+              '  2 个换行不动\n'
+              '  1 个换行不动',
           params: [
             PresetParam(
               key: 'n',
@@ -369,6 +464,9 @@ class Presets {
           id: 'collapseDots',
           name: '连续点号折成省略号',
           description: '2 个以上连续点号压成一个 …',
+          helpText: '连续 2 个及以上的点号（. 。 … ‥）压成一个省略号 …。\n'
+              '例："你好。。。" → "你好…"。\n'
+              '例："等一等......" → "等一等…"。',
           params: [],
           apply: _collapseDots,
         ),
@@ -376,6 +474,9 @@ class Presets {
           id: 'trimTrailingSpaces',
           name: '删除行尾多余空格',
           description: '删掉每行末尾的空格和 Tab',
+          helpText: '删掉每行末尾的空格和 Tab。\n'
+              '行首不动。\n'
+              '跟"行尾去空白"是一样的效果。',
           params: [],
           apply: _trimLinesRight,
         ),
@@ -385,6 +486,9 @@ class Presets {
           id: 'toUpperCase',
           name: '小写转大写',
           description: '所有英文小写字母转大写',
+          helpText: '所有英文字母转成大写。\n'
+              '非英文字符（汉字、数字、标点）不动。\n'
+              '例："Hello, World" → "HELLO, WORLD"。',
           params: [],
           apply: _toUpperCase,
         ),
@@ -392,6 +496,9 @@ class Presets {
           id: 'fullToHalf',
           name: '全角转半角',
           description: '全角字母、数字、标点、空格转半角',
+          helpText: '把全角的字母、数字、标点、空格转成半角。\n'
+              '例："ＡＢＣ１２３" → "ABC123"。\n'
+              '例："！？。" → "!?。"（中文标点不动）。',
           params: [],
           apply: _fullToHalf,
         ),
@@ -399,6 +506,9 @@ class Presets {
           id: 'halfToFull',
           name: '半角转全角',
           description: '半角字母、数字、标点、空格转全角',
+          helpText: '把半角的字母、数字、标点、空格转成全角。\n'
+              '例："ABC123" → "ＡＢＣ１２３"。\n'
+              '例：" " → "　"（半角空格变全角）。',
           params: [],
           apply: _halfToFull,
         ),
@@ -406,6 +516,8 @@ class Presets {
           id: 'fullSpaceToHalf',
           name: '全角空格转半角',
           description: '只转全角空格，不动其它全角字符',
+          helpText: '只把全角空格（　）转成半角空格，其它字符全不动。\n'
+              '用于：中文文本里有时用全角空格缩进，转成半角好处理。',
           params: [],
           apply: _fullSpaceToHalf,
         ),
@@ -413,6 +525,9 @@ class Presets {
           id: 'tabToSpaces',
           name: 'Tab 转 N 个空格',
           description: '每个 Tab 换成一串半角空格',
+          helpText: '把每个 Tab 制表符换成 N 个半角空格。\n'
+              'N 默认 4。\n'
+              '例：N=4，"\ta" → "    a"。',
           params: [
             PresetParam(
               key: 'n',
@@ -427,6 +542,9 @@ class Presets {
           id: 'spacesToTab',
           name: 'N 个空格转 Tab',
           description: '正好 N 个连续半角空格换成一个 Tab',
+          helpText: '正好 N 个连续半角空格换成一个 Tab。\n'
+              '不足 N 个或超过 N 个的空格不动。\n'
+              '例：N=4，"    a" → "\ta"。',
           params: [
             PresetParam(
               key: 'n',
@@ -443,6 +561,9 @@ class Presets {
           id: 'cnPunctToEn',
           name: '中文标点转英文',
           description: '把中文标点替换成英文标点',
+          helpText: '把中文标点换成对应的英文标点。\n'
+              '例："你好，世界！" → "你好,世界!"。\n'
+              '常见映射：，→, 。→. ！→! ？→? 等。',
           params: [],
           apply: _cnPunctToEn,
         ),
@@ -450,6 +571,9 @@ class Presets {
           id: 'enPunctToCn',
           name: '英文标点转中文',
           description: '把英文标点替换成中文标点',
+          helpText: '把英文标点换成对应的中文标点。\n'
+              '例："你好,世界!" → "你好，世界！"。\n'
+              '常见映射：,→， .→。 !→！ ?→？ 等。',
           params: [],
           apply: _enPunctToCn,
         ),
@@ -457,6 +581,12 @@ class Presets {
           id: 'unifyQuotes',
           name: '中文引号统一',
           description: '各种方向引号统一成一对',
+          helpText: '把各种样式的引号统一成一对。\n'
+              '「目标引号」可选：\n'
+              '  中文弯引号 "" —— 中文书面常用\n'
+              '  英文直引号 "" —— 编程、纯文本常用\n'
+              '  日式角括号 「」—— 日文或排版用\n'
+              '  日式双角括号 『』—— 层级引号。',
           params: [
             PresetParam(
               key: 'target',
@@ -479,6 +609,9 @@ class Presets {
           id: 'digitsToPlaceholder',
           name: '数字替换成占位符',
           description: '连续数字替换成一个占位符',
+          helpText: '把所有连续数字（1 个或多个）替换成同一个占位符。\n'
+              '用于：比较两份文档时忽略数字差异。\n'
+              '例：占位符 <NUM>，"12 和 34" → "<NUM> 和 <NUM>"。',
           params: [
             PresetParam(
               key: 'placeholder',
@@ -493,6 +626,11 @@ class Presets {
           id: 'chineseToArabic',
           name: '中文数字转阿拉伯',
           description: '一二三 / 壹贰叁 转 123',
+          helpText: '把中文数字转成阿拉伯数字。\n'
+              '支持：一二三……、壹贰叁……、〇两幺。\n'
+              '支持单位：十百千万亿。\n'
+              '例："第二十三章" → "第23章"。\n'
+              '例："一千二百三十四" → "1234"。',
           params: [],
           apply: _chineseToArabic,
         ),
@@ -500,6 +638,11 @@ class Presets {
           id: 'arabicToChinese',
           name: '阿拉伯数字转中文',
           description: '123 转 一二三 或 一百二十三',
+          helpText: '把阿拉伯数字转成中文。\n'
+              '「样式」：\n'
+              '  逐字式：123 → 一二三（每个数字单独转）\n'
+              '  读法式：123 → 一百二十三（按大小读）\n'
+              '用于：中文排版、小说章节号等。',
           params: [
             PresetParam(
               key: 'style',
@@ -520,6 +663,10 @@ class Presets {
           id: 'normalizeNfc',
           name: '规范化 Unicode（NFC）',
           description: '把 "基字符 + 组合符" 合并成单字符',
+          helpText: '把「基字符 + 组合字符」合并成预组合的单字符。\n'
+              '例：é（e + ́） → é（单字符）。\n'
+              '用于：从不同来源复制的文字，看着一样但编码不同，比较时被判为不等。\n'
+              '注：本实现只覆盖常见拉丁字母组合。',
           params: [],
           apply: _normalizeNfc,
         ),
@@ -750,7 +897,6 @@ const Set<String> _punctuationSet = {
   '\u201C', '\u201D', '\u2018', '\u2019', // 左右弯引号
   '（', '）', '【', '】', '《', '》', '〈', '〉', '「', '」', '『', '』',
   '—', '…', '·', '～', '＿', '－', '／', '＼',
-  '\u3000', // 全角空格不算标点，这行删掉
 };
 
 /// 只删上面这些。注意 _punctuationSet 里我误加了全角空格，实现里跳过它。
@@ -1183,3 +1329,4 @@ Map<String, String> decodeParams(String raw) {
     return const {};
   }
 }
+
