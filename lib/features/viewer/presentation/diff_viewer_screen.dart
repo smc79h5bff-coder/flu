@@ -2168,6 +2168,17 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
                   ],
                 ),
               ),
+              const PopupMenuDivider(),
+const PopupMenuItem<String>(
+  value: 'defaultView',
+  child: Row(
+    children: [
+      Icon(Icons.visibility),
+      SizedBox(width: 10),
+      Text('默认打开视图'),
+    ],
+  ),
+),
             ],
           ),
         ],
