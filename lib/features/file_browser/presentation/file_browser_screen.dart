@@ -2044,8 +2044,8 @@ return ListTile(
   maxLines: 2,
   overflow: TextOverflow.ellipsis,
   style: const TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.bold,     // ← 加这行
+    fontSize: 15,
+    fontWeight: FontWeight.bold,     
   ),
 ),
   
