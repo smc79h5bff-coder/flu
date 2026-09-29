@@ -1425,14 +1425,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         },
       ),
       if (current != null) ...[
-        const SizedBox(height: 8),
-        Text(
-          current.description,
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
         const SizedBox(height: 12),
         ..._buildPresetParams(current),
       ],
