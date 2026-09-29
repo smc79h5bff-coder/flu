@@ -370,6 +370,70 @@ Widget _leading({
     setState(() => _searching = false);
   }
 
+
+  Future<void> _showSearchHistory() async {
+  await showDialog<void>(
+    context: context,
+    builder: (c) => Consumer(
+      builder: (c, ref, _) {
+        final history = ref.watch(browserSearchHistoryProvider);
+        return AlertDialog(
+          insetPadding: _dlgInset,
+          titlePadding: _dlgTitlePad,
+          contentPadding: _dlgContentPad,
+          actionsPadding: _dlgActionsPad,
+          title: const Text('搜索历史'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.of(c).size.height * 0.7,
+            child: history.isEmpty
+                ? const Center(child: Text('还没有搜索记录'))
+                : ListView.builder(
+                    itemCount: history.length,
+                    itemBuilder: (ctx, i) {
+                      final q = history[i];
+                      return ListTile(
+                        dense: true,
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 8),
+                        leading: const Icon(Icons.history, size: 20),
+                        title: Text(
+                          q,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          tooltip: '删除',
+                          onPressed: () {
+                            ref
+                                .read(browserSearchHistoryProvider.notifier)
+                                .remove(q);
+                          },
+                        ),
+                        onTap: () {
+                          _searchCtrl.text = q;
+                          setState(() {});
+                          Navigator.pop(c);
+                        },
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+
+  
   Future<void> _showScopeMenu() async {
     final ctx = _searchBtnKey.currentContext;
     if (ctx == null) return;
@@ -1727,7 +1791,7 @@ const PopupMenuItem<String>(
               onSubmitted: (_) => _doSearch(),
             ),
           ),
-          if (hasText)
+    if (hasText)
   IconButton(
     icon: Icon(
       Icons.clear,
@@ -1735,6 +1799,12 @@ const PopupMenuItem<String>(
     ),
     tooltip: '清空',
     onPressed: _clearSearch,
+  )
+else
+  IconButton(
+    icon: const Icon(Icons.history),
+    tooltip: '搜索历史',
+    onPressed: _showSearchHistory,
   ),
         ],
       ),
