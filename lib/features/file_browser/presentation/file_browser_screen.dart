@@ -1801,11 +1801,19 @@ const PopupMenuItem<String>(
     onPressed: _clearSearch,
   )
 else
+
+          
+
   IconButton(
-    icon: const Icon(Icons.history),
+    icon: Icon(
+      Icons.history,
+      color: _selectionMode ? Colors.grey : null,
+    ),
     tooltip: '搜索历史',
     onPressed: _showSearchHistory,
   ),
+
+          
         ],
       ),
     );
