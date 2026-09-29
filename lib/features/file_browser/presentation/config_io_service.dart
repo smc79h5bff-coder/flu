@@ -30,6 +30,7 @@ class ConfigIoService {
     'jianming.browser.searchFolders',
     'jianming.browser.searchScope',
     'jianming.browser.sortField',
+    'jianming.browser.recentMoveTargets',
     'jianming.browser.sortAsc',
     'jianming.viewer.findHistory',
     'jianming.browser.searchHistory',
