@@ -192,6 +192,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
+      
+    barrierColor: Colors.transparent,          // ← 加这行
+      
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
