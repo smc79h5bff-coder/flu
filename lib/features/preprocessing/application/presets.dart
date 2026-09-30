@@ -5774,7 +5774,7 @@ String _collapseSpaces(String text, Map<String, String> p) {
 }
 
 String _collapseNewlines(String text, Map<String, String> p) {
-  var t = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  var t = text.replaceAll('\r', '\n');
   return t.replaceAll(RegExp(r'\n{2,}'), '\n');
 }
 
