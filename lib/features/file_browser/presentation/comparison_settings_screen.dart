@@ -425,12 +425,17 @@ class _ComparisonSettingsScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    rule.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14),
-                  ),
+                  GestureDetector(
+  onLongPress: () => _showRuleDetail(rule),
+  behavior: HitTestBehavior.opaque,
+  child: Text(
+    rule.name,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: const TextStyle(fontSize: 14),
+  ),
+),
+                  
                   const SizedBox(height: 2),
                   GestureDetector(
                     onLongPress: () => _showRuleDetail(rule),
