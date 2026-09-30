@@ -56,10 +56,14 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
       update(state.copyWith(buttonOpacity: v.clamp(0.1, 1.0)));
 
   void setButtonScale(double v) =>
-      update(state.copyWith(buttonScale: v.clamp(0.5, 2.0)));
+      update(state.copyWith(buttonScale: v.clamp(0.2, 6.0)));
 
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
+
+  void setTopHotZone(double v) =>
+    update(state.copyWith(topHotZoneHeight: v.clamp(20.0, 200.0)));
+  
 }
 
 // ==================== 阅读进度（每个文件一条） ====================
