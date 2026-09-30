@@ -151,7 +151,7 @@ Row(
   ],
 ),
 Text(
-  '差异上下文相同行的字号：${contextSize.toStringAsFixed(0)}',
+  '差异上下文视图的相同行的字号：${contextSize.toStringAsFixed(0)}',
   style: Theme.of(context).textTheme.labelMedium,
 ),
 Row(
