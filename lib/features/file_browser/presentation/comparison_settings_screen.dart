@@ -520,7 +520,7 @@ class _ComparisonSettingsScreenState
 
   String _shortPreview(PreprocessingRule rule) {
     if (rule.script != null && rule.script!.isNotEmpty) {
-      return '内置脚本 · ${rule.script}';
+      return '内置实现 · ${rule.script}';
     }
     switch (rule.kind) {
       case RuleKind.preset:
@@ -1063,7 +1063,7 @@ class _ComparisonSettingsScreenState
 // ==================== 副标题生成（公开，按钮栏也用） ====================
 String ruleSubtitle(PreprocessingRule rule) {
   if (rule.script != null && rule.script!.isNotEmpty) {
-    return '(内置脚本: ${rule.script})';
+    return '(内置实现: ${rule.script})';
   }
 
   switch (rule.kind) {
