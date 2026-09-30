@@ -46,6 +46,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   bool _menuOpen = false;
 
+  /// 最近一次通过 SelectionArea 选中的内容。
+  SelectedContent? _lastSelectedContent;
+
   @override
   void initState() {
     super.initState();
@@ -192,9 +195,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
-      
-    barrierColor: Colors.transparent,          // ← 加这行
-      
+      barrierColor: Colors.transparent, // ← 加这行
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -204,82 +205,80 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     });
   }
 
-  
-Widget _buildTopMenuSheet(BuildContext ctx) {
-  final pct = _pagination == null
-      ? '-'
-      : '${((_currentPage + 1) / _pagination!.pageCount * 100).toStringAsFixed(1)}%';
-  return SafeArea(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 8),
-        Container(
-          width: 40,
-          height: 4,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade300,
-            borderRadius: BorderRadius.circular(2),
+  Widget _buildTopMenuSheet(BuildContext ctx) {
+    final pct = _pagination == null
+        ? '-'
+        : '${((_currentPage + 1) / _pagination!.pageCount * 100).toStringAsFixed(1)}%';
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        ListTile(
-          leading: const Icon(Icons.tune),
-          title: Text(pct, style: const TextStyle(fontSize: 18)),
-          subtitle: const Text('点击调整进度'),
-          onTap: () {
-            Navigator.pop(ctx);
-            _showProgressSlider();
-          },
-        ),
-        const Divider(height: 1),
-        ListTile(
-          leading: const Icon(Icons.search),
-          title: const Text('查找'),
-          onTap: () {
-            Navigator.pop(ctx);
-            _openFind();
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.bookmark_add_outlined),
-          title: const Text('加书签'),
-          onTap: () {
-            Navigator.pop(ctx);
-            _addBookmark();
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.bookmarks_outlined),
-          title: const Text('书签与高亮'),
-          onTap: () {
-            Navigator.pop(ctx);
-            _openManager();
-          },
-        ),
-        const Divider(height: 1),
-        ListTile(
-          leading: const Icon(Icons.edit),
-          title: const Text('编辑'),
-          onTap: () async {
-            Navigator.pop(ctx);
-            await _openEditor();
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.settings),
-          title: const Text('设置'),
-          onTap: () {
-            Navigator.pop(ctx);
-            showReaderSettingsSheet(context);
-          },
-        ),
-        const SizedBox(height: 8),
-      ],
-    ),
-  );
-}
-    
+          const SizedBox(height: 12),
+          ListTile(
+            leading: const Icon(Icons.tune),
+            title: Text(pct, style: const TextStyle(fontSize: 18)),
+            subtitle: const Text('点击调整进度'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showProgressSlider();
+            },
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.search),
+            title: const Text('查找'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _openFind();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.bookmark_add_outlined),
+            title: const Text('加书签'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _addBookmark();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.bookmarks_outlined),
+            title: const Text('书签与高亮'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _openManager();
+            },
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.edit),
+            title: const Text('编辑'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await _openEditor();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.settings),
+            title: const Text('设置'),
+            onTap: () {
+              Navigator.pop(ctx);
+              showReaderSettingsSheet(context);
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
 
   void _showProgressSlider() {
     if (_pagination == null) return;
@@ -289,8 +288,7 @@ Widget _buildTopMenuSheet(BuildContext ctx) {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSt) {
           final total = _pagination!.pageCount;
-          final pct =
-              total <= 1 ? 100.0 : (tempPage / (total - 1) * 100);
+          final pct = total <= 1 ? 100.0 : (tempPage / (total - 1) * 100);
           return AlertDialog(
             title: const Text('跳转'),
             content: Column(
@@ -343,8 +341,7 @@ Widget _buildTopMenuSheet(BuildContext ctx) {
     final offset = pageStartOffset(_pagination!, _currentPage);
     final start = math.max(0, offset - 10);
     final end = math.min(_text!.length, offset + 20);
-    final preview =
-        _text!.substring(start, end).replaceAll('\n', ' ').trim();
+    final preview = _text!.substring(start, end).replaceAll('\n', ' ').trim();
     final path = widget.filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     final bookmark = ReaderBookmark(
@@ -361,43 +358,45 @@ Widget _buildTopMenuSheet(BuildContext ctx) {
       ),
     );
   }
-void _openFind() {
-  if (_text == null || widget.filePaths.isEmpty) return;
-  final path = widget.filePaths[_fileIndex];
-  final fileKey = readerFileKey(path);
-  showReaderFindBar(
-    context,
-    fileKey,
-    _text!,
-    (offset) {
-      if (_pagination == null) return;
-      final page = findPageForOffset(_pagination!, offset);
-      _jumpToPage(page);
-    },
-  );
-}
 
-void _openManager() {
-  if (widget.filePaths.isEmpty) return;
-  final path = widget.filePaths[_fileIndex];
-  final fileKey = readerFileKey(path);
-  final fileName = path.split('/').last;
-  openBookmarkHighlightManager(context, fileKey, fileName);
-}
+  void _openFind() {
+    if (_text == null || widget.filePaths.isEmpty) return;
+    final path = widget.filePaths[_fileIndex];
+    final fileKey = readerFileKey(path);
+    showReaderFindBar(
+      context,
+      fileKey,
+      _text!,
+      (offset) {
+        if (_pagination == null) return;
+        final page = findPageForOffset(_pagination!, offset);
+        _jumpToPage(page);
+      },
+    );
+  }
 
-Future<void> _openEditor() async {
-  if (widget.filePaths.isEmpty) return;
-  final path = widget.filePaths[_fileIndex];
-  final fileName = path.split('/').last;
+  void _openManager() {
+    if (widget.filePaths.isEmpty) return;
+    final path = widget.filePaths[_fileIndex];
+    final fileKey = readerFileKey(path);
+    final fileName = path.split('/').last;
+    openBookmarkHighlightManager(context, fileKey, fileName);
+  }
 
-  _saveProgress();
+  Future<void> _openEditor() async {
+    if (widget.filePaths.isEmpty) return;
+    final path = widget.filePaths[_fileIndex];
+    final fileName = path.split('/').last;
 
-  await openEditorAndReturn(context, path, fileName, () {
-    _lastLoadedPath = null;
-    _lastLoadedSize = null;
-    _ensureLoaded();
-  });
-}
+    _saveProgress();
+
+    await openEditorAndReturn(context, path, fileName, () {
+      _lastLoadedPath = null;
+      _lastLoadedSize = null;
+      _ensureLoaded();
+    });
+  }
+
   // ==================== 长按选中 ====================
 
   void _onLineLongPress(
@@ -446,20 +445,20 @@ Future<void> _openEditor() async {
       (code >= 0x41 && code <= 0x5A) ||
       (code >= 0x61 && code <= 0x7A) ||
       code == 0x5F;
-Future<void> _showWordMenuAndClear(
-  String word,
-  SelectableRegionState state,
-) async {
-  await _showWordMenu(word);
-  state.clearSelection();
-}
+
+  Future<void> _showWordMenuAndClear(
+    String word,
+    SelectableRegionState state,
+  ) async {
+    await _showWordMenu(word);
+    state.clearSelection();
+  }
+
   Future<void> _showWordMenu(String word) {
-  return showModalBottomSheet<void>(
+    return showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
-    
-    barrierColor: Colors.transparent,          // ← 加这行
-    
+      barrierColor: Colors.transparent, // ← 加这行
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -503,8 +502,7 @@ Future<void> _showWordMenuAndClear(
                 const SizedBox(height: 8),
                 const Divider(height: 1),
                 const SizedBox(height: 8),
-                const Text('选择色块高亮',
-                    style: TextStyle(fontSize: 12)),
+                const Text('选择色块高亮', style: TextStyle(fontSize: 12)),
                 const SizedBox(height: 8),
                 _buildColorGrid(ctx, word),
               ],
@@ -536,9 +534,9 @@ Future<void> _showWordMenuAndClear(
             _applyHighlight(word, p);
           },
           onLongPress: () {
-  Navigator.pop(ctx);
-  openPaletteEdit(context, p.index);
-},
+            Navigator.pop(ctx);
+            openPaletteEdit(context, p.index);
+          },
           child: Column(
             children: [
               Expanded(
@@ -550,9 +548,7 @@ Future<void> _showWordMenuAndClear(
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    word.length > 2
-                        ? '${word.substring(0, 2)}…'
-                        : word,
+                    word.length > 2 ? '${word.substring(0, 2)}…' : word,
                     style: TextStyle(
                       color: Color(p.textColor),
                       fontSize: 12,
@@ -704,46 +700,48 @@ Future<void> _showWordMenuAndClear(
       children: [
         // 正文区（点击翻下一页，右划翻上一页）
         Positioned.fill(
-  child: GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: _nextPage,
-    onHorizontalDragEnd: _onHorizontalDragEnd,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: kReaderHorizontalPadding,
-        vertical: kReaderVerticalPadding,
-      ),
-      child: SelectionArea(
-        contextMenuBuilder: (ctx, state) {
-          final content = state.getSelectedContent();
-          if (content == null || content.plainText.trim().isEmpty) {
-            return const SizedBox.shrink();
-          }
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            _showWordMenuAndClear(content.plainText.trim(), state);
-          });
-          return const SizedBox.shrink();
-        },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = range.startLine; i < range.endLine; i++)
-              _buildLine(
-                i,
-                settings,
-                size.width - kReaderHorizontalPadding * 2,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _nextPage,
+            onHorizontalDragEnd: _onHorizontalDragEnd,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: kReaderHorizontalPadding,
+                vertical: kReaderVerticalPadding,
               ),
-          ],
+              child: SelectionArea(
+                onSelectionChanged: (SelectedContent? content) {
+                  _lastSelectedContent = content;
+                },
+                contextMenuBuilder: (ctx, state) {
+                  final content = _lastSelectedContent;
+                  if (content == null ||
+                      content.plainText.trim().isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    _showWordMenuAndClear(
+                        content.plainText.trim(), state);
+                  });
+                  return const SizedBox.shrink();
+                },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (var i = range.startLine; i < range.endLine; i++)
+                      _buildLine(
+                        i,
+                        settings,
+                        size.width - kReaderHorizontalPadding * 2,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
-    ),
-  ),
-),
 
-
-
-        
         // 顶部 40px 热区 → 打开菜单
         Positioned(
           top: 0,
@@ -781,13 +779,12 @@ Future<void> _showWordMenuAndClear(
   }
 
   Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
-  final spans = _buildLineSpans(lineIdx, settings);
-  return SizedBox(
-    width: double.infinity,
-    child: Text.rich(TextSpan(children: spans), softWrap: true),
-  );
-}
-    
+    final spans = _buildLineSpans(lineIdx, settings);
+    return SizedBox(
+      width: double.infinity,
+      child: Text.rich(TextSpan(children: spans), softWrap: true),
+    );
+  }
 
   List<InlineSpan> _buildLineSpans(int lineIdx, ReaderSettings settings) {
     final line = _lines[lineIdx];
