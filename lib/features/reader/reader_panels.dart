@@ -1123,9 +1123,13 @@ Future<void> openEditorAndReturn(
   VoidCallback onReturn,
 ) async {
   await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => EditScreen(filePath: filePath, fileName: fileName),
+  MaterialPageRoute<void>(
+    builder: (_) => SingleFileEditorScreen(
+      filePath: filePath,
+      fileName: fileName,
     ),
-  );
+  ),
+);
+    
   onReturn();
 }
