@@ -550,11 +550,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
   return null;
 }
 
-Future<void> _showRuleDetail(PreprocessingRule rule) async {
-  final detail = ruleSubtitle(rule);
-  final helpText = _resolveHelpText(rule);
-  final kindLabel = switch (rule.kind) {
-  ...
+
   Future<void> _showRuleDetail(PreprocessingRule rule) async {
   // 主内容 = ruleSubtitle 的输出。
   // 如果有 helpText，拼到下面一起显示。
