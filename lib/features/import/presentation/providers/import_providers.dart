@@ -351,9 +351,11 @@ class BuiltinRuleNameOverridesNotifier
 }
 final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
   final overrides = ref.watch(builtinRuleEnablesProvider);
+  final hidden = ref.watch(builtinRuleHiddenProvider);
   return <PreprocessingRule>[
     for (final r in BuiltinRules.all())
-      r.copyWith(enabled: overrides[r.id] ?? r.enabled),
+      if (!hidden.contains(r.id))
+        r.copyWith(enabled: overrides[r.id] ?? r.enabled),
   ];
 });
 
