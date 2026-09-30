@@ -2532,7 +2532,7 @@ Widget build(BuildContext context) {
             controller: _filterCtrl,
             decoration: const InputDecoration(
               hintText: '过滤子目录',
-              prefixIcon: Icon(Icons.search, size: 16),
+              prefixIcon: Icon(Icons.search, size: 14),
               
     prefixIconConstraints: BoxConstraints(
       minWidth: 28,       // ← 加这个
