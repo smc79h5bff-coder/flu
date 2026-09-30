@@ -377,7 +377,7 @@ class _ComparisonSettingsScreenState
     final dragHandle = ReorderableDragStartListener(
       index: index,
       child: const SizedBox(
-        width: 44,
+        width: 54,
         height: 44,
         child: Center(child: Icon(Icons.drag_handle)),
       ),
