@@ -15,6 +15,118 @@ import 'comparison_settings_screen.dart';
 import 'providers/file_browser_providers.dart';
 import 'text_preview_screen.dart';
 import 'config_io_service.dart';
+
+// ==================== 导出文件清单 ====================
+
+String _fmtSizeForListing(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) {
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+  if (bytes < 1024 * 1024 * 1024) {
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+  return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+}
+
+String _fmtTimeForListing(DateTime t) {
+  String two(int n) => n < 10 ? '0$n' : '$n';
+  return '${t.year}-${two(t.month)}-${two(t.day)} '
+      '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+}
+
+/// 在后台 isolate 里递归扫描文件夹，生成清单文本。
+/// 返回 UTF-8 编码的字节，直接可写文件。
+Future<Uint8List> _folderListingWorker(String rootPath) async {
+  final body = StringBuffer();
+  var fileCount = 0;
+  var dirCount = 0;
+  var emptyDirCount = 0;
+  var totalBytes = 0;
+
+  void walk(String dirPath) {
+    List<FileSystemEntity> entities;
+    try {
+      entities = Directory(dirPath).listSync(followLinks: false);
+    } catch (_) {
+      // 无权限等错误，跳过此目录
+      return;
+    }
+
+    final files = <File>[];
+    final dirs = <Directory>[];
+    for (final e in entities) {
+      final name = e.path.split('/').last;
+      if (name.isEmpty) continue;
+      if (e is File) {
+        files.add(e);
+      } else if (e is Directory) {
+        dirs.add(e);
+      }
+    }
+
+    files.sort(
+        (a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+    dirs.sort(
+        (a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+
+    if (files.isEmpty && dirs.isEmpty) {
+      body.writeln('$dirPath | (空目录) | —');
+      emptyDirCount++;
+      return;
+    }
+
+    for (final f in files) {
+      int size = 0;
+      DateTime? modified;
+      try {
+        final st = f.statSync();
+        size = st.size;
+        modified = st.modified;
+      } catch (_) {}
+      final sizeStr = _fmtSizeForListing(size);
+      final timeStr =
+          modified == null ? '—' : _fmtTimeForListing(modified);
+      body.writeln('${f.path} | $sizeStr | $timeStr');
+      fileCount++;
+      totalBytes += size;
+    }
+
+    for (final d in dirs) {
+      dirCount++;
+      walk(d.path);
+    }
+  }
+
+  walk(rootPath);
+
+  final header = StringBuffer();
+  header.writeln(
+      '# ============================================================');
+  header.writeln('# 文件夹文件清单');
+  header.writeln(
+      '# ============================================================');
+  header.writeln('# 根目录：$rootPath');
+  header.writeln('# 导出时间：${_fmtTimeForListing(DateTime.now())}');
+  header.writeln('# 总文件数：$fileCount');
+  header.writeln('# 总目录数：$dirCount（含空目录 $emptyDirCount）');
+  header.writeln('# 总大小：${_fmtSizeForListing(totalBytes)}');
+  header.writeln('#');
+  header.writeln('# 格式说明：');
+  header.writeln('#   每一行：完整路径 | 大小 | 修改时间');
+  header.writeln('#   空目录：完整路径 | (空目录) | —');
+  header.writeln('#   排序：按目录树顺序');
+  header.writeln('#         （当前目录的文件在前，子目录按名称递归）');
+  header.writeln(
+      '# ============================================================');
+  header.writeln();
+
+  final builder = BytesBuilder();
+  builder.add(utf8.encode(header.toString()));
+  builder.add(utf8.encode(body.toString()));
+  return builder.takeBytes();
+}
+
 class FileBrowserScreen extends ConsumerStatefulWidget {
   const FileBrowserScreen({super.key});
 
