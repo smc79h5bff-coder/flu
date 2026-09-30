@@ -1499,7 +1499,16 @@ void _showFloatHint(String msg) {
         return DropdownButtonFormField<String>(
           value: value,
           isExpanded: true,
-          decoration: InputDecoration(
+
+
+           
+  menuWidth: MediaQuery.of(context).size.width * 0.8,    // ← 加这行
+  decoration: InputDecoration(
+
+
+
+    
+          
             labelText: p.label,
             border: const OutlineInputBorder(),
             isDense: true,
