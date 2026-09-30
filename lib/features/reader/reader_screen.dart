@@ -715,7 +715,7 @@ Future<void> _showWordMenuAndClear(
       ),
       child: SelectionArea(
         contextMenuBuilder: (ctx, state) {
-          final content = state.selectedContent;
+          final content = state.getSelectedContent();
           if (content == null || content.plainText.trim().isEmpty) {
             return const SizedBox.shrink();
           }
