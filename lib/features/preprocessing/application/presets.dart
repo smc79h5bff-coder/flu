@@ -7,6 +7,8 @@
 ///   - helpText：详细说明（对话框灰框显示）
 ///   - params：参数定义（UI 根据它生成表单）
 ///   - apply：真正干活的函数
+///   - implType / implDetail：实现方式（正则原文 或 代码片段）
+///   - replacementType / replacementDetail / replacementNote：替代方案
 ///
 /// 参数在存储里都是字符串（Map<String, String>）。
 /// 执行时用 _pInt / _pStr / _pBool 安全解析。
@@ -71,6 +73,11 @@ class Preset {
     required this.helpText,
     required this.params,
     required this.apply,
+    this.implType,
+    this.implDetail,
+    this.replacementType,
+    this.replacementDetail,
+    this.replacementNote,
   });
 
   final String id;
@@ -79,6 +86,21 @@ class Preset {
   final String helpText;
   final List<PresetParam> params;
   final String Function(String text, Map<String, String> params) apply;
+
+  /// 实现方式类型。'正则' 或 '代码'。null 时不显示"实现方式"块。
+  final String? implType;
+
+  /// 实现方式详情。正则原文 或 关键代码片段。
+  final String? implDetail;
+
+  /// 替代方案状态。'ok' / 'warn' / 'impossible'。null 时不显示。
+  final String? replacementType;
+
+  /// 替代方案详情。
+  final String? replacementDetail;
+
+  /// 替代方案额外备注（可选）。
+  final String? replacementNote;
 }
 
 // ==================== Presets 列表 ====================
@@ -133,6 +155,13 @@ class Presets {
             ),
           ],
           apply: _lineFilter,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .where((l) => 命中判断)\n"
+              "    .join('\\n')",
+          replacementType: 'impossible',
+          replacementDetail:
+              '正则只能"匹配并替换"，\n无法"逐行判断后保留或丢弃"',
         ),
         Preset(
           id: 'sliceLines',
@@ -158,6 +187,12 @@ class Presets {
             ),
           ],
           apply: _sliceLines,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .sublist(N - 1, M)\n"
+              "    .join('\\n')",
+          replacementType: 'impossible',
+          replacementDetail: '正则没有"行号"概念，无法按行号截取',
         ),
         Preset(
           id: 'removeEmptyLines',
@@ -168,6 +203,13 @@ class Presets {
               '常用于：清理段落之间的多余空行。',
           params: [],
           apply: _removeEmptyLines,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .where((l) => l.isNotEmpty)\n"
+              "    .join('\\n')",
+          replacementType: 'ok',
+          replacementDetail: r'正则：\n{2,} → \n' '\n性能：大致相当',
+          replacementNote: r'正则必须用 {2,}，写 \n\n 会漏掉 3 个以上连续换行',
         ),
         Preset(
           id: 'removeBlankLines',
@@ -178,6 +220,13 @@ class Presets {
               '比"删除空行"彻底——那个只删完全空的。',
           params: [],
           apply: _removeBlankLines,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .where((l) => l.trim().isNotEmpty)\n"
+              "    .join('\\n')",
+          replacementType: 'ok',
+          replacementDetail: r'正则（多行模式）：^[ \t]*\n → （空）'
+              '\n性能：大致相当',
         ),
         Preset(
           id: 'addLineNumbers',
@@ -205,6 +254,12 @@ class Presets {
             ),
           ],
           apply: _addLineNumbers,
+          implType: '代码',
+          implDetail: "逐行循环：\n"
+              "  输出 格式.replaceAll('N', n.toString()) + 行\n"
+              "  n 从起始号递增",
+          replacementType: 'impossible',
+          replacementDetail: '正则不能自动递增数字',
         ),
         Preset(
           id: 'addLineNumbersSkipEmpty',
@@ -229,6 +284,12 @@ class Presets {
             ),
           ],
           apply: _addLineNumbersSkipEmpty,
+          implType: '代码',
+          implDetail: "逐行循环：\n"
+              "  空行 → 原样输出\n"
+              "  非空行 → 加前缀，n 递增",
+          replacementType: 'impossible',
+          replacementDetail: '正则不能自动递增数字',
         ),
         Preset(
           id: 'trimLines',
@@ -239,6 +300,14 @@ class Presets {
               '用于：清理复制粘贴来的文本，通常会带多余缩进。',
           params: [],
           apply: _trimLines,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .map((l) => l.trim())\n"
+              "    .join('\\n')",
+          replacementType: 'ok',
+          replacementDetail:
+              r'正则（多行）：^[ \t]+|[ \t]+$ → （空）'
+              '\n性能：大致相当',
         ),
         Preset(
           id: 'trimLinesLeft',
@@ -248,6 +317,13 @@ class Presets {
               '用于：去掉缩进，但保留行尾对齐的空格。',
           params: [],
           apply: _trimLinesLeft,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .map((l) => l.trimLeft())\n"
+              "    .join('\\n')",
+          replacementType: 'ok',
+          replacementDetail: r'正则（多行）：^[ \t]+ → （空）'
+              '\n性能：大致相当',
         ),
         Preset(
           id: 'trimLinesRight',
@@ -257,6 +333,13 @@ class Presets {
               '用于：清理行尾多打的空格。',
           params: [],
           apply: _trimLinesRight,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .map((l) => l.trimRight())\n"
+              "    .join('\\n')",
+          replacementType: 'ok',
+          replacementDetail: r'正则（多行）：[ \t]+$ → （空）'
+              '\n性能：大致相当',
         ),
         Preset(
           id: 'mergeAllLines',
@@ -276,7 +359,13 @@ class Presets {
             ),
           ],
           apply: _mergeAllLines,
+          implType: '代码',
+          implDetail: "text.split('\\n').join(连接符)",
+          replacementType: 'ok',
+          replacementDetail: r'正则：\n → 连接符'
+              '\n性能：大致相当',
         ),
+
         // ==================== 字符替换 ====================
         Preset(
           id: 'deleteString',
@@ -293,6 +382,11 @@ class Presets {
             ),
           ],
           apply: _deleteString,
+          implType: '代码',
+          implDetail: "text.replaceAll(目标字符串, '')",
+          replacementType: 'ok',
+          replacementDetail: '正则（仅字面模式）：查找填目标字符串，替换留空\n'
+              '性能：一致',
         ),
         Preset(
           id: 'replaceString',
@@ -316,39 +410,54 @@ class Presets {
             ),
           ],
           apply: _replaceString,
+          implType: '代码',
+          implDetail: 'text.replaceAll(查找, 替换)',
+          replacementType: 'ok',
+          replacementDetail: '正则（仅字面模式）：查找填字符串，替换填替换词\n'
+              '性能：一致',
         ),
 
         // ==================== 空白处理 ====================
         Preset(
           id: 'removeAllSpaces',
-          name: '删除所有英文空格',
+          name: '删除所有空格',
           description: '删掉全部半角空格（不含 Tab 和全角空格）',
           helpText: '删掉所有半角空格字符（按键盘空格键那个）。\n'
-              '不删 Tab，不删全角空格\n'
-              'text.replaceAll(' ', '')纯字符串替换，无正则',
+              '不删 Tab，不删全角空格。\n'
+              '例："a b c" → "abc"。',
           params: [],
           apply: _removeAllSpaces,
+          implType: '代码',
+          implDetail: "text.replaceAll(' ', '')",
+          replacementType: 'ok',
+          replacementDetail: '正则：␣ → （空）\n性能：一致',
         ),
         Preset(
           id: 'removeAllTabs',
           name: '删除所有 Tab',
           description: '删掉全部 Tab 制表符',
           helpText: '删掉所有 Tab 制表符。\n'
-              '不删中英文(全角半角)空格\n'
-              'text.replaceAll('\t', '')纯字符串替换，无正则',
+              '不删空格。\n'
+              '用于：清理缩进或对齐用的 Tab。',
           params: [],
           apply: _removeAllTabs,
+          implType: '代码',
+          implDetail: r"text.replaceAll('\t', '')",
+          replacementType: 'ok',
+          replacementDetail: r'正则：\t → （空）' '\n性能：一致',
         ),
         Preset(
           id: 'removeAllWhitespace',
           name: '删除所有空白',
-          description: '删掉所有空格(零宽空格、各种 Unicode 空白、Tab、全半角空格)',
-          helpText: '把所有空白字符都删掉'
-              '半角空格、Tab、零宽空格、全角空格、各种 Unicode 空白。\n'
+          description: '删掉所有空格、Tab、换行、全角空格（危险，会连成一片）',
+          helpText: '把所有空白字符都删掉，包括：\n'
+              '半角空格、Tab、换行、回车、全角空格、各种 Unicode 空白。\n'
               '⚠ 删完所有行会连成一整段，慎用。\n'
-              'RegExp(r'\s+') 一次扫',
+              '例："a b\\nc" → "abc"。',
           params: [],
           apply: _removeAllWhitespace,
+          implType: '正则',
+          implDetail: r'查找：\s+' '\n替换：（空）',
         ),
         Preset(
           id: 'removePunctuation',
@@ -359,6 +468,11 @@ class Presets {
               '例："你好，世界！" → "你好世界"。',
           params: [],
           apply: _removePunctuation,
+          implType: '代码',
+          implDetail: '逐字符查表：标点集合约 60 个字符',
+          replacementType: 'warn',
+          replacementDetail: '正则能做，但要写 60 个字符的字符类，'
+              '非常长，不建议',
         ),
         Preset(
           id: 'removeDigits',
@@ -369,6 +483,8 @@ class Presets {
               '例："abc123" → "abc"。',
           params: [],
           apply: _removeDigits,
+          implType: '正则',
+          implDetail: '查找：[0-9]' '\n替换：（空）',
         ),
         Preset(
           id: 'removeEnglish',
@@ -379,6 +495,8 @@ class Presets {
               '例："abc 你好" → " 你好"。',
           params: [],
           apply: _removeEnglish,
+          implType: '正则',
+          implDetail: '查找：[a-zA-Z]' '\n替换：（空）',
         ),
         Preset(
           id: 'removeNonChinese',
@@ -389,6 +507,8 @@ class Presets {
               '例："你好，世界！abc123" → "你好世界"。',
           params: [],
           apply: _removeNonChinese,
+          implType: '正则',
+          implDetail: r'查找：[^\u4e00-\u9fa5]' '\n替换：（空）',
         ),
         Preset(
           id: 'removeInvisible',
@@ -399,6 +519,10 @@ class Presets {
               '这些字符从某些网页复制粘贴时会混进来，导致看着一样的文字比较不相等。',
           params: [],
           apply: _removeInvisible,
+          implType: '正则',
+          implDetail: '查找：一串 Unicode 转义的字符类\n'
+              r'[\u00AD\u200B-\u200F\u202A-\u202E...]'
+              '\n替换：（空）',
         ),
         Preset(
           id: 'collapseSpaces',
@@ -409,6 +533,8 @@ class Presets {
               '例："a\\t\\tb" → "a b"。',
           params: [],
           apply: _collapseSpaces,
+          implType: '正则',
+          implDetail: '查找：一个长字符类 + {1,}\n替换：一个半角空格',
         ),
         Preset(
           id: 'collapseNewlines',
@@ -419,6 +545,13 @@ class Presets {
               '例："a\\n\\n\\nb" → "a\\nb"。',
           params: [],
           apply: _collapseNewlines,
+          implType: '代码',
+          implDetail: "1. \\r\\n → \\n\n"
+              "2. \\r → \\n\n"
+              "3. RegExp('\\n{2,}') → '\\n'",
+          replacementType: 'ok',
+          replacementDetail: r'正则：\r\n|\r → \n 然后 \n{2,} → \n'
+              '\n（两次替换）\n性能：大致相当',
         ),
         Preset(
           id: 'foldNewlines',
@@ -444,6 +577,12 @@ class Presets {
             ),
           ],
           apply: _foldNewlines,
+          implType: '代码',
+          implDetail: "同 collapseNewlines，再用\n"
+              "RegExp('\\n{N,}') → '\\n' * M",
+          replacementType: 'ok',
+          replacementDetail: r'正则：\n{N,} → \n*M'
+              '\n性能：大致相当',
         ),
         Preset(
           id: 'collapseDots',
@@ -454,6 +593,8 @@ class Presets {
               '例："等一等......" → "等一等…"。',
           params: [],
           apply: _collapseDots,
+          implType: '正则',
+          implDetail: '查找：[.。…‥]{2,}' '\n替换：…',
         ),
         Preset(
           id: 'trimTrailingSpaces',
@@ -464,6 +605,13 @@ class Presets {
               '跟"行尾去空白"是一样的效果。',
           params: [],
           apply: _trimLinesRight,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .map((l) => l.trimRight())\n"
+              "    .join('\\n')",
+          replacementType: 'ok',
+          replacementDetail: r'正则（多行）：[ \t]+$ → （空）'
+              '\n性能：大致相当',
         ),
 
         // ==================== 大小写与全半角 ====================
@@ -476,6 +624,11 @@ class Presets {
               '例："Hello, World" → "HELLO, WORLD"。',
           params: [],
           apply: _toUpperCase,
+          implType: '代码',
+          implDetail: 'text.toUpperCase()',
+          replacementType: 'impossible',
+          replacementDetail: '正则只能匹配和替换，'
+              '不能把字符变大写或小写',
         ),
         Preset(
           id: 'fullToHalf',
@@ -486,6 +639,13 @@ class Presets {
               '例："！？。" → "!?。"（中文标点不动）。',
           params: [],
           apply: _fullToHalf,
+          implType: '代码',
+          implDetail: '逐字符 unicode 映射：\n'
+              '全角 U+FF01~FF5E → 减 0xFEE0\n'
+              '全角空格 U+3000 → U+0020',
+          replacementType: 'warn',
+          replacementDetail: '正则能做，但要写 95 个字符的映射表，'
+              '非常长，不建议',
         ),
         Preset(
           id: 'halfToFull',
@@ -496,6 +656,13 @@ class Presets {
               '例：" " → "　"（半角空格变全角）。',
           params: [],
           apply: _halfToFull,
+          implType: '代码',
+          implDetail: '逐字符 unicode 映射：\n'
+              '半角 U+0021~007E → 加 0xFEE0\n'
+              '半角空格 U+0020 → U+3000',
+          replacementType: 'warn',
+          replacementDetail: '正则能做，但要写 95 个字符的映射表，'
+              '非常长，不建议',
         ),
         Preset(
           id: 'fullSpaceToHalf',
@@ -505,6 +672,10 @@ class Presets {
               '用于：中文文本里有时用全角空格缩进，转成半角好处理。',
           params: [],
           apply: _fullSpaceToHalf,
+          implType: '代码',
+          implDetail: "text.replaceAll('　', ' ')",
+          replacementType: 'ok',
+          replacementDetail: '正则：　 → ␣' '\n性能：一致',
         ),
         Preset(
           id: 'tabToSpaces',
@@ -522,6 +693,11 @@ class Presets {
             ),
           ],
           apply: _tabToSpaces,
+          implType: '代码',
+          implDetail: "text.replaceAll('\\t', ' ' * N)",
+          replacementType: 'ok',
+          replacementDetail: '正则：\\t → 空格×N'
+              '\n性能：一致',
         ),
         Preset(
           id: 'spacesToTab',
@@ -539,6 +715,8 @@ class Presets {
             ),
           ],
           apply: _spacesToTab,
+          implType: '正则',
+          implDetail: '查找： {N}（N 个空格）\n替换：\\t',
         ),
 
         // ==================== 标点转换 ====================
@@ -551,6 +729,11 @@ class Presets {
               '常见映射：，→, 。→. ！→! ？→? 等。',
           params: [],
           apply: _cnPunctToEn,
+          implType: '代码',
+          implDetail: '逐字符查表：映射表约 25 对',
+          replacementType: 'warn',
+          replacementDetail: '正则需要 25 条 replaceAll，'
+              '能但长，不建议',
         ),
         Preset(
           id: 'enPunctToCn',
@@ -561,6 +744,11 @@ class Presets {
               '常见映射：,→， .→。 !→！ ?→？ 等。',
           params: [],
           apply: _enPunctToCn,
+          implType: '代码',
+          implDetail: '逐字符查表：映射表约 13 对',
+          replacementType: 'warn',
+          replacementDetail: '正则需要 13 条 replaceAll，'
+              '能但长，不建议',
         ),
         Preset(
           id: 'unifyQuotes',
@@ -587,6 +775,13 @@ class Presets {
             ),
           ],
           apply: _unifyQuotes,
+          implType: '代码',
+          implDetail: '多次 replaceAll：\n'
+              '把各种左引号统一成目标左引号\n'
+              '把各种右引号统一成目标右引号',
+          replacementType: 'ok',
+          replacementDetail: '正则：逐条 replaceAll（约 8 条）\n'
+              '性能：大致相当',
         ),
 
         // ==================== 数字 ====================
@@ -606,6 +801,8 @@ class Presets {
             ),
           ],
           apply: _digitsToPlaceholder,
+          implType: '正则',
+          implDetail: '查找：[0-9]+' '\n替换：<NUM>',
         ),
         Preset(
           id: 'chineseToArabic',
@@ -618,6 +815,10 @@ class Presets {
               '例："一千二百三十四" → "1234"。',
           params: [],
           apply: _chineseToArabic,
+          implType: '代码',
+          implDetail: '正则匹配中文数字串 → 逐字扫描 + 单位累加',
+          replacementType: 'impossible',
+          replacementDetail: '正则不能做数值计算（单位累加）',
         ),
         Preset(
           id: 'arabicToChinese',
@@ -641,6 +842,11 @@ class Presets {
             ),
           ],
           apply: _arabicToChinese,
+          implType: '代码',
+          implDetail: '逐字式：字符映射\n'
+              '读法式：分节解析 + 单位映射',
+          replacementType: 'impossible',
+          replacementDetail: '正则不能做数值解析',
         ),
 
         // ==================== Unicode ====================
@@ -654,6 +860,11 @@ class Presets {
               '注：本实现只覆盖常见拉丁字母组合。',
           params: [],
           apply: _normalizeNfc,
+          implType: '代码',
+          implDetail: '查表替换：约 60 对预组合字符',
+          replacementType: 'impossible',
+          replacementDetail: 'NFC 规范化需要动态组合字符，'
+              '正则无法实现',
         ),
       ];
 
@@ -866,9 +1077,9 @@ String _removeAllTabs(String text, Map<String, String> p) {
   return text.replaceAll('\t', '');
 }
 
-/// \s 在 Dart 里覆盖所有 Unicode 空白（含全角空格 U+3000、不可见符号NBSP、零宽空格）。
+/// \s 在 Dart 里覆盖所有 Unicode 空白（含全角空格 U+3000、NBSP、换行）。
 String _removeAllWhitespace(String text, Map<String, String> p) {
-  return text.replaceAll(RegExp(r'[^\S\n]+'), '');
+  return text.replaceAll(RegExp(r'\s+'), '');
 }
 
 /// 中英文标点集合。
@@ -879,18 +1090,16 @@ const Set<String> _punctuationSet = {
   '}', '~',
   // 中文标点
   '，', '。', '！', '？', '；', '：', '、',
-  '\u201C', '\u201D', '\u2018', '\u2019', // 左右弯引号
+  '\u201C', '\u201D', '\u2018', '\u2019',
   '（', '）', '【', '】', '《', '》', '〈', '〉', '「', '」', '『', '』',
   '—', '…', '·', '～', '＿', '－', '／', '＼',
 };
 
-/// 只删上面这些。注意 _punctuationSet 里我误加了全角空格，实现里跳过它。
 String _removePunctuation(String text, Map<String, String> p) {
   final sb = StringBuffer();
   for (final rune in text.runes) {
     final c = String.fromCharCode(rune);
     if (c == '\u3000') {
-      // 全角空格不算标点
       sb.write(c);
       continue;
     }
@@ -908,11 +1117,9 @@ String _removeEnglish(String text, Map<String, String> p) {
 }
 
 String _removeNonChinese(String text, Map<String, String> p) {
-  // 保留 CJK 基本汉字区 U+4E00 ~ U+9FA5
   return text.replaceAll(RegExp(r'[^\u4e00-\u9fa5]'), '');
 }
 
-/// 零宽、软连字符、BOM、方向控制符等。
 final RegExp _invisibleChars = RegExp(
   '[\u00AD\u200B-\u200F\u202A-\u202E'
   '\u2060-\u2064\u2066-\u2069\uFEFF]',
@@ -922,7 +1129,6 @@ String _removeInvisible(String text, Map<String, String> p) {
   return text.replaceAll(_invisibleChars, '');
 }
 
-/// 所有空白类字符（不含换行），一个或多个连续，压成一个半角空格。
 final RegExp _runOfSpaces = RegExp(
   '[ \t\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u200B\u200C\u200D'
   '\u2060\uFEFF]+',
@@ -933,7 +1139,6 @@ String _collapseSpaces(String text, Map<String, String> p) {
 }
 
 String _collapseNewlines(String text, Map<String, String> p) {
-  // 先把 \r\n、\r 归一成 \n，再把 2 个以上 \n 压成 1 个。
   var t = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   return t.replaceAll(RegExp(r'\n{2,}'), '\n');
 }
@@ -948,7 +1153,6 @@ String _foldNewlines(String text, Map<String, String> p) {
   return t.replaceAllMapped(re, (_) => '\n' * m);
 }
 
-/// 连续 2 个以上点号（. 。 … ‥），压成一个 …
 final RegExp _runOfDots = RegExp('[.\u3002\u2026\u2025]{2,}');
 
 String _collapseDots(String text, Map<String, String> p) {
@@ -961,7 +1165,6 @@ String _toUpperCase(String text, Map<String, String> p) {
   return text.toUpperCase();
 }
 
-/// 全角 → 半角。U+FF01 ~ U+FF5E → 减 0xFEE0；U+3000 → U+0020。
 String _fullToHalf(String text, Map<String, String> p) {
   return String.fromCharCodes(text.runes.map((c) {
     if (c >= 0xFF01 && c <= 0xFF5E) return c - 0xFEE0;
@@ -970,7 +1173,6 @@ String _fullToHalf(String text, Map<String, String> p) {
   }));
 }
 
-/// 半角 → 全角。U+0021 ~ U+007E → 加 0xFEE0；U+0020 → U+3000。
 String _halfToFull(String text, Map<String, String> p) {
   return String.fromCharCodes(text.runes.map((c) {
     if (c >= 0x21 && c <= 0x7E) return c + 0xFEE0;
@@ -1083,9 +1285,7 @@ String _unifyQuotes(String text, Map<String, String> p) {
       right = '\u201D';
       break;
   }
-  // 左引号来源。
   const leftSources = ['\u201C', '「', '『', '\u2018'];
-  // 右引号来源。
   const rightSources = ['\u201D', '」', '』', '\u2019'];
 
   var out = text;
@@ -1129,7 +1329,6 @@ const Map<String, int> _cnUnitMap = {
 };
 
 String _chineseToArabic(String text, Map<String, String> p) {
-  // 构造一个能匹配"连续中文数字字符"的正则。
   final allChars = <String>[
     ..._cnDigitMap.keys,
     ..._cnUnitMap.keys,
@@ -1144,7 +1343,6 @@ String _chineseToArabic(String text, Map<String, String> p) {
 }
 
 int _parseChineseNumber(String s) {
-  // 没有单位（十百千万亿）→ 纯数字串，逐位拼。
   final hasUnit = s.split('').any(_cnUnitMap.containsKey);
   if (!hasUnit) {
     var n = 0;
@@ -1154,7 +1352,6 @@ int _parseChineseNumber(String s) {
     return n;
   }
 
-  // 有单位 → 按节解析。
   int result = 0;
   int section = 0;
   int current = 0;
@@ -1254,7 +1451,6 @@ String _intToChinese(int n) {
 
 // ==================== Unicode NFC（近似实现） ====================
 
-/// 预组合字符映射。key = 基字符 + 组合符，value = 单字符。
 const Map<String, String> _nfcCombos = {
   'a\u0300': '\u00E0', 'a\u0301': '\u00E1', 'a\u0302': '\u00E2',
   'a\u0303': '\u00E3', 'a\u0308': '\u00E4', 'a\u030A': '\u00E5',
@@ -1281,8 +1477,6 @@ const Map<String, String> _nfcCombos = {
 };
 
 String _normalizeNfc(String text, Map<String, String> p) {
-  // 简易 NFC：只处理常见拉丁字母的"基础 + 组合符"。
-  // 完整 NFC 需要 unorm_dart 或 unicode 包，用户如有需要可换。
   if (!text.contains('\u0300') &&
       !text.contains('\u0301') &&
       !text.contains('\u0302') &&
@@ -1314,4 +1508,3 @@ Map<String, String> decodeParams(String raw) {
     return const {};
   }
 }
-
