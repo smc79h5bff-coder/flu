@@ -1045,6 +1045,8 @@ class _ComparisonSettingsScreenState
 
 // ==================== 副标题生成（公开，按钮栏也用） ====================
 
+// ==================== 副标题生成（公开，按钮栏也用） ====================
+
 String ruleSubtitle(PreprocessingRule rule) {
   if (rule.script != null && rule.script!.isNotEmpty) {
     return '(内置脚本: ${rule.script})';
@@ -1075,6 +1077,14 @@ String ruleSubtitle(PreprocessingRule rule) {
 
     case RuleKind.replace:
       if (rule.findPattern.isEmpty) return '(无内容)';
+
+      // 内置规则：只标实现类型，不显示 7 开关（内置没有开关）。
+      if (rule.isBuiltin) {
+        final t = rule.implType ?? '正则';
+        return '/${rule.findPattern}/ → "${rule.replaceWith}"\n[$t]';
+      }
+
+      // 自定义规则：显示 7 开关。
       final flags = <String>[];
       if (rule.findLiteral) {
         flags.add('字面');
