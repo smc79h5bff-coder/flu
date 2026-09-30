@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../edit/presentation/edit_screen.dart';
+import '../file_browser/presentation/single_file_editor_screen.dart';
 import 'reader_models.dart';
 import 'reader_pagination.dart';
 import 'reader_repository.dart';
