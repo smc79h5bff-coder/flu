@@ -692,30 +692,46 @@ Future<void> _openEditor() async {
       children: [
         // 正文区（点击翻下一页，右划翻上一页）
         Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _nextPage,
-            onHorizontalDragEnd: _onHorizontalDragEnd,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: kReaderHorizontalPadding,
-                vertical: kReaderVerticalPadding,
+  child: GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: _nextPage,
+    onHorizontalDragEnd: _onHorizontalDragEnd,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: kReaderHorizontalPadding,
+        vertical: kReaderVerticalPadding,
+      ),
+      child: SelectionArea(
+        contextMenuBuilder: (ctx, state) {
+          final content = state.selectedContent;
+          if (content == null || content.plainText.trim().isEmpty) {
+            return const SizedBox.shrink();
+          }
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _showWordMenuAndClear(content.plainText.trim(), state);
+          });
+          return const SizedBox.shrink();
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = range.startLine; i < range.endLine; i++)
+              _buildLine(
+                i,
+                settings,
+                size.width - kReaderHorizontalPadding * 2,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = range.startLine; i < range.endLine; i++)
-                    _buildLine(
-                      i,
-                      settings,
-                      size.width - kReaderHorizontalPadding * 2,
-                    ),
-                ],
-              ),
-            ),
-          ),
+          ],
         ),
+      ),
+    ),
+  ),
+),
 
+
+
+        
         // 顶部 40px 热区 → 打开菜单
         Positioned(
           top: 0,
@@ -753,17 +769,13 @@ Future<void> _openEditor() async {
   }
 
   Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
-    final spans = _buildLineSpans(lineIdx, settings);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onLongPressStart: (d) =>
-          _onLineLongPress(lineIdx, d.localPosition, maxWidth, settings),
-      child: SizedBox(
-        width: double.infinity,
-        child: Text.rich(TextSpan(children: spans), softWrap: true),
-      ),
-    );
-  }
+  final spans = _buildLineSpans(lineIdx, settings);
+  return SizedBox(
+    width: double.infinity,
+    child: Text.rich(TextSpan(children: spans), softWrap: true),
+  );
+}
+    
 
   List<InlineSpan> _buildLineSpans(int lineIdx, ReaderSettings settings) {
     final line = _lines[lineIdx];
