@@ -5597,3 +5597,633 @@ NFC 规范化就是把写法2统一成写法1。
   }
 }
 
+
+// ==================== 参数解析辅助 ====================
+
+String _pStr(Map<String, String> p, String key, [String fallback = '']) {
+  final v = p[key];
+  if (v == null) return fallback;
+  return v;
+}
+
+int _pInt(Map<String, String> p, String key, [int fallback = 0]) {
+  final v = p[key];
+  if (v == null || v.isEmpty) return fallback;
+  return int.tryParse(v) ?? fallback;
+}
+
+bool _pBool(Map<String, String> p, String key, [bool fallback = false]) {
+  final v = p[key];
+  if (v == null) return fallback;
+  return v == 'true';
+}
+
+/// 把字符串里的 \n \r \t \\ \0 还原成真字符。
+String _unescape(String s) {
+  if (!s.contains(r'\')) return s;
+  final sb = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    final c = s[i];
+    if (c == r'\' && i + 1 < s.length) {
+      final n = s[i + 1];
+      switch (n) {
+        case 'n':
+          sb.write('\n');
+          i++;
+          continue;
+        case 'r':
+          sb.write('\r');
+          i++;
+          continue;
+        case 't':
+          sb.write('\t');
+          i++;
+          continue;
+        case '0':
+          sb.write('\u0000');
+          i++;
+          continue;
+        case r'\':
+          sb.write(r'\');
+          i++;
+          continue;
+      }
+    }
+    sb.write(c);
+  }
+  return sb.toString();
+}
+
+// ==================== 行操作实现 ====================
+
+String _lineFilter(String text, Map<String, String> p) {
+  final keyword = _pStr(p, 'keyword');
+  if (keyword.isEmpty) return text;
+  final mode = _pStr(p, 'mode', 'drop');
+  final match = _pStr(p, 'match', 'contains');
+  final caseSensitive = _pBool(p, 'caseSensitive', false);
+
+  RegExp? re;
+  if (match == 'regex') {
+    try {
+      re = RegExp(keyword, caseSensitive: caseSensitive);
+    } catch (_) {
+      return text;
+    }
+  }
+
+  bool hit(String l) {
+    switch (match) {
+      case 'equals':
+        return caseSensitive
+            ? l == keyword
+            : l.toLowerCase() == keyword.toLowerCase();
+      case 'startsWith':
+        return caseSensitive
+            ? l.startsWith(keyword)
+            : l.toLowerCase().startsWith(keyword.toLowerCase());
+      case 'endsWith':
+        return caseSensitive
+            ? l.endsWith(keyword)
+            : l.toLowerCase().endsWith(keyword.toLowerCase());
+      case 'regex':
+        return re!.hasMatch(l);
+      case 'contains':
+      default:
+        return caseSensitive
+            ? l.contains(keyword)
+            : l.toLowerCase().contains(keyword.toLowerCase());
+    }
+  }
+
+  final lines = text.split('\n');
+  final out = <String>[];
+  for (final l in lines) {
+    final h = hit(l);
+    if (mode == 'keep' ? h : !h) out.add(l);
+  }
+  return out.join('\n');
+}
+
+String _sliceLines(String text, Map<String, String> p) {
+  final start = _pInt(p, 'start', 1);
+  final end = _pInt(p, 'end', 999999999);
+  final lines = text.split('\n');
+  var s = start - 1;
+  if (s < 0) s = 0;
+  if (s > lines.length) s = lines.length;
+  var e = end;
+  if (e < s) e = s;
+  if (e > lines.length) e = lines.length;
+  return lines.sublist(s, e).join('\n');
+}
+
+String _removeEmptyLines(String text, Map<String, String> p) {
+  return text.split('\n').where((l) => l.isNotEmpty).join('\n');
+}
+
+String _removeBlankLines(String text, Map<String, String> p) {
+  return text.split('\n').where((l) => l.trim().isNotEmpty).join('\n');
+}
+
+String _addLineNumbers(String text, Map<String, String> p) {
+  return _applyLineNumbers(text, p, skipEmpty: false);
+}
+
+String _addLineNumbersSkipEmpty(String text, Map<String, String> p) {
+  return _applyLineNumbers(text, p, skipEmpty: true);
+}
+
+String _applyLineNumbers(
+  String text,
+  Map<String, String> p, {
+  required bool skipEmpty,
+}) {
+  final start = _pInt(p, 'start', 1);
+  var format = _pStr(p, 'format', 'N. ');
+  if (format.isEmpty) format = 'N. ';
+  final lines = text.split('\n');
+  final out = <String>[];
+  var n = start;
+  for (final l in lines) {
+    if (skipEmpty && l.trim().isEmpty) {
+      out.add(l);
+    } else {
+      out.add(format.replaceAll('N', n.toString()) + l);
+      n++;
+    }
+  }
+  return out.join('\n');
+}
+
+String _trimLines(String text, Map<String, String> p) {
+  return text.split('\n').map((l) => l.trim()).join('\n');
+}
+
+String _trimLinesLeft(String text, Map<String, String> p) {
+  return text.split('\n').map((l) => l.trimLeft()).join('\n');
+}
+
+String _trimLinesRight(String text, Map<String, String> p) {
+  return text.split('\n').map((l) => l.trimRight()).join('\n');
+}
+
+String _mergeAllLines(String text, Map<String, String> p) {
+  final sep = _unescape(_pStr(p, 'separator', ' '));
+  return text.split('\n').join(sep);
+}
+
+// ==================== 字符替换实现 ====================
+
+String _deleteString(String text, Map<String, String> p) {
+  final target = _pStr(p, 'target');
+  if (target.isEmpty) return text;
+  return text.replaceAll(target, '');
+}
+
+String _replaceString(String text, Map<String, String> p) {
+  final target = _pStr(p, 'target');
+  if (target.isEmpty) return text;
+  final rep = _pStr(p, 'replacement');
+  return text.replaceAll(target, rep);
+}
+
+// ==================== 空白处理实现 ====================
+
+String _removeAllSpaces(String text, Map<String, String> p) {
+  return text.replaceAll(' ', '');
+}
+
+String _removeAllTabs(String text, Map<String, String> p) {
+  return text.replaceAll('\t', '');
+}
+
+/// \s 在 Dart 里覆盖所有 Unicode 空白（含全角空格 U+3000、NBSP、换行）。
+String _removeAllWhitespace(String text, Map<String, String> p) {
+  return text.replaceAll(RegExp(r'\s+'), '');
+}
+
+/// 中英文标点集合。
+const Set<String> _punctuationSet = {
+  '!', '"', '#', r'$', '%', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/',
+  ':', ';', '<', '=', '>', '?', '@', '[', r'\', ']', '^', '_', '`', '{', '|',
+  '}', '~',
+  '，', '。', '！', '？', '；', '：', '、',
+  '\u201C', '\u201D', '\u2018', '\u2019',
+  '（', '）', '【', '】', '《', '》', '〈', '〉', '「', '」', '『', '』',
+  '—', '…', '·', '～', '＿', '－', '／', '＼',
+};
+
+String _removePunctuation(String text, Map<String, String> p) {
+  final sb = StringBuffer();
+  for (final rune in text.runes) {
+    final c = String.fromCharCode(rune);
+    if (c == '\u3000') {
+      sb.write(c);
+      continue;
+    }
+    if (!_punctuationSet.contains(c)) sb.write(c);
+  }
+  return sb.toString();
+}
+
+String _removeDigits(String text, Map<String, String> p) {
+  return text.replaceAll(RegExp(r'[0-9]'), '');
+}
+
+String _removeEnglish(String text, Map<String, String> p) {
+  return text.replaceAll(RegExp(r'[a-zA-Z]'), '');
+}
+
+String _removeNonChinese(String text, Map<String, String> p) {
+  return text.replaceAll(RegExp(r'[^\u4e00-\u9fa5]'), '');
+}
+
+final RegExp _invisibleChars = RegExp(
+  '[\u00AD\u200B-\u200F\u202A-\u202E'
+  '\u2060-\u2064\u2066-\u2069\uFEFF]',
+);
+
+String _removeInvisible(String text, Map<String, String> p) {
+  return text.replaceAll(_invisibleChars, '');
+}
+
+final RegExp _runOfSpaces = RegExp(
+  '[ \t\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u200B\u200C\u200D'
+  '\u2060\uFEFF]+',
+);
+
+String _collapseSpaces(String text, Map<String, String> p) {
+  return text.replaceAll(_runOfSpaces, ' ');
+}
+
+String _collapseNewlines(String text, Map<String, String> p) {
+  var t = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  return t.replaceAll(RegExp(r'\n{2,}'), '\n');
+}
+
+String _foldNewlines(String text, Map<String, String> p) {
+  var n = _pInt(p, 'n', 3);
+  var m = _pInt(p, 'm', 2);
+  if (n < 1) n = 1;
+  if (m < 0) m = 0;
+  var t = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  final re = RegExp('\n{$n,}');
+  return t.replaceAllMapped(re, (_) => '\n' * m);
+}
+
+final RegExp _runOfDots = RegExp('[.\u3002\u2026\u2025]{2,}');
+
+String _collapseDots(String text, Map<String, String> p) {
+  return text.replaceAll(_runOfDots, '\u2026');
+}
+
+// ==================== 大小写与全半角实现 ====================
+
+String _toUpperCase(String text, Map<String, String> p) {
+  return text.toUpperCase();
+}
+
+String _fullToHalf(String text, Map<String, String> p) {
+  return String.fromCharCodes(text.runes.map((c) {
+    if (c >= 0xFF01 && c <= 0xFF5E) return c - 0xFEE0;
+    if (c == 0x3000) return 0x20;
+    return c;
+  }));
+}
+
+String _halfToFull(String text, Map<String, String> p) {
+  return String.fromCharCodes(text.runes.map((c) {
+    if (c >= 0x21 && c <= 0x7E) return c + 0xFEE0;
+    if (c == 0x20) return 0x3000;
+    return c;
+  }));
+}
+
+String _fullSpaceToHalf(String text, Map<String, String> p) {
+  return text.replaceAll('\u3000', ' ');
+}
+
+String _tabToSpaces(String text, Map<String, String> p) {
+  var n = _pInt(p, 'n', 4);
+  if (n < 1) n = 1;
+  return text.replaceAll('\t', ' ' * n);
+}
+
+String _spacesToTab(String text, Map<String, String> p) {
+  var n = _pInt(p, 'n', 4);
+  if (n < 1) n = 1;
+  final re = RegExp(' ' + '{$n}');
+  return text.replaceAll(re, '\t');
+}
+
+// ==================== 标点转换实现 ====================
+
+const Map<String, String> _cnToEnPunct = {
+  '，': ',',
+  '。': '.',
+  '！': '!',
+  '？': '?',
+  '；': ';',
+  '：': ':',
+  '\u201C': '"',
+  '\u201D': '"',
+  '\u2018': "'",
+  '\u2019': "'",
+  '（': '(',
+  '）': ')',
+  '【': '[',
+  '】': ']',
+  '《': '<',
+  '》': '>',
+  '〈': '<',
+  '〉': '>',
+  '「': '"',
+  '」': '"',
+  '『': '"',
+  '』': '"',
+  '、': ',',
+  '—': '-',
+  '…': '...',
+  '～': '~',
+  '・': '·',
+};
+
+const Map<String, String> _enToCnPunct = {
+  ',': '，',
+  '.': '。',
+  '!': '！',
+  '?': '？',
+  ';': '；',
+  ':': '：',
+  '(': '（',
+  ')': '）',
+  '[': '【',
+  ']': '】',
+  '<': '《',
+  '>': '》',
+  '-': '—',
+  '~': '～',
+};
+
+String _cnPunctToEn(String text, Map<String, String> p) {
+  var out = text;
+  for (final e in _cnToEnPunct.entries) {
+    out = out.replaceAll(e.key, e.value);
+  }
+  return out;
+}
+
+String _enPunctToCn(String text, Map<String, String> p) {
+  var out = text;
+  for (final e in _enToCnPunct.entries) {
+    out = out.replaceAll(e.key, e.value);
+  }
+  return out;
+}
+
+String _unifyQuotes(String text, Map<String, String> p) {
+  final target = _pStr(p, 'target', 'curly');
+  String left, right;
+  switch (target) {
+    case 'straight':
+      left = '"';
+      right = '"';
+      break;
+    case 'corner':
+      left = '「';
+      right = '」';
+      break;
+    case 'double-corner':
+      left = '『';
+      right = '』';
+      break;
+    case 'curly':
+    default:
+      left = '\u201C';
+      right = '\u201D';
+      break;
+  }
+  const leftSources = ['\u201C', '「', '『', '\u2018'];
+  const rightSources = ['\u201D', '」', '』', '\u2019'];
+
+  var out = text;
+  for (final c in leftSources) {
+    out = out.replaceAll(c, left);
+  }
+  for (final c in rightSources) {
+    out = out.replaceAll(c, right);
+  }
+  return out;
+}
+
+// ==================== 数字实现 ====================
+
+String _digitsToPlaceholder(String text, Map<String, String> p) {
+  final ph = _pStr(p, 'placeholder', '<NUM>');
+  return text.replaceAll(RegExp(r'[0-9]+'), ph);
+}
+
+// ---- 中文数字 → 阿拉伯 ----
+
+const Map<String, int> _cnDigitMap = {
+  '零': 0, '〇': 0,
+  '一': 1, '壹': 1, '幺': 1,
+  '二': 2, '贰': 2, '两': 2,
+  '三': 3, '叁': 3, '仨': 3,
+  '四': 4, '肆': 4,
+  '五': 5, '伍': 5,
+  '六': 6, '陆': 6,
+  '七': 7, '柒': 7,
+  '八': 8, '捌': 8,
+  '九': 9, '玖': 9,
+};
+
+const Map<String, int> _cnUnitMap = {
+  '十': 10, '拾': 10,
+  '百': 100, '佰': 100,
+  '千': 1000, '仟': 1000,
+  '万': 10000, '萬': 10000,
+  '亿': 100000000, '億': 100000000,
+};
+
+String _chineseToArabic(String text, Map<String, String> p) {
+  final allChars = <String>[
+    ..._cnDigitMap.keys,
+    ..._cnUnitMap.keys,
+  ];
+  final escaped = allChars.map((c) => RegExp.escape(c)).join();
+  final re = RegExp('[$escaped]+');
+  return text.replaceAllMapped(re, (m) {
+    final s = m[0]!;
+    final n = _parseChineseNumber(s);
+    return n.toString();
+  });
+}
+
+int _parseChineseNumber(String s) {
+  final hasUnit = s.split('').any(_cnUnitMap.containsKey);
+  if (!hasUnit) {
+    var n = 0;
+    for (var i = 0; i < s.length; i++) {
+      n = n * 10 + (_cnDigitMap[s[i]] ?? 0);
+    }
+    return n;
+  }
+
+  int result = 0;
+  int section = 0;
+  int current = 0;
+  for (var i = 0; i < s.length; i++) {
+    final c = s[i];
+    if (_cnDigitMap.containsKey(c)) {
+      current = _cnDigitMap[c]!;
+    } else if (_cnUnitMap.containsKey(c)) {
+      final u = _cnUnitMap[c]!;
+      if (u >= 10000) {
+        section = (section + current) * u;
+        result += section;
+        section = 0;
+        current = 0;
+      } else {
+        if (current == 0) current = 1;
+        section += current * u;
+        current = 0;
+      }
+    }
+  }
+  return result + section + current;
+}
+
+// ---- 阿拉伯 → 中文 ----
+
+const List<String> _cnDigits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+
+String _arabicToChinese(String text, Map<String, String> p) {
+  final style = _pStr(p, 'style', 'digit');
+  return text.replaceAllMapped(RegExp(r'[0-9]+'), (m) {
+    final s = m[0]!;
+    if (style == 'digit') {
+      return s.split('').map((c) => _cnDigits[int.parse(c)]).join();
+    }
+    final n = int.tryParse(s);
+    if (n == null) return s;
+    return _intToChinese(n);
+  });
+}
+
+String _intToChinese(int n) {
+  if (n == 0) return '零';
+  if (n < 0) return '负' + _intToChinese(-n);
+
+  final sections = <int>[];
+  var m = n;
+  while (m > 0) {
+    sections.add(m % 10000);
+    m ~/= 10000;
+  }
+
+  const unitSmall = ['', '十', '百', '千'];
+  const unitBig = ['', '万', '亿', '兆'];
+
+  final parts = <String>[];
+  bool lastZero = false;
+
+  for (var i = sections.length - 1; i >= 0; i--) {
+    final sec = sections[i];
+    if (sec == 0) {
+      if (parts.isNotEmpty) lastZero = true;
+      continue;
+    }
+    if (lastZero && parts.isNotEmpty) {
+      parts.add('零');
+    }
+    lastZero = false;
+
+    final secParts = <String>[];
+    var s = sec;
+    var unitIdx = 0;
+    bool pendingZero = false;
+    while (s > 0) {
+      final d = s % 10;
+      if (d == 0) {
+        if (secParts.isNotEmpty) pendingZero = true;
+      } else {
+        if (pendingZero) {
+          secParts.insert(0, '零');
+          pendingZero = false;
+        }
+        secParts.insert(0, _cnDigits[d] + unitSmall[unitIdx]);
+      }
+      s ~/= 10;
+      unitIdx++;
+    }
+    var secStr = secParts.join();
+    if (secStr.startsWith('一十')) secStr = secStr.substring(1);
+    parts.add(secStr + unitBig[i]);
+  }
+
+  var out = parts.join();
+  if (out.startsWith('一十')) out = out.substring(1);
+  return out;
+}
+
+// ==================== Unicode NFC（近似实现） ====================
+
+const Map<String, String> _nfcCombos = {
+  'a\u0300': '\u00E0', 'a\u0301': '\u00E1', 'a\u0302': '\u00E2',
+  'a\u0303': '\u00E3', 'a\u0308': '\u00E4', 'a\u030A': '\u00E5',
+  'e\u0300': '\u00E8', 'e\u0301': '\u00E9', 'e\u0302': '\u00EA',
+  'e\u0308': '\u00EB',
+  'i\u0300': '\u00EC', 'i\u0301': '\u00ED', 'i\u0302': '\u00EE',
+  'i\u0308': '\u00EF',
+  'o\u0300': '\u00F2', 'o\u0301': '\u00F3', 'o\u0302': '\u00F4',
+  'o\u0303': '\u00F5', 'o\u0308': '\u00F6',
+  'u\u0300': '\u00F9', 'u\u0301': '\u00FA', 'u\u0302': '\u00FB',
+  'u\u0308': '\u00FC',
+  'A\u0300': '\u00C0', 'A\u0301': '\u00C1', 'A\u0302': '\u00C2',
+  'A\u0303': '\u00C3', 'A\u0308': '\u00C4', 'A\u030A': '\u00C5',
+  'E\u0300': '\u00C8', 'E\u0301': '\u00C9', 'E\u0302': '\u00CA',
+  'E\u0308': '\u00CB',
+  'I\u0300': '\u00CC', 'I\u0301': '\u00CD', 'I\u0302': '\u00CE',
+  'I\u0308': '\u00CF',
+  'O\u0300': '\u00D2', 'O\u0301': '\u00D3', 'O\u0302': '\u00D4',
+  'O\u0303': '\u00D5', 'O\u0308': '\u00D6',
+  'U\u0300': '\u00D9', 'U\u0301': '\u00DA', 'U\u0302': '\u00DB',
+  'U\u0308': '\u00DC',
+  'n\u0303': '\u00F1', 'N\u0303': '\u00D1',
+  'c\u0327': '\u00E7', 'C\u0327': '\u00C7',
+};
+
+String _normalizeNfc(String text, Map<String, String> p) {
+  if (!text.contains('\u0300') &&
+      !text.contains('\u0301') &&
+      !text.contains('\u0302') &&
+      !text.contains('\u0303') &&
+      !text.contains('\u0308') &&
+      !text.contains('\u030A') &&
+      !text.contains('\u0327')) {
+    return text;
+  }
+  var out = text;
+  for (final e in _nfcCombos.entries) {
+    out = out.replaceAll(e.key, e.value);
+  }
+  return out;
+}
+
+// ==================== JSON 辅助（给 UI 用） ====================
+
+/// 序列化参数 map。
+String encodeParams(Map<String, String> p) => jsonEncode(p);
+
+/// 反序列化参数 map。
+Map<String, String> decodeParams(String raw) {
+  if (raw.isEmpty) return const {};
+  try {
+    final m = jsonDecode(raw) as Map<String, dynamic>;
+    return m.map((k, v) => MapEntry(k, v?.toString() ?? ''));
+  } catch (_) {
+    return const {};
+  }
+}
