@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-
+import 'reader_panels.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -201,80 +201,82 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     });
   }
 
-  Widget _buildTopMenuSheet(BuildContext ctx) {
-    final pct = _pagination == null
-        ? '-'
-        : '${((_currentPage + 1) / _pagination!.pageCount * 100).toStringAsFixed(1)}%';
-    return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
+  
+Widget _buildTopMenuSheet(BuildContext ctx) {
+  final pct = _pagination == null
+      ? '-'
+      : '${((_currentPage + 1) / _pagination!.pageCount * 100).toStringAsFixed(1)}%';
+  return SafeArea(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 8),
+        Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade300,
+            borderRadius: BorderRadius.circular(2),
           ),
-          const SizedBox(height: 12),
-          ListTile(
-            leading: const Icon(Icons.tune),
-            title: Text(pct, style: const TextStyle(fontSize: 18)),
-            subtitle: const Text('点击调整进度'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _showProgressSlider();
-            },
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.search),
-            title: const Text('查找'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _stubFeature('查找');
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.bookmark_add_outlined),
-            title: const Text('加书签'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _addBookmark();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.bookmarks_outlined),
-            title: const Text('书签与高亮'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _stubFeature('管理页');
-            },
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.edit),
-            title: const Text('编辑'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _stubFeature('编辑');
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('设置'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _stubFeature('设置');
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
-  }
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          leading: const Icon(Icons.tune),
+          title: Text(pct, style: const TextStyle(fontSize: 18)),
+          subtitle: const Text('点击调整进度'),
+          onTap: () {
+            Navigator.pop(ctx);
+            _showProgressSlider();
+          },
+        ),
+        const Divider(height: 1),
+        ListTile(
+          leading: const Icon(Icons.search),
+          title: const Text('查找'),
+          onTap: () {
+            Navigator.pop(ctx);
+            _openFind();
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.bookmark_add_outlined),
+          title: const Text('加书签'),
+          onTap: () {
+            Navigator.pop(ctx);
+            _addBookmark();
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.bookmarks_outlined),
+          title: const Text('书签与高亮'),
+          onTap: () {
+            Navigator.pop(ctx);
+            _openManager();
+          },
+        ),
+        const Divider(height: 1),
+        ListTile(
+          leading: const Icon(Icons.edit),
+          title: const Text('编辑'),
+          onTap: () async {
+            Navigator.pop(ctx);
+            await _openEditor();
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.settings),
+          title: const Text('设置'),
+          onTap: () {
+            Navigator.pop(ctx);
+            showReaderSettingsSheet(context);
+          },
+        ),
+        const SizedBox(height: 8),
+      ],
+    ),
+  );
+}
+    
 
   void _showProgressSlider() {
     if (_pagination == null) return;
