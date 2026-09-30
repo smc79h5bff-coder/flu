@@ -271,6 +271,42 @@ class BuiltinRuleEnablesNotifier
     update({...state, id: enabled});
   }
 }
+
+/// 被隐藏的内置规则 id 集合。
+/// 被隐藏的规则不出现在比较设置列表里，但仍然保留配置。
+final builtinRuleHiddenProvider =
+    NotifierProvider<BuiltinRuleHiddenNotifier, Set<String>>(
+  BuiltinRuleHiddenNotifier.new,
+);
+
+class BuiltinRuleHiddenNotifier
+    extends PersistentNotifier<Set<String>> {
+  @override
+  String get key => PrefKeys.builtinRuleHidden;
+
+  @override
+  Set<String> get defaultValue => const {};
+
+  @override
+  Set<String> decode(String raw) {
+    final list = jsonDecode(raw) as List<dynamic>;
+    return list.map((e) => e as String).toSet();
+  }
+
+  @override
+  String encode(Set<String> value) => jsonEncode(value.toList());
+
+  void hide(String id) => update({...state, id});
+
+  void restore(String id) {
+    final next = Set<String>.from(state);
+    next.remove(id);
+    update(next);
+  }
+
+  void restoreAll() => update(const {});
+}
+
 /// 内置规则名称覆盖表：ruleId → 用户改的名字。
 /// 空表 = 全都用内置默认名。
 final builtinRuleNameOverridesProvider = NotifierProvider<
