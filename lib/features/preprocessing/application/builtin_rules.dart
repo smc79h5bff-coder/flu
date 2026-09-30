@@ -20,6 +20,8 @@ class BuiltinRules {
           replaceWith: '\n',
           enabled: true,
           isBuiltin: true,
+          implType: '正则',
+          implDetail: r'查找：\r\n|\r' '\n替换：\n',
         ),
         PreprocessingRule(
           id: 'norm_ws',
@@ -28,6 +30,8 @@ class BuiltinRules {
           replaceWith: ' ',
           enabled: true,
           isBuiltin: true,
+          implType: '正则',
+          implDetail: r'查找：[ \t\u3000]{2,}' '\n替换：一个半角空格',
         ),
         PreprocessingRule(
           id: 'trim_line',
@@ -36,6 +40,9 @@ class BuiltinRules {
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
+          implType: '正则',
+          implDetail:
+              r'查找：^[ \t\u3000]+|[ \t\u3000]+$' '\n替换：（空）',
         ),
         PreprocessingRule(
           id: 'norm_quote',
@@ -44,6 +51,8 @@ class BuiltinRules {
           replaceWith: '"',
           enabled: false,
           isBuiltin: true,
+          implType: '正则',
+          implDetail: r'查找：[""“”]' '\n替换：英文直引号 "',
         ),
         PreprocessingRule(
           id: 'half_to_full',
@@ -51,6 +60,13 @@ class BuiltinRules {
           script: 'halfToFull',
           enabled: false,
           isBuiltin: true,
+          implType: '代码',
+          implDetail: '逐字符 unicode 映射：\n'
+              '半角 U+0021~007E → 加 0xFEE0\n'
+              '半角空格 U+0020 → U+3000',
+          replacementType: 'warn',
+          replacementDetail: '正则能做，但要写 95 个字符的映射，'
+              '非常长，不建议',
         ),
         PreprocessingRule(
           id: 'en_punct_to_cn',
@@ -58,6 +74,12 @@ class BuiltinRules {
           script: 'enPunctToCn',
           enabled: false,
           isBuiltin: true,
+          implType: '代码',
+          implDetail: '逐字符查表替换\n映射表约 11 对',
+          replacementType: 'ok',
+          replacementDetail: '正则：逐条 replaceAll，'
+              '如 ,→， .→。 !→！ 等\n'
+              '性能：大致相当',
         ),
 
         // ============ 原「忽略项」搬入 ============
@@ -69,14 +91,21 @@ class BuiltinRules {
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
+          implType: '正则',
+          implDetail: r'查找：[\u00A0\u00AD\u200B-\u200F'
+              r'\u202A-\u202E\u202F\u2060-\u2064'
+              r'\u2066-\u2069\uFEFF]'
+              '\n替换：（空）',
         ),
         PreprocessingRule(
           id: 'ig_ws',
-          name: '删掉半角空格、Tab、全角空格',
+          name: '删掉空白符号',
           findPattern: r'[ \t\u3000]+',
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
+          implType: '正则',
+          implDetail: r'查找：[ \t\u3000]+' '\n替换：（空）',
         ),
         PreprocessingRule(
           id: 'ig_empty',
@@ -84,6 +113,15 @@ class BuiltinRules {
           script: 'dropEmptyLines',
           enabled: true,
           isBuiltin: true,
+          implType: '代码',
+          implDetail: "text.split('\\n')\n"
+              "    .where((l) => l.isNotEmpty)\n"
+              "    .join('\\n')",
+          replacementType: 'ok',
+          replacementDetail: r'正则：\n{2,} → \n' '\n'
+              '性能：大致相当',
+          replacementNote: '正则改写必须用 {2,}，'
+              '写 \\n\\n 会漏掉 3 个以上连续换行',
         ),
         PreprocessingRule(
           id: 'ig_num',
@@ -92,6 +130,8 @@ class BuiltinRules {
           replaceWith: '<NUM>',
           enabled: false,
           isBuiltin: true,
+          implType: '正则',
+          implDetail: r'查找：[0-9]+' '\n替换：<NUM>',
         ),
         PreprocessingRule(
           id: 'ig_case',
@@ -99,6 +139,11 @@ class BuiltinRules {
           script: 'lowercase',
           enabled: false,
           isBuiltin: true,
+          implType: '代码',
+          implDetail: 'text.toLowerCase()',
+          replacementType: 'impossible',
+          replacementDetail: '正则只能匹配和替换，'
+              '不能把字符变大写或小写',
         ),
         PreprocessingRule(
           id: 'ig_ansi',
@@ -106,6 +151,12 @@ class BuiltinRules {
           script: 'unifyAnsi',
           enabled: false,
           isBuiltin: true,
+          implType: '代码',
+          implDetail: 'GBK 编解码：\n'
+              '1. GBK 编码再解码，能无损还原则保留\n'
+              '2. 否则逐字符判断，GBK 无法表示的删掉',
+          replacementType: 'impossible',
+          replacementDetail: '需要调 GBK 编解码器，正则做不到',
         ),
       ];
 
