@@ -50,6 +50,8 @@ class PreprocessingRule {
     this.replacementType,
     this.replacementDetail,
     this.replacementNote,
+    // ====== 详细说明（长按弹窗里显示） ======
+    this.helpText,
   });
 
   final String id;
@@ -117,6 +119,12 @@ class PreprocessingRule {
   /// 替代方案额外备注（可选）。
   final String? replacementNote;
 
+  // ==================== 详细说明 ====================
+
+  /// 详细说明（大段文字，长按弹窗里显示）。
+  /// 内置规则和预置功能都会填；用户自建规则一般为 null。
+  final String? helpText;
+
   PreprocessingRule copyWith({
     String? name,
     RuleKind? kind,
@@ -140,6 +148,7 @@ class PreprocessingRule {
     String? replacementType,
     String? replacementDetail,
     String? replacementNote,
+    String? helpText,
   }) =>
       PreprocessingRule(
         id: id,
@@ -166,6 +175,7 @@ class PreprocessingRule {
         replacementType: replacementType ?? this.replacementType,
         replacementDetail: replacementDetail ?? this.replacementDetail,
         replacementNote: replacementNote ?? this.replacementNote,
+        helpText: helpText ?? this.helpText,
       );
 
   Map<String, dynamic> toJson() => {
@@ -194,6 +204,7 @@ class PreprocessingRule {
         if (replacementDetail != null)
           'replacementDetail': replacementDetail,
         if (replacementNote != null) 'replacementNote': replacementNote,
+        if (helpText != null) 'helpText': helpText,
       };
 
   factory PreprocessingRule.fromJson(Map<String, dynamic> j) {
@@ -252,6 +263,7 @@ class PreprocessingRule {
       replacementType: j['replacementType'] as String?,
       replacementDetail: j['replacementDetail'] as String?,
       replacementNote: j['replacementNote'] as String?,
+      helpText: j['helpText'] as String?,
     );
   }
 }
