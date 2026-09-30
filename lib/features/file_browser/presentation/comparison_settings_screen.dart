@@ -533,8 +533,11 @@ class _ComparisonSettingsScreenState
   }
 
   Future<void> _showRuleDetail(PreprocessingRule rule) async {
-    final detail = ruleSubtitle(rule);
-    final kindLabel = switch (rule.kind) {
+  // 主内容 = ruleSubtitle 的输出。
+  // 如果有 helpText，拼到下面一起显示。
+  final detail = ruleSubtitle(rule);
+  final helpText = _resolveHelpText(rule);
+  final kindLabel = switch (rule.kind) {
       RuleKind.replace => '查找替换',
       RuleKind.preset => '预置功能',
       RuleKind.js => 'JS 脚本',
@@ -598,13 +601,20 @@ class _ComparisonSettingsScreenState
                   const Divider(height: 1),
                   const SizedBox(height: 12),
                   SelectableText(
-                    detail.isEmpty ? '(无内容)' : detail,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      height: 1.6,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
+  () {
+    final main = detail.isEmpty ? '(无内容)' : detail;
+    if (helpText == null || helpText.isEmpty) {
+      return main;
+    }
+    return '$main\n\n${'─' * 30}\n\n$helpText';
+  }(),
+  style: const TextStyle(
+    fontSize: 13,
+    height: 1.6,
+    fontFamily: 'monospace',
+  ),
+),
+                  
                   if (rule.implType != null) ...[
                     const SizedBox(height: 16),
                     const Divider(height: 1),
