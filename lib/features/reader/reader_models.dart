@@ -285,6 +285,10 @@ class ReaderSettings {
     required this.buttonOpacity,
     required this.buttonScale,
     required this.showButtons,
+    required this.topBtnX,
+    required this.topBtnY,
+    required this.bottomBtnX,
+    required this.bottomBtnY,
   });
 
   /// 4.0 - 60.0
@@ -299,15 +303,27 @@ class ReaderSettings {
   /// 浮动按钮透明度 0.1 - 1.0
   final double buttonOpacity;
 
-  /// 浮动按钮整体缩放 0.5 - 2.0
+  /// 浮动按钮整体缩放 0.3 - 5.0（最大约屏幕宽 60%）
   final double buttonScale;
 
   /// 浮动按钮是否显示
   final bool showButtons;
 
-  static const int bgCream = 0xFFFAF7EC; // 米黄
-  static const int bgWhite = 0xFFFFFFFF; // 白
-  static const int bgGreen = 0xFFC7EDCC; // 护眼绿
+  /// 上按钮 X 位置（0.0-1.0 相对屏幕宽）
+  final double topBtnX;
+
+  /// 上按钮 Y 位置（0.0-1.0 相对屏幕高）
+  final double topBtnY;
+
+  /// 下按钮 X 位置
+  final double bottomBtnX;
+
+  /// 下按钮 Y 位置
+  final double bottomBtnY;
+
+  static const int bgCream = 0xFFFAF7EC;
+  static const int bgWhite = 0xFFFFFFFF;
+  static const int bgGreen = 0xFFC7EDCC;
 
   static const ReaderSettings initial = ReaderSettings(
     fontSize: 17.0,
@@ -316,6 +332,10 @@ class ReaderSettings {
     buttonOpacity: 0.7,
     buttonScale: 1.0,
     showButtons: true,
+    topBtnX: 0.90,
+    topBtnY: 0.15,
+    bottomBtnX: 0.90,
+    bottomBtnY: 0.85,
   );
 
   Map<String, dynamic> toJson() => {
@@ -325,6 +345,10 @@ class ReaderSettings {
         'op': buttonOpacity,
         'sc': buttonScale,
         'sb': showButtons,
+        'tx': topBtnX,
+        'ty': topBtnY,
+        'bx': bottomBtnX,
+        'by': bottomBtnY,
       };
 
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
@@ -334,6 +358,10 @@ class ReaderSettings {
         buttonOpacity: (j['op'] as num?)?.toDouble() ?? 0.7,
         buttonScale: (j['sc'] as num?)?.toDouble() ?? 1.0,
         showButtons: j['sb'] as bool? ?? true,
+        topBtnX: (j['tx'] as num?)?.toDouble() ?? 0.90,
+        topBtnY: (j['ty'] as num?)?.toDouble() ?? 0.15,
+        bottomBtnX: (j['bx'] as num?)?.toDouble() ?? 0.90,
+        bottomBtnY: (j['by'] as num?)?.toDouble() ?? 0.85,
       );
 
   ReaderSettings copyWith({
@@ -343,6 +371,10 @@ class ReaderSettings {
     double? buttonOpacity,
     double? buttonScale,
     bool? showButtons,
+    double? topBtnX,
+    double? topBtnY,
+    double? bottomBtnX,
+    double? bottomBtnY,
   }) =>
       ReaderSettings(
         fontSize: fontSize ?? this.fontSize,
@@ -351,6 +383,10 @@ class ReaderSettings {
         buttonOpacity: buttonOpacity ?? this.buttonOpacity,
         buttonScale: buttonScale ?? this.buttonScale,
         showButtons: showButtons ?? this.showButtons,
+        topBtnX: topBtnX ?? this.topBtnX,
+        topBtnY: topBtnY ?? this.topBtnY,
+        bottomBtnX: bottomBtnX ?? this.bottomBtnX,
+        bottomBtnY: bottomBtnY ?? this.bottomBtnY,
       );
 
   String encode() => jsonEncode(toJson());
@@ -365,6 +401,9 @@ class ReaderSettings {
     }
   }
 }
+    
+  
+
 
 /// ==================== 查找历史项 ====================
 class FindHistoryItem {
