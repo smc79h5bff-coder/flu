@@ -748,7 +748,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           top: 0,
           left: 0,
           right: 0,
-          height: 40,
+          height: settings.topHotZoneHeight,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: _showTopMenu,
