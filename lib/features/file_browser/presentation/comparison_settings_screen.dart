@@ -1440,6 +1440,8 @@ void _showFloatHint(String msg) {
       DropdownButtonFormField<String>(
         value: _presetId,
         isExpanded: true,
+         MediaQuery.of(context).size.width * 0.4,    // ← 加这行
+        
         decoration: const InputDecoration(
           labelText: '选择功能',
           border: OutlineInputBorder(),
@@ -1687,6 +1689,7 @@ child: Text(
     return DropdownButtonFormField<RuleScope>(
       value: _scope,
       isExpanded: true,
+      MediaQuery.of(context).size.width * 0.6,    // ← 加这行
       decoration: const InputDecoration(
         labelText: '作用范围',
         border: OutlineInputBorder(),
