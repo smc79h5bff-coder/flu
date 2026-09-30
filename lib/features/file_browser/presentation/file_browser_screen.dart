@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
-
+import '../../reader/reader_screen.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
