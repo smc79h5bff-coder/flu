@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:convert';                              // ← 加这行（utf8）
+import 'package:file_picker/file_picker.dart';      // ← 加这行（FilePicker / FileType）
 import '../../reader/reader_screen.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show compute;
