@@ -289,6 +289,7 @@ class ReaderSettings {
     required this.topBtnY,
     required this.bottomBtnX,
     required this.bottomBtnY,
+    required this.topHotZoneHeight,
   });
 
   /// 4.0 - 60.0
@@ -321,48 +322,55 @@ class ReaderSettings {
   /// 下按钮 Y 位置
   final double bottomBtnY;
 
+  /// 顶部菜单热区高度（像素，20-200）
+final double topHotZoneHeight;
+  
   static const int bgCream = 0xFFFAF7EC;
   static const int bgWhite = 0xFFFFFFFF;
   static const int bgGreen = 0xFFC7EDCC;
 
   static const ReaderSettings initial = ReaderSettings(
-    fontSize: 17.0,
-    fontWeight: 400,
-    bgColor: bgCream,
-    buttonOpacity: 0.7,
-    buttonScale: 1.0,
-    showButtons: true,
-    topBtnX: 0.90,
-    topBtnY: 0.15,
-    bottomBtnX: 0.90,
-    bottomBtnY: 0.85,
-  );
+  fontSize: 17.0,
+  fontWeight: 400,
+  bgColor: bgCream,
+  buttonOpacity: 0.7,
+  buttonScale: 1.0,
+  showButtons: true,
+  topBtnX: 0.90,
+  topBtnY: 0.15,
+  bottomBtnX: 0.90,
+  bottomBtnY: 0.85,
+  topHotZoneHeight: 40.0,
+);
 
   Map<String, dynamic> toJson() => {
-        'fs': fontSize,
-        'fw': fontWeight,
-        'bg': bgColor,
-        'op': buttonOpacity,
-        'sc': buttonScale,
-        'sb': showButtons,
-        'tx': topBtnX,
-        'ty': topBtnY,
-        'bx': bottomBtnX,
-        'by': bottomBtnY,
-      };
+      'fs': fontSize,
+      'fw': fontWeight,
+      'bg': bgColor,
+      'op': buttonOpacity,
+      'sc': buttonScale,
+      'sb': showButtons,
+      'tx': topBtnX,
+      'ty': topBtnY,
+      'bx': bottomBtnX,
+      'by': bottomBtnY,
+      'th': topHotZoneHeight,
+    };
 
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
-        fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
-        fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
-        bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
-        buttonOpacity: (j['op'] as num?)?.toDouble() ?? 0.7,
-        buttonScale: (j['sc'] as num?)?.toDouble() ?? 1.0,
-        showButtons: j['sb'] as bool? ?? true,
-        topBtnX: (j['tx'] as num?)?.toDouble() ?? 0.90,
-        topBtnY: (j['ty'] as num?)?.toDouble() ?? 0.15,
-        bottomBtnX: (j['bx'] as num?)?.toDouble() ?? 0.90,
-        bottomBtnY: (j['by'] as num?)?.toDouble() ?? 0.85,
-      );
+      fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
+      fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
+      bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
+      buttonOpacity: (j['op'] as num?)?.toDouble() ?? 0.7,
+      buttonScale: (j['sc'] as num?)?.toDouble() ?? 1.0,
+      showButtons: j['sb'] as bool? ?? true,
+      topBtnX: (j['tx'] as num?)?.toDouble() ?? 0.90,
+      topBtnY: (j['ty'] as num?)?.toDouble() ?? 0.15,
+      bottomBtnX: (j['bx'] as num?)?.toDouble() ?? 0.90,
+      bottomBtnY: (j['by'] as num?)?.toDouble() ?? 0.85,
+      topHotZoneHeight:
+          (j['th'] as num?)?.toDouble() ?? 40.0,
+    );
 
   ReaderSettings copyWith({
     double? fontSize,
@@ -375,6 +383,7 @@ class ReaderSettings {
     double? topBtnY,
     double? bottomBtnX,
     double? bottomBtnY,
+    double? topHotZoneHeight,
   }) =>
       ReaderSettings(
         fontSize: fontSize ?? this.fontSize,
@@ -385,9 +394,10 @@ class ReaderSettings {
         showButtons: showButtons ?? this.showButtons,
         topBtnX: topBtnX ?? this.topBtnX,
         topBtnY: topBtnY ?? this.topBtnY,
-        bottomBtnX: bottomBtnX ?? this.bottomBtnX,
-        bottomBtnY: bottomBtnY ?? this.bottomBtnY,
-      );
+          bottomBtnX: bottomBtnX ?? this.bottomBtnX,
+  bottomBtnY: bottomBtnY ?? this.bottomBtnY,
+  topHotZoneHeight: topHotZoneHeight ?? this.topHotZoneHeight,
+);
 
   String encode() => jsonEncode(toJson());
 
