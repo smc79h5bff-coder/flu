@@ -219,9 +219,9 @@ Row(
                     _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
                         charInsertFgProvider),
                     const SizedBox(height: 24),
-                  ],
-                ),
-              ),
+                  
+                
+              
             ],
           ),
         ),
