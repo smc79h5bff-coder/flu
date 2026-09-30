@@ -74,7 +74,7 @@ final contextSize = ref.watch(contextFontSizeProvider);
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
               Text(
   '正文字号：${bodySize.toStringAsFixed(0)}',
   style: Theme.of(context).textTheme.labelMedium,
