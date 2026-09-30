@@ -271,7 +271,48 @@ class BuiltinRuleEnablesNotifier
     update({...state, id: enabled});
   }
 }
+/// 内置规则名称覆盖表：ruleId → 用户改的名字。
+/// 空表 = 全都用内置默认名。
+final builtinRuleNameOverridesProvider = NotifierProvider<
+    BuiltinRuleNameOverridesNotifier, Map<String, String>>(
+  BuiltinRuleNameOverridesNotifier.new,
+);
 
+class BuiltinRuleNameOverridesNotifier
+    extends PersistentNotifier<Map<String, String>> {
+  @override
+  String get key => PrefKeys.builtinRuleNameOverrides;
+
+  @override
+  Map<String, String> get defaultValue => const {};
+
+  @override
+  Map<String, String> decode(String raw) {
+    final saved = jsonDecode(raw) as Map<String, dynamic>;
+    return saved.map((k, v) => MapEntry(k, v as String));
+  }
+
+  @override
+  String encode(Map<String, String> value) => jsonEncode(value);
+
+  /// 设置。空串 = 删掉覆盖（回到默认名）。
+  void setOne(String id, String name) {
+    final next = Map<String, String>.from(state);
+    if (name.trim().isEmpty) {
+      next.remove(id);
+    } else {
+      next[id] = name;
+    }
+    update(next);
+  }
+
+  void remove(String id) {
+    if (!state.containsKey(id)) return;
+    final next = Map<String, String>.from(state);
+    next.remove(id);
+    update(next);
+  }
+}
 final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
   final overrides = ref.watch(builtinRuleEnablesProvider);
   return <PreprocessingRule>[
@@ -280,12 +321,17 @@ final builtinRulesWithStateProvider = Provider<List<PreprocessingRule>>((ref) {
   ];
 });
 
-/// id → 规则 的索引，内置 + 自定义都在里面。
 final ruleByIdProvider = Provider<Map<String, PreprocessingRule>>((ref) {
   final builtins = ref.watch(builtinRulesWithStateProvider);
   final user = ref.watch(userRulesProvider);
+  final overrides = ref.watch(builtinRuleNameOverridesProvider);
   final map = <String, PreprocessingRule>{};
-  for (final r in builtins) map[r.id] = r;
+  for (final r in builtins) {
+    final newName = overrides[r.id];
+    map[r.id] = (newName != null && newName.isNotEmpty)
+        ? r.copyWith(name: newName)
+        : r;
+  }
   for (final r in user) map[r.id] = r;
   return map;
 });
