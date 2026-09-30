@@ -35,7 +35,8 @@ static const String contextFontSize = '${_p}display.contextFontSize';
   static const String builtinRuleEnables = '${_p}rules.builtinEnables';
   static const String ruleFlagHelp = '${_p}rules.flagHelp';
   static const String ruleOrder = '${_p}rules.order';
-
+static const String builtinRuleNameOverrides = '${_p}rules.builtinNameOverrides';
+  
   /// 规则表（普通文字）的详细说明（用户可编辑，为空表示用默认）。
   static const String keywordRulesHelp = '${_p}rules.keywordHelp';
 
