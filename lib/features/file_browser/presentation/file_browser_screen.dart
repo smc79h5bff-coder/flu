@@ -931,6 +931,52 @@ ref.read(editedModifiedProvider.notifier).state = null;
     }
   }
 
+
+Future<void> _exportFolderListing() async {
+  if (_selectedPaths.length != 1) {
+    _toast('导出清单一次只能选一个文件夹');
+    return;
+  }
+  final path = _selectedPaths.first;
+  if (!Directory(path).existsSync()) {
+    _toast('导出清单只能用于文件夹');
+    return;
+  }
+
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+  );
+
+  Uint8List bytes;
+  try {
+    bytes = await compute(_folderListingWorker, path);
+  } catch (e) {
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    _toast('扫描失败：$e');
+    return;
+  }
+
+  if (!mounted) return;
+  Navigator.of(context, rootNavigator: true).pop();
+
+  final name = path.split('/').last;
+  final ts = DateTime.now().millisecondsSinceEpoch;
+  final out = await FilePicker.saveFile(
+    fileName: '$name-list-$ts.txt',
+    bytes: bytes,
+    mimeType: 'text/plain',
+    dialogTitle: '保存文件夹清单',
+    type: FileType.custom,
+    allowedExtensions: ['txt'],
+  );
+  if (out != null && mounted) {
+    _toast('清单已导出');
+  }
+}
+  
   Future<void> _showProperties() async {
     if (_selectedPaths.length != 1) return;
     final path = _selectedPaths.first;
