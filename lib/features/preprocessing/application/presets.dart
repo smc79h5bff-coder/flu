@@ -342,9 +342,9 @@ class Presets {
         Preset(
           id: 'removeAllWhitespace',
           name: '删除所有空白',
-          description: '删掉所有空格、Tab、换行、全角空格（危险，会连成一片）',
-          helpText: '把所有空白字符都删掉，包括：\n'
-              '半角空格、Tab、换行、回车、全角空格、各种 Unicode 空白。\n'
+          description: '删掉所有空格(零宽空格、各种 Unicode 空白、Tab、全半角空格)',
+          helpText: '把所有空白字符都删掉'
+              '半角空格、Tab、零宽空格、全角空格、各种 Unicode 空白。\n'
               '⚠ 删完所有行会连成一整段，慎用。\n'
               'RegExp(r'\s+') 一次扫',
           params: [],
@@ -866,9 +866,9 @@ String _removeAllTabs(String text, Map<String, String> p) {
   return text.replaceAll('\t', '');
 }
 
-/// \s 在 Dart 里覆盖所有 Unicode 空白（含全角空格 U+3000、NBSP、换行）。
+/// \s 在 Dart 里覆盖所有 Unicode 空白（含全角空格 U+3000、不可见符号NBSP、零宽空格）。
 String _removeAllWhitespace(String text, Map<String, String> p) {
-  return text.replaceAll(RegExp(r'\s+'), '');
+  return text.replaceAll(RegExp(r'[^\S\n]+'), '');
 }
 
 /// 中英文标点集合。
