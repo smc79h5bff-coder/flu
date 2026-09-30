@@ -2310,6 +2310,47 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
     super.dispose();
   }
 
+void _showFloatHint(String msg) {
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (ctx) => Positioned(
+      bottom: 80,
+      left: 0,
+      right: 0,
+      child: IgnorePointer(
+        child: Center(
+          child: Material(
+            color: Colors.white,
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              child: Text(
+                msg,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  overlay.insert(entry);
+  Future<void>.delayed(const Duration(seconds: 2), () {
+    try {
+      entry.remove();
+    } catch (_) {}
+  });
+}
+  
+  
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
@@ -2332,21 +2373,16 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
-                  IconButton(
-                    tooltip: '恢复默认说明',
-                    icon: const Icon(Icons.restore),
-                    onPressed: () {
-                      setState(() {
-                        _ctrl.text = widget.defaultText;
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('已恢复默认，点保存生效'),
-                          duration: Duration(seconds: 1),
-                        ),
-                      );
-                    },
-                  ),
+                  TextButton.icon(
+  icon: const Icon(Icons.restore, size: 16),
+  label: const Text('恢复默认'),
+  onPressed: () {
+    setState(() {
+      _ctrl.text = widget.defaultText;
+    });
+    _showFloatHint('已恢复默认，点保存生效');
+  },
+),
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.pop(context),
