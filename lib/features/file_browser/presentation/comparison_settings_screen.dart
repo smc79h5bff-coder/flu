@@ -536,7 +536,25 @@ class _ComparisonSettingsScreenState
         return '/${rule.findPattern}/ $action';
     }
   }
+/// 取规则的详细说明。
+String? _resolveHelpText(PreprocessingRule rule) {
+  if (rule.helpText != null && rule.helpText!.isNotEmpty) {
+    return rule.helpText;
+  }
+  if (rule.kind == RuleKind.preset && rule.presetId != null) {
+    final preset = Presets.byId(rule.presetId!);
+    if (preset != null && preset.helpText.isNotEmpty) {
+      return preset.helpText;
+    }
+  }
+  return null;
+}
 
+Future<void> _showRuleDetail(PreprocessingRule rule) async {
+  final detail = ruleSubtitle(rule);
+  final helpText = _resolveHelpText(rule);
+  final kindLabel = switch (rule.kind) {
+  ...
   Future<void> _showRuleDetail(PreprocessingRule rule) async {
   // 主内容 = ruleSubtitle 的输出。
   // 如果有 helpText，拼到下面一起显示。
