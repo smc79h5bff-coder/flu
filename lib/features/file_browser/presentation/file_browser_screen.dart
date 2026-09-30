@@ -2702,7 +2702,21 @@ onLongPress: () async {
     builder: (c) => AlertDialog(
       insetPadding: const EdgeInsets.all(8),
       title: Text(isFavorite ? '取消收藏？' : '从最近移除？'),
-      content: Text(displayName),
+      content: Column(
+  mainAxisSize: MainAxisSize.min,
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    Text(displayName),
+    const SizedBox(height: 6),
+    Text(
+      path,
+      style: TextStyle(
+        fontSize: 11,
+        color: Theme.of(c).colorScheme.onSurfaceVariant,
+      ),
+    ),
+  ],
+),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(c, false),
