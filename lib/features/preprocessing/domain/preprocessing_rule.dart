@@ -44,6 +44,12 @@ class PreprocessingRule {
     this.params = const {},
     // ====== js 用 ======
     this.jsScript,
+    // ====== 实现方式 / 替代方案（内置规则和预置功能用，用户建的不用） ======
+    this.implType,
+    this.implDetail,
+    this.replacementType,
+    this.replacementDetail,
+    this.replacementNote,
   });
 
   final String id;
@@ -87,6 +93,30 @@ class PreprocessingRule {
   /// 脚本约定：最后表达式的值作为处理结果；text 是输入文本变量。
   final String? jsScript;
 
+  // ==================== 实现方式 / 替代方案 ====================
+
+  /// 实现方式类型。'正则' 或 '代码'。
+  /// null 表示不显示"实现方式"块。
+  final String? implType;
+
+  /// 实现方式详情。
+  /// implType == '正则' 时，存正则表达式原文（比如 r'\r\n|\r'）。
+  /// implType == '代码' 时，存关键代码片段（比如 'text.toLowerCase()'）。
+  final String? implDetail;
+
+  /// 替代方案状态。'ok' / 'warn' / 'impossible'。
+  /// null 表示不显示"替代方案"块。
+  final String? replacementType;
+
+  /// 替代方案详情。
+  /// - 'ok'：存替代正则 + 性能说明
+  /// - 'warn'：存原因 + "不建议"
+  /// - 'impossible'：存"为什么不能用正则替代"
+  final String? replacementDetail;
+
+  /// 替代方案额外备注（可选）。
+  final String? replacementNote;
+
   PreprocessingRule copyWith({
     String? name,
     RuleKind? kind,
@@ -105,6 +135,11 @@ class PreprocessingRule {
     String? presetId,
     Map<String, String>? params,
     String? jsScript,
+    String? implType,
+    String? implDetail,
+    String? replacementType,
+    String? replacementDetail,
+    String? replacementNote,
   }) =>
       PreprocessingRule(
         id: id,
@@ -126,6 +161,11 @@ class PreprocessingRule {
         presetId: presetId ?? this.presetId,
         params: params ?? this.params,
         jsScript: jsScript ?? this.jsScript,
+        implType: implType ?? this.implType,
+        implDetail: implDetail ?? this.implDetail,
+        replacementType: replacementType ?? this.replacementType,
+        replacementDetail: replacementDetail ?? this.replacementDetail,
+        replacementNote: replacementNote ?? this.replacementNote,
       );
 
   Map<String, dynamic> toJson() => {
@@ -148,6 +188,12 @@ class PreprocessingRule {
         if (presetId != null) 'presetId': presetId,
         if (params.isNotEmpty) 'params': params,
         if (jsScript != null) 'jsScript': jsScript,
+        if (implType != null) 'implType': implType,
+        if (implDetail != null) 'implDetail': implDetail,
+        if (replacementType != null) 'replacementType': replacementType,
+        if (replacementDetail != null)
+          'replacementDetail': replacementDetail,
+        if (replacementNote != null) 'replacementNote': replacementNote,
       };
 
   factory PreprocessingRule.fromJson(Map<String, dynamic> j) {
@@ -193,7 +239,6 @@ class PreprocessingRule {
       findRegex: j['findRegex'] as bool? ?? true,
       findLiteral: j['findLiteral'] as bool? ?? false,
       findEscape: j['findEscape'] as bool? ?? false,
-      // 旧版 findDollar 没了，迁移过来当 findRegex 的一部分，忽略即可。
       replaceDollar: j['replaceDollar'] as bool? ?? true,
       replaceBackslash:
           j['replaceBackslash'] as bool? ?? oldReplaceRegex ?? false,
@@ -202,6 +247,11 @@ class PreprocessingRule {
       presetId: j['presetId'] as String?,
       params: params,
       jsScript: j['jsScript'] as String?,
+      implType: j['implType'] as String?,
+      implDetail: j['implDetail'] as String?,
+      replacementType: j['replacementType'] as String?,
+      replacementDetail: j['replacementDetail'] as String?,
+      replacementNote: j['replacementNote'] as String?,
     );
   }
 }
