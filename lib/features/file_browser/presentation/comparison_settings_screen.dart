@@ -1056,7 +1056,6 @@ class _ComparisonSettingsScreenState
 // ==================== 副标题生成（公开，按钮栏也用） ====================
 
 // ==================== 副标题生成（公开，按钮栏也用） ====================
-
 String ruleSubtitle(PreprocessingRule rule) {
   if (rule.script != null && rule.script!.isNotEmpty) {
     return '(内置脚本: ${rule.script})';
