@@ -2058,37 +2058,68 @@ else
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.compare_arrows, size: 18),
-                    label: const Text('对比'),
-                    onPressed: canCompare ? _startCompare : null,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton.tonalIcon(
-                    icon: const Icon(Icons.info_outline, size: 18),
-                    label: const Text('属性'),
-                    onPressed: canProps ? _showProperties : null,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-  flex: 1,
-  child: FilledButton.tonal(
-    style: FilledButton.styleFrom(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+  children: [
+    Expanded(
+      flex: 3,
+      child: FilledButton.icon(
+        icon: const Icon(Icons.compare_arrows, size: 16),
+        label: const Text('对比'),
+        onPressed: canCompare ? _startCompare : null,
+      ),
     ),
-    onPressed: canProps ? _copyPath : null,
-    child: const Text('复制路径'),
-  ),
+    const SizedBox(width: 4),
+    Expanded(
+      flex: 1,
+      child: FilledButton.tonal(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+        ),
+        onPressed: canProps ? _showProperties : null,
+        child: const Text(
+          '属性',
+          style: TextStyle(fontSize: 11),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    Expanded(
+      flex: 1,
+      child: FilledButton.tonal(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+        ),
+        onPressed: canProps ? _copyPath : null,
+        child: const Text(
+          '复制路径',
+          style: TextStyle(fontSize: 11),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    Expanded(
+      flex: 1,
+      child: FilledButton.tonal(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+        ),
+        onPressed: canProps ? _exportFolderListing : null,
+        child: const Text(
+          '导出清单',
+          style: TextStyle(fontSize: 11),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+  ],
 ),
-              ],
-            ),
+
+
+            
             const SizedBox(height: 4),
             Row(
               children: [
