@@ -321,11 +321,11 @@ class Presets {
         // ==================== 空白处理 ====================
         Preset(
           id: 'removeAllSpaces',
-          name: '删除所有空格',
+          name: '删除所有英文空格',
           description: '删掉全部半角空格（不含 Tab 和全角空格）',
           helpText: '删掉所有半角空格字符（按键盘空格键那个）。\n'
-              '不删 Tab，不删全角空格。\n'
-              '例："a b c" → "abc"。',
+              '不删 Tab，不删全角空格\n'
+              'text.replaceAll(' ', '')纯字符串替换，无正则',
           params: [],
           apply: _removeAllSpaces,
         ),
@@ -334,8 +334,8 @@ class Presets {
           name: '删除所有 Tab',
           description: '删掉全部 Tab 制表符',
           helpText: '删掉所有 Tab 制表符。\n'
-              '不删空格。\n'
-              '用于：清理缩进或对齐用的 Tab。',
+              '不删中英文(全角半角)空格\n'
+              'text.replaceAll('\t', '')纯字符串替换，无正则',
           params: [],
           apply: _removeAllTabs,
         ),
@@ -346,7 +346,7 @@ class Presets {
           helpText: '把所有空白字符都删掉，包括：\n'
               '半角空格、Tab、换行、回车、全角空格、各种 Unicode 空白。\n'
               '⚠ 删完所有行会连成一整段，慎用。\n'
-              '例："a b\\nc" → "abc"。',
+              'RegExp(r'\s+') 一次扫',
           params: [],
           apply: _removeAllWhitespace,
         ),
