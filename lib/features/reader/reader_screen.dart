@@ -488,9 +488,9 @@ Widget _buildTopMenuSheet(BuildContext ctx) {
             _applyHighlight(word, p);
           },
           onLongPress: () {
-            Navigator.pop(ctx);
-            _stubFeature('编辑色块「${p.name}」');
-          },
+  Navigator.pop(ctx);
+  openPaletteEdit(context, p.index);
+},
           child: Column(
             children: [
               Expanded(
