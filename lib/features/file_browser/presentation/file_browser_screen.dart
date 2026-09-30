@@ -407,25 +407,67 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
     });
   }
 
-  /// 点击文件的统一入口：小文本直接编辑，大文件走预览。
+  /// 点击文件的统一入口
 void _openFile(String path, String name, int? size) {
   final isText = _textExts.contains(_extOf(name));
-  final canEdit =
-      isText && (size == null || size < _editSizeThreshold);
+
+  // 非文本文件：走现有预览页（会提示"暂不支持预览"）
+  if (!isText) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TextPreviewScreen(
+          filePath: path,
+          fileName: name,
+        ),
+      ),
+    );
+    return;
+  }
+
+  // 文本文件：进阅读器
+  final textPaths = _collectTextFilePaths();
+  var index = textPaths.indexOf(path);
+  if (index < 0) {
+    // 兜底：当前文件不在列表里（比如搜索模式下点历史文件）
+    textPaths.insert(0, path);
+    index = 0;
+  }
+
   Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => canEdit
-          ? SingleFileEditorScreen(
-              filePath: path,
-              fileName: name,
-            )
-          : TextPreviewScreen(
-              filePath: path,
-              fileName: name,
-            ),
+      builder: (_) => ReaderScreen(
+        filePaths: textPaths,
+        initialIndex: index,
+      ),
     ),
   );
 }
+
+/// 收集"当前视图里所有文本文件的路径"。
+///
+/// - 普通浏览模式：用当前目录的所有文件（已按排序排好）
+/// - 搜索模式：用搜索结果里所有文本文件
+List<String> _collectTextFilePaths() {
+  if (_searchActive) {
+    return [
+      for (final hit in _searchResults)
+        if (_textExts.contains(_extOf(hit.name))) hit.path,
+    ];
+  }
+  final entries = _entries ?? const <_EntryInfo>[];
+  return [
+    for (final info in entries)
+      if (!info.isDir && _textExts.contains(_extOf(info.name)))
+        info.entity.path,
+  ];
+}
+  
+
+
+
+
+
+  
 void _openPreview(_EntryInfo info) {
   _openFile(info.entity.path, info.name, info.size);
 }
