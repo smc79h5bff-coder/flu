@@ -135,7 +135,21 @@ class _ReaderSettingsSheet extends ConsumerWidget {
                 const SizedBox(height: 20),
                 const Divider(),
                 const SizedBox(height: 8),
-
+_sliderHeader(
+    '顶部菜单热区',
+    '${s.topHotZoneHeight.toStringAsFixed(0)} px'),
+Slider(
+  min: 20,
+  max: 200,
+  value: s.topHotZoneHeight.clamp(20, 200),
+  onChanged: n.setTopHotZone,
+),
+const Text(
+  '点屏幕顶部这一条（透明）打开菜单。数值越小越难点到，'
+  '越大越容易误触。',
+  style: TextStyle(fontSize: 11, color: Colors.grey),
+),
+const SizedBox(height: 16),
                 // ===== 浮动按钮 =====
                 Row(
                   children: [
