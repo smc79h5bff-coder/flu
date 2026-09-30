@@ -226,13 +226,11 @@ class _ComparisonSettingsScreenState
     final current = comparisonRulesSnapshot(ref);
     final changed = current != _initialSnapshot;
 
-    // 没改，或不需要确认（文件浏览器入口）：直接返回。
     if (!changed || !widget.confirmOnExit) {
       if (mounted) Navigator.of(context).pop(changed);
       return;
     }
 
-    // 改了 + 需要确认：弹窗。
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -257,53 +255,52 @@ class _ComparisonSettingsScreenState
     if (ok == true) {
       Navigator.of(context).pop(true);
     }
-    // 取消：什么都不做，停在比较设置页，让用户接着改。
   }
 
-@override
-Widget build(BuildContext context) {
-  final items = _buildItems();
+  @override
+  Widget build(BuildContext context) {
+    final items = _buildItems();
 
-  return PopScope(
-    canPop: false,
-    onPopInvokedWithResult: (didPop, _) async {
-      if (didPop) return;
-      await _handleBack();
-    },
-    child: Scaffold(
-      appBar: AppBar(
-        title: const Text('比较设置'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.help_outline),
-            tooltip: '使用说明',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const HelpScreen(),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: ReorderableListView.builder(
-              itemCount: items.length,
-              onReorder: _onReorder,
-              buildDefaultDragHandles: false,
-              itemBuilder: (ctx, i) => _buildTile(items[i], i),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await _handleBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('比较设置'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.help_outline),
+              tooltip: '使用说明',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const HelpScreen(),
+                  ),
+                );
+              },
             ),
-          ),
-          _buildAddButton(),
-        ],
+          ],
+        ),
+        body: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: ReorderableListView.builder(
+                itemCount: items.length,
+                onReorder: _onReorder,
+                buildDefaultDragHandles: false,
+                itemBuilder: (ctx, i) => _buildTile(items[i], i),
+              ),
+            ),
+            _buildAddButton(),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   List<_RuleItem> _buildItems() {
     final order = ref.watch(ruleOrderProvider);
@@ -428,7 +425,6 @@ Widget build(BuildContext context) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 规则名：一行，长按不响应
                   Text(
                     rule.name,
                     maxLines: 1,
@@ -436,7 +432,6 @@ Widget build(BuildContext context) {
                     style: const TextStyle(fontSize: 14),
                   ),
                   const SizedBox(height: 2),
-                  // 摘要：一行，超长截断成 ..；长按打开详情弹窗。
                   GestureDetector(
                     onLongPress: () => _showRuleDetail(rule),
                     behavior: HitTestBehavior.opaque,
@@ -474,7 +469,6 @@ Widget build(BuildContext context) {
               }
             },
           ),
-          // 编辑按钮：仅自定义规则显示，加宽。
           if (!rule.isBuiltin)
             SizedBox(
               width: 52,
@@ -489,7 +483,6 @@ Widget build(BuildContext context) {
     );
   }
 
-  /// 用 ".." 截断的超长文本。宽度不够时二分查找合适长度。
   Widget _buildTwoDotsText(String text, double maxWidth, TextStyle style) {
     if (text.isEmpty) return Text('', style: style);
 
@@ -520,7 +513,6 @@ Widget build(BuildContext context) {
     return Text('${text.substring(0, lo)}..', style: style, maxLines: 1);
   }
 
-  /// 一行摘要，用于列表项副标题。
   String _shortPreview(PreprocessingRule rule) {
     if (rule.script != null && rule.script!.isNotEmpty) {
       return '内置脚本 · ${rule.script}';
@@ -540,7 +532,6 @@ Widget build(BuildContext context) {
     }
   }
 
-  /// 长按摘要 → 弹出规则详情。
   Future<void> _showRuleDetail(PreprocessingRule rule) async {
     final detail = ruleSubtitle(rule);
     final kindLabel = switch (rule.kind) {
@@ -590,160 +581,158 @@ Widget build(BuildContext context) {
             width: double.maxFinite,
             height: MediaQuery.of(c).size.height * 0.6,
             child: SingleChildScrollView(
-        child: Column(
-  mainAxisSize: MainAxisSize.min,
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    Row(
-      children: [
-        _tag(kindLabel, s),
-        const SizedBox(width: 6),
-        _tag(scopeLabel, s),
-        const SizedBox(width: 6),
-        _tag(rule.enabled ? '已启用' : '已禁用', s),
-      ],
-    ),
-    const SizedBox(height: 12),
-    const Divider(height: 1),
-    const SizedBox(height: 12),
-    SelectableText(
-      detail.isEmpty ? '(无内容)' : detail,
-      style: const TextStyle(
-        fontSize: 13,
-        height: 1.6,
-        fontFamily: 'monospace',
-      ),
-    ),
-    if (rule.implType != null) ...[
-      const SizedBox(height: 16),
-      const Divider(height: 1),
-      const SizedBox(height: 12),
-      Text(
-        '实现方式',
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: s.primary,
-        ),
-      ),
-      const SizedBox(height: 6),
-      Text(
-        '类型：${rule.implType}',
-        style: const TextStyle(fontSize: 12),
-      ),
-      if (rule.implDetail != null) ...[
-        const SizedBox(height: 4),
-        SelectableText(
-          rule.implDetail!,
-          style: const TextStyle(
-            fontSize: 12,
-            height: 1.5,
-            fontFamily: 'monospace',
-          ),
-        ),
-      ],
-    ],
-    if (rule.replacementType != null) ...[
-      const SizedBox(height: 16),
-      const Divider(height: 1),
-      const SizedBox(height: 12),
-      Text(
-        '替代方案',
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: s.primary,
-        ),
-      ),
-      const SizedBox(height: 6),
-      Row(
-        children: [
-          Text(
-            rule.replacementType == 'ok'
-                ? '✅'
-                : rule.replacementType == 'warn'
-                    ? '⚠️'
-                    : '❌',
-            style: const TextStyle(fontSize: 14),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            rule.replacementType == 'ok'
-                ? '可以用正则替代'
-                : rule.replacementType == 'warn'
-                    ? '可替代，但不建议'
-                    : '无法用正则替代',
-            style: const TextStyle(fontSize: 12),
-          ),
-        ],
-      ),
-      if (rule.replacementDetail != null) ...[
-        const SizedBox(height: 6),
-        SelectableText(
-          rule.replacementDetail!,
-          style: const TextStyle(
-            fontSize: 12,
-            height: 1.5,
-            fontFamily: 'monospace',
-          ),
-        ),
-      ],
-      if (rule.replacementNote != null) ...[
-        const SizedBox(height: 6),
-        Text(
-          rule.replacementNote!,
-          style: TextStyle(
-            fontSize: 11,
-            height: 1.4,
-            color: s.onSurfaceVariant,
-          ),
-        ),
-      ],
-    ],
-  ],
-),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _tag(kindLabel, s),
+                      const SizedBox(width: 6),
+                      _tag(scopeLabel, s),
+                      const SizedBox(width: 6),
+                      _tag(rule.enabled ? '已启用' : '已禁用', s),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  SelectableText(
+                    detail.isEmpty ? '(无内容)' : detail,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.6,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  if (rule.implType != null) ...[
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    Text(
+                      '实现方式',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: s.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '类型：${rule.implType}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    if (rule.implDetail != null) ...[
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        rule.implDetail!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          height: 1.5,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ],
+                  if (rule.replacementType != null) ...[
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    Text(
+                      '替代方案',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: s.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Text(
+                          rule.replacementType == 'ok'
+                              ? '✅'
+                              : rule.replacementType == 'warn'
+                                  ? '⚠️'
+                                  : '❌',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          rule.replacementType == 'ok'
+                              ? '可以用正则替代'
+                              : rule.replacementType == 'warn'
+                                  ? '可替代，但不建议'
+                                  : '无法用正则替代',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    if (rule.replacementDetail != null) ...[
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        rule.replacementDetail!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          height: 1.5,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                    if (rule.replacementNote != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        rule.replacementNote!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.4,
+                          color: s.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
             ),
           ),
-          
-          
-actions: [
-  if (rule.isBuiltin) ...[
-    TextButton(
-      onPressed: () => Navigator.pop(c),
-      child: const Text('关闭'),
-    ),
-    TextButton(
-      onPressed: () => Navigator.pop(c, 'rename'),
-      child: const Text('重命名'),
-    ),
-  ] else ...[
-    TextButton(
-      onPressed: () => Navigator.pop(c),
-      child: const Text('关闭'),
-    ),
-    TextButton(
-      onPressed: () => Navigator.pop(c, 'edit'),
-      child: const Text('编辑'),
-    ),
-    TextButton(
-      style: TextButton.styleFrom(foregroundColor: Colors.red),
-      onPressed: () => Navigator.pop(c, 'delete'),
-      child: const Text('删除'),
-    ),
-  ],
-],
+          actions: [
+            if (rule.isBuiltin) ...[
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(c, 'rename'),
+                child: const Text('重命名'),
+              ),
+            ] else ...[
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(c, 'edit'),
+                child: const Text('编辑'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () => Navigator.pop(c, 'delete'),
+                child: const Text('删除'),
+              ),
+            ],
+          ],
         );
       },
     );
 
     if (!mounted) return;
-if (action == 'rename') {
-  await _renameBuiltinRule(rule);
-} else if (action == 'edit') {
-  await _editUserRule(rule);
-} else if (action == 'delete') {
-  await _confirmDeleteRule(rule);
-}
+    if (action == 'rename') {
+      await _renameBuiltinRule(rule);
+    } else if (action == 'edit') {
+      await _editUserRule(rule);
+    } else if (action == 'delete') {
+      await _confirmDeleteRule(rule);
+    }
   }
 
   Widget _tag(String text, ColorScheme s) {
@@ -762,52 +751,54 @@ if (action == 'rename') {
       ),
     );
   }
-/// 重命名内置规则。
-Future<void> _renameBuiltinRule(PreprocessingRule rule) async {
-  final ctrl = TextEditingController(text: rule.name);
-  final newName = await showDialog<String>(
-    context: context,
-    builder: (c) => AlertDialog(
-      insetPadding: const EdgeInsets.all(8),
-      title: const Text('重命名内置规则'),
-      content: TextField(
-        controller: ctrl,
-        autofocus: true,
-        decoration: const InputDecoration(
-          hintText: '新名字',
-          border: OutlineInputBorder(),
-          isDense: true,
-        ),
-        onSubmitted: (v) => Navigator.pop(c, v),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text('取消'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(c, ''),
-          child: const Text('恢复默认'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(c, ctrl.text),
-          child: const Text('确定'),
-        ),
-      ],
-    ),
-  );
-  ctrl.dispose();
-  if (newName == null || !mounted) return;
 
-  ref
-      .read(builtinRuleNameOverridesProvider.notifier)
-      .setOne(rule.id, newName);
-  if (newName.trim().isEmpty) {
-    _toast('已恢复默认名');
-  } else {
-    _toast('已重命名');
+  /// 重命名内置规则。
+  Future<void> _renameBuiltinRule(PreprocessingRule rule) async {
+    final ctrl = TextEditingController(text: rule.name);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('重命名内置规则'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '新名字',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(c, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, ''),
+            child: const Text('恢复默认'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (newName == null || !mounted) return;
+
+    ref
+        .read(builtinRuleNameOverridesProvider.notifier)
+        .setOne(rule.id, newName);
+    if (newName.trim().isEmpty) {
+      _toast('已恢复默认名');
+    } else {
+      _toast('已重命名');
+    }
   }
-}
+
   Future<void> _confirmDeleteRule(PreprocessingRule rule) async {
     if (rule.isBuiltin) return;
     final ok = await showDialog<bool>(
@@ -1067,7 +1058,8 @@ String ruleSubtitle(PreprocessingRule rule) {
       for (final p in preset.params) {
         final v = rule.params[p.key] ?? p.defaultValue;
         if (v.isEmpty) continue;
-        parts.add('${p.label}=${p.type == PresetParamType.choice ? p.labelFor(v) : v}');
+        parts.add(
+            '${p.label}=${p.type == PresetParamType.choice ? p.labelFor(v) : v}');
       }
       final paramText = parts.isEmpty ? '' : '\n${parts.join(' · ')}';
       return '${preset.name}$paramText';
@@ -1181,10 +1173,8 @@ class RuleEditorDialog extends ConsumerStatefulWidget {
 
   final PreprocessingRule? initial;
 
-  /// 是否显示"复制到预处理规则"按钮。按钮栏打开时传 true。
   final bool showCopyToPreprocess;
 
-  /// 点击"复制到预处理规则"时回调。
   final void Function(PreprocessingRule rule)? onCopyToPreprocess;
 
   @override
@@ -1199,7 +1189,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   late RuleScope _scope;
   late RuleKind _kind;
 
-  // 7 开关状态。
   late bool _findRegex;
   late bool _findLiteral;
   late bool _findEscape;
@@ -1208,7 +1197,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   late bool _replaceLiteral;
   late bool _replaceEscape;
 
-  // preset 状态。
   String? _presetId;
   Map<String, String> _presetParams = const {};
 
@@ -1233,7 +1221,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     _replaceEscape = i?.replaceEscape ?? false;
     _presetId = i?.presetId;
     _presetParams = Map<String, String>.from(i?.params ?? const {});
-    // 若新建时没选 preset，默认选第一个。
     if (_kind == RuleKind.preset && _presetId == null) {
       final first = Presets.all().firstOrNull;
       if (first != null) {
@@ -1253,8 +1240,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     _jsCtrl.dispose();
     super.dispose();
   }
-
-  // ==================== 互斥逻辑 ====================
 
   void _setFindMode({required bool regex}) {
     setState(() {
@@ -1301,62 +1286,57 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
   }
 
   void _resetToDefault() {
-  setState(() {
-    _findRegex = true;
-    _findLiteral = false;
-    _findEscape = false;
-    _replaceDollar = true;
-    _replaceBackslash = false;
-    _replaceLiteral = false;
-    _replaceEscape = false;
-  });
-  _showFloatHint('已恢复默认开关');
-}
+    setState(() {
+      _findRegex = true;
+      _findLiteral = false;
+      _findEscape = false;
+      _replaceDollar = true;
+      _replaceBackslash = false;
+      _replaceLiteral = false;
+      _replaceEscape = false;
+    });
+    _showFloatHint('已恢复默认开关');
+  }
 
-/// 悬浮提示：屏幕底部弹一个小黑条，2 秒后自动消失。
-/// 用 Overlay 实现，不会被 Dialog 盖住。
-void _showFloatHint(String msg) {
-  final overlay = Overlay.of(context);
-  late OverlayEntry entry;
-  entry = OverlayEntry(
-    builder: (ctx) => Positioned(
-      bottom: 80,
-      left: 0,
-      right: 0,
-      child: IgnorePointer(
-        child: Center(
-          child: Material(
-            color: Colors.black.withOpacity(0.85),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
-              child: Text(
-                msg,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
+  void _showFloatHint(String msg) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        bottom: 80,
+        left: 0,
+        right: 0,
+        child: IgnorePointer(
+          child: Center(
+            child: Material(
+              color: Colors.white,
+              elevation: 4,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Text(
+                  msg,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
-  overlay.insert(entry);
-  Future<void>.delayed(const Duration(seconds: 2), () {
-    try {
-      entry.remove();
-    } catch (_) {
-      // 已被移除则忽略
-    }
-  });
-}
-
-  // ==================== 说明弹窗 ====================
+    );
+    overlay.insert(entry);
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      try {
+        entry.remove();
+      } catch (_) {}
+    });
+  }
 
   Future<void> _openFlagHelp(String flagId, String flagLabel) async {
     final helps = ref.read(_flagHelpProvider);
@@ -1375,8 +1355,6 @@ void _showFloatHint(String msg) {
       ref.read(_flagHelpProvider.notifier).setOne(flagId, saved);
     }
   }
-
-  // ==================== UI ====================
 
   @override
   Widget build(BuildContext context) {
@@ -1434,11 +1412,11 @@ void _showFloatHint(String msg) {
           ),
           const Spacer(),
           if (_kind == RuleKind.replace)
-  TextButton.icon(
-    icon: const Icon(Icons.restore, size: 16),
-    label: const Text('恢复默认'),
-    onPressed: _resetToDefault,
-  ),
+            TextButton.icon(
+              icon: const Icon(Icons.restore, size: 16),
+              label: const Text('恢复默认'),
+              onPressed: _resetToDefault,
+            ),
           IconButton(
             icon: const Icon(Icons.close),
             onPressed: () => Navigator.pop(context),
@@ -1579,8 +1557,6 @@ void _showFloatHint(String msg) {
       DropdownButtonFormField<String>(
         value: _presetId,
         isExpanded: true,
-         
-        
         decoration: const InputDecoration(
           labelText: '选择功能',
           border: OutlineInputBorder(),
@@ -1638,16 +1614,7 @@ void _showFloatHint(String msg) {
         return DropdownButtonFormField<String>(
           value: value,
           isExpanded: true,
-
-
-           
-  
-  decoration: InputDecoration(
-
-
-
-    
-          
+          decoration: InputDecoration(
             labelText: p.label,
             border: const OutlineInputBorder(),
             isDense: true,
@@ -1655,7 +1622,8 @@ void _showFloatHint(String msg) {
           ),
           items: [
             for (final o in p.options)
-              DropdownMenuItem(value: _optValue(o), child: Text(_optLabel(o))),
+              DropdownMenuItem(
+                  value: _optValue(o), child: Text(_optLabel(o))),
           ],
           onChanged: (v) {
             if (v == null) return;
@@ -1706,102 +1674,99 @@ void _showFloatHint(String msg) {
   }
 
   List<Widget> _buildJsContent() {
-  return [
-    _sectionHeader('JS 脚本'),
-    const SizedBox(height: 12),
-    Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      
-
-child: Text(
-  '这是「用代码处理文本」的入口。\n'
-  '\n'
-  '脚本里有一个变量 text，就是整篇文本。\n'
-  '脚本的最后一行，就是处理结果。\n'
-  '\n'
-  '比如删掉所有空行：\n'
-  '    text.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')\n'
-  '\n'
-  '不懂编程的话，用「预置功能」更省事。\n'
-  '想试试的话，点下方「使用说明」按钮，\n'
-  '里面有从零开始的教程和 30 多个现成例子。\n'
-  '\n'
-  '【关于 JS 版本】\n'
-  '支持 ES2019 及更早的 JavaScript 语法。\n'
-  '网上新写法（2020 年以后）可能不支持，遇到报错换老写法试试。\n'
-  '\n'
-  '常见的不支持写法对照：\n'
-  '  text?.length        老写法：text ? text.length : 0\n'
-  '  a ?? b              老写法：a !== null && a !== undefined ? a : b\n'
-  '  a ||= b             老写法：a = a || b\n'
-  '  a &&= b             老写法：a = a && b\n'
-  '  a ??= b             老写法：if (a === null || a === undefined) a = b\n'
-  '  text.replaceAll()   老写法：text.replace(/x/g, \'y\') 或 text.split(\'x\').join(\'y\')\n'
-  '  arr.at(-1)          老写法：arr[arr.length - 1]\n'
-  '  arr.at(0)           老写法：arr[0]\n'
-  '  arr.flat()          老写法：手写循环合并\n'
-  '  arr.flatMap()       老写法：先 map 再手写合并\n'
-  '  arr.findLast()      老写法：先 reverse 再 find\n'
-  '  Object.fromEntries() 老写法：手写 reduce\n'
-  '  Object.hasOwn()     老写法：obj.hasOwnProperty(key)\n'
-  '  str.matchAll()      老写法：while 循环 + exec\n'
-  '  Promise.allSettled() 老写法：Promise.all + catch 包裹\n'
-  '  1_000_000（数字分隔符） 老写法：1000000\n'
-  '  123n（BigInt）      老写法：用 Number，别用 BigInt\n'
-  '  #private（私有字段） 老写法：不用类，用普通变量\n'
-  '  top-level await     老写法：(async () => { ... })()\n'
-  '  arr.toSorted()      老写法：[...arr].sort()\n'
-  '  structuredClone(o)  老写法：JSON.parse(JSON.stringify(o))',
-  style: TextStyle(
-    fontSize: 12,
-    height: 1.6,
-    color: Theme.of(context).colorScheme.onSurfaceVariant,
-  ),
-),
-
-      
-    ),
-    const SizedBox(height: 8),
-    TextField(
-      controller: _jsCtrl,
-      minLines: 12,
-      maxLines: 24,
-      style: const TextStyle(
-        fontFamily: 'monospace',
-        fontSize: 13,
-        height: 1.5,
-      ),
-      decoration: const InputDecoration(
-        hintText: '// 例如：删除空行\ntext.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')',
-        border: OutlineInputBorder(),
-        contentPadding: EdgeInsets.all(10),
-      ),
-    ),
-    const SizedBox(height: 8),
-    Row(
-      children: [
-        OutlinedButton.icon(
-          icon: const Icon(Icons.restore, size: 16),
-          label: const Text('用基础模板'),
-          onPressed: () {
-            setState(() => _jsCtrl.text = defaultJsTemplate);
-          },
+    return [
+      _sectionHeader('JS 脚本'),
+      const SizedBox(height: 12),
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color:
+              Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(6),
         ),
-        const Spacer(),
-        TextButton.icon(
-          icon: const Icon(Icons.info_outline, size: 16),
-          label: const Text('使用说明'),
-          onPressed: _showJsExamples,
+        child: Text(
+          '这是「用代码处理文本」的入口。\n'
+          '\n'
+          '脚本里有一个变量 text，就是整篇文本。\n'
+          '脚本的最后一行，就是处理结果。\n'
+          '\n'
+          '比如删掉所有空行：\n'
+          '    text.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')\n'
+          '\n'
+          '不懂编程的话，用「预置功能」更省事。\n'
+          '想试试的话，点下方「使用说明」按钮，\n'
+          '里面有从零开始的教程和 30 多个现成例子。\n'
+          '\n'
+          '【关于 JS 版本】\n'
+          '支持 ES2019 及更早的 JavaScript 语法。\n'
+          '网上新写法（2020 年以后）可能不支持，遇到报错换老写法试试。\n'
+          '\n'
+          '常见的不支持写法对照：\n'
+          '  text?.length        老写法：text ? text.length : 0\n'
+          '  a ?? b              老写法：a !== null && a !== undefined ? a : b\n'
+          '  a ||= b             老写法：a = a || b\n'
+          '  a &&= b             老写法：a = a && b\n'
+          '  a ??= b             老写法：if (a === null || a === undefined) a = b\n'
+          '  text.replaceAll()   老写法：text.replace(/x/g, \'y\') 或 text.split(\'x\').join(\'y\')\n'
+          '  arr.at(-1)          老写法：arr[arr.length - 1]\n'
+          '  arr.at(0)           老写法：arr[0]\n'
+          '  arr.flat()          老写法：手写循环合并\n'
+          '  arr.flatMap()       老写法：先 map 再手写合并\n'
+          '  arr.findLast()      老写法：先 reverse 再 find\n'
+          '  Object.fromEntries() 老写法：手写 reduce\n'
+          '  Object.hasOwn()     老写法：obj.hasOwnProperty(key)\n'
+          '  str.matchAll()      老写法：while 循环 + exec\n'
+          '  Promise.allSettled() 老写法：Promise.all + catch 包裹\n'
+          '  1_000_000（数字分隔符） 老写法：1000000\n'
+          '  123n（BigInt）      老写法：用 Number，别用 BigInt\n'
+          '  #private（私有字段） 老写法：不用类，用普通变量\n'
+          '  top-level await     老写法：(async () => { ... })()\n'
+          '  arr.toSorted()      老写法：[...arr].sort()\n'
+          '  structuredClone(o)  老写法：JSON.parse(JSON.stringify(o))',
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.6,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
-      ],
-    ),
-  ];
-}
-  
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _jsCtrl,
+        minLines: 12,
+        maxLines: 24,
+        style: const TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          height: 1.5,
+        ),
+        decoration: const InputDecoration(
+          hintText:
+              '// 例如：删除空行\ntext.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.all(10),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          OutlinedButton.icon(
+            icon: const Icon(Icons.restore, size: 16),
+            label: const Text('用基础模板'),
+            onPressed: () {
+              setState(() => _jsCtrl.text = defaultJsTemplate);
+            },
+          ),
+          const Spacer(),
+          TextButton.icon(
+            icon: const Icon(Icons.info_outline, size: 16),
+            label: const Text('使用说明'),
+            onPressed: _showJsExamples,
+          ),
+        ],
+      ),
+    ];
+  }
 
   void _showJsExamples() {
     showDialog<void>(
@@ -1837,7 +1802,6 @@ child: Text(
     return DropdownButtonFormField<RuleScope>(
       value: _scope,
       isExpanded: true,
-      
       decoration: const InputDecoration(
         labelText: '作用范围',
         border: OutlineInputBorder(),
@@ -1865,14 +1829,14 @@ child: Text(
             '长按任一开关的标签，可查看并编辑详细说明。';
         break;
       case RuleKind.preset:
-  final preset = Presets.byId(_presetId ?? '');
-  hint = preset?.helpText ?? '请先选择一个功能';
-  break;
-        case RuleKind.js:
-  hint = '脚本最后一行就是处理结果。\n'
-      '返回数字、布尔值会自动转成文本。\n'
-      '不懂编程的话，建议用「预置功能」。';
-  break;
+        final preset = Presets.byId(_presetId ?? '');
+        hint = preset?.helpText ?? '请先选择一个功能';
+        break;
+      case RuleKind.js:
+        hint = '脚本最后一行就是处理结果。\n'
+            '返回数字、布尔值会自动转成文本。\n'
+            '不懂编程的话，建议用「预置功能」。';
+        break;
     }
     return Container(
       width: double.infinity,
@@ -2017,16 +1981,16 @@ child: Text(
       params: rule.params,
       jsScript: rule.jsScript,
       implType: rule.implType,
-implDetail: rule.implDetail,
-replacementType: rule.replacementType,
-replacementDetail: rule.replacementDetail,
-replacementNote: rule.replacementNote,
+      implDetail: rule.implDetail,
+      replacementType: rule.replacementType,
+      replacementDetail: rule.replacementDetail,
+      replacementNote: rule.replacementNote,
     );
-     ref.read(userRulesProvider.notifier).add(copied);
-  if (!mounted) return;
-  _showFloatHint('已复制到预处理规则列表');
-  widget.onCopyToPreprocess?.call(copied);
-}
+    ref.read(userRulesProvider.notifier).add(copied);
+    if (!mounted) return;
+    _showFloatHint('已复制到预处理规则列表');
+    widget.onCopyToPreprocess?.call(copied);
+  }
 
   void _submit() {
     final rule = _buildRule();
@@ -2036,7 +2000,7 @@ replacementNote: rule.replacementNote,
 
   PreprocessingRule? _buildRule() {
     final raw = _nameCtrl.text;
-if (raw.isEmpty) {
+    if (raw.isEmpty) {
       _toast('规则名不能为空');
       return null;
     }
@@ -2078,28 +2042,28 @@ if (raw.isEmpty) {
           replaceEscape: _replaceEscape,
         );
 
-case RuleKind.preset:
-  if (_presetId == null) {
-    _toast('请选择预置功能');
-    return null;
-  }
-  final preset = Presets.byId(_presetId!);
-  return PreprocessingRule(
-    id: widget.initial?.id ??
-        'user_${DateTime.now().microsecondsSinceEpoch}',
-    name: raw,
-    kind: RuleKind.preset,
-    scope: _scope,
-    enabled: widget.initial?.enabled ?? true,
-    isBuiltin: false,
-    presetId: _presetId,
-    params: Map<String, String>.from(_presetParams),
-    implType: preset?.implType,
-    implDetail: preset?.implDetail,
-    replacementType: preset?.replacementType,
-    replacementDetail: preset?.replacementDetail,
-    replacementNote: preset?.replacementNote,
-  );
+      case RuleKind.preset:
+        if (_presetId == null) {
+          _toast('请选择预置功能');
+          return null;
+        }
+        final preset = Presets.byId(_presetId!);
+        return PreprocessingRule(
+          id: widget.initial?.id ??
+              'user_${DateTime.now().microsecondsSinceEpoch}',
+          name: raw,
+          kind: RuleKind.preset,
+          scope: _scope,
+          enabled: widget.initial?.enabled ?? true,
+          isBuiltin: false,
+          presetId: _presetId,
+          params: Map<String, String>.from(_presetParams),
+          implType: preset?.implType,
+          implDetail: preset?.implDetail,
+          replacementType: preset?.replacementType,
+          replacementDetail: preset?.replacementDetail,
+          replacementNote: preset?.replacementNote,
+        );
 
       case RuleKind.js:
         final script = _jsCtrl.text;
@@ -2121,9 +2085,9 @@ case RuleKind.preset:
   }
 
   void _toast(String msg) {
-  if (!mounted) return;
-  _showFloatHint(msg);
-}
+    if (!mounted) return;
+    _showFloatHint(msg);
+  }
 }
 
 // ==================== JS 示例文本 ====================
@@ -2439,7 +2403,6 @@ text.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$1年$2月$3日')
    "JavaScript 字符串方法"
 ''';
 
-
 // ==================== 开关说明对话框 ====================
 
 class _FlagHelpDialog extends StatefulWidget {
@@ -2472,47 +2435,46 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
     super.dispose();
   }
 
-void _showFloatHint(String msg) {
-  final overlay = Overlay.of(context);
-  late OverlayEntry entry;
-  entry = OverlayEntry(
-    builder: (ctx) => Positioned(
-      bottom: 80,
-      left: 0,
-      right: 0,
-      child: IgnorePointer(
-        child: Center(
-          child: Material(
-            color: Colors.white,
-            elevation: 4,
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
-              child: Text(
-                msg,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 13,
+  void _showFloatHint(String msg) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        bottom: 80,
+        left: 0,
+        right: 0,
+        child: IgnorePointer(
+          child: Center(
+            child: Material(
+              color: Colors.white,
+              elevation: 4,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Text(
+                  msg,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
-  overlay.insert(entry);
-  Future<void>.delayed(const Duration(seconds: 2), () {
-    try {
-      entry.remove();
-    } catch (_) {}
-  });
-}
-  
-  
+    );
+    overlay.insert(entry);
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      try {
+        entry.remove();
+      } catch (_) {}
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
@@ -2536,15 +2498,15 @@ void _showFloatHint(String msg) {
                     ),
                   ),
                   TextButton.icon(
-  icon: const Icon(Icons.restore, size: 16),
-  label: const Text('恢复默认'),
-  onPressed: () {
-    setState(() {
-      _ctrl.text = widget.defaultText;
-    });
-    _showFloatHint('已恢复默认，点保存生效');
-  },
-),
+                    icon: const Icon(Icons.restore, size: 16),
+                    label: const Text('恢复默认'),
+                    onPressed: () {
+                      setState(() {
+                        _ctrl.text = widget.defaultText;
+                      });
+                      _showFloatHint('已恢复默认，点保存生效');
+                    },
+                  ),
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.pop(context),
@@ -2556,7 +2518,8 @@ void _showFloatHint(String msg) {
             Container(
               width: double.infinity,
               color: s.surfaceVariant.withOpacity(0.4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Text(
                 '这里是该开关的详细说明，可直接编辑。保存后覆盖默认内容。',
                 style: TextStyle(fontSize: 11, color: s.onSurfaceVariant),
@@ -2603,7 +2566,6 @@ void _showFloatHint(String msg) {
     );
   }
 }
-
 
 /// 规则快照。用于判断"进比较设置转一圈到底改没改东西"。
 /// 不含笔记（笔记不影响渲染），只含会改变对比结果的规则状态。
