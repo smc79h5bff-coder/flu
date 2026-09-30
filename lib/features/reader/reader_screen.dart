@@ -358,7 +358,43 @@ Widget _buildTopMenuSheet(BuildContext ctx) {
       ),
     );
   }
+void _openFind() {
+  if (_text == null || widget.filePaths.isEmpty) return;
+  final path = widget.filePaths[_fileIndex];
+  final fileKey = readerFileKey(path);
+  showReaderFindBar(
+    context,
+    fileKey,
+    _text!,
+    (offset) {
+      if (_pagination == null) return;
+      final page = findPageForOffset(_pagination!, offset);
+      _jumpToPage(page);
+    },
+  );
+}
 
+void _openManager() {
+  if (widget.filePaths.isEmpty) return;
+  final path = widget.filePaths[_fileIndex];
+  final fileKey = readerFileKey(path);
+  final fileName = path.split('/').last;
+  openBookmarkHighlightManager(context, fileKey, fileName);
+}
+
+Future<void> _openEditor() async {
+  if (widget.filePaths.isEmpty) return;
+  final path = widget.filePaths[_fileIndex];
+  final fileName = path.split('/').last;
+
+  _saveProgress();
+
+  await openEditorAndReturn(context, path, fileName, () {
+    _lastLoadedPath = null;
+    _lastLoadedSize = null;
+    _ensureLoaded();
+  });
+}
   // ==================== 长按选中 ====================
 
   void _onLineLongPress(
