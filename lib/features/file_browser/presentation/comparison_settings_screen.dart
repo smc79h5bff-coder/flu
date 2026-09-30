@@ -268,9 +268,13 @@ class _ComparisonSettingsScreenState
         await _handleBack();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('比较设置'),
-          actions: [
+       appBar: AppBar(
+  title: GestureDetector(
+    onLongPress: _showHiddenRules,
+    behavior: HitTestBehavior.opaque,
+    child: const Text('比较设置'),
+  ),
+  actions: [
             IconButton(
               icon: const Icon(Icons.help_outline),
               tooltip: '使用说明',
@@ -734,6 +738,14 @@ String? _resolveHelpText(PreprocessingRule rule) {
                 onPressed: () => Navigator.pop(c, 'rename'),
                 child: const Text('重命名'),
               ),
+              
+    TextButton(
+      style: TextButton.styleFrom(foregroundColor: Colors.red),
+      onPressed: () => Navigator.pop(c, 'hide'),
+      child: const Text('隐藏'),
+    ),
+
+              
             ] else ...[
               TextButton(
                 onPressed: () => Navigator.pop(c),
@@ -754,15 +766,17 @@ String? _resolveHelpText(PreprocessingRule rule) {
       },
     );
 
-    if (!mounted) return;
-    if (action == 'rename') {
-      await _renameBuiltinRule(rule);
-    } else if (action == 'edit') {
-      await _editUserRule(rule);
-    } else if (action == 'delete') {
-      await _confirmDeleteRule(rule);
-    }
+     if (!mounted) return;
+  if (action == 'rename') {
+    await _renameBuiltinRule(rule);
+  } else if (action == 'edit') {
+    await _editUserRule(rule);
+  } else if (action == 'delete') {
+    await _confirmDeleteRule(rule);
+  } else if (action == 'hide') {
+    await _confirmHideBuiltinRule(rule);
   }
+}
 
   Widget _tag(String text, ColorScheme s) {
     return Container(
@@ -854,7 +868,102 @@ String? _resolveHelpText(PreprocessingRule rule) {
       _toast('已删除「${rule.name}」');
     }
   }
+Future<void> _confirmHideBuiltinRule(PreprocessingRule rule) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (c) => AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      title: const Text('隐藏此条内置规则？'),
+      content: Text(
+        '「${rule.name}」将不再出现在规则列表里。\n'
+        '配置不会删除，长按左上角“比较设置”随时可以恢复。',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(c, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('隐藏'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true && mounted) {
+    ref.read(builtinRuleHiddenProvider.notifier).hide(rule.id);
+    _toast('已隐藏「${rule.name}」');
+  }
+}
 
+Future<void> _showHiddenRules() async {
+  final hidden = ref.read(builtinRuleHiddenProvider);
+  if (hidden.isEmpty) return;
+
+  final all = <String, PreprocessingRule>{
+    for (final r in BuiltinRules.all()) r.id: r,
+  };
+
+  await showDialog<void>(
+    context: context,
+    builder: (c) => AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      title: const Text('已隐藏的内置规则'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(c).size.height * 0.5,
+        child: Consumer(
+          builder: (c, ref, _) {
+            final hidden = ref.watch(builtinRuleHiddenProvider);
+            final ids = hidden.toList();
+            if (ids.isEmpty) {
+              return const Center(child: Text('（空）'));
+            }
+            return ListView.builder(
+              itemCount: ids.length,
+              itemBuilder: (ctx, i) {
+                final id = ids[i];
+                final r = all[id];
+                return ListTile(
+                  dense: true,
+                  title: Text(r?.name ?? id),
+                  subtitle: r == null
+                      ? null
+                      : Text(
+                          '/${r.findPattern}/',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                  trailing: TextButton(
+                    onPressed: () {
+                      ref
+                          .read(builtinRuleHiddenProvider.notifier)
+                          .restore(id);
+                    },
+                    child: const Text('恢复'),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(c),
+          child: const Text('关闭'),
+        ),
+        TextButton(
+          onPressed: () {
+            ref.read(builtinRuleHiddenProvider.notifier).restoreAll();
+            Navigator.pop(c);
+          },
+          child: const Text('全部恢复'),
+        ),
+      ],
+    ),
+  );
+}
   Widget _buildBlockTile({
     required Key key,
     required Widget dragHandle,
