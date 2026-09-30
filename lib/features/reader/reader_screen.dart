@@ -443,9 +443,15 @@ Future<void> _openEditor() async {
       (code >= 0x41 && code <= 0x5A) ||
       (code >= 0x61 && code <= 0x7A) ||
       code == 0x5F;
-
-  void _showWordMenu(String word) {
-    showModalBottomSheet<void>(
+Future<void> _showWordMenuAndClear(
+  String word,
+  SelectableRegionState state,
+) async {
+  await _showWordMenu(word);
+  state.clearSelection();
+}
+  Future<void> _showWordMenu(String word) {
+  return showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
