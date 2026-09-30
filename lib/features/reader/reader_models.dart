@@ -83,15 +83,20 @@ class ReaderBookmark {
 
 /// ==================== 高亮色块（配置） ====================
 ///
+/// ==================== 高亮色块（配置） ====================
+///
 /// 20 个色块槽位。用户长按色块 → 改配置。
 /// 色块只是"新建高亮时的模板"，改它不影响已有高亮。
+///
+/// 第一版：colors 只存 1 个（纯色）或 2 个（渐变）。
+/// 未来：colors 最多 5 个，stops 自定义，angle 任意角度。
 class HighlightPalette {
   const HighlightPalette({
     required this.index,
     required this.name,
-    required this.bg1,
-    required this.bg2,
-    required this.isGradient,
+    required this.colors,
+    required this.stops,
+    required this.angle,
     required this.textColor,
   });
 
@@ -101,54 +106,63 @@ class HighlightPalette {
   /// 用户起的名，如 "人物"、"伏笔"
   final String name;
 
-  /// 背景主色（ARGB int）
-  final int bg1;
+  /// 颜色列表（ARGB int）。
+  /// 长度 1 = 纯色；长度 2 = 渐变（第一版）；未来最多 5。
+  final List<int> colors;
 
-  /// 背景第二色（渐变用；纯色时 = bg1）
-  final int bg2;
+  /// 每个颜色在 0.0-1.0 之间的位置。和 colors 一一对应。
+  /// 纯色时 = [0.0]；渐变时 = [0.0, 1.0]（第一版固定均匀）。
+  final List<double> stops;
 
-  /// true = 上下渐变；false = 纯色
-  final bool isGradient;
+  /// 渐变角度（0-360）。0=从上到下；90=从左到右。纯色时忽略。
+  final double angle;
 
   /// 文字颜色
   final int textColor;
 
+  bool get isGradient => colors.length > 1;
+
   Map<String, dynamic> toJson() => {
         'i': index,
         'n': name,
-        'b1': bg1,
-        'b2': bg2,
-        'g': isGradient,
+        'c': colors,
+        's': stops,
+        'a': angle,
         't': textColor,
       };
 
-  factory HighlightPalette.fromJson(Map<String, dynamic> j) =>
-      HighlightPalette(
-        index: (j['i'] as num).toInt(),
-        name: j['n'] as String? ?? '色块 ${(j['i'] as num).toInt() + 1}',
-        bg1: (j['b1'] as num?)?.toInt() ?? 0xFFFFEB3B,
-        bg2: (j['b2'] as num?)?.toInt() ?? 0xFFFFEB3B,
-        isGradient: j['g'] as bool? ?? false,
-        textColor: (j['t'] as num?)?.toInt() ?? 0xFF000000,
-      );
+  factory HighlightPalette.fromJson(Map<String, dynamic> j) {
+    final rawColors = (j['c'] as List?)?.cast<num>() ??
+        <num>[(j['b1'] as num?)?.toInt() ?? 0xFFFFEB3B];
+    final rawStops = (j['s'] as List?)?.cast<num>() ??
+        <num>[0.0];
+    return HighlightPalette(
+      index: (j['i'] as num).toInt(),
+      name: j['n'] as String? ?? '色块 ${(j['i'] as num).toInt() + 1}',
+      colors: rawColors.map((e) => e.toInt()).toList(),
+      stops: rawStops.map((e) => e.toDouble()).toList(),
+      angle: (j['a'] as num?)?.toDouble() ?? 0.0,
+      textColor: (j['t'] as num?)?.toInt() ?? 0xFF000000,
+    );
+  }
 
   HighlightPalette copyWith({
     String? name,
-    int? bg1,
-    int? bg2,
-    bool? isGradient,
+    List<int>? colors,
+    List<double>? stops,
+    double? angle,
     int? textColor,
   }) =>
       HighlightPalette(
         index: index,
         name: name ?? this.name,
-        bg1: bg1 ?? this.bg1,
-        bg2: bg2 ?? this.bg2,
-        isGradient: isGradient ?? this.isGradient,
+        colors: colors ?? this.colors,
+        stops: stops ?? this.stops,
+        angle: angle ?? this.angle,
         textColor: textColor ?? this.textColor,
       );
 
-  /// 20 个默认色块
+  /// 20 个默认色块（全部纯色）
   static List<HighlightPalette> defaults() {
     const presets = <(String, int, int)>[
       ('重点', 0xFFFFCDD2, 0xFF000000),
@@ -177,9 +191,9 @@ class HighlightPalette {
         HighlightPalette(
           index: i,
           name: presets[i].$1,
-          bg1: presets[i].$2,
-          bg2: presets[i].$2,
-          isGradient: false,
+          colors: [presets[i].$2],
+          stops: const [0.0],
+          angle: 0.0,
           textColor: presets[i].$3,
         ),
     ];
@@ -195,64 +209,67 @@ class HighlightEntry {
   const HighlightEntry({
     required this.id,
     required this.keyword,
-    required this.bg1,
-    required this.bg2,
-    required this.isGradient,
+    required this.colors,
+    required this.stops,
+    required this.angle,
     required this.textColor,
     required this.createdAt,
     this.isRegex = false,
   });
 
   final String id;
-
-  /// 要高亮的词。未来若 isRegex=true，则是正则
   final String keyword;
 
-  final int bg1;
-  final int bg2;
-  final bool isGradient;
+  /// 颜色快照
+  final List<int> colors;
+  final List<double> stops;
+  final double angle;
   final int textColor;
-  final int createdAt;
 
-  /// 是否作为正则解析。现在固定 false，未来开放
+  final int createdAt;
   final bool isRegex;
 
   Map<String, dynamic> toJson() => {
         'i': id,
         'k': keyword,
-        'b1': bg1,
-        'b2': bg2,
-        'g': isGradient,
+        'c': colors,
+        's': stops,
+        'a': angle,
         't': textColor,
         't0': createdAt,
         if (isRegex) 'r': true,
       };
 
-  factory HighlightEntry.fromJson(Map<String, dynamic> j) => HighlightEntry(
-        id: j['i'] as String,
-        keyword: j['k'] as String,
-        bg1: (j['b1'] as num).toInt(),
-        bg2: (j['b2'] as num).toInt(),
-        isGradient: j['g'] as bool? ?? false,
-        textColor: (j['t'] as num).toInt(),
-        createdAt: (j['t0'] as num?)?.toInt() ?? 0,
-        isRegex: j['r'] as bool? ?? false,
-      );
+  factory HighlightEntry.fromJson(Map<String, dynamic> j) {
+    final rawColors = (j['c'] as List?)?.cast<num>() ??
+        <num>[(j['b1'] as num?)?.toInt() ?? 0xFFFFEB3B];
+    final rawStops = (j['s'] as List?)?.cast<num>() ?? <num>[0.0];
+    return HighlightEntry(
+      id: j['i'] as String,
+      keyword: j['k'] as String,
+      colors: rawColors.map((e) => e.toInt()).toList(),
+      stops: rawStops.map((e) => e.toDouble()).toList(),
+      angle: (j['a'] as num?)?.toDouble() ?? 0.0,
+      textColor: (j['t'] as num).toInt(),
+      createdAt: (j['t0'] as num?)?.toInt() ?? 0,
+      isRegex: j['r'] as bool? ?? false,
+    );
+  }
 
   HighlightEntry copyWith({
     String? keyword,
-    int? bg1,
-    int? bg2,
-    bool? isGradient,
+    List<int>? colors,
+    List<double>? stops,
+    double? angle,
     int? textColor,
     bool? isRegex,
   }) =>
       HighlightEntry(
         id: id,
         keyword: keyword ?? this.keyword,
-        bg1: bg1 ?? this.bg1,
-        bg2: bg2 ?? this.bg2,
-        isGradient: isGradient ?? this.isGradient,
+        colors: colors ?? this.colors,
+        stops: stops ?? this.stops,
+        angle: angle ?? this.angle,
         textColor: textColor ?? this.textColor,
         createdAt: createdAt,
         isRegex: isRegex ?? this.isRegex,
