@@ -72,7 +72,7 @@ class BuiltinRules {
         ),
         PreprocessingRule(
           id: 'ig_ws',
-          name: '删掉空白符号',
+          name: '删掉半角空格、Tab、全角空格',
           findPattern: r'[ \t\u3000]+',
           replaceWith: '',
           enabled: true,
