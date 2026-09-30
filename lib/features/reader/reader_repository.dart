@@ -16,14 +16,13 @@ import 'reader_models.dart';
 //   而阅读器每次打开文件都要算，用户等待时间会累加。
 //   "大小+时间" 在 99.99% 情况下足够区分（同路径同大小同 mtime 的不同内容几乎不可能）。
 
+
 String readerFileKey(String filePath) {
-  try {
-    final st = File(filePath).statSync();
-    return '$filePath|${st.size}|${st.modified.millisecondsSinceEpoch}';
-  } catch (_) {
-    return filePath;
-  }
+  return filePath;
 }
+
+
+
 
 // ==================== 全局阅读设置（所有文件共享） ====================
 
