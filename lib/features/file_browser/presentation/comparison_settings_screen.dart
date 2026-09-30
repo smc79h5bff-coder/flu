@@ -1959,11 +1959,9 @@ if (raw.isEmpty) {
   }
 
   void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
-  }
+  if (!mounted) return;
+  _showFloatHint(msg);
+}
 }
 
 // ==================== JS 示例文本 ====================
