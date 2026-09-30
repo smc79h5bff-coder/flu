@@ -590,66 +590,160 @@ Widget build(BuildContext context) {
             width: double.maxFinite,
             height: MediaQuery.of(c).size.height * 0.6,
             child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      _tag(kindLabel, s),
-                      const SizedBox(width: 6),
-                      _tag(scopeLabel, s),
-                      const SizedBox(width: 6),
-                      _tag(rule.enabled ? '已启用' : '已禁用', s),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(height: 1),
-                  const SizedBox(height: 12),
-                  SelectableText(
-                    detail.isEmpty ? '(无内容)' : detail,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      height: 1.6,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ],
-              ),
+        child: Column(
+  mainAxisSize: MainAxisSize.min,
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    Row(
+      children: [
+        _tag(kindLabel, s),
+        const SizedBox(width: 6),
+        _tag(scopeLabel, s),
+        const SizedBox(width: 6),
+        _tag(rule.enabled ? '已启用' : '已禁用', s),
+      ],
+    ),
+    const SizedBox(height: 12),
+    const Divider(height: 1),
+    const SizedBox(height: 12),
+    SelectableText(
+      detail.isEmpty ? '(无内容)' : detail,
+      style: const TextStyle(
+        fontSize: 13,
+        height: 1.6,
+        fontFamily: 'monospace',
+      ),
+    ),
+    if (rule.implType != null) ...[
+      const SizedBox(height: 16),
+      const Divider(height: 1),
+      const SizedBox(height: 12),
+      Text(
+        '实现方式',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: s.primary,
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        '类型：${rule.implType}',
+        style: const TextStyle(fontSize: 12),
+      ),
+      if (rule.implDetail != null) ...[
+        const SizedBox(height: 4),
+        SelectableText(
+          rule.implDetail!,
+          style: const TextStyle(
+            fontSize: 12,
+            height: 1.5,
+            fontFamily: 'monospace',
+          ),
+        ),
+      ],
+    ],
+    if (rule.replacementType != null) ...[
+      const SizedBox(height: 16),
+      const Divider(height: 1),
+      const SizedBox(height: 12),
+      Text(
+        '替代方案',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: s.primary,
+        ),
+      ),
+      const SizedBox(height: 6),
+      Row(
+        children: [
+          Text(
+            rule.replacementType == 'ok'
+                ? '✅'
+                : rule.replacementType == 'warn'
+                    ? '⚠️'
+                    : '❌',
+            style: const TextStyle(fontSize: 14),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            rule.replacementType == 'ok'
+                ? '可以用正则替代'
+                : rule.replacementType == 'warn'
+                    ? '可替代，但不建议'
+                    : '无法用正则替代',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+      if (rule.replacementDetail != null) ...[
+        const SizedBox(height: 6),
+        SelectableText(
+          rule.replacementDetail!,
+          style: const TextStyle(
+            fontSize: 12,
+            height: 1.5,
+            fontFamily: 'monospace',
+          ),
+        ),
+      ],
+      if (rule.replacementNote != null) ...[
+        const SizedBox(height: 6),
+        Text(
+          rule.replacementNote!,
+          style: TextStyle(
+            fontSize: 11,
+            height: 1.4,
+            color: s.onSurfaceVariant,
+          ),
+        ),
+      ],
+    ],
+  ],
+),
             ),
           ),
-          actions: [
-            if (rule.isBuiltin)
-              TextButton(
-                onPressed: () => Navigator.pop(c),
-                child: const Text('关闭'),
-              )
-            else ...[
-              TextButton(
-                onPressed: () => Navigator.pop(c),
-                child: const Text('关闭'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(c, 'edit'),
-                child: const Text('编辑'),
-              ),
-              TextButton(
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
-                onPressed: () => Navigator.pop(c, 'delete'),
-                child: const Text('删除'),
-              ),
-            ],
-          ],
+          
+          
+actions: [
+  if (rule.isBuiltin) ...[
+    TextButton(
+      onPressed: () => Navigator.pop(c),
+      child: const Text('关闭'),
+    ),
+    TextButton(
+      onPressed: () => Navigator.pop(c, 'rename'),
+      child: const Text('重命名'),
+    ),
+  ] else ...[
+    TextButton(
+      onPressed: () => Navigator.pop(c),
+      child: const Text('关闭'),
+    ),
+    TextButton(
+      onPressed: () => Navigator.pop(c, 'edit'),
+      child: const Text('编辑'),
+    ),
+    TextButton(
+      style: TextButton.styleFrom(foregroundColor: Colors.red),
+      onPressed: () => Navigator.pop(c, 'delete'),
+      child: const Text('删除'),
+    ),
+  ],
+],
         );
       },
     );
 
     if (!mounted) return;
-    if (action == 'edit') {
-      await _editUserRule(rule);
-    } else if (action == 'delete') {
-      await _confirmDeleteRule(rule);
-    }
+if (action == 'rename') {
+  await _renameBuiltinRule(rule);
+} else if (action == 'edit') {
+  await _editUserRule(rule);
+} else if (action == 'delete') {
+  await _confirmDeleteRule(rule);
+}
   }
 
   Widget _tag(String text, ColorScheme s) {
@@ -668,7 +762,52 @@ Widget build(BuildContext context) {
       ),
     );
   }
+/// 重命名内置规则。
+Future<void> _renameBuiltinRule(PreprocessingRule rule) async {
+  final ctrl = TextEditingController(text: rule.name);
+  final newName = await showDialog<String>(
+    context: context,
+    builder: (c) => AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      title: const Text('重命名内置规则'),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: '新名字',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        onSubmitted: (v) => Navigator.pop(c, v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(c),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(c, ''),
+          child: const Text('恢复默认'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(c, ctrl.text),
+          child: const Text('确定'),
+        ),
+      ],
+    ),
+  );
+  ctrl.dispose();
+  if (newName == null || !mounted) return;
 
+  ref
+      .read(builtinRuleNameOverridesProvider.notifier)
+      .setOne(rule.id, newName);
+  if (newName.trim().isEmpty) {
+    _toast('已恢复默认名');
+  } else {
+    _toast('已重命名');
+  }
+}
   Future<void> _confirmDeleteRule(PreprocessingRule rule) async {
     if (rule.isBuiltin) return;
     final ok = await showDialog<bool>(
@@ -1877,6 +2016,11 @@ child: Text(
       presetId: rule.presetId,
       params: rule.params,
       jsScript: rule.jsScript,
+      implType: rule.implType,
+implDetail: rule.implDetail,
+replacementType: rule.replacementType,
+replacementDetail: rule.replacementDetail,
+replacementNote: rule.replacementNote,
     );
      ref.read(userRulesProvider.notifier).add(copied);
   if (!mounted) return;
@@ -1934,22 +2078,28 @@ if (raw.isEmpty) {
           replaceEscape: _replaceEscape,
         );
 
-      case RuleKind.preset:
-        if (_presetId == null) {
-          _toast('请选择预置功能');
-          return null;
-        }
-        return PreprocessingRule(
-          id: widget.initial?.id ??
-              'user_${DateTime.now().microsecondsSinceEpoch}',
-          name: raw,
-          kind: RuleKind.preset,
-          scope: _scope,
-          enabled: widget.initial?.enabled ?? true,
-          isBuiltin: false,
-          presetId: _presetId,
-          params: Map<String, String>.from(_presetParams),
-        );
+case RuleKind.preset:
+  if (_presetId == null) {
+    _toast('请选择预置功能');
+    return null;
+  }
+  final preset = Presets.byId(_presetId!);
+  return PreprocessingRule(
+    id: widget.initial?.id ??
+        'user_${DateTime.now().microsecondsSinceEpoch}',
+    name: raw,
+    kind: RuleKind.preset,
+    scope: _scope,
+    enabled: widget.initial?.enabled ?? true,
+    isBuiltin: false,
+    presetId: _presetId,
+    params: Map<String, String>.from(_presetParams),
+    implType: preset?.implType,
+    implDetail: preset?.implDetail,
+    replacementType: preset?.replacementType,
+    replacementDetail: preset?.replacementDetail,
+    replacementNote: preset?.replacementNote,
+  );
 
       case RuleKind.js:
         final script = _jsCtrl.text;
