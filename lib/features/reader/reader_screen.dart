@@ -1301,29 +1301,36 @@ void _startDragRight(Offset fingerPos) {
         top: topPos,
         width: handleW,
         height: handleH,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: (_) {
-            if (which == 1) {
-              _startDragLeft();
-            } else {
-              _startDragRight();
-            }
-          },
-          onPanUpdate: (d) {
-            if (_draggingHandle != which) return;
-            final local = Offset(
-              globalPos.dx + d.delta.dx,
-              globalPos.dy + d.delta.dy,
-            );
-            _updateSelectionFromDrag(local);
-          },
-          onPanEnd: (_) {
-            setState(() {
-              _draggingHandle = 0;
-              _hBarVisible = true;
-            });
-          },
+
+
+
+
+child: GestureDetector(
+  behavior: HitTestBehavior.opaque,
+  onPanStart: (d) {
+    if (which == 1) {
+      _startDragLeft(d.globalPosition);
+    } else {
+      _startDragRight(d.globalPosition);
+    }
+  },
+  onPanUpdate: (d) {
+    if (_draggingHandle != which) return;
+    setState(() {
+      _dragHandlePos = d.globalPosition;
+    });
+    _updateSelectionFromDrag(d.globalPosition);
+  },
+  onPanEnd: (_) {
+    setState(() {
+      _draggingHandle = 0;
+      _dragHandlePos = null;
+      _hBarVisible = true;
+    });
+  },
+
+
+          
           child: CustomPaint(
             painter: _HandlePainter(
               color: Theme.of(context).colorScheme.primary,
