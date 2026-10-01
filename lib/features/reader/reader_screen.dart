@@ -946,10 +946,12 @@ _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
   }
 
   void _updateSelectionFromDrag(Offset globalPos) {
-    final sel = _sel;
-    if (sel == null) return;
-    final hit = _hitTest(globalPos);
-    if (hit == null) return;
+  final sel = _sel;
+  if (sel == null) return;
+  // 拖左手柄时锁定在原 startLine，拖右手柄锁定在原 endLine
+  final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
+  final hit = _hitTestWithBuffer(globalPos, preferLine);
+  if (hit == null) return;
 
     if (_draggingHandle == 1) {
       setState(() {
