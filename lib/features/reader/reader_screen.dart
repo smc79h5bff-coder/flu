@@ -58,44 +58,78 @@ class _CharPos {
 
 // ==================== 手柄绘制 ====================
 
-class _HandlePainter extends CustomPainter {
-  _HandlePainter({
+// ==================== 手柄绘制 ====================
+
+/// 竖线：只负责显示，不接收手势。
+class _HandleLinePainter extends CustomPainter {
+  _HandleLinePainter({
     required this.color,
     required this.lineHeight,
-    required this.circleR,
   });
 
   final Color color;
   final double lineHeight;
-  final double circleR;
 
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    const top = 0.0;
-    final lineBottom = top + lineHeight;
-    final linePaint = Paint()
+    final paint = Paint()
       ..color = color
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round;
-    final circlePaint = Paint()..color = color;
-
-    // 竖线
-    canvas.drawLine(Offset(cx, top), Offset(cx, lineBottom), linePaint);
-    // 圆
-    canvas.drawCircle(
-      Offset(cx, lineBottom + circleR + 2),
-      circleR,
-      circlePaint,
-    );
+    canvas.drawLine(Offset(cx, 0), Offset(cx, lineHeight), paint);
   }
 
   @override
-  bool shouldRepaint(_HandlePainter old) =>
-      old.color != color ||
-      old.lineHeight != lineHeight ||
-      old.circleR != circleR;
+  bool shouldRepaint(_HandleLinePainter old) =>
+      old.color != color || old.lineHeight != lineHeight;
 }
+
+/// 梯形：可拖动部分。左右手柄镜像。
+class _TrapezoidPainter extends CustomPainter {
+  _TrapezoidPainter({
+    required this.color,
+    required this.isLeft,
+  });
+
+  final Color color;
+  final bool isLeft;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final mid = h / 2;
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    final path = Path();
+    if (isLeft) {
+      // 左手柄：右侧是长直角边（全高），左侧是短直角边（下半），顶边斜
+      path.moveTo(w, 0);
+      path.lineTo(w, h);
+      path.lineTo(0, h);
+      path.lineTo(0, mid);
+      path.close();
+    } else {
+      // 右手柄：镜像
+      path.moveTo(0, 0);
+      path.lineTo(0, h);
+      path.lineTo(w, h);
+      path.lineTo(w, mid);
+      path.close();
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_TrapezoidPainter old) =>
+      old.color != color || old.isLeft != isLeft;
+}
+
 
 // ==================== ReaderScreen ====================
 
