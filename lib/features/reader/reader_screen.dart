@@ -837,54 +837,54 @@ void _onPointerDown(PointerDownEvent e) {
   }
 
   /// 点击分发。
-  void _handleTap(Offset globalPos) {
-    final settings = ref.read(readerSettingsProvider);
+  
+void _handleTap(Offset globalPos) {
+  final settings = ref.read(readerSettingsProvider);
 
-    // 1. 悬浮按钮
-    final size = _viewportSize;
-    if (settings.showButtons) {
-      final topBtnSize = 50.0 * settings.buttonScale;
-      final topCenter = Offset(
-        settings.topBtnX * size.width,
-        settings.topBtnY * size.height,
-      );
-      if ((globalPos - topCenter).distance <= topBtnSize / 2 + 8) {
-        _prevFile();
-        return;
-      }
-      final bottomCenter = Offset(
-        settings.bottomBtnX * size.width,
-        settings.bottomBtnY * size.height,
-      );
-      if ((globalPos - bottomCenter).distance <= topBtnSize / 2 + 8) {
-        _nextFile();
-        return;
-      }
-    }
-
-    // 2. 顶部热区。坐标是"局部"还是"全局"：
-    //    这里 globalPos 是全局坐标；SafeArea 会把内容往下推，
-    //    所以用 _contentKey 的 top 来比较更稳妥。
-    final contentCtx = _contentKey.currentContext;
-    if (contentCtx != null) {
-      final box = contentCtx.findRenderObject() as RenderBox?;
-      if (box != null) {
-        final top = box.localToGlobal(Offset.zero).dy;
-        // 顶部热区：从屏幕顶端开始算。SafeArea 顶部以下的内容才会走翻页。
-        final safeTop = MediaQuery.of(context).padding.top;
-        if (globalPos.dy < safeTop + settings.topHotZoneHeight) {
-          _showTopMenu();
-          return;
-        }
-        // 避免未使用变量
-        // ignore: unused_local_variable
-        final _t = top;
-      }
-    }
-
-    // 3. 正文 → 翻页
+  final contentBox =
+      _contentKey.currentContext?.findRenderObject() as RenderBox?;
+  if (contentBox == null) {
     _nextPage();
+    return;
   }
+  final origin = contentBox.localToGlobal(Offset.zero);
+  final w = contentBox.size.width;
+  final h = contentBox.size.height;
+
+  // 1. 悬浮按钮
+  if (settings.showButtons) {
+    final topBtnSize = 50.0 * settings.buttonScale;
+    final topCenter = origin +
+        Offset(settings.topBtnX * w, settings.topBtnY * h);
+    if ((globalPos - topCenter).distance <= topBtnSize / 2 + 8) {
+      _prevFile();
+      return;
+    }
+    final bottomCenter = origin +
+        Offset(settings.bottomBtnX * w, settings.bottomBtnY * h);
+    if ((globalPos - bottomCenter).distance <= topBtnSize / 2 + 8) {
+      _nextFile();
+      return;
+    }
+  }
+
+  // 2. 顶部热区
+  final safeTop = MediaQuery.of(context).padding.top;
+  if (globalPos.dy < safeTop + settings.topHotZoneHeight) {
+    _showTopMenu();
+    return;
+  }
+
+  // 3. 正文 → 翻页
+  _nextPage();
+}
+
+
+
+
+
+
+  
 
   // ==================== 手柄拖动 ====================
 
