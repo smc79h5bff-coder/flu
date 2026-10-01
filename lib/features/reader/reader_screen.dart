@@ -1334,16 +1334,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final handleH = lineHeight + 20.0;
     const circleR = 6.0;
 
-    var leftPos = pos.left;
-    var rightPos = pos.right;
 
-    // 正在拖的手柄，位置用手指的实时位置（跟手）
-    if (_draggingHandle == 1 && _dragHandlePos != null) {
-      leftPos = _dragHandlePos!;
-    } else if (_draggingHandle == 2 && _dragHandlePos != null) {
-      rightPos = _dragHandlePos!;
-    }
 
+
+var leftPos = pos.left;
+var rightPos = pos.right;
+
+// 正在拖的手柄，位置用手指的实时位置（跟手）
+if (_draggingHandle == 1 && _dragHandlePos != null) {
+  leftPos = _dragHandlePos!;
+} else if (_draggingHandle == 2 && _dragHandlePos != null) {
+  rightPos = _dragHandlePos!;
+} else {
+  // 两个手柄水平距离太小（字符太窄 / 零宽 / 行尾）→ 往两边推
+  final dx = (rightPos.dx - leftPos.dx).abs();
+  if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
+    final mid = (leftPos.dx + rightPos.dx) / 2;
+    leftPos = Offset(mid - 10, leftPos.dy);
+    rightPos = Offset(mid + 10, rightPos.dy);
+  }
+}
+
+
+
+
+    
     Widget handle(Offset globalPos, int which) {
       final top = MediaQuery.of(context).padding.top;
       final left = globalPos.dx - handleW / 2;
