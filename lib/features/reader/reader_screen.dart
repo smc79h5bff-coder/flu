@@ -667,22 +667,18 @@ _horizontalDrag = false;
     return _hitTest(globalPos);
   }
 
-  /// 从 (line, offset) 算屏幕全局坐标。
-  /// 返回字符盒的左上角。
-  Offset? _posOfChar(int line, int offset) {
+  /// 返回 offset 处字符的左上角（用于左手柄 / 起点）。
+  Offset? _posOfCharLeft(int line, int offset) {
     final ctx = _lineKeys[line]?.currentContext;
     if (ctx == null) return null;
     final rp = ctx.findRenderObject();
     if (rp is! RenderParagraph) return null;
 
     final lineText = line < _lines.length ? _lines[line] : '';
-    if (lineText.isEmpty) {
-      return rp.localToGlobal(Offset.zero);
-    }
+    if (lineText.isEmpty) return rp.localToGlobal(Offset.zero);
 
     final safeOffset = offset.clamp(0, lineText.length);
-
-    // 行尾：用最后一个字符的右边缘
+    // 行尾：用最后一个字的右边缘
     if (safeOffset >= lineText.length) {
       final boxes = rp.getBoxesForSelection(
         TextSelection(
@@ -694,13 +690,8 @@ _horizontalDrag = false;
       final box = boxes.last;
       return rp.localToGlobal(Offset(box.right, box.top));
     }
-
-    // 普通情况：用 safeOffset 处那一个字符的盒子
     final boxes = rp.getBoxesForSelection(
-      TextSelection(
-        baseOffset: safeOffset,
-        extentOffset: safeOffset + 1,
-      ),
+      TextSelection(baseOffset: safeOffset, extentOffset: safeOffset + 1),
     );
     if (boxes.isEmpty) {
       final caret = rp.getOffsetForCaret(
@@ -711,6 +702,42 @@ _horizontalDrag = false;
     }
     final box = boxes.first;
     return rp.localToGlobal(Offset(box.left, box.top));
+  }
+
+  /// 返回选区终点处字符的右上角（用于右手柄 / 终点）。
+  /// offset 是"选区结束位置"，即 offset-1 处字符的右边缘。
+  Offset? _posOfCharRight(int line, int offset) {
+    final ctx = _lineKeys[line]?.currentContext;
+    if (ctx == null) return null;
+    final rp = ctx.findRenderObject();
+    if (rp is! RenderParagraph) return null;
+
+    final lineText = line < _lines.length ? _lines[line] : '';
+    if (lineText.isEmpty) return rp.localToGlobal(Offset.zero);
+
+    final safeOffset = offset.clamp(0, lineText.length);
+    // 行首：用第一个字符的左边缘
+    if (safeOffset <= 0) {
+      final boxes = rp.getBoxesForSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 1),
+      );
+      if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
+      final box = boxes.first;
+      return rp.localToGlobal(Offset(box.left, box.top));
+    }
+    // 普通：用 offset-1 处字符的右边缘
+    final boxes = rp.getBoxesForSelection(
+      TextSelection(baseOffset: safeOffset - 1, extentOffset: safeOffset),
+    );
+    if (boxes.isEmpty) {
+      final caret = rp.getOffsetForCaret(
+        TextPosition(offset: safeOffset),
+        Rect.fromLTWH(0, 0, 1, rp.size.height),
+      );
+      return rp.localToGlobal(caret);
+    }
+    final box = boxes.last;
+    return rp.localToGlobal(Offset(box.right, box.top));
   }
 
   String _selectedText() {
@@ -1003,7 +1030,7 @@ _horizontalDrag = false;
   void _startDragLeft(Offset fingerPos) {
   final sel = _sel;
   if (sel == null) return;
-  final handleLogic = _posOfChar(sel.startLine, sel.startOffset);
+  final handleLogic = _posOfCharLeft(sel.startLine, sel.startOffset);
   setState(() {
     _draggingHandle = 1;
     _dragHandlePos = handleLogic ?? fingerPos;
@@ -1016,7 +1043,7 @@ _horizontalDrag = false;
 void _startDragRight(Offset fingerPos) {
   final sel = _sel;
   if (sel == null) return;
-  final handleLogic = _posOfChar(sel.endLine, sel.endOffset);
+  final handleLogic = _posOfCharRight(sel.endLine, sel.endOffset);
   setState(() {
     _draggingHandle = 2;
     _dragHandlePos = handleLogic ?? fingerPos;
@@ -1061,8 +1088,8 @@ void _updateSelectionFromDrag(Offset handleLogic) {
   ({Offset left, Offset right})? _handlePositions() {
     final sel = _sel;
     if (sel == null) return null;
-    final left = _posOfChar(sel.startLine, sel.startOffset);
-    final right = _posOfChar(sel.endLine, sel.endOffset);
+    final left = _posOfCharLeft(sel.startLine, sel.startOffset);
+    final right = _posOfCharRight(sel.endLine, sel.endOffset);
     if (left == null || right == null) return null;
     return (left: left, right: right);
   }
@@ -1549,8 +1576,8 @@ final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
     if (sel == null) return const SizedBox.shrink();
     final n = sel.normalized();
 
-    final startPos = _posOfChar(n.startLine, n.startOffset);
-    final endPos = _posOfChar(n.endLine, n.endOffset);
+    final startPos = _posOfCharLeft(n.startLine, n.startOffset);
+    final endPos = _posOfCharLeft(n.endLine, n.endOffset);
     if (startPos == null || endPos == null) {
       return const SizedBox.shrink();
     }
