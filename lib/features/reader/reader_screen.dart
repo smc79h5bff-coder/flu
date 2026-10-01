@@ -828,15 +828,36 @@ Widget _buildReader(ReaderSettings settings, Size size) {
         ));
       }
       final entry = h.entry;
-      final hlStyle = base.copyWith(
-        color: Color(entry.textColor),
-        backgroundColor: Color(entry.colors.first),
-      );
-      spans.add(TextSpan(
-        text: line.substring(h.startInLine, h.endInLine),
-        style: hlStyle,
-      ));
-      cursor = h.endInLine;
+final hlText = line.substring(h.startInLine, h.endInLine);
+if (entry.colors.length > 1) {
+  // 渐变：用 WidgetSpan 包一个带渐变背景的 Container
+  spans.add(WidgetSpan(
+    alignment: PlaceholderAlignment.baseline,
+    baseline: TextBaseline.alphabetic,
+    child: Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors:
+              entry.colors.map((c) => Color(c)).toList(growable: false),
+        ),
+      ),
+      child: Text(
+        hlText,
+        style: base.copyWith(color: Color(entry.textColor)),
+      ),
+    ),
+  ));
+} else {
+  // 纯色：走原有路径
+  final hlStyle = base.copyWith(
+    color: Color(entry.textColor),
+    backgroundColor: Color(entry.colors.first),
+  );
+  spans.add(TextSpan(text: hlText, style: hlStyle));
+}
+cursor = h.endInLine;
     }
 
     if (cursor < line.length) {
