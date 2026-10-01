@@ -179,7 +179,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
   Offset? _dragHandlePos;
-
+/// 拖动开始时手指相对手柄逻辑位置的偏移。
+/// 用来把手指位置换算成手柄逻辑位置。
+Offset? _dragHandleOffset;
   /// 长按后手指最后处理过的位置。用来做去抖。
   Offset? _lastLongPressPos;
 
