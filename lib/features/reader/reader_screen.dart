@@ -1283,13 +1283,24 @@ void _startDragRight(Offset fingerPos) {
     final handleH = lineHeight + 20.0;
     const circleR = 6.0;
 
+
+
     var leftPos = pos.left;
-    var rightPos = pos.right;
-    final dx = (rightPos.dx - leftPos.dx).abs();
-    if (dx < handleW && (rightPos.dy - leftPos.dy).abs() < 2) {
-      leftPos = Offset(leftPos.dx - handleW, leftPos.dy);
-      rightPos = Offset(rightPos.dx + handleW, rightPos.dy);
-    }
+var rightPos = pos.right;
+
+// 正在拖的手柄，位置用手指的实时位置（跟手）
+if (_draggingHandle == 1 && _dragHandlePos != null) {
+  leftPos = _dragHandlePos!;
+} else if (_draggingHandle == 2 && _dragHandlePos != null) {
+  rightPos = _dragHandlePos!;
+} else {
+  // 两个手柄重合时，往两边推
+  final dx = (rightPos.dx - leftPos.dx).abs();
+  if (dx < handleW && (rightPos.dy - leftPos.dy).abs() < 2) {
+    leftPos = Offset(leftPos.dx - handleW, leftPos.dy);
+    rightPos = Offset(rightPos.dx + handleW, rightPos.dy);
+  }
+}
 
     Widget handle(Offset globalPos, int which) {
       final top = MediaQuery.of(context).padding.top;
