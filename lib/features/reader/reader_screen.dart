@@ -1425,27 +1425,30 @@ _lastLongPressPos = e.position;
   // ==================== 手柄渲染 ====================
 
 
-    List<Widget> _buildHandles(ReaderSettings settings) {
+    
+  List<Widget> _buildHandles(ReaderSettings settings) {
   if (_sel == null) return const [];
   final pos = _handlePositions();
   if (pos == null) return const [];
 
-  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-  const handleW = 24.0;
-  const trapW = 12.0;
-  const trapH = 18.0;
-  final color = Theme.of(context).colorScheme.primary;
+  final fullLineH = settings.fontSize * kReaderLineHeightFactor;
+  final lineDrawH = fullLineH * 0.5; // 竖线缩短到一半
+  const trapW = 24.0;   // 12 * 2
+  const trapH = 36.0;   // 18 * 2
+  const handleW = 48.0; // trapW * 2，让梯形完全在竖线一侧
+  final color = Theme.of(context)
+      .colorScheme
+      .primary
+      .withValues(alpha: 0.5);
 
   var leftPos = pos.left;
   var rightPos = pos.right;
 
-  // 正在拖的手柄，位置用手指的实时位置（跟手）
   if (_draggingHandle == 1 && _dragHandlePos != null) {
     leftPos = _dragHandlePos!;
   } else if (_draggingHandle == 2 && _dragHandlePos != null) {
     rightPos = _dragHandlePos!;
   } else {
-    // 两个手柄水平距离太小 → 往两边推
     final dx = (rightPos.dx - leftPos.dx).abs();
     if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
       final mid = (leftPos.dx + rightPos.dx) / 2;
@@ -1460,9 +1463,9 @@ _lastLongPressPos = e.position;
   Widget handle(Offset globalPos, int which) {
     final isLeft = which == 1;
 
-    // 当前行底部 + 梯形 + 一点余量，是否超出屏幕底
+    // 屏幕底部放不下 → 翻转：梯形在文字上方
     final bottomOverflow =
-        globalPos.dy + lineHeight + trapH + 8 > screenH;
+        globalPos.dy + fullLineH + trapH + 8 > screenH;
 
     final double topPos;
     final double lineTop;
@@ -1470,17 +1473,15 @@ _lastLongPressPos = e.position;
     final double handleH;
 
     if (bottomOverflow) {
-      // 翻转：梯形在竖线上方
-      handleH = trapH + 2 + lineHeight;
+      handleH = trapH + 2 + lineDrawH;
       topPos = globalPos.dy - safeTop - trapH - 2;
-      lineTop = trapH + 2;
       trapTop = 0;
+      lineTop = trapH + 2;
     } else {
-      // 正常：竖线在上，梯形在下
-      handleH = lineHeight + trapH + 2;
+      handleH = fullLineH + trapH + 2;
       topPos = globalPos.dy - safeTop;
       lineTop = 0;
-      trapTop = lineHeight + 2;
+      trapTop = fullLineH + 2; // 紧贴文字底部，留 2px 缝
     }
 
     final left = globalPos.dx - handleW / 2;
@@ -1497,19 +1498,19 @@ _lastLongPressPos = e.position;
             left: 0,
             top: lineTop,
             width: handleW,
-            height: lineHeight,
+            height: lineDrawH,
             child: IgnorePointer(
               child: CustomPaint(
                 painter: _HandleLinePainter(
                   color: color,
-                  lineHeight: lineHeight,
+                  lineHeight: lineDrawH,
                 ),
               ),
             ),
           ),
-          // 梯形：只有这一块能拖
+          // 梯形：触摸区 = 视觉尺寸
           Positioned(
-            left: isLeft ? 0 : handleW - trapW,
+            left: isLeft ? handleW / 2 - trapW : handleW / 2,
             top: trapTop,
             width: trapW,
             height: trapH,
@@ -1554,6 +1555,8 @@ _lastLongPressPos = e.position;
     handle(rightPos, 2),
   ];
 }
+              
+      
     
   
 
