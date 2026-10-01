@@ -1069,20 +1069,28 @@ void _onPointerDown(PointerDownEvent e) {
                 horizontal: kReaderHorizontalPadding,
                 vertical: kReaderVerticalPadding,
               ),
+
+
+
+              
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = range.startLine; i < range.endLine; i++)
-                    KeyedSubtree(
-                      key: _lineKeys[i],
-                      child: _buildLine(
-                        i,
-                        settings,
-                        size.width - kReaderHorizontalPadding * 2,
-                      ),
-                    ),
-                ],
-              ),
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    for (var i = range.startLine; i < range.endLine; i++)
+      _buildLine(
+        i,
+        settings,
+        size.width - kReaderHorizontalPadding * 2,
+      ),
+  ],
+),
+
+
+
+
+
+
+              
             ),
           ),
         ),
@@ -1137,13 +1145,19 @@ void _onPointerDown(PointerDownEvent e) {
     );
   }
 
-  Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
-    final spans = _buildLineSpans(lineIdx, settings);
-    return SizedBox(
-      width: double.infinity,
-      child: Text.rich(TextSpan(children: spans), softWrap: true),
-    );
-  }
+Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
+  final spans = _buildLineSpans(lineIdx, settings);
+  return SizedBox(
+    width: double.infinity,
+    child: Text.rich(
+      TextSpan(children: spans),
+      softWrap: true,
+      key: _lineKeys[lineIdx],
+    ),
+  );
+}
+
+  
 
   /// 把选区叠加到 spans 上。
   List<InlineSpan> _buildLineSpans(int lineIdx, ReaderSettings settings) {
