@@ -591,19 +591,60 @@ _horizontalDrag = false;
     return null;
   }
 
-  Offset? _posOfChar(int line, int offset) {
-    final ctx = _lineKeys[line]?.currentContext;
-    if (ctx == null) return null;
-    final rp = ctx.findRenderObject();
-    if (rp is! RenderParagraph) return null;
-final lineText = line < _lines.length ? _lines[line] : '';
-final safeOffset = offset.clamp(0, lineText.length);
-final textPos = TextPosition(offset: safeOffset);
-// 传完整行高，让 caret 从行顶部开始
-final caretRect = Rect.fromLTWH(0, 0, 1, rp.size.height);
-final local = rp.getOffsetForCaret(textPos, caretRect);
-return rp.localToGlobal(local);
+
+
+
+
+
+
+  /// 从 (line, offset) 算屏幕全局坐标。
+/// 返回字符盒的左上角。
+Offset? _posOfChar(int line, int offset) {
+  final ctx = _lineKeys[line]?.currentContext;
+  if (ctx == null) return null;
+  final rp = ctx.findRenderObject();
+  if (rp is! RenderParagraph) return null;
+
+  final lineText = line < _lines.length ? _lines[line] : '';
+  if (lineText.isEmpty) {
+    // 空行：没有字符可查，返回行首位置
+    return rp.localToGlobal(Offset.zero);
   }
+
+  final safeOffset = offset.clamp(0, lineText.length);
+
+  // 行尾：用最后一个字符的右边缘
+  if (safeOffset >= lineText.length) {
+    final boxes = rp.getBoxesForSelection(
+      TextSelection(
+        baseOffset: lineText.length - 1,
+        extentOffset: lineText.length,
+      ),
+    );
+    if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
+    final box = boxes.last;
+    return rp.localToGlobal(Offset(box.right, box.top));
+  }
+
+  // 普通情况：用 safeOffset 处那一个字符的盒子
+  final boxes = rp.getBoxesForSelection(
+    TextSelection(
+      baseOffset: safeOffset,
+      extentOffset: safeOffset + 1,
+    ),
+  );
+  if (boxes.isEmpty) {
+    // 兜底
+    final caret = rp.getOffsetForCaret(
+      TextPosition(offset: safeOffset),
+      Rect.fromLTWH(0, 0, 1, rp.size.height),
+    );
+    return rp.localToGlobal(caret);
+  }
+  final box = boxes.first;
+  return rp.localToGlobal(Offset(box.left, box.top));
+}
+  
 
   String _selectedText() {
     final sel = _sel;
