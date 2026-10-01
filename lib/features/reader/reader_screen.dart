@@ -31,7 +31,6 @@ class _SelectionRange {
   final int endOffset;
 
   /// 交换起止，让 start <= end（按阅读顺序）。
-  /// 只用于渲染和文本提取，不用于存状态。
   _SelectionRange normalized() {
     if (startLine < endLine ||
         (startLine == endLine && startOffset <= endOffset)) {
@@ -58,8 +57,6 @@ class _CharPos {
 
 // ==================== 手柄绘制 ====================
 
-
-
 /// 梯形：可拖动部分。左右手柄镜像，尖角朝上（或朝下，取决于 flip）。
 class _TrapezoidPainter extends CustomPainter {
   _TrapezoidPainter({
@@ -85,48 +82,40 @@ class _TrapezoidPainter extends CustomPainter {
 
     final path = Path();
 
+    if (!flip) {
+      // 尖角在顶部
+      if (isLeft) {
+        // 左手柄：尖角在右上，向左下扩展
+        path.moveTo(w, 0);
+        path.lineTo(w, h);
+        path.lineTo(0, h);
+        path.lineTo(0, mid);
+        path.close();
+      } else {
+        // 右手柄：尖角在左上，向右下扩展
+        path.moveTo(0, 0);
+        path.lineTo(0, h);
+        path.lineTo(w, h);
+        path.lineTo(w, mid);
+        path.close();
+      }
+    } else {
+      // 尖角在底部（翻转到文字上方时用）
+      if (isLeft) {
+        path.moveTo(w, h);
+        path.lineTo(w, 0);
+        path.lineTo(0, 0);
+        path.lineTo(0, mid);
+        path.close();
+      } else {
+        path.moveTo(0, h);
+        path.lineTo(0, 0);
+        path.lineTo(w, 0);
+        path.lineTo(w, mid);
+        path.close();
+      }
+    }
 
-
-
-    
-if (!flip) {
-  // 尖角在顶部
-  if (isLeft) {
-    // 左手柄：尖角在右上，向左下扩展
-    path.moveTo(w, 0);
-    path.lineTo(w, h);
-    path.lineTo(0, h);
-    path.lineTo(0, mid);
-    path.close();
-  } else {
-    // 右手柄：尖角在左上，向右下扩展
-    path.moveTo(0, 0);
-    path.lineTo(0, h);
-    path.lineTo(w, h);
-    path.lineTo(w, mid);
-    path.close();
-  }
-} else {
-  // 尖角在底部（翻转到文字上方时用）
-  if (isLeft) {
-    path.moveTo(w, h);
-    path.lineTo(w, 0);
-    path.lineTo(0, 0);
-    path.lineTo(0, mid);
-    path.close();
-  } else {
-    path.moveTo(0, h);
-    path.lineTo(0, 0);
-    path.lineTo(w, 0);
-    path.lineTo(w, mid);
-    path.close();
-  }
-}
-
-
-
-
-    
     canvas.drawPath(path, paint);
   }
 
@@ -135,6 +124,13 @@ if (!flip) {
       old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
 
+// ==================== 渐变矩形 ====================
+
+class _GradRect {
+  const _GradRect(this.rect, this.colors);
+  final Rect rect;
+  final List<Color> colors;
+}
 
 // ==================== ReaderScreen ====================
 
@@ -160,21 +156,28 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   String? _error;
   bool _loading = true;
 
-  PaginationResult? _pagination;
+  ReaderPaginator? _paginator;
   List<String> _lines = const [];
   HighlightIndex _highlightIndex = HighlightIndex.empty;
 
   int _currentPage = 0;
 
-  String? _lastLoadedPath;
-  Size? _lastLoadedSize;
+  String? _lastLoadedKey;
 
   bool _menuOpen = false;
 
   // ==================== 手势 / 选区状态 ====================
 
   final GlobalKey _contentKey = GlobalKey();
-  final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
+  /// RenderUnit 索引 → GlobalKey。
+  final Map<int, GlobalKey> _unitKeys = <int, GlobalKey>{};
+
+  /// 渐变矩形缓存。key = (unitIdx|width)。
+  /// 字体/宽度变了整体清空。
+  final Map<String, List<_GradRect>> _gradRectCache = {};
+  double _gradCacheFontSize = 0;
+  int _gradCacheFontWeight = 0;
+  double _gradCacheWidth = 0;
 
   _SelectionRange? _sel;
   bool _hBarVisible = false;
@@ -189,9 +192,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
   Offset? _dragHandlePos;
-/// 拖动开始时手指相对手柄逻辑位置的偏移。
-/// 用来把手指位置换算成手柄逻辑位置。
-Offset? _dragHandleOffset;
+
+  /// 拖动开始时手指相对手柄逻辑位置的偏移。
+  Offset? _dragHandleOffset;
+
   /// 长按后手指最后处理过的位置。用来做去抖。
   Offset? _lastLongPressPos;
 
@@ -225,49 +229,65 @@ Offset? _dragHandleOffset;
   void dispose() {
     _longPressTimer?.cancel();
     _saveProgress();
+    _paginator?.removeListener(_onPaginatorChanged);
+    _paginator?.dispose();
     super.dispose();
   }
 
   // ==================== 加载 ====================
+
+  /// 分页结果依赖：文件路径、屏幕尺寸、字号、字重。
+  /// 任何一个变了都要重新分页。
+  String _loadKeyFor(String path) {
+    final s = ref.read(readerSettingsProvider);
+    return '$path|'
+        '${_viewportSize.width}x${_viewportSize.height}|'
+        '${s.fontSize}|${s.fontWeight}';
+  }
 
   Future<void> _ensureLoaded() async {
     if (widget.filePaths.isEmpty) return;
     if (_viewportSize.width < 10 || _viewportSize.height < 10) return;
 
     final path = widget.filePaths[_fileIndex];
-    if (_lastLoadedPath == path && _lastLoadedSize == _viewportSize) {
-      return;
-    }
-    _lastLoadedPath = path;
-    _lastLoadedSize = _viewportSize;
+    final key = _loadKeyFor(path);
+    if (_lastLoadedKey == key) return;
+    _lastLoadedKey = key;
+
+    // 旧的 paginator 释放。
+    _paginator?.removeListener(_onPaginatorChanged);
+    _paginator?.dispose();
+    _paginator = null;
 
     setState(() {
       _loading = true;
       _error = null;
       _text = null;
-      _pagination = null;
       _lines = const [];
       _highlightIndex = HighlightIndex.empty;
       _currentPage = 0;
       _sel = null;
       _hBarVisible = false;
     });
-    _lineKeys.clear();
+    _unitKeys.clear();
+    _gradRectCache.clear();
 
     try {
       final bytes = await File(path).readAsBytes();
       final text = utf8.decode(bytes, allowMalformed: true);
       if (!mounted) return;
-      if (_lastLoadedPath != path) return;
+      if (_lastLoadedKey != key) return;
 
       final settings = ref.read(readerSettingsProvider);
-      final pagination = paginate(
+      final paginator = ReaderPaginator(
         text: text,
         viewportWidth: _viewportSize.width,
         viewportHeight: _viewportSize.height,
         fontSize: settings.fontSize,
         fontWeight: settings.fontWeight,
       );
+      paginator.addListener(_onPaginatorChanged);
+      paginator.start();
 
       final split = splitLinesWithOffsets(text);
       final fileKey = readerFileKey(path);
@@ -280,13 +300,13 @@ Offset? _dragHandleOffset;
 
       final progress = ref.read(readerProgressProvider)[fileKey];
       final startPage = progress != null
-          ? findPageForOffset(pagination, progress.charOffset)
-              .clamp(0, pagination.pageCount - 1)
+          ? findPageForOffset(paginator.result!, progress.charOffset)
+              .clamp(0, paginator.result!.pageCount - 1)
           : 0;
 
       setState(() {
         _text = text;
-        _pagination = pagination;
+        _paginator = paginator;
         _lines = split.lines;
         _highlightIndex = index;
         _currentPage = startPage;
@@ -294,7 +314,8 @@ Offset? _dragHandleOffset;
         _sel = null;
         _hBarVisible = false;
       });
-      _lineKeys.clear();
+      _unitKeys.clear();
+      _gradRectCache.clear();
       _syncPagePreview();
     } catch (e) {
       if (!mounted) return;
@@ -305,33 +326,64 @@ Offset? _dragHandleOffset;
     }
   }
 
+  /// 精修完成后重算：用"页首字符偏移"锚定，保持用户位置。
+  void _onPaginatorChanged() {
+    if (!mounted) return;
+    final p = _paginator;
+    if (p == null || p.result == null) return;
+
+    final anchor = p.anchorCharOffset;
+    int? newPage;
+    if (anchor != null) {
+      newPage = findPageForOffset(p.result!, anchor)
+          .clamp(0, p.result!.pageCount - 1);
+    }
+    setState(() {
+      if (newPage != null) _currentPage = newPage;
+      _unitKeys.clear();
+      _gradRectCache.clear();
+    });
+    _syncPagePreview();
+  }
+
   // ==================== 进度 ====================
 
   void _saveProgress() {
-    if (_pagination == null || widget.filePaths.isEmpty) return;
+    final p = _paginator;
+    if (p?.result == null || widget.filePaths.isEmpty) return;
     final path = widget.filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
-    final offset = pageStartOffset(_pagination!, _currentPage);
+    final offset = pageStartOffset(p!.result!, _currentPage);
     ref.read(readerProgressProvider.notifier).set(fileKey, offset);
   }
 
   void _syncPagePreview() {
-    if (_pagination == null || _lines.isEmpty) return;
-    final range = pageLineRange(_pagination!, _currentPage);
-    if (range.startLine >= range.endLine) return;
-    final text = _lines.sublist(range.startLine, range.endLine).join('\n');
-    ref.read(readerPagePreviewProvider.notifier).state = text;
+    final p = _paginator;
+    if (p?.result == null || _lines.isEmpty) return;
+    final r = pageUnitRange(p!.result!, _currentPage);
+    if (r.startUnit >= r.endUnit) return;
+    final buf = StringBuffer();
+    for (var i = r.startUnit; i < r.endUnit; i++) {
+      final u = p.result!.renderUnits[i];
+      final line = _lines[u.lineIndex];
+      final s = u.charStart.clamp(0, line.length);
+      final e = u.charEnd.clamp(0, line.length);
+      if (e > s) buf.write(line.substring(s, e));
+      buf.write('\n');
+    }
+    ref.read(readerPagePreviewProvider.notifier).state = buf.toString();
   }
 
   // ==================== 翻页 ====================
 
   void _nextPage() {
-    if (_pagination == null) return;
+    final p = _paginator;
+    if (p?.result == null) return;
     if (_menuOpen) {
       setState(() => _menuOpen = false);
       return;
     }
-    final maxPage = _pagination!.pageCount - 1;
+    final maxPage = p!.result!.pageCount - 1;
     if (_currentPage >= maxPage) return;
     _clearSelection();
     setState(() => _currentPage = (_currentPage + 1).clamp(0, maxPage));
@@ -340,21 +392,23 @@ Offset? _dragHandleOffset;
   }
 
   void _prevPage() {
-    if (_pagination == null) return;
+    final p = _paginator;
+    if (p?.result == null) return;
     if (_currentPage <= 0) return;
-    final maxPage = _pagination!.pageCount - 1;
     _clearSelection();
-    setState(() => _currentPage = (_currentPage - 1).clamp(0, maxPage));
+    setState(() => _currentPage =
+        (_currentPage - 1).clamp(0, p!.result!.pageCount - 1));
     _saveProgress();
     _syncPagePreview();
   }
 
   void _jumpToPage(int page) {
-    if (_pagination == null) return;
-    final maxPage = _pagination!.pageCount - 1;
-    final p = page.clamp(0, maxPage);
+    final p = _paginator;
+    if (p?.result == null) return;
+    final maxPage = p!.result!.pageCount - 1;
+    final pg = page.clamp(0, maxPage);
     _clearSelection();
-    setState(() => _currentPage = p);
+    setState(() => _currentPage = pg);
     _saveProgress();
     _syncPagePreview();
   }
@@ -396,9 +450,10 @@ Offset? _dragHandleOffset;
   }
 
   Widget _buildTopMenuSheet(BuildContext ctx) {
-    final pct = _pagination == null
+    final p = _paginator?.result;
+    final pct = p == null
         ? '-'
-        : '${((_currentPage + 1) / _pagination!.pageCount * 100).toStringAsFixed(1)}%';
+        : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
     return SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -471,13 +526,14 @@ Offset? _dragHandleOffset;
   }
 
   void _showProgressSlider() {
-    if (_pagination == null) return;
+    final p = _paginator?.result;
+    if (p == null) return;
     var tempPage = _currentPage;
     showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSt) {
-          final total = _pagination!.pageCount;
+          final total = p.pageCount;
           final pct = total <= 1 ? 100.0 : (tempPage / (total - 1) * 100);
           return AlertDialog(
             title: const Text('跳转'),
@@ -518,8 +574,9 @@ Offset? _dragHandleOffset;
   }
 
   void _addBookmark() {
-    if (_pagination == null || _text == null) return;
-    final offset = pageStartOffset(_pagination!, _currentPage);
+    final p = _paginator?.result;
+    if (p == null || _text == null) return;
+    final offset = pageStartOffset(p, _currentPage);
     final start = math.max(0, offset - 10);
     final end = math.min(_text!.length, offset + 20);
     final preview = _text!.substring(start, end).replaceAll('\n', ' ').trim();
@@ -550,8 +607,9 @@ Offset? _dragHandleOffset;
       fileKey,
       _text!,
       (offset) {
-        if (_pagination == null) return;
-        final page = findPageForOffset(_pagination!, offset);
+        final p = _paginator?.result;
+        if (p == null) return;
+        final page = findPageForOffset(p, offset);
         _jumpToPage(page);
       },
     );
@@ -566,8 +624,8 @@ Offset? _dragHandleOffset;
     final result =
         await openBookmarkHighlightManager(context, fileKey, fileName);
     if (!mounted) return;
-    if (result != null && _pagination != null) {
-      final page = findPageForOffset(_pagination!, result);
+    if (result != null && _paginator?.result != null) {
+      final page = findPageForOffset(_paginator!.result!, result);
       _jumpToPage(page);
     }
   }
@@ -581,8 +639,7 @@ Offset? _dragHandleOffset;
     _clearSelection();
 
     await openEditorAndReturn(context, path, fileName, () {
-      _lastLoadedPath = null;
-      _lastLoadedSize = null;
+      _lastLoadedKey = null;
       _ensureLoaded();
     });
   }
@@ -595,10 +652,10 @@ Offset? _dragHandleOffset;
     _movedBeyondThreshold = false;
     _pressDown = false;
     _draggingHandle = 0;
-_dragHandlePos = null;
-_dragHandleOffset = null;
-_lastLongPressPos = null;
-_horizontalDrag = false;
+    _dragHandlePos = null;
+    _dragHandleOffset = null;
+    _lastLongPressPos = null;
+    _horizontalDrag = false;
     if (_sel != null || _hBarVisible) {
       setState(() {
         _sel = null;
@@ -615,24 +672,35 @@ _horizontalDrag = false;
     final local = contentBox.globalToLocal(globalPos);
     if (!(Offset.zero & contentBox.size).contains(local)) return null;
 
-    final keys = _lineKeys.keys.toList()..sort();
-    for (final lineIdx in keys) {
-      final ctx = _lineKeys[lineIdx]?.currentContext;
+    final p = _paginator;
+    if (p?.result == null) return null;
+    final range = pageUnitRange(p!.result!, _currentPage);
+
+    for (var unitIdx = range.startUnit; unitIdx < range.endUnit; unitIdx++) {
+      final ctx = _unitKeys[unitIdx]?.currentContext;
       if (ctx == null) continue;
       final rp = ctx.findRenderObject();
       if (rp is! RenderParagraph) continue;
-      final localLine = rp.globalToLocal(globalPos);
+      final localUnit = rp.globalToLocal(globalPos);
       final size = rp.size;
-      if (localLine.dy < 0 || localLine.dy > size.height) continue;
-      if (localLine.dx < 0) continue;
+      if (localUnit.dy < 0 || localUnit.dy > size.height) continue;
+      if (localUnit.dx < 0) continue;
       final clamped = Offset(
-        localLine.dx.clamp(0.0, size.width),
-        localLine.dy.clamp(0.0, size.height),
+        localUnit.dx.clamp(0.0, size.width),
+        localUnit.dy.clamp(0.0, size.height),
       );
       final pos = rp.getPositionForOffset(clamped);
-      final line = _lines[lineIdx];
-      final safeOffset = pos.offset.clamp(0, line.length);
-      return _CharPos(line: lineIdx, offset: safeOffset);
+      final unit = p.result!.renderUnits[unitIdx];
+      final line = _lines[unit.lineIndex];
+      final unitText = line.substring(
+        unit.charStart.clamp(0, line.length),
+        unit.charEnd.clamp(0, line.length),
+      );
+      final safeUnitOffset = pos.offset.clamp(0, unitText.length);
+      return _CharPos(
+        line: unit.lineIndex,
+        offset: unit.charStart + safeUnitOffset,
+      );
     }
     return null;
   }
@@ -641,61 +709,91 @@ _horizontalDrag = false;
   /// 如果手指还在 preferLine 的 ±行高/3 范围内，锁定在 preferLine，
   /// 避免横拖时手指上下抖动导致跨行。
   _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
-    final ctx = _lineKeys[preferLine]?.currentContext;
-    if (ctx != null) {
+    final p = _paginator;
+    if (p?.result == null) return _hitTest(globalPos);
+    final range = pageUnitRange(p!.result!, _currentPage);
+
+    for (var unitIdx = range.startUnit; unitIdx < range.endUnit; unitIdx++) {
+      final u = p.result!.renderUnits[unitIdx];
+      if (u.lineIndex != preferLine) continue;
+      final ctx = _unitKeys[unitIdx]?.currentContext;
+      if (ctx == null) continue;
       final rp = ctx.findRenderObject();
-      if (rp is RenderParagraph) {
-        final topLeft = rp.localToGlobal(Offset.zero);
-        final h = rp.size.height;
-        final buffer = h / 3;
-        final dy = globalPos.dy;
-        if (dy >= topLeft.dy - buffer && dy <= topLeft.dy + h + buffer) {
-          final local = rp.globalToLocal(globalPos);
-          final clamped = Offset(
-            local.dx.clamp(0.0, rp.size.width),
-            local.dy.clamp(0.0, rp.size.height),
-          );
-          final pos = rp.getPositionForOffset(clamped);
-          final line = _lines[preferLine];
-          return _CharPos(
-            line: preferLine,
-            offset: pos.offset.clamp(0, line.length),
-          );
-        }
+      if (rp is! RenderParagraph) continue;
+      final topLeft = rp.localToGlobal(Offset.zero);
+      final h = rp.size.height;
+      final buffer = h / 3;
+      final dy = globalPos.dy;
+      if (dy >= topLeft.dy - buffer && dy <= topLeft.dy + h + buffer) {
+        final local = rp.globalToLocal(globalPos);
+        final clamped = Offset(
+          local.dx.clamp(0.0, rp.size.width),
+          local.dy.clamp(0.0, rp.size.height),
+        );
+        final pos = rp.getPositionForOffset(clamped);
+        final line = _lines[u.lineIndex];
+        final unitText = line.substring(
+          u.charStart.clamp(0, line.length),
+          u.charEnd.clamp(0, line.length),
+        );
+        return _CharPos(
+          line: u.lineIndex,
+          offset: u.charStart + pos.offset.clamp(0, unitText.length),
+        );
       }
     }
     return _hitTest(globalPos);
   }
 
+  /// 找到包含 (line, offset) 的 RenderUnit（只扫当前页）。
+  ({int unitIdx, RenderUnit unit})? _findUnitFor(int line, int offset) {
+    final p = _paginator;
+    if (p?.result == null) return null;
+    final range = pageUnitRange(p!.result!, _currentPage);
+    for (var i = range.startUnit; i < range.endUnit; i++) {
+      final u = p.result!.renderUnits[i];
+      if (u.lineIndex != line) continue;
+      if (offset >= u.charStart && offset <= u.charEnd) {
+        return (unitIdx: i, unit: u);
+      }
+    }
+    return null;
+  }
+
   /// 返回 offset 处字符的左上角（用于左手柄 / 起点）。
   Offset? _posOfCharLeft(int line, int offset) {
-    final ctx = _lineKeys[line]?.currentContext;
+    final found = _findUnitFor(line, offset);
+    if (found == null) return null;
+    final ctx = _unitKeys[found.unitIdx]?.currentContext;
     if (ctx == null) return null;
     final rp = ctx.findRenderObject();
     if (rp is! RenderParagraph) return null;
 
     final lineText = line < _lines.length ? _lines[line] : '';
-    if (lineText.isEmpty) return rp.localToGlobal(Offset.zero);
+    final unitText = lineText.substring(
+      found.unit.charStart.clamp(0, lineText.length),
+      found.unit.charEnd.clamp(0, lineText.length),
+    );
+    final unitOffset =
+        (offset - found.unit.charStart).clamp(0, unitText.length);
+    if (unitText.isEmpty) return rp.localToGlobal(Offset.zero);
 
-    final safeOffset = offset.clamp(0, lineText.length);
-    // 行尾：用最后一个字的右边缘
-    if (safeOffset >= lineText.length) {
-      final boxes = rp.getBoxesForSelection(
-        TextSelection(
-          baseOffset: lineText.length - 1,
-          extentOffset: lineText.length,
-        ),
-      );
+    if (unitOffset >= unitText.length) {
+      final boxes = rp.getBoxesForSelection(TextSelection(
+        baseOffset: unitText.length - 1,
+        extentOffset: unitText.length,
+      ));
       if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
       final box = boxes.last;
       return rp.localToGlobal(Offset(box.right, box.top));
     }
-    final boxes = rp.getBoxesForSelection(
-      TextSelection(baseOffset: safeOffset, extentOffset: safeOffset + 1),
-    );
+    final boxes = rp.getBoxesForSelection(TextSelection(
+      baseOffset: unitOffset,
+      extentOffset: unitOffset + 1,
+    ));
     if (boxes.isEmpty) {
       final caret = rp.getOffsetForCaret(
-        TextPosition(offset: safeOffset),
+        TextPosition(offset: unitOffset),
         Rect.fromLTWH(0, 0, 1, rp.size.height),
       );
       return rp.localToGlobal(caret);
@@ -705,33 +803,39 @@ _horizontalDrag = false;
   }
 
   /// 返回选区终点处字符的右上角（用于右手柄 / 终点）。
-  /// offset 是"选区结束位置"，即 offset-1 处字符的右边缘。
   Offset? _posOfCharRight(int line, int offset) {
-    final ctx = _lineKeys[line]?.currentContext;
+    final found = _findUnitFor(line, offset);
+    if (found == null) return null;
+    final ctx = _unitKeys[found.unitIdx]?.currentContext;
     if (ctx == null) return null;
     final rp = ctx.findRenderObject();
     if (rp is! RenderParagraph) return null;
 
     final lineText = line < _lines.length ? _lines[line] : '';
-    if (lineText.isEmpty) return rp.localToGlobal(Offset.zero);
+    final unitText = lineText.substring(
+      found.unit.charStart.clamp(0, lineText.length),
+      found.unit.charEnd.clamp(0, lineText.length),
+    );
+    final unitOffset =
+        (offset - found.unit.charStart).clamp(0, unitText.length);
+    if (unitText.isEmpty) return rp.localToGlobal(Offset.zero);
 
-    final safeOffset = offset.clamp(0, lineText.length);
-    // 行首：用第一个字符的左边缘
-    if (safeOffset <= 0) {
-      final boxes = rp.getBoxesForSelection(
-        const TextSelection(baseOffset: 0, extentOffset: 1),
-      );
+    if (unitOffset <= 0) {
+      final boxes = rp.getBoxesForSelection(const TextSelection(
+        baseOffset: 0,
+        extentOffset: 1,
+      ));
       if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
       final box = boxes.first;
       return rp.localToGlobal(Offset(box.left, box.top));
     }
-    // 普通：用 offset-1 处字符的右边缘
-    final boxes = rp.getBoxesForSelection(
-      TextSelection(baseOffset: safeOffset - 1, extentOffset: safeOffset),
-    );
+    final boxes = rp.getBoxesForSelection(TextSelection(
+      baseOffset: unitOffset - 1,
+      extentOffset: unitOffset,
+    ));
     if (boxes.isEmpty) {
       final caret = rp.getOffsetForCaret(
-        TextPosition(offset: safeOffset),
+        TextPosition(offset: unitOffset),
         Rect.fromLTWH(0, 0, 1, rp.size.height),
       );
       return rp.localToGlobal(caret);
@@ -862,8 +966,6 @@ _horizontalDrag = false;
       final sel = _sel;
       if (sel == null) return;
 
-      // 去抖：距基准位置不到 10 像素就不管
-      // 第一次用 _downPos 作基准，之后用上次处理位置
       final ref = _lastLongPressPos ?? _downPos;
       if ((e.position - ref).distance < 10.0) return;
       _lastLongPressPos = e.position;
@@ -920,7 +1022,6 @@ _horizontalDrag = false;
     }
 
     if (_longPressFired) {
-      // 保险：万一抖动导致选区退化（start==end），恢复成选中一个字
       final sel = _sel;
       if (sel != null &&
           sel.startLine == sel.endLine &&
@@ -1028,62 +1129,61 @@ _horizontalDrag = false;
   // ==================== 手柄拖动 ====================
 
   void _startDragLeft(Offset fingerPos) {
-  final sel = _sel;
-  if (sel == null) return;
-  final handleLogic = _posOfCharLeft(sel.startLine, sel.startOffset);
-  setState(() {
-    _draggingHandle = 1;
-    _dragHandlePos = handleLogic ?? fingerPos;
-    _dragHandleOffset =
-        handleLogic == null ? Offset.zero : fingerPos - handleLogic;
-    _hBarVisible = false;
-  });
-}
-
-void _startDragRight(Offset fingerPos) {
-  final sel = _sel;
-  if (sel == null) return;
-  final handleLogic = _posOfCharRight(sel.endLine, sel.endOffset);
-  setState(() {
-    _draggingHandle = 2;
-    _dragHandlePos = handleLogic ?? fingerPos;
-    _dragHandleOffset =
-        handleLogic == null ? Offset.zero : fingerPos - handleLogic;
-    _hBarVisible = false;
-  });
-}
-
-  /// 参数 [handleLogic] 是手柄的逻辑位置（屏幕全局坐标），
-/// 不是手指位置。调用方负责用偏移量换算。
-void _updateSelectionFromDrag(Offset handleLogic) {
-  final sel = _sel;
-  if (sel == null) return;
-  final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
-  final hit = _hitTestWithBuffer(handleLogic, preferLine);
-  if (hit == null) return;
-
-  if (_draggingHandle == 1) {
+    final sel = _sel;
+    if (sel == null) return;
+    final handleLogic = _posOfCharLeft(sel.startLine, sel.startOffset);
     setState(() {
-      _sel = _SelectionRange(
-        startLine: hit.line,
-        startOffset: hit.offset,
-        endLine: sel.endLine,
-        endOffset: sel.endOffset,
-      );
-      _selVersion++;
-    });
-  } else if (_draggingHandle == 2) {
-    setState(() {
-      _sel = _SelectionRange(
-        startLine: sel.startLine,
-        startOffset: sel.startOffset,
-        endLine: hit.line,
-        endOffset: hit.offset,
-      );
-      _selVersion++;
+      _draggingHandle = 1;
+      _dragHandlePos = handleLogic ?? fingerPos;
+      _dragHandleOffset =
+          handleLogic == null ? Offset.zero : fingerPos - handleLogic;
+      _hBarVisible = false;
     });
   }
-}
+
+  void _startDragRight(Offset fingerPos) {
+    final sel = _sel;
+    if (sel == null) return;
+    final handleLogic = _posOfCharRight(sel.endLine, sel.endOffset);
+    setState(() {
+      _draggingHandle = 2;
+      _dragHandlePos = handleLogic ?? fingerPos;
+      _dragHandleOffset =
+          handleLogic == null ? Offset.zero : fingerPos - handleLogic;
+      _hBarVisible = false;
+    });
+  }
+
+  /// 参数 [handleLogic] 是手柄的逻辑位置（屏幕全局坐标），不是手指位置。
+  void _updateSelectionFromDrag(Offset handleLogic) {
+    final sel = _sel;
+    if (sel == null) return;
+    final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
+    final hit = _hitTestWithBuffer(handleLogic, preferLine);
+    if (hit == null) return;
+
+    if (_draggingHandle == 1) {
+      setState(() {
+        _sel = _SelectionRange(
+          startLine: hit.line,
+          startOffset: hit.offset,
+          endLine: sel.endLine,
+          endOffset: sel.endOffset,
+        );
+        _selVersion++;
+      });
+    } else if (_draggingHandle == 2) {
+      setState(() {
+        _sel = _SelectionRange(
+          startLine: sel.startLine,
+          startOffset: sel.startOffset,
+          endLine: hit.line,
+          endOffset: hit.offset,
+        );
+        _selVersion++;
+      });
+    }
+  }
 
   ({Offset left, Offset right})? _handlePositions() {
     final sel = _sel;
@@ -1133,7 +1233,7 @@ void _updateSelectionFromDrag(Offset handleLogic) {
     final settings = ref.watch(readerSettingsProvider);
 
     // 选区刚变化时，post frame 再 setState 一次，
-    // 让 _buildSelectionOverlay 能拿到新选区对应的 RenderParagraph。
+    // 让 _buildUnitSelectionOverlay 能拿到新选区对应的 RenderParagraph。
     if (_sel != null && _selVersion != _lastOverlayVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -1164,7 +1264,9 @@ void _updateSelectionFromDrag(Offset handleLogic) {
               return const Center(child: CircularProgressIndicator());
             }
             if (_error != null) return _buildError();
-            if (_pagination == null) return const SizedBox.shrink();
+            if (_paginator?.result == null) {
+              return const SizedBox.shrink();
+            }
 
             return _buildReader(settings, size);
           },
@@ -1186,8 +1288,7 @@ void _updateSelectionFromDrag(Offset handleLogic) {
             const SizedBox(height: 16),
             FilledButton(
               onPressed: () {
-                _lastLoadedPath = null;
-                _lastLoadedSize = null;
+                _lastLoadedKey = null;
                 _ensureLoaded();
               },
               child: const Text('重试'),
@@ -1199,14 +1300,16 @@ void _updateSelectionFromDrag(Offset handleLogic) {
   }
 
   Widget _buildReader(ReaderSettings settings, Size size) {
-    final pagination = _pagination!;
-    final range = pageLineRange(pagination, _currentPage);
+    final p = _paginator;
+    if (p?.result == null) return const SizedBox.shrink();
+    final result = p!.result!;
+    final range = pageUnitRange(result, _currentPage);
     final previewHotZone = ref.watch(readerHotZonePreviewProvider);
 
-    _lineKeys.removeWhere(
-        (k, v) => k < range.startLine || k >= range.endLine);
-    for (var i = range.startLine; i < range.endLine; i++) {
-      _lineKeys.putIfAbsent(i, () => GlobalKey());
+    _unitKeys.removeWhere(
+        (k, v) => k < range.startUnit || k >= range.endUnit);
+    for (var i = range.startUnit; i < range.endUnit; i++) {
+      _unitKeys.putIfAbsent(i, () => GlobalKey());
     }
 
     return Stack(
@@ -1228,8 +1331,9 @@ void _updateSelectionFromDrag(Offset handleLogic) {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (var i = range.startLine; i < range.endLine; i++)
-                    _buildLine(i, settings),
+                  for (var i = range.startUnit; i < range.endUnit; i++)
+                    _buildRenderUnit(
+                        i, result.renderUnits[i], settings),
                 ],
               ),
             ),
@@ -1286,61 +1390,260 @@ void _updateSelectionFromDrag(Offset handleLogic) {
     );
   }
 
-  Widget _buildLine(int lineIdx, ReaderSettings settings) {
-    final spans = _buildLineSpans(lineIdx, settings);
+  Widget _buildRenderUnit(
+      int unitIdx, RenderUnit unit, ReaderSettings settings) {
+    final line = _lines[unit.lineIndex];
+    final int s = unit.charStart.clamp(0, line.length);
+    final int e = unit.charEnd.clamp(0, line.length);
+    final String sub = e > s ? line.substring(s, e) : '';
+
+    final spans = _buildUnitSpans(unit, sub, settings);
+
+    // 快速路径：本 unit 无渐变高亮。
+    if (!_hasGradientHighlight(unit, sub)) {
+      return SizedBox(
+        width: double.infinity,
+        child: Stack(
+          children: [
+            Text.rich(
+              TextSpan(children: spans),
+              softWrap: true,
+              key: _unitKeys[unitIdx],
+            ),
+            _buildUnitSelectionOverlay(unitIdx, unit),
+          ],
+        ),
+      );
+    }
+
+    // 慢路径：有渐变高亮，底层画矩形。
     return SizedBox(
       width: double.infinity,
-      child: Stack(
-        children: [
-          Text.rich(
-            TextSpan(children: spans),
-            softWrap: true,
-            key: _lineKeys[lineIdx],
-          ),
-          _buildSelectionOverlay(lineIdx),
-        ],
+      child: LayoutBuilder(
+        builder: (ctx, constraints) {
+          final gradRects = _measureGradientRects(
+            unitIdx,
+            unit,
+            sub,
+            settings,
+            constraints.maxWidth,
+          );
+          return Stack(
+            children: [
+              // 1. 渐变背景层
+              for (final g in gradRects)
+                Positioned(
+                  left: g.rect.left,
+                  top: g.rect.top,
+                  width: g.rect.width,
+                  height: g.rect.height,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: g.colors,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              // 2. 文字层
+              Text.rich(
+                TextSpan(children: spans),
+                softWrap: true,
+                key: _unitKeys[unitIdx],
+              ),
+              // 3. 选区层
+              _buildUnitSelectionOverlay(unitIdx, unit),
+            ],
+          );
+        },
       ),
     );
   }
 
-  /// 用 getBoxesForSelection 画选区蓝背景。
-  /// 和手柄用同一套坐标，保证对齐。
-  Widget _buildSelectionOverlay(int lineIdx) {
+  /// 快速判断：本 unit 里有没有渐变高亮。
+  bool _hasGradientHighlight(RenderUnit unit, String sub) {
+    if (sub.isEmpty) return false;
+    final highlights = _highlightIndex.forLine(unit.lineIndex);
+    for (final h in highlights) {
+      if (h.entry.colors.length <= 1) continue;
+      if (h.endInLine > unit.charStart && h.startInLine < unit.charEnd) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// 用 TextPainter 精确测出每个渐变段的渲染矩形。
+  /// 带缓存：同字体、同宽度下重复调用直接命中。
+  List<_GradRect> _measureGradientRects(
+    int unitIdx,
+    RenderUnit unit,
+    String sub,
+    ReaderSettings settings,
+    double maxWidth,
+  ) {
+    if (sub.isEmpty) return const [];
+
+    // 字体或宽度变了 → 整体失效。
+    if (_gradCacheFontSize != settings.fontSize ||
+        _gradCacheFontWeight != settings.fontWeight ||
+        _gradCacheWidth != maxWidth) {
+      _gradRectCache.clear();
+      _gradCacheFontSize = settings.fontSize;
+      _gradCacheFontWeight = settings.fontWeight;
+      _gradCacheWidth = maxWidth;
+    }
+
+    final key = '$unitIdx|${maxWidth.round()}';
+    final hit = _gradRectCache[key];
+    if (hit != null) return hit;
+
+    final highlights = _highlightIndex.forLine(unit.lineIndex);
+    final gradientHighlights = <HighlightSpan>[];
+    for (final h in highlights) {
+      if (h.entry.colors.length > 1 &&
+          h.endInLine > unit.charStart &&
+          h.startInLine < unit.charEnd) {
+        gradientHighlights.add(h);
+      }
+    }
+    if (gradientHighlights.isEmpty) {
+      _gradRectCache[key] = const [];
+      return const [];
+    }
+
+    // style 必须和 _buildUnitSpans 里的 base 一致，否则矩形会错位。
+    final style = _baseStyle(settings);
+    final tp = TextPainter(
+      text: TextSpan(text: sub, style: style),
+      textDirection: TextDirection.ltr,
+    );
+    tp.layout(maxWidth: maxWidth);
+
+    final rects = <_GradRect>[];
+    final subStart = unit.charStart;
+
+    for (final h in gradientHighlights) {
+      final hs = (h.startInLine - subStart).clamp(0, sub.length);
+      final he = (h.endInLine - subStart).clamp(0, sub.length);
+      if (hs >= he) continue;
+
+      final boxes = tp.getBoxesForSelection(
+        TextSelection(baseOffset: hs, extentOffset: he),
+      );
+      final colors =
+          h.entry.colors.map((c) => Color(c)).toList(growable: false);
+      for (final box in boxes) {
+        rects.add(_GradRect(
+          Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
+          colors,
+        ));
+      }
+    }
+
+    // 缓存上限，防止撑爆。
+    if (_gradRectCache.length > 256) _gradRectCache.clear();
+    _gradRectCache[key] = rects;
+    return rects;
+  }
+
+  /// 生成一个 RenderUnit 的 spans（含高亮叠加，不含选区）。
+  List<InlineSpan> _buildUnitSpans(
+    RenderUnit unit,
+    String sub,
+    ReaderSettings settings,
+  ) {
+    final base = _baseStyle(settings);
+    if (sub.isEmpty) return [TextSpan(text: ' ', style: base)];
+
+    final highlights = _highlightIndex.forLine(unit.lineIndex);
+    if (highlights.isEmpty) return [TextSpan(text: sub, style: base)];
+
+    final subStart = unit.charStart;
+    final subEnd = unit.charEnd;
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+
+    for (final h in highlights) {
+      if (h.endInLine <= subStart || h.startInLine >= subEnd) continue;
+      final hs = (h.startInLine - subStart).clamp(0, sub.length);
+      final he = (h.endInLine - subStart).clamp(0, sub.length);
+      if (hs >= he) continue;
+      if (hs < cursor) continue;
+
+      if (hs > cursor) {
+        spans.add(TextSpan(text: sub.substring(cursor, hs), style: base));
+      }
+      final entry = h.entry;
+      final hlText = sub.substring(hs, he);
+      if (entry.colors.length > 1) {
+        // 渐变高亮：只改文字颜色。背景由 Stack 底层画。
+        spans.add(TextSpan(
+          text: hlText,
+          style: base.copyWith(color: Color(entry.textColor)),
+        ));
+      } else {
+        // 纯色高亮：文字色 + 背景色。
+        spans.add(TextSpan(
+          text: hlText,
+          style: base.copyWith(
+            color: Color(entry.textColor),
+            backgroundColor: Color(entry.colors.first),
+          ),
+        ));
+      }
+      cursor = he;
+    }
+    if (cursor < sub.length) {
+      spans.add(TextSpan(text: sub.substring(cursor), style: base));
+    }
+    return spans;
+  }
+
+  /// 一个 RenderUnit 内的选区蓝底。
+  Widget _buildUnitSelectionOverlay(int unitIdx, RenderUnit unit) {
     final sel = _sel;
     if (sel == null) return const SizedBox.shrink();
     final n = sel.normalized();
-    if (lineIdx < n.startLine || lineIdx > n.endLine) {
+    if (unit.lineIndex < n.startLine || unit.lineIndex > n.endLine) {
       return const SizedBox.shrink();
     }
-    final line = _lines[lineIdx];
-    if (line.isEmpty) return const SizedBox.shrink();
+    final line = _lines[unit.lineIndex];
+    final subStart = unit.charStart;
+    final subEnd = unit.charEnd;
 
     int selStart;
     int selEnd;
     if (n.startLine == n.endLine) {
       selStart = n.startOffset;
       selEnd = n.endOffset;
-    } else if (lineIdx == n.startLine) {
+    } else if (unit.lineIndex == n.startLine) {
       selStart = n.startOffset;
       selEnd = line.length;
-    } else if (lineIdx == n.endLine) {
+    } else if (unit.lineIndex == n.endLine) {
       selStart = 0;
       selEnd = n.endOffset;
     } else {
       selStart = 0;
       selEnd = line.length;
     }
-    selStart = selStart.clamp(0, line.length);
-    selEnd = selEnd.clamp(0, line.length);
-    if (selStart >= selEnd) return const SizedBox.shrink();
+    final ovStart = selStart > subStart ? selStart : subStart;
+    final ovEnd = selEnd < subEnd ? selEnd : subEnd;
+    if (ovStart >= ovEnd) return const SizedBox.shrink();
 
-    final ctx = _lineKeys[lineIdx]?.currentContext;
+    final ctx = _unitKeys[unitIdx]?.currentContext;
     if (ctx == null) return const SizedBox.shrink();
     final rp = ctx.findRenderObject();
     if (rp is! RenderParagraph) return const SizedBox.shrink();
 
+    final uStart = ovStart - subStart;
+    final uEnd = ovEnd - subStart;
     final boxes = rp.getBoxesForSelection(
-      TextSelection(baseOffset: selStart, extentOffset: selEnd),
+      TextSelection(baseOffset: uStart, extentOffset: uEnd),
     );
     if (boxes.isEmpty) return const SizedBox.shrink();
 
@@ -1360,73 +1663,6 @@ void _updateSelectionFromDrag(Offset handleLogic) {
         ),
       ),
     );
-  }
-
-  /// 生成行的 spans（含高亮叠加，不含选区）。
-  List<InlineSpan> _buildLineSpans(int lineIdx, ReaderSettings settings) {
-    final line = _lines[lineIdx];
-    final base = _baseStyle(settings);
-
-    final baseSpans = <InlineSpan>[];
-    final highlights = _highlightIndex.forLine(lineIdx);
-
-    if (line.isEmpty) {
-      baseSpans.add(TextSpan(text: ' ', style: base));
-    } else if (highlights.isEmpty) {
-      baseSpans.add(TextSpan(text: line, style: base));
-    } else {
-      var cursor = 0;
-      for (final h in highlights) {
-        if (h.startInLine > cursor) {
-          baseSpans.add(TextSpan(
-            text: line.substring(cursor, h.startInLine),
-            style: base,
-          ));
-        }
-        final entry = h.entry;
-        final hlText = line.substring(h.startInLine, h.endInLine);
-        if (entry.colors.length > 1) {
-          baseSpans.add(WidgetSpan(
-            alignment: PlaceholderAlignment.baseline,
-            baseline: TextBaseline.alphabetic,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: entry.colors
-                      .map((c) => Color(c))
-                      .toList(growable: false),
-                ),
-              ),
-              child: Text(
-                hlText,
-                style: base.copyWith(
-                  color: Color(entry.textColor),
-                  height: null,
-                ),
-                textHeightBehavior: const TextHeightBehavior(
-                  applyHeightToFirstAscent: false,
-                  applyHeightToLastDescent: false,
-                ),
-              ),
-            ),
-          ));
-        } else {
-          final hlStyle = base.copyWith(
-            color: Color(entry.textColor),
-            backgroundColor: Color(entry.colors.first),
-          );
-          baseSpans.add(TextSpan(text: hlText, style: hlStyle));
-        }
-        cursor = h.endInLine;
-      }
-      if (cursor < line.length) {
-        baseSpans.add(TextSpan(text: line.substring(cursor), style: base));
-      }
-    }
-
-    return baseSpans;
   }
 
   Widget _buildFloatButton({
@@ -1466,109 +1702,103 @@ void _updateSelectionFromDrag(Offset handleLogic) {
 
   // ==================== 手柄渲染 ====================
 
-List<Widget> _buildHandles(ReaderSettings settings) {
-  if (_sel == null) return const [];
-  final pos = _handlePositions();
-  if (pos == null) return const [];
+  List<Widget> _buildHandles(ReaderSettings settings) {
+    if (_sel == null) return const [];
+    final pos = _handlePositions();
+    if (pos == null) return const [];
 
-  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-  const trapW = 22.0;
-  const trapH = 32.0;
-  final color = Theme.of(context).colorScheme.primary;
+    final lineHeight = settings.fontSize * kReaderLineHeightFactor;
+    const trapW = 22.0;
+    const trapH = 32.0;
+    final color = Theme.of(context).colorScheme.primary;
 
-  var leftPos = pos.left;
-  var rightPos = pos.right;
+    var leftPos = pos.left;
+    var rightPos = pos.right;
 
-  if (_draggingHandle == 1 && _dragHandlePos != null) {
-    leftPos = _dragHandlePos!;
-  } else if (_draggingHandle == 2 && _dragHandlePos != null) {
-    rightPos = _dragHandlePos!;
-  } else {
-    final dx = (rightPos.dx - leftPos.dx).abs();
-    if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
-      final mid = (leftPos.dx + rightPos.dx) / 2;
-      leftPos = Offset(mid - 10, leftPos.dy);
-      rightPos = Offset(mid + 10, rightPos.dy);
-    }
-  }
-
-  final safeTop = MediaQuery.of(context).padding.top;
-  final screenH = MediaQuery.of(context).size.height;
-
-  Widget handle(Offset globalPos, int which) {
-    final isLeft = which == 1;
-    final textTopY = globalPos.dy;
-// 文字实际高度约等于 fontSize（不是 lineHeight，lineHeight 含 leading）
-final textBottomY = globalPos.dy + settings.fontSize;
-    
-
-    // 屏幕底部放不下 → 翻转，梯形挂到文字上方
-    final bottomOverflow = textBottomY + trapH + 4 > screenH;
-
-    final double topPos;
-    final bool flip;
-
-    if (bottomOverflow) {
-      topPos = textTopY - safeTop - trapH;
-      flip = true;
+    if (_draggingHandle == 1 && _dragHandlePos != null) {
+      leftPos = _dragHandlePos!;
+    } else if (_draggingHandle == 2 && _dragHandlePos != null) {
+      rightPos = _dragHandlePos!;
     } else {
-      topPos = textBottomY - safeTop;
-      flip = false;
+      final dx = (rightPos.dx - leftPos.dx).abs();
+      if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
+        final mid = (leftPos.dx + rightPos.dx) / 2;
+        leftPos = Offset(mid - 10, leftPos.dy);
+        rightPos = Offset(mid + 10, rightPos.dy);
+      }
     }
 
-// 左手柄：梯形整体在字符左边，尖角贴字符左边缘
-// 右手柄：梯形整体在字符右边，尖角贴字符右边缘
-final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
+    final safeTop = MediaQuery.of(context).padding.top;
+    final screenH = MediaQuery.of(context).size.height;
 
-    
-    return Positioned(
-      left: left,
-      top: topPos,
-      width: trapW,
-      height: trapH,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: (d) {
-          if (isLeft) {
-            _startDragLeft(d.globalPosition);
-          } else {
-            _startDragRight(d.globalPosition);
-          }
-        },
-        onPanUpdate: (d) {
-          if (_draggingHandle != which) return;
-          final offset = _dragHandleOffset ?? Offset.zero;
-          final handleLogic = d.globalPosition - offset;
-          setState(() {
-            _dragHandlePos = handleLogic;
-          });
-          _updateSelectionFromDrag(handleLogic);
-        },
-        onPanEnd: (_) {
-          setState(() {
-            _draggingHandle = 0;
-            _dragHandlePos = null;
-            _dragHandleOffset = null;
-            _hBarVisible = true;
-          });
-        },
-        child: CustomPaint(
-          painter: _TrapezoidPainter(
-            color: color,
-            isLeft: isLeft,
-            flip: flip,
+    Widget handle(Offset globalPos, int which) {
+      final isLeft = which == 1;
+      final textTopY = globalPos.dy;
+      final textBottomY = globalPos.dy + settings.fontSize;
+
+      final bottomOverflow = textBottomY + trapH + 4 > screenH;
+
+      final double topPos;
+      final bool flip;
+
+      if (bottomOverflow) {
+        topPos = textTopY - safeTop - trapH;
+        flip = true;
+      } else {
+        topPos = textBottomY - safeTop;
+        flip = false;
+      }
+
+      final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
+
+      return Positioned(
+        left: left,
+        top: topPos,
+        width: trapW,
+        height: trapH,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (d) {
+            if (isLeft) {
+              _startDragLeft(d.globalPosition);
+            } else {
+              _startDragRight(d.globalPosition);
+            }
+          },
+          onPanUpdate: (d) {
+            if (_draggingHandle != which) return;
+            final offset = _dragHandleOffset ?? Offset.zero;
+            final handleLogic = d.globalPosition - offset;
+            setState(() {
+              _dragHandlePos = handleLogic;
+            });
+            _updateSelectionFromDrag(handleLogic);
+          },
+          onPanEnd: (_) {
+            setState(() {
+              _draggingHandle = 0;
+              _dragHandlePos = null;
+              _dragHandleOffset = null;
+              _hBarVisible = true;
+            });
+          },
+          child: CustomPaint(
+            painter: _TrapezoidPainter(
+              color: color,
+              isLeft: isLeft,
+              flip: flip,
+            ),
           ),
         ),
-      ),
-    );
+      );
+    }
+
+    return [
+      handle(leftPos, 1),
+      handle(rightPos, 2),
+    ];
   }
 
-  return [
-    handle(leftPos, 1),
-    handle(rightPos, 2),
-  ];
-}
-  
   // ==================== 弹窗渲染 ====================
 
   Widget _buildHBar(ReaderSettings settings, Size size) {
@@ -1599,7 +1829,6 @@ final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
 
     double top;
     if (showBelow) {
-      // 手柄圆底部在行底部往下约 14px 处，这里留 24px 让它完全露出来
       top = selBottom - safeTop + 24;
     } else {
       top = selTop - safeTop - approxH - 8;
@@ -1756,6 +1985,7 @@ final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
       );
       _sel = null;
       _hBarVisible = false;
+      _gradRectCache.clear();
     });
   }
 }
