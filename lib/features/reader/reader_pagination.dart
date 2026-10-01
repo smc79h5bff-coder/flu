@@ -1,83 +1,495 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'reader_models.dart';
 
 // ==================== 固定排版常量 ====================
-//
-// 你说边距先写死，未来再改。这里是全局唯一来源。
-// 想调边距/行距，改这四个常量就行。
 
-const double kReaderHorizontalPadding = 12.0; // 左右各 12 像素
-const double kReaderVerticalPadding = 8.0;    // 上下各 8 像素
-const double kReaderLineHeightFactor = 1.4;   // 行距倍数
-const double kReaderParaSpacing = 4.0;        // 段落间（空行）额外高度
+const double kReaderHorizontalPadding = 12.0;
+const double kReaderVerticalPadding = 8.0;
+const double kReaderLineHeightFactor = 1.4;
+const double kReaderParaSpacing = 4.0;
 
-// ==================== 主入口：分页 ====================
+// ==================== 分页调度器 ====================
 
-/// 把全文按屏幕高度切页。
+/// 分页调度器：先秒开，再后台精修。
 ///
-/// 算法：字数估算。不逐行 TextPainter 精确测量——那样太慢。
-/// 对小说场景足够准，误差量级 ±1 行。
-PaginationResult paginate({
-  required String text,
-  required double viewportWidth,
-  required double viewportHeight,
-  required double fontSize,
-  required int fontWeight,
-}) {
-  // 可用排版宽度（扣除左右 padding）
-  final usableWidth =
-      math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
-  // 可用排版高度（扣除上下 padding）
-  final usableHeight =
-      math.max(10.0, viewportHeight - kReaderVerticalPadding * 2);
+/// 三阶段：
+///   1. [start] 同步跑一次**估算分页** → 立即有 [result] 可用
+///   2. 后台分帧用 TextPainter **精确测量**每一行高度
+///   3. 全部测完 → 用精确高度**重跑分页**，替换 [result]
+///
+/// 用户位置保持：精修前后用"当前页首字符偏移"锚定。
+class ReaderPaginator extends ChangeNotifier {
+  ReaderPaginator({
+    required this.text,
+    required this.viewportWidth,
+    required this.viewportHeight,
+    required this.fontSize,
+    required this.fontWeight,
+  });
 
-  // 按 \n 切分（保留所有行，包括空行）
-  final lines = _splitLines(text);
-  final n = lines.length;
+  final String text;
+  final double viewportWidth;
+  final double viewportHeight;
+  final double fontSize;
+  final int fontWeight;
 
-  final lineStarts = List<int>.filled(n, 0);
-  final lineHeights = List<double>.filled(n, 0);
-  final pageStarts = <int>[]..add(0);
+  // ---- 内部状态 ----
+  late final List<String> _lines;
+  late final List<int> _lineStarts;
+  late final List<double> _estimatedHeights;
+  late final List<double?> _preciseHeights;
 
-  var charOffset = 0;
-  var pageHeight = 0.0;
+  PaginationResult? _result;
+  int _precisionProgress = 0;
+  bool _disposed = false;
 
-  for (var i = 0; i < n; i++) {
-    final line = lines[i];
-    lineStarts[i] = charOffset;
+  /// 当前生效的分页结果。
+  PaginationResult? get result => _result;
 
-    final h = _estimateLineHeight(
-      line: line,
-      fontSize: fontSize,
-      usableWidth: usableWidth,
-    );
-    lineHeights[i] = h;
+  /// 精测进度 0.0~1.0。
+  double get precisionRatio =>
+      _lines.isEmpty ? 1.0 : _precisionProgress / _lines.length;
 
-    // 换页判断：加上这一行会超页高，且当前页不是空 → 开新页
-    if (pageHeight + h > usableHeight && pageHeight > 0) {
-      pageStarts.add(i);
-      pageHeight = h;
-    } else {
-      pageHeight += h;
+  /// 精测是否已完成。
+  bool get isPrecise => _precisionProgress >= _lines.length;
+
+  /// 用户位置锚点。精修时用来保持位置。
+  int? anchorCharOffset;
+
+  // ==================== 启动 ====================
+
+  /// 立即开始：同步估算分页 + 启动异步精测。
+  void start() {
+    final split = splitLinesWithOffsets(text);
+    _lines = split.lines;
+    _lineStarts = split.lineStarts;
+    _estimatedHeights = List<double>.filled(_lines.length, 0);
+    _preciseHeights = List<double?>.filled(_lines.length, null);
+
+    final usableWidth =
+        math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
+    for (var i = 0; i < _lines.length; i++) {
+      _estimatedHeights[i] =
+          _estimateLineHeight(_lines[i], fontSize, usableWidth);
     }
 
-    // 下一个字符偏移：这一行的长度 + 1 个 \n
-    charOffset += line.length + 1;
+    // 阶段 1：估算分页，立即生效。
+    _result = _buildResult(
+      heightOf: (i) => _estimatedHeights[i],
+      usePreciseSplit: false,
+      tp: null,
+      style: null,
+    );
+    notifyListeners();
+
+    // 阶段 2：启动后台精测。
+    _scheduleNextChunk();
   }
 
-  return PaginationResult(
-    pageStarts: pageStarts,
-    lineStarts: lineStarts,
-    lineHeights: lineHeights,
-    totalChars: text.length,
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  // ==================== 精测（分帧） ====================
+
+  /// 每帧测量的时间预算（毫秒）。60fps 下 16ms 是上限，
+  /// 留一半给 UI 渲染，用 8ms 测量。
+  static const int _chunkBudgetMs = 8;
+
+  void _scheduleNextChunk() {
+    if (_disposed) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      _precisionChunk();
+    });
+  }
+
+  void _precisionChunk() {
+    if (_disposed) return;
+    if (_precisionProgress >= _lines.length) return;
+
+    final usableWidth =
+        math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
+    final style = TextStyle(
+      fontSize: fontSize,
+      fontWeight: _toFontWeight(fontWeight),
+      height: kReaderLineHeightFactor,
+      color: const Color(0xFF222222),
+    );
+    final tp = TextPainter(textDirection: ui.TextDirection.ltr);
+
+    final sw = Stopwatch()..start();
+    while (_precisionProgress < _lines.length &&
+        sw.elapsedMilliseconds < _chunkBudgetMs) {
+      final i = _precisionProgress;
+      final line = _lines[i];
+      if (line.isEmpty) {
+        // 空行：渲染时占一个空格，高度 = 单行高。
+        _preciseHeights[i] = fontSize * kReaderLineHeightFactor;
+      } else {
+        tp.text = TextSpan(text: line, style: style);
+        tp.layout(maxWidth: usableWidth);
+        _preciseHeights[i] = tp.height;
+      }
+      _precisionProgress++;
+    }
+
+    // 全部测完 → 精修分页。
+    if (_precisionProgress >= _lines.length) {
+      _applyPrecision();
+      return;
+    }
+
+    // 继续下一帧。
+    _scheduleNextChunk();
+  }
+
+  void _applyPrecision() {
+    if (_disposed) return;
+    final style = TextStyle(
+      fontSize: fontSize,
+      fontWeight: _toFontWeight(fontWeight),
+      height: kReaderLineHeightFactor,
+      color: const Color(0xFF222222),
+    );
+    final tp = TextPainter(textDirection: ui.TextDirection.ltr);
+
+    _result = _buildResult(
+      heightOf: (i) => _preciseHeights[i] ?? _estimatedHeights[i],
+      usePreciseSplit: true,
+      tp: tp,
+      style: style,
+    );
+    notifyListeners();
+  }
+
+  // ==================== 核心分页算法 ====================
+
+  PaginationResult _buildResult({
+    required double Function(int index) heightOf,
+    required bool usePreciseSplit,
+    TextPainter? tp,
+    TextStyle? style,
+  }) {
+    final usableWidth =
+        math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
+    final usableHeight =
+        math.max(10.0, viewportHeight - kReaderVerticalPadding * 2);
+    final singleLineHeight = fontSize * kReaderLineHeightFactor;
+
+    final n = _lines.length;
+    final renderUnits = <RenderUnit>[];
+    final pageStarts = <int>[]..add(0);
+    var pageHeight = 0.0;
+
+    void place(RenderUnit unit) {
+      if (pageHeight + unit.height > usableHeight && pageHeight > 0) {
+        pageStarts.add(renderUnits.length);
+        pageHeight = unit.height;
+      } else {
+        pageHeight += unit.height;
+      }
+      renderUnits.add(unit);
+    }
+
+    for (var i = 0; i < n; i++) {
+      final line = _lines[i];
+      final h = heightOf(i);
+
+      // 一屏放得下 → 单个 unit。
+      if (h <= usableHeight) {
+        place(RenderUnit(
+          lineIndex: i,
+          charStart: 0,
+          charEnd: line.length,
+          height: h,
+        ));
+        continue;
+      }
+
+      // 超长行 → 拆分成多个 unit。
+      final units = usePreciseSplit
+          ? _splitLongLinePrecise(
+              lineIndex: i,
+              content: line,
+              tp: tp!,
+              style: style!,
+              maxWidth: usableWidth,
+              maxHeight: usableHeight,
+            )
+          : _splitLongLineEstimated(
+              lineIndex: i,
+              content: line,
+              usableWidth: usableWidth,
+              usableHeight: usableHeight,
+              singleLineHeight: singleLineHeight,
+            );
+
+      for (final u in units) {
+        place(u);
+      }
+    }
+
+    return PaginationResult(
+      pageStarts: pageStarts,
+      renderUnits: renderUnits,
+      lineStarts: _lineStarts,
+      totalChars: text.length,
+    );
+  }
+}
+
+// ==================== 长行拆分 ====================
+
+/// 精确拆分：用 TextPainter 的 computeLineMetrics，拿到每个显示行的字符范围。
+List<RenderUnit> _splitLongLinePrecise({
+  required int lineIndex,
+  required String content,
+  required TextPainter tp,
+  required TextStyle style,
+  required double maxWidth,
+  required double maxHeight,
+}) {
+  tp.text = TextSpan(text: content, style: style);
+  tp.layout(maxWidth: maxWidth);
+
+  final metrics = tp.computeLineMetrics();
+  if (metrics.length <= 1) {
+    return [
+      RenderUnit(
+        lineIndex: lineIndex,
+        charStart: 0,
+        charEnd: content.length,
+        height: tp.height,
+      )
+    ];
+  }
+
+  // 每个显示行对应的字符范围。
+  final ranges = <({int start, int end, double height})>[];
+  for (var i = 0; i < metrics.length; i++) {
+    final m = metrics[i];
+    final yMid = m.baseline + (m.ascent + m.descent) / 2;
+    final posStart = tp.getPositionForOffset(Offset(0, yMid));
+    final posEnd = tp.getPositionForOffset(Offset(maxWidth - 0.5, yMid));
+    var s = posStart.offset;
+    var e = posEnd.offset;
+    if (e <= s) e = s + 1;
+    if (s < 0) s = 0;
+    if (e > content.length) e = content.length;
+    ranges.add((start: s, end: e, height: m.height));
+  }
+
+  // 修正边界：连续覆盖整行。
+  ranges[0] = (start: 0, end: ranges[0].end, height: ranges[0].height);
+  for (var i = 1; i < ranges.length; i++) {
+    final prevEnd = ranges[i - 1].end;
+    var s = ranges[i].start;
+    var e = ranges[i].end;
+    if (s < prevEnd) s = prevEnd;
+    if (e < s + 1) e = s + 1;
+    if (e > content.length) e = content.length;
+    ranges[i] = (start: s, end: e, height: ranges[i].height);
+  }
+  final last = ranges.length - 1;
+  ranges[last] = (
+    start: ranges[last].start,
+    end: content.length,
+    height: ranges[last].height,
   );
+
+  // 按 maxHeight 分组。
+  final units = <RenderUnit>[];
+  var chunkStart = 0;
+  var chunkHeight = 0.0;
+  for (var i = 0; i < ranges.length; i++) {
+    final r = ranges[i];
+    if (chunkHeight + r.height > maxHeight && i > chunkStart) {
+      units.add(RenderUnit(
+        lineIndex: lineIndex,
+        charStart: ranges[chunkStart].start,
+        charEnd: ranges[i].start,
+        height: chunkHeight,
+      ));
+      chunkStart = i;
+      chunkHeight = r.height;
+    } else {
+      chunkHeight += r.height;
+    }
+  }
+  if (chunkStart < ranges.length) {
+    units.add(RenderUnit(
+      lineIndex: lineIndex,
+      charStart: ranges[chunkStart].start,
+      charEnd: content.length,
+      height: chunkHeight,
+    ));
+  }
+  return units;
+}
+
+/// 估算拆分：按"每屏能放多少字符"切。精度差但够用。
+List<RenderUnit> _splitLongLineEstimated({
+  required int lineIndex,
+  required String content,
+  required double usableWidth,
+  required double usableHeight,
+  required double singleLineHeight,
+}) {
+  final charWidth = singleLineHeight / kReaderLineHeightFactor;
+  final charsPerLine = (usableWidth / charWidth).floor();
+  final linesPerPage = (usableHeight / singleLineHeight).floor();
+
+  if (charsPerLine <= 0 || linesPerPage <= 0) {
+    return [
+      RenderUnit(
+        lineIndex: lineIndex,
+        charStart: 0,
+        charEnd: content.length,
+        height: singleLineHeight,
+      )
+    ];
+  }
+
+  final charsPerChunk = charsPerLine * linesPerPage;
+  final units = <RenderUnit>[];
+  var start = 0;
+  while (start < content.length) {
+    final end = math.min(start + charsPerChunk, content.length);
+    final chunkLen = end - start;
+    final displayLines = math.max(1, (chunkLen / charsPerLine).ceil());
+    units.add(RenderUnit(
+      lineIndex: lineIndex,
+      charStart: start,
+      charEnd: end,
+      height: displayLines * singleLineHeight,
+    ));
+    start = end;
+  }
+  return units;
+}
+
+// ==================== 估算 ====================
+
+double _estimateLineHeight(String line, double fontSize, double usableWidth) {
+  final baseLineHeight = fontSize * kReaderLineHeightFactor;
+  // 空行 = 一个完整行高（渲染时占一个空格）。
+  if (line.isEmpty) return baseLineHeight;
+  final w = _estimateLineWidth(line, fontSize);
+  final displayLines = math.max(1, (w / usableWidth).ceil());
+  return displayLines * baseLineHeight;
+}
+
+/// 估算一行文字的显示宽度（像素）。
+double _estimateLineWidth(String line, double fontSize) {
+  if (line.isEmpty) return 0;
+  var w = 0.0;
+  for (final rune in line.runes) {
+    if (rune < 0x80) {
+      if (rune == 0x20) {
+        w += fontSize * 0.30;
+      } else if ((rune >= 0x30 && rune <= 0x39) ||
+          (rune >= 0x41 && rune <= 0x5A) ||
+          (rune >= 0x61 && rune <= 0x7A)) {
+        w += fontSize * 0.55;
+      } else {
+        // 半角标点，实际比 0.5 窄。
+        w += fontSize * 0.40;
+      }
+    } else {
+      // 汉字、假名、全角标点都占满一格。
+      w += fontSize * 1.0;
+    }
+  }
+  return w;
+}
+
+FontWeight _toFontWeight(int v) {
+  switch (v) {
+    case 100:
+      return FontWeight.w100;
+    case 200:
+      return FontWeight.w200;
+    case 300:
+      return FontWeight.w300;
+    case 400:
+      return FontWeight.w400;
+    case 500:
+      return FontWeight.w500;
+    case 600:
+      return FontWeight.w600;
+    case 700:
+      return FontWeight.w700;
+    case 800:
+      return FontWeight.w800;
+    case 900:
+      return FontWeight.w900;
+    default:
+      return FontWeight.w400;
+  }
+}
+
+// ==================== 页 / 偏移 转换 ====================
+
+/// 给定页号，返回该页包含的 RenderUnit 索引范围 [startUnit, endUnit)。
+({int startUnit, int endUnit}) pageUnitRange(
+    PaginationResult r, int pageIdx) {
+  if (pageIdx < 0 || pageIdx >= r.pageStarts.length) {
+    return (startUnit: 0, endUnit: 0);
+  }
+  final start = r.pageStarts[pageIdx];
+  final end = pageIdx + 1 < r.pageStarts.length
+      ? r.pageStarts[pageIdx + 1]
+      : r.renderUnits.length;
+  return (startUnit: start, endUnit: end);
+}
+
+/// 给定页号，返回该页第一字符在全文的起始偏移。
+int pageStartOffset(PaginationResult r, int pageIdx) {
+  if (pageIdx < 0 || pageIdx >= r.pageStarts.length) return 0;
+  final unitIdx = r.pageStarts[pageIdx];
+  if (unitIdx >= r.renderUnits.length) return r.totalChars;
+  final u = r.renderUnits[unitIdx];
+  return r.lineStarts[u.lineIndex] + u.charStart;
+}
+
+/// 给定字符偏移，找它在第几页。
+int findPageForOffset(PaginationResult r, int charOffset) {
+  if (r.renderUnits.isEmpty) return 0;
+  var lo = 0;
+  var hi = r.renderUnits.length - 1;
+  while (lo < hi) {
+    final mid = (lo + hi + 1) >> 1;
+    final u = r.renderUnits[mid];
+    final uStart = r.lineStarts[u.lineIndex] + u.charStart;
+    if (uStart <= charOffset) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  var pLo = 0;
+  var pHi = r.pageStarts.length - 1;
+  while (pLo < pHi) {
+    final mid = (pLo + pHi + 1) >> 1;
+    if (r.pageStarts[mid] <= lo) {
+      pLo = mid;
+    } else {
+      pHi = mid - 1;
+    }
+  }
+  return pLo;
 }
 
 // ==================== 切行 ====================
 
-/// 把文本按 \n 切。空文本返回 ['']。
-/// 用索引遍历而不是 split()，避免为每一行额外分配 String 对象。
 List<String> _splitLines(String text) {
   if (text.isEmpty) return const [''];
   final out = <String>[];
@@ -88,126 +500,26 @@ List<String> _splitLines(String text) {
       start = i + 1;
     }
   }
-  // 最后一段（末尾没 \n 也要加）
   if (start <= text.length) {
     out.add(text.substring(start));
   }
   return out;
 }
 
-// ==================== 行宽估算 ====================
-//
-// 字符宽度估算（像素）：
-//   半角空格：0.30 × fontSize
-//   半角字母/数字：0.55 × fontSize
-//   半角其它标点：0.50 × fontSize
-//   CJK 汉字：1.00 × fontSize
-//   其它（全角标点、假名、emoji 等）：0.70 × fontSize
-//
-// 这些系数是经验值，对小说场景足够准。误差在 ±10% 以内。
-
-double _estimateLineWidth(String line, double fontSize) {
-  if (line.isEmpty) return 0;
-  var w = 0.0;
-  for (final rune in line.runes) {
-    if (rune < 0x80) {
-      if (rune == 0x20) {
-        w += fontSize * 0.30;
-      } else if ((rune >= 0x30 && rune <= 0x39) || // 0-9
-          (rune >= 0x41 && rune <= 0x5A) ||          // A-Z
-          (rune >= 0x61 && rune <= 0x7A)) {          // a-z
-        w += fontSize * 0.55;
-      } else {
-        w += fontSize * 0.50;
-      }
-    } else if (rune >= 0x4E00 && rune <= 0x9FFF) {
-      w += fontSize * 1.0;  // CJK 常用汉字
-    } else if (rune >= 0x3040 && rune <= 0x30FF) {
-      w += fontSize * 1.0;  // 日文假名
-    } else if (rune >= 0xAC00 && rune <= 0xD7AF) {
-      w += fontSize * 1.0;  // 韩文
-    } else {
-      w += fontSize * 0.70; // 全角标点、其它
-    }
+({List<String> lines, List<int> lineStarts}) splitLinesWithOffsets(
+    String text) {
+  final lines = _splitLines(text);
+  final offsets = List<int>.filled(lines.length, 0);
+  var off = 0;
+  for (var i = 0; i < lines.length; i++) {
+    offsets[i] = off;
+    off += lines[i].length + 1;
   }
-  return w;
-}
-
-// ==================== 行高估算 ====================
-
-/// 估算一行显示需要的高度。
-/// 若行宽超过可用宽度，会 wrap 成多显示行，高度按倍数算。
-double _estimateLineHeight({
-  required String line,
-  required double fontSize,
-  required double usableWidth,
-}) {
-  final baseLineHeight = fontSize * kReaderLineHeightFactor;
-
-  // 空行：给一个基准高度（保留段落间距）
-  if (line.isEmpty) {
-    return baseLineHeight * 0.6 + kReaderParaSpacing;
-  }
-
-  final w = _estimateLineWidth(line, fontSize);
-  // 至少 1 显示行
-  final displayLines = math.max(1, (w / usableWidth).ceil());
-  return displayLines * baseLineHeight;
-}
-
-// ==================== 页 / 偏移 转换 ====================
-
-/// 给定字符偏移，找它在第几页。
-int findPageForOffset(PaginationResult r, int charOffset) {
-  if (r.lineStarts.isEmpty) return 0;
-  // 二分：找最后一个 lineStarts[i] <= charOffset
-  var lo = 0;
-  var hi = r.lineStarts.length - 1;
-  while (lo < hi) {
-    final mid = (lo + hi + 1) >> 1;
-    if (r.lineStarts[mid] <= charOffset) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  final lineIdx = lo;
-  // 二分：找最后一个 pageStarts[i] <= lineIdx
-  lo = 0;
-  hi = r.pageStarts.length - 1;
-  while (lo < hi) {
-    final mid = (lo + hi + 1) >> 1;
-    if (r.pageStarts[mid] <= lineIdx) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return lo;
-}
-
-/// 给定页号，返回这一页第一行在全文的起始字符偏移。
-int pageStartOffset(PaginationResult r, int pageIdx) {
-  if (pageIdx < 0 || pageIdx >= r.pageStarts.length) return 0;
-  return r.lineStarts[r.pageStarts[pageIdx]];
-}
-
-/// 给定页号，返回这一页的行范围 [startLine, endLine)。
-({int startLine, int endLine}) pageLineRange(
-    PaginationResult r, int pageIdx) {
-  if (pageIdx < 0 || pageIdx >= r.pageStarts.length) {
-    return (startLine: 0, endLine: 0);
-  }
-  final start = r.pageStarts[pageIdx];
-  final end = pageIdx + 1 < r.pageStarts.length
-      ? r.pageStarts[pageIdx + 1]
-      : r.lineHeights.length;
-  return (startLine: start, endLine: end);
+  return (lines: lines, lineStarts: offsets);
 }
 
 // ==================== 查找关键词 ====================
 
-/// 一条匹配。位置用"行内字符下标"，同时带"行号"和"全文偏移"方便跳转。
 class KeywordMatch {
   const KeywordMatch({
     required this.lineIndex,
@@ -225,7 +537,6 @@ class KeywordMatch {
   int get globalEnd => lineStartOffset + endInLine;
 }
 
-/// 在全文里查关键词。逐行查，不跨行匹配。
 List<KeywordMatch> findKeyword({
   required List<String> lines,
   required List<int> lineStarts,
@@ -253,7 +564,6 @@ List<KeywordMatch> findKeyword({
 
 // ==================== 高亮索引 ====================
 
-/// 一条高亮在某一行的具体位置。
 class HighlightSpan {
   const HighlightSpan({
     required this.startInLine,
@@ -266,11 +576,9 @@ class HighlightSpan {
   final HighlightEntry entry;
 }
 
-/// 全部高亮的索引。按行号分组，渲染时 O(1) 拿到这一行的高亮。
 class HighlightIndex {
   const HighlightIndex(this.byLine);
 
-  /// key = 行号，value = 这一行的所有高亮区间（已排序、已去重）
   final Map<int, List<HighlightSpan>> byLine;
 
   List<HighlightSpan> forLine(int lineIdx) =>
@@ -279,12 +587,6 @@ class HighlightIndex {
   static const HighlightIndex empty = HighlightIndex({});
 }
 
-/// 构建高亮索引。
-///
-/// 规则：
-///   · 逐行匹配（不跨行）
-///   · 同一位置多个高亮命中 → 短的优先（用户 Q11）
-///   · 结果按位置排序
 HighlightIndex buildHighlightIndex({
   required List<String> lines,
   required List<HighlightEntry> highlights,
@@ -299,7 +601,6 @@ HighlightIndex buildHighlightIndex({
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
       if (line.isEmpty) continue;
-      // 快速跳过：行长度比关键词还短，不可能匹配
       if (line.length < key.length) continue;
 
       var from = 0;
@@ -316,22 +617,19 @@ HighlightIndex buildHighlightIndex({
     }
   }
 
-  // 每一行内：按位置排序 + 短词优先 + 去重叠
   for (final i in byLine.keys.toList()) {
     final list = byLine[i]!;
     list.sort((a, b) {
       final byStart = a.startInLine.compareTo(b.startInLine);
       if (byStart != 0) return byStart;
-      // 同一起点，短的优先（区间长度升序）
       final lenA = a.endInLine - a.startInLine;
       final lenB = b.endInLine - b.startInLine;
       return lenA.compareTo(lenB);
     });
-    // 去重叠：如果当前 span 的 start 小于上一个已保留的 end，跳过
     final kept = <HighlightSpan>[];
     var lastEnd = -1;
     for (final s in list) {
-      if (s.startInLine < lastEnd) continue; // 与上一个重叠
+      if (s.startInLine < lastEnd) continue;
       kept.add(s);
       lastEnd = s.endInLine;
     }
@@ -339,20 +637,4 @@ HighlightIndex buildHighlightIndex({
   }
 
   return HighlightIndex(byLine);
-}
-
-// ==================== 从整段文本构建行 / 行偏移（给外部复用） ====================
-
-/// 分页时已经算过 lineStarts，但有时只有 text 没有 pagination 结果
-/// （比如临时小文本）。这个函数单独提供。
-({List<String> lines, List<int> lineStarts}) splitLinesWithOffsets(
-    String text) {
-  final lines = _splitLines(text);
-  final offsets = List<int>.filled(lines.length, 0);
-  var off = 0;
-  for (var i = 0; i < lines.length; i++) {
-    offsets[i] = off;
-    off += lines[i].length + 1; // +1 是 \n
-  }
-  return (lines: lines, lineStarts: offsets);
 }
