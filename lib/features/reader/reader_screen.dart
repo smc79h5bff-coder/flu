@@ -832,21 +832,23 @@ return rp.localToGlobal(local);
 
   // ==================== 手柄拖动 ====================
 
-  void _startDragLeft() {
-    if (_sel == null) return;
-    setState(() {
-      _draggingHandle = 1;
-      _hBarVisible = false;
-    });
-  }
+  void _startDragLeft(Offset fingerPos) {
+  if (_sel == null) return;
+  setState(() {
+    _draggingHandle = 1;
+    _dragHandlePos = fingerPos;
+    _hBarVisible = false;
+  });
+}
 
-  void _startDragRight() {
-    if (_sel == null) return;
-    setState(() {
-      _draggingHandle = 2;
-      _hBarVisible = false;
-    });
-  }
+void _startDragRight(Offset fingerPos) {
+  if (_sel == null) return;
+  setState(() {
+    _draggingHandle = 2;
+    _dragHandlePos = fingerPos;
+    _hBarVisible = false;
+  });
+}
 
   void _updateSelectionFromDrag(Offset globalPos) {
     final sel = _sel;
