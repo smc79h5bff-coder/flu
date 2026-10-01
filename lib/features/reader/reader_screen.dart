@@ -1137,17 +1137,85 @@ void _startDragRight(Offset fingerPos) {
     );
   }
 
-  Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
-    final spans = _buildLineSpans(lineIdx, settings);
-    return SizedBox(
-      width: double.infinity,
-      child: Text.rich(
-        TextSpan(children: spans),
-        softWrap: true,
-        key: _lineKeys[lineIdx],
-      ),
-    );
+
+
+
+  
+ Widget _buildLine(int lineIdx, ReaderSettings settings) {
+  final spans = _buildLineSpans(lineIdx, settings);
+  return SizedBox(
+    width: double.infinity,
+    child: Stack(
+      children: [
+        Text.rich(
+          TextSpan(children: spans),
+          softWrap: true,
+          key: _lineKeys[lineIdx],
+        ),
+        _buildSelectionOverlay(lineIdx),
+      ],
+    ),
+  );
+}
+
+/// 用 getBoxesForSelection 画选区蓝背景。
+/// 和手柄用同一套坐标，保证对齐。
+Widget _buildSelectionOverlay(int lineIdx) {
+  final sel = _sel;
+  if (sel == null) return const SizedBox.shrink();
+  final n = sel.normalized();
+  if (lineIdx < n.startLine || lineIdx > n.endLine) {
+    return const SizedBox.shrink();
   }
+  final line = _lines[lineIdx];
+  if (line.isEmpty) return const SizedBox.shrink();
+
+  int selStart;
+  int selEnd;
+  if (n.startLine == n.endLine) {
+    selStart = n.startOffset;
+    selEnd = n.endOffset;
+  } else if (lineIdx == n.startLine) {
+    selStart = n.startOffset;
+    selEnd = line.length;
+  } else if (lineIdx == n.endLine) {
+    selStart = 0;
+    selEnd = n.endOffset;
+  } else {
+    selStart = 0;
+    selEnd = line.length;
+  }
+  selStart = selStart.clamp(0, line.length);
+  selEnd = selEnd.clamp(0, line.length);
+  if (selStart >= selEnd) return const SizedBox.shrink();
+
+  final ctx = _lineKeys[lineIdx]?.currentContext;
+  if (ctx == null) return const SizedBox.shrink();
+  final rp = ctx.findRenderObject();
+  if (rp is! RenderParagraph) return const SizedBox.shrink();
+
+  final boxes = rp.getBoxesForSelection(
+    TextSelection(baseOffset: selStart, extentOffset: selEnd),
+  );
+  if (boxes.isEmpty) return const SizedBox.shrink();
+
+  return Positioned.fill(
+    child: IgnorePointer(
+      child: Stack(
+        children: [
+          for (final box in boxes)
+            Positioned(
+              left: box.left,
+              top: box.top,
+              width: box.right - box.left,
+              height: box.bottom - box.top,
+              child: Container(color: _selectionBg),
+            ),
+        ],
+      ),
+    ),
+  );
+}
 
   /// 把选区叠加到 spans 上。
   List<InlineSpan> _buildLineSpans(int lineIdx, ReaderSettings settings) {
