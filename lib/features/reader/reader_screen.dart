@@ -297,26 +297,30 @@ _syncPagePreview();
       return;
     }
     if (_currentPage >= _pagination!.pageCount - 1) return;
-    _clearSelection();
-    setState(() => _currentPage++);
-    _saveProgress();
-  }
+     _clearSelection();
+  setState(() => _currentPage++);
+  _saveProgress();
+  _syncPagePreview();
+}
+  
 
   void _prevPage() {
     if (_pagination == null) return;
     if (_currentPage <= 0) return;
-    _clearSelection();
-    setState(() => _currentPage--);
-    _saveProgress();
-  }
+     _clearSelection();
+  setState(() => _currentPage++);
+  _saveProgress();
+  _syncPagePreview();
+}
 
   void _jumpToPage(int page) {
     if (_pagination == null) return;
     final p = page.clamp(0, _pagination!.pageCount - 1);
-    _clearSelection();
-    setState(() => _currentPage = p);
-    _saveProgress();
-  }
+     _clearSelection();
+  setState(() => _currentPage = p);
+  _saveProgress();
+  _syncPagePreview();
+}
 
   // ==================== 切文件 ====================
 
