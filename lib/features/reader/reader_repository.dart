@@ -8,21 +8,11 @@ import 'reader_models.dart';
 
 // ==================== 文件唯一标识 ====================
 //
-// 用 "路径 | 文件大小 | 修改时间" 拼成一个 key。
-// 文件被重存（内容、大小、时间任意一项变）→ key 变 → 老进度/书签/高亮作废。
-//
-// 为什么不用内容 hash：
-//   内容 hash 要读全文件，5MB 要 100ms+。
-//   而阅读器每次打开文件都要算，用户等待时间会累加。
-//   "大小+时间" 在 99.99% 情况下足够区分（同路径同大小同 mtime 的不同内容几乎不可能）。
-
+// 直接用路径当 key。路径变了就算换书，路径没变就认为还是同一本。
 
 String readerFileKey(String filePath) {
   return filePath;
 }
-
-
-
 
 // ==================== 全局阅读设置（所有文件共享） ====================
 
@@ -62,13 +52,10 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
       update(state.copyWith(showButtons: !state.showButtons));
 
   void setTopHotZone(double v) =>
-    update(state.copyWith(topHotZoneHeight: v.clamp(20.0, 200.0)));
-  
+      update(state.copyWith(topHotZoneHeight: v.clamp(20.0, 200.0)));
 }
 
 // ==================== 阅读进度（每个文件一条） ====================
-//
-// 结构：Map<fileKey, ReaderProgress>
 
 final readerProgressProvider =
     NotifierProvider<ReaderProgressNotifier, Map<String, ReaderProgress>>(
@@ -114,8 +101,6 @@ class ReaderProgressNotifier
 }
 
 // ==================== 书签（每个文件一组） ====================
-//
-// 结构：Map<fileKey, List<ReaderBookmark>>
 
 final readerBookmarksProvider = NotifierProvider<ReaderBookmarksNotifier,
     Map<String, List<ReaderBookmark>>>(ReaderBookmarksNotifier.new);
@@ -196,11 +181,6 @@ class ReaderBookmarksNotifier
 }
 
 // ==================== 高亮（每个文件一组） ====================
-//
-// 结构：Map<fileKey, List<HighlightEntry>>
-//
-// 为什么每个文件单独存：
-//   你说"高亮默认只应用于本 txt"——所以按文件隔离。
 
 final readerHighlightsProvider = NotifierProvider<ReaderHighlightsNotifier,
     Map<String, List<HighlightEntry>>>(ReaderHighlightsNotifier.new);
@@ -288,6 +268,90 @@ class ReaderHighlightsNotifier
     final next = Map<String, List<HighlightEntry>>.from(state);
     next.remove(fileKey);
     update(next);
+  }
+}
+
+// ==================== 高亮分组（全局共享） ====================
+//
+// 所有书共用一套分组。
+
+final readerHighlightGroupsProvider =
+    NotifierProvider<ReaderHighlightGroupsNotifier, List<HighlightGroup>>(
+  ReaderHighlightGroupsNotifier.new,
+);
+
+class ReaderHighlightGroupsNotifier
+    extends PersistentNotifier<List<HighlightGroup>> {
+  @override
+  String get key => 'reader.highlightGroups.v1';
+
+  @override
+  List<HighlightGroup> get defaultValue => const [];
+
+  @override
+  List<HighlightGroup> decode(String raw) {
+    final list = jsonDecode(raw) as List<dynamic>;
+    return list
+        .map((e) => HighlightGroup.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  String encode(List<HighlightGroup> value) =>
+      jsonEncode(value.map((e) => e.toJson()).toList());
+
+  HighlightGroup? byId(String? id) {
+    if (id == null) return null;
+    for (final g in state) {
+      if (g.id == id) return g;
+    }
+    return null;
+  }
+
+  String nameOf(String? id) {
+    if (id == null) return '未分组';
+    return byId(id)?.name ?? '未分组';
+  }
+
+  /// 新建一个分组，返回它的 id。
+  String create(String name) {
+    final trimmed = name.trim();
+    final id = 'g_${DateTime.now().microsecondsSinceEpoch}';
+    final next = [
+      ...state,
+      HighlightGroup(
+        id: id,
+        name: trimmed.isEmpty ? '新分组' : trimmed,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    ];
+    update(next);
+    return id;
+  }
+
+  void rename(String id, String newName) {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty) return;
+    update([
+      for (final g in state)
+        if (g.id == id) g.copyWith(name: trimmed) else g,
+    ]);
+  }
+
+  /// 删除分组。onDelete 由调用方决定怎么处理该分组下的高亮。
+  void delete(String id) {
+    update(state.where((g) => g.id != id).toList());
+  }
+
+  void reorder(int oldIndex, int newIndex) {
+    final list = List<HighlightGroup>.from(state);
+    if (oldIndex < 0 || oldIndex >= list.length) return;
+    if (newIndex > oldIndex) newIndex--;
+    if (newIndex < 0) newIndex = 0;
+    if (newIndex > list.length - 1) newIndex = list.length - 1;
+    final item = list.removeAt(oldIndex);
+    list.insert(newIndex, item);
+    update(list);
   }
 }
 
@@ -380,7 +444,6 @@ class ReaderFindHistoryNotifier
       ),
       ...state.where((e) => e.word != w),
     ];
-    // 若已收藏同名词，保留收藏状态
     final existingFav = state.any((e) => e.word == w && e.isFavorite);
     if (existingFav) {
       for (var i = 0; i < next.length; i++) {
@@ -390,7 +453,6 @@ class ReaderFindHistoryNotifier
         }
       }
     }
-    // 数量裁剪
     final favs = next.where((e) => e.isFavorite).toList();
     final nonFavs = next.where((e) => !e.isFavorite).toList();
     final kept = <FindHistoryItem>[
@@ -415,7 +477,6 @@ class ReaderFindHistoryNotifier
     update(state.where((e) => e.isFavorite).toList());
   }
 
-  /// 收藏项按时间倒序放在前，非收藏的随后
   List<FindHistoryItem> sorted() {
     final copy = List<FindHistoryItem>.from(state);
     copy.sort((a, b) {
@@ -427,9 +488,6 @@ class ReaderFindHistoryNotifier
     return copy;
   }
 }
+
 /// 设置面板打开时临时为 true。控制顶部热区的可视化预览。
 final readerHotZonePreviewProvider = StateProvider<bool>((ref) => false);
-
-
-
-
