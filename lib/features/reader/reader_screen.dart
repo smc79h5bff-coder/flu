@@ -136,10 +136,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   // ==================== 手势 / 选区状态 ====================
 
-  /// 正文区整体 key，用于 globalToLocal。
   final GlobalKey _contentKey = GlobalKey();
-
-  /// 当前页每一行的 GlobalKey，用于命中测试和坐标反查。
   final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
 
   _SelectionRange? _sel;
@@ -158,7 +155,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   /// 横向滑动检测（右滑翻上一页）
   bool _horizontalDrag = false;
   int _downMs = 0;
-  static const double _hDragMinDx = 60.0; // 右滑超过这个逻辑像素算翻页
+  static const double _hDragMinDx = 60.0;
 
   int _lastTapUpMs = 0;
 
@@ -234,6 +231,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final progress = ref.read(readerProgressProvider)[fileKey];
       final startPage = progress != null
           ? findPageForOffset(pagination, progress.charOffset)
+              .clamp(0, pagination.pageCount - 1)
           : 0;
 
       setState(() {
@@ -283,9 +281,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       setState(() => _menuOpen = false);
       return;
     }
-    if (_currentPage >= _pagination!.pageCount - 1) return;
+    final maxPage = _pagination!.pageCount - 1;
+    if (_currentPage >= maxPage) return;
     _clearSelection();
-    setState(() => _currentPage++);
+    setState(() => _currentPage = (_currentPage + 1).clamp(0, maxPage));
     _saveProgress();
     _syncPagePreview();
   }
@@ -293,15 +292,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _prevPage() {
     if (_pagination == null) return;
     if (_currentPage <= 0) return;
+    final maxPage = _pagination!.pageCount - 1;
     _clearSelection();
-    setState(() => _currentPage--);
+    setState(() => _currentPage = (_currentPage - 1).clamp(0, maxPage));
     _saveProgress();
     _syncPagePreview();
   }
 
   void _jumpToPage(int page) {
     if (_pagination == null) return;
-    final p = page.clamp(0, _pagination!.pageCount - 1);
+    final maxPage = _pagination!.pageCount - 1;
+    final p = page.clamp(0, maxPage);
     _clearSelection();
     setState(() => _currentPage = p);
     _saveProgress();
@@ -553,7 +554,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
   }
 
-  /// 用全局坐标找 (line, offset)。
   _CharPos? _hitTest(Offset globalPos) {
     final contentCtx = _contentKey.currentContext;
     if (contentCtx == null) return null;
@@ -570,7 +570,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       if (rp is! RenderParagraph) continue;
       final localLine = rp.globalToLocal(globalPos);
       final size = rp.size;
-      // 严格边界：不宽容，避免命中邻近行
       if (localLine.dy < 0 || localLine.dy > size.height) continue;
       if (localLine.dx < 0) continue;
       final clamped = Offset(
@@ -585,7 +584,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return null;
   }
 
-  /// 从 (line, offset) 算屏幕全局坐标。
   Offset? _posOfChar(int line, int offset) {
     final ctx = _lineKeys[line]?.currentContext;
     if (ctx == null) return null;
@@ -599,7 +597,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return rp.localToGlobal(local);
   }
 
-  /// 选区选中范围内的纯文本。
   String _selectedText() {
     final sel = _sel;
     if (sel == null) return '';
@@ -627,14 +624,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return sb.toString();
   }
 
-  /// 长按命中后，选中一个"词"或一个字。
   void _selectWordAt(_CharPos pos) {
     final line = _lines[pos.line];
     if (line.isEmpty) return;
     final offset = pos.offset.clamp(0, line.length - 1);
     final code = line.codeUnitAt(offset);
 
-    // 中文单字
     if (code >= 0x4E00 && code <= 0x9FFF) {
       setState(() {
         _sel = _SelectionRange(
@@ -648,7 +643,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    // 英文/数字：扩到单词边界
     if (_isWordChar(code)) {
       var s = offset;
       var e = offset + 1;
@@ -670,7 +664,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    // 其它字符，选一个
     setState(() {
       _sel = _SelectionRange(
         startLine: pos.line,
@@ -699,7 +692,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _horizontalDrag = false;
     _pressDown = true;
 
-    // 照参考 app：任意按下先收起弹窗和手柄
     if (_hBarVisible || _sel != null) {
       setState(() {
         _hBarVisible = false;
@@ -730,14 +722,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
     }
 
-    // 横向滑动判定：横向位移占主导
     if (_draggingHandle == 0 && !_horizontalDrag) {
       if (absDx > 20 && absDx > absDy * 1.5) {
         _horizontalDrag = true;
       }
     }
 
-    // 已经在拖手柄 → 更新选区
     if (_draggingHandle != 0) {
       _updateSelectionFromDrag(e.position);
     }
@@ -746,7 +736,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _onPointerUp(PointerUpEvent e) {
     _longPressTimer?.cancel();
 
-    // 拖手柄松手：重新显示弹窗
     if (_draggingHandle != 0) {
       setState(() {
         _draggingHandle = 0;
@@ -756,13 +745,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    // 长按已触发，抬起什么都不做
     if (_longPressFired) {
       _pressDown = false;
       return;
     }
 
-    // 横向滑动：右滑翻上一页
     if (_horizontalDrag) {
       final dx = e.position.dx - _downPos.dx;
       final elapsed = DateTime.now().millisecondsSinceEpoch - _downMs;
@@ -774,13 +761,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    // 位移超阈值 → 不算单击
     if (_movedBeyondThreshold) {
       _pressDown = false;
       return;
     }
 
-    // 单击判定（带 100ms 防抖）
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_lastTapUpMs != 0 && now - _lastTapUpMs < _tapDebounceMs) {
       _pressDown = false;
@@ -804,7 +789,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _selectWordAt(pos);
   }
 
-  /// 点击分发。
   void _handleTap(Offset globalPos) {
     final settings = ref.read(readerSettingsProvider);
 
@@ -818,7 +802,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final w = contentBox.size.width;
     final h = contentBox.size.height;
 
-    // 1. 悬浮按钮
     if (settings.showButtons) {
       final topBtnSize = 50.0 * settings.buttonScale;
       final topCenter =
@@ -835,14 +818,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
     }
 
-    // 2. 顶部热区
     final safeTop = MediaQuery.of(context).padding.top;
     if (globalPos.dy < safeTop + settings.topHotZoneHeight) {
       _showTopMenu();
       return;
     }
 
-    // 3. 正文 → 翻页
     _nextPage();
   }
 
@@ -871,7 +852,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (hit == null) return;
 
     if (_draggingHandle == 1) {
-      // 拖左：只改 start，end 不动。允许 start > end（交叉）。
       setState(() {
         _sel = _SelectionRange(
           startLine: hit.line,
@@ -881,7 +861,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         );
       });
     } else if (_draggingHandle == 2) {
-      // 拖右：只改 end，start 不动。
       setState(() {
         _sel = _SelectionRange(
           startLine: sel.startLine,
@@ -893,10 +872,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
   }
 
-  // ==================== 手柄位置 ====================
-
-  /// 返回左 / 右两个手柄顶端的全局坐标。
-  /// 左手柄永远对应 sel.start，右手柄永远对应 sel.end。
   ({Offset left, Offset right})? _handlePositions() {
     final sel = _sel;
     if (sel == null) return null;
@@ -905,7 +880,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (left == null || right == null) return null;
     return (left: left, right: right);
   }
-
   // ==================== 渲染 ====================
 
   TextStyle _baseStyle(ReaderSettings settings) => TextStyle(
@@ -1004,7 +978,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final range = pageLineRange(pagination, _currentPage);
     final previewHotZone = ref.watch(readerHotZonePreviewProvider);
 
-    // 为当前页每一行准备 key
     _lineKeys.removeWhere(
         (k, v) => k < range.startLine || k >= range.endLine);
     for (var i = range.startLine; i < range.endLine; i++) {
@@ -1128,43 +1101,34 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         }
         final entry = h.entry;
         final hlText = line.substring(h.startInLine, h.endInLine);
-       
-        
-        
-        
-        
-        
         if (entry.colors.length > 1) {
-  baseSpans.add(WidgetSpan(
-    alignment: PlaceholderAlignment.baseline,
-    baseline: TextBaseline.alphabetic,
-    child: Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: entry.colors
-              .map((c) => Color(c))
-              .toList(growable: false),
-        ),
-      ),
-      child: Text(
-        hlText,
-        style: base.copyWith(
-          color: Color(entry.textColor),
-          height: null,
-        ),
-        textHeightBehavior: const TextHeightBehavior(
-          applyHeightToFirstAscent: false,
-          applyHeightToLastDescent: false,
-        ),
-      ),
-    ),
-  ));
-} else {
-          
-
-          
+          baseSpans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: entry.colors
+                      .map((c) => Color(c))
+                      .toList(growable: false),
+                ),
+              ),
+              child: Text(
+                hlText,
+                style: base.copyWith(
+                  color: Color(entry.textColor),
+                  height: null,
+                ),
+                textHeightBehavior: const TextHeightBehavior(
+                  applyHeightToFirstAscent: false,
+                  applyHeightToLastDescent: false,
+                ),
+              ),
+            ),
+          ));
+        } else {
           final hlStyle = base.copyWith(
             color: Color(entry.textColor),
             backgroundColor: Color(entry.colors.first),
@@ -1181,7 +1145,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     // ---------- 2. 叠加选区 ----------
     final sel = _sel;
     if (sel == null) return baseSpans;
-    // 渲染时用 normalized 的 start/end（视觉顺序）
     final n = sel.normalized();
 
     int? selStart;
@@ -1206,7 +1169,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return baseSpans;
     }
 
-    // 把 baseSpans 按选区区间重新切分
     final out = <InlineSpan>[];
     var charCount = 0;
     for (final span in baseSpans) {
@@ -1239,7 +1201,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           out.add(TextSpan(text: after, style: span.style));
         }
       } else if (span is WidgetSpan) {
-        // WidgetSpan：算作 1 个字符位置
         final segStart = charCount;
         final segEnd = charCount + 1;
         charCount = segEnd;
@@ -1312,7 +1273,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final handleH = lineHeight + 20.0;
     const circleR = 6.0;
 
-    // 两个手柄位置重合时，往两边推一点，避免点不到
     var leftPos = pos.left;
     var rightPos = pos.right;
     final dx = (rightPos.dx - leftPos.dx).abs();
@@ -1322,7 +1282,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     Widget handle(Offset globalPos, int which) {
-      // 相对于 Stack（= SafeArea 内部），需要扣掉 SafeArea padding。
       final top = MediaQuery.of(context).padding.top;
       final left = globalPos.dx - handleW / 2;
       final topPos = globalPos.dy - top;
@@ -1556,7 +1515,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         lines: _lines,
         highlights: newHighlights,
       );
-    _sel = null;
-    _hBarVisible = false;
-  });
+      _sel = null;
+      _hBarVisible = false;
+    });
+  }
 }
