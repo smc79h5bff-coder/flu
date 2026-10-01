@@ -150,7 +150,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
   Offset? _dragHandlePos;
-
+/// 长按后手指最后处理过的位置。用来做去抖。
+Offset? _lastLongPressPos;
   Timer? _longPressTimer;
 
   Offset _downPos = Offset.zero;
@@ -786,22 +787,32 @@ _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
     if (!_pressDown) return;
 
     // ===== 长按已成立：手指移动 → 扩展选区终点 =====
-    if (_longPressFired) {
-      final sel = _sel;
-      if (sel == null) return;
-      final hit = _hitTest(e.position);
-      if (hit == null) return;
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: sel.startLine,
-          startOffset: sel.startOffset,
-          endLine: hit.line,
-          endOffset: hit.offset,
-        );
-        _selVersion++;
-      });
-      return;
-    }
+   // ===== 长按已成立：手指移动 → 扩展选区终点 =====
+if (_longPressFired) {
+  final sel = _sel;
+  if (sel == null) return;
+
+  // 去抖：距上次处理位置不到 10 像素就不管，过滤触摸屏抖动
+  final last = _lastLongPressPos;
+  if (last != null) {
+    final d = (e.position - last).distance;
+    if (d < 10.0) return;
+  }
+  _lastLongPressPos = e.position;
+
+  final hit = _hitTest(e.position);
+  if (hit == null) return;
+  setState(() {
+    _sel = _SelectionRange(
+      startLine: sel.startLine,
+      startOffset: sel.startOffset,
+      endLine: hit.line,
+      endOffset: hit.offset,
+    );
+    _selVersion++;
+  });
+  return;
+}
 
     // ===== 长按还没成立：原有的位移/横向滑动判断 =====
     final dx = e.position.dx - _downPos.dx;
