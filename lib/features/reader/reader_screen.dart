@@ -85,40 +85,48 @@ class _TrapezoidPainter extends CustomPainter {
 
     final path = Path();
 
-    if (!flip) {
-      // 尖角在顶部
-      if (isLeft) {
-        // 左手柄：尖角在左上，向右下扩展
-        path.moveTo(0, 0);
-        path.lineTo(0, h);
-        path.lineTo(w, h);
-        path.lineTo(w, mid);
-        path.close();
-      } else {
-        // 右手柄：尖角在右上，向左下扩展
-        path.moveTo(w, 0);
-        path.lineTo(w, h);
-        path.lineTo(0, h);
-        path.lineTo(0, mid);
-        path.close();
-      }
-    } else {
-      // 尖角在底部（翻转到文字上方时用）
-      if (isLeft) {
-        path.moveTo(0, h);
-        path.lineTo(0, 0);
-        path.lineTo(w, 0);
-        path.lineTo(w, mid);
-        path.close();
-      } else {
-        path.moveTo(w, h);
-        path.lineTo(w, 0);
-        path.lineTo(0, 0);
-        path.lineTo(0, mid);
-        path.close();
-      }
-    }
 
+
+
+    
+if (!flip) {
+  // 尖角在顶部
+  if (isLeft) {
+    // 左手柄：尖角在右上，向左下扩展
+    path.moveTo(w, 0);
+    path.lineTo(w, h);
+    path.lineTo(0, h);
+    path.lineTo(0, mid);
+    path.close();
+  } else {
+    // 右手柄：尖角在左上，向右下扩展
+    path.moveTo(0, 0);
+    path.lineTo(0, h);
+    path.lineTo(w, h);
+    path.lineTo(w, mid);
+    path.close();
+  }
+} else {
+  // 尖角在底部（翻转到文字上方时用）
+  if (isLeft) {
+    path.moveTo(w, h);
+    path.lineTo(w, 0);
+    path.lineTo(0, 0);
+    path.lineTo(0, mid);
+    path.close();
+  } else {
+    path.moveTo(0, h);
+    path.lineTo(0, 0);
+    path.lineTo(w, 0);
+    path.lineTo(w, mid);
+    path.close();
+  }
+}
+
+
+
+
+    
     canvas.drawPath(path, paint);
   }
 
