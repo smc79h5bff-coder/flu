@@ -24,12 +24,36 @@ Future<void> showReaderSettingsSheet(BuildContext context) {
     builder: (_) => const _ReaderSettingsSheet(),
   );
 }
-
-class _ReaderSettingsSheet extends ConsumerWidget {
+class _ReaderSettingsSheet extends ConsumerStatefulWidget {
   const _ReaderSettingsSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ReaderSettingsSheet> createState() =>
+      _ReaderSettingsSheetState();
+}
+
+class _ReaderSettingsSheetState
+    extends ConsumerState<_ReaderSettingsSheet> {
+  @override
+  void initState() {
+    super.initState();
+    // 打开设置面板时，打开热区预览
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(readerHotZonePreviewProvider.notifier).state = true;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    // 关闭设置面板时，关掉热区预览
+    ref.read(readerHotZonePreviewProvider.notifier).state = false;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final s = ref.watch(readerSettingsProvider);
     final n = ref.read(readerSettingsProvider.notifier);
 
