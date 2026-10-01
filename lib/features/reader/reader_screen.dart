@@ -592,6 +592,37 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return null;
   }
 
+/// 带 Y 方向缓冲的命中测试，只用于拖手柄。
+/// 如果手指还在 preferLine 的 ±行高/3 范围内，锁定在 preferLine，
+/// 避免横拖时手指上下抖动导致跨行。
+_CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
+  final ctx = _lineKeys[preferLine]?.currentContext;
+  if (ctx != null) {
+    final rp = ctx.findRenderObject();
+    if (rp is RenderParagraph) {
+      final topLeft = rp.localToGlobal(Offset.zero);
+      final h = rp.size.height;
+      final buffer = h / 3;
+      final dy = globalPos.dy;
+      if (dy >= topLeft.dy - buffer && dy <= topLeft.dy + h + buffer) {
+        final local = rp.globalToLocal(globalPos);
+        final clamped = Offset(
+          local.dx.clamp(0.0, rp.size.width),
+          local.dy.clamp(0.0, rp.size.height),
+        );
+        final pos = rp.getPositionForOffset(clamped);
+        final line = _lines[preferLine];
+        return _CharPos(
+          line: preferLine,
+          offset: pos.offset.clamp(0, line.length),
+        );
+      }
+    }
+  }
+  return _hitTest(globalPos);
+}
+
+  
   /// 从 (line, offset) 算屏幕全局坐标。
   /// 返回字符盒的左上角。
   Offset? _posOfChar(int line, int offset) {
