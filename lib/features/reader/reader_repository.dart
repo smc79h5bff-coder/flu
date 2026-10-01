@@ -56,7 +56,7 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
       update(state.copyWith(buttonOpacity: v.clamp(0.1, 1.0)));
 
   void setButtonScale(double v) =>
-      update(state.copyWith(buttonScale: v.clamp(0.2, 6.0)));
+      update(state.copyWith(buttonScale: v.clamp(0.2, 10.0)));
 
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
