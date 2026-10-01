@@ -976,13 +976,13 @@ class _SimpleColorPickerState extends State<_SimpleColorPicker> {
 
 // ==================== 书签 / 高亮 管理页 ====================
 
-Future<void> openBookmarkHighlightManager(
+Future<int?> openBookmarkHighlightManager(
   BuildContext context,
   String fileKey,
   String fileName,
 ) {
-  return Navigator.of(context).push(
-    MaterialPageRoute<void>(
+  return Navigator.of(context).push<int>(
+    MaterialPageRoute<int>(
       builder: (_) => BookmarkHighlightManager(
         fileKey: fileKey,
         fileName: fileName,
