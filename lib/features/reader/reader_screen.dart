@@ -828,12 +828,12 @@ if (_longPressFired) {
   if (sel == null) return;
 
   // 去抖：距上次处理位置不到 10 像素就不管，过滤触摸屏抖动
-  final last = _lastLongPressPos;
-  if (last != null) {
-    final d = (e.position - last).distance;
-    if (d < 10.0) return;
-  }
-  _lastLongPressPos = e.position;
+// 去抖：距基准位置不到 10 像素就不管
+// 第一次用 _downPos 作基准，之后用上次处理位置
+final ref = _lastLongPressPos ?? _downPos;
+if ((e.position - ref).distance < 10.0) return;
+_lastLongPressPos = e.position;
+  
 
   final hit = _hitTest(e.position);
   if (hit == null) return;
