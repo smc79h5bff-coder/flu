@@ -190,7 +190,12 @@ const SizedBox(height: 16),
 
                 if (s.showButtons) ...[
                   const SizedBox(height: 8),
-
+const SizedBox(height: 8),
+const Text('按钮位置预览',
+    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+const SizedBox(height: 8),
+_miniPreview(context, s),
+const SizedBox(height: 12),
                   _sliderHeader(
                       '按钮透明度',
                       '${(s.buttonOpacity * 100).toStringAsFixed(0)}%'),
