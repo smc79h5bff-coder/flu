@@ -12,7 +12,6 @@ import 'reader_screen.dart';
 
 // ==================== 设置面板 ====================
 
-/// 底部弹出的设置面板。返回值忽略——设置实时写回 provider。
 Future<void> showReaderSettingsSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
@@ -24,6 +23,7 @@ Future<void> showReaderSettingsSheet(BuildContext context) {
     builder: (_) => const _ReaderSettingsSheet(),
   );
 }
+
 class _ReaderSettingsSheet extends ConsumerStatefulWidget {
   const _ReaderSettingsSheet();
 
@@ -32,12 +32,10 @@ class _ReaderSettingsSheet extends ConsumerStatefulWidget {
       _ReaderSettingsSheetState();
 }
 
-class _ReaderSettingsSheetState
-    extends ConsumerState<_ReaderSettingsSheet> {
+class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
   @override
   void initState() {
     super.initState();
-    // 打开设置面板时，打开热区预览
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ref.read(readerHotZonePreviewProvider.notifier).state = true;
@@ -47,7 +45,6 @@ class _ReaderSettingsSheetState
 
   @override
   void dispose() {
-    // 关闭设置面板时，关掉热区预览
     ref.read(readerHotZonePreviewProvider.notifier).state = false;
     super.dispose();
   }
@@ -81,8 +78,6 @@ class _ReaderSettingsSheetState
                     style: TextStyle(
                         fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
-
-                // ===== 字号 =====
                 _sliderHeader('字号', s.fontSize.toStringAsFixed(0)),
                 Row(
                   children: [
@@ -105,10 +100,7 @@ class _ReaderSettingsSheetState
                     if (d != null) n.setFontSize(d);
                   },
                 ),
-
                 const SizedBox(height: 12),
-
-                // ===== 字重 =====
                 _sliderHeader('字重', s.fontWeight.toString()),
                 Row(
                   children: [
@@ -125,10 +117,7 @@ class _ReaderSettingsSheetState
                     const Text('900', style: TextStyle(fontSize: 11)),
                   ],
                 ),
-
                 const SizedBox(height: 12),
-
-                // ===== 背景色 =====
                 _sliderHeader('背景颜色', ''),
                 const SizedBox(height: 6),
                 Row(
@@ -155,26 +144,24 @@ class _ReaderSettingsSheetState
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 20),
                 const Divider(),
                 const SizedBox(height: 8),
-_sliderHeader(
-    '顶部菜单热区',
-    '${s.topHotZoneHeight.toStringAsFixed(0)} px'),
-Slider(
-  min: 20,
-  max: 200,
-  value: s.topHotZoneHeight.clamp(20, 200),
-  onChanged: n.setTopHotZone,
-),
-const Text(
-  '点屏幕顶部这一条（透明）打开菜单。数值越小越难点到，'
-  '越大越容易误触。',
-  style: TextStyle(fontSize: 11, color: Colors.grey),
-),
-const SizedBox(height: 16),
-                // ===== 浮动按钮 =====
+                _sliderHeader(
+                    '顶部菜单热区',
+                    '${s.topHotZoneHeight.toStringAsFixed(0)} px'),
+                Slider(
+                  min: 20,
+                  max: 200,
+                  value: s.topHotZoneHeight.clamp(20, 200),
+                  onChanged: n.setTopHotZone,
+                ),
+                const Text(
+                  '点屏幕顶部这一条（透明）打开菜单。数值越小越难点到，'
+                  '越大越容易误触。',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
                 Row(
                   children: [
                     const Text('浮动按钮',
@@ -187,15 +174,14 @@ const SizedBox(height: 16),
                     ),
                   ],
                 ),
-
                 if (s.showButtons) ...[
                   const SizedBox(height: 8),
-const SizedBox(height: 8),
-const Text('按钮位置预览',
-    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-_miniPreview(context, s),
-const SizedBox(height: 12),
+                  const Text('按钮位置预览',
+                      style: TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  _miniPreview(context, s),
+                  const SizedBox(height: 12),
                   _sliderHeader(
                       '按钮透明度',
                       '${(s.buttonOpacity * 100).toStringAsFixed(0)}%'),
@@ -205,7 +191,6 @@ const SizedBox(height: 12),
                     value: s.buttonOpacity.clamp(0.1, 1.0),
                     onChanged: n.setButtonOpacity,
                   ),
-
                   _sliderHeader(
                       '按钮大小', '${s.buttonScale.toStringAsFixed(1)}×'),
                   Slider(
@@ -214,12 +199,12 @@ const SizedBox(height: 12),
                     value: s.buttonScale.clamp(0.2, 10.0),
                     onChanged: n.setButtonScale,
                   ),
-
                   const SizedBox(height: 8),
                   const Text('上按钮位置',
                       style: TextStyle(
                           fontSize: 13, fontWeight: FontWeight.w600)),
-                  _sliderHeader('横向 X', '${(s.topBtnX * 100).toStringAsFixed(0)}%'),
+                  _sliderHeader(
+                      '横向 X', '${(s.topBtnX * 100).toStringAsFixed(0)}%'),
                   Slider(
                     min: 0.0,
                     max: 1.0,
@@ -227,7 +212,8 @@ const SizedBox(height: 12),
                     onChanged: (v) => n.update(
                         ref.read(readerSettingsProvider).copyWith(topBtnX: v)),
                   ),
-                  _sliderHeader('纵向 Y', '${(s.topBtnY * 100).toStringAsFixed(0)}%'),
+                  _sliderHeader(
+                      '纵向 Y', '${(s.topBtnY * 100).toStringAsFixed(0)}%'),
                   Slider(
                     min: 0.0,
                     max: 1.0,
@@ -235,12 +221,12 @@ const SizedBox(height: 12),
                     onChanged: (v) => n.update(
                         ref.read(readerSettingsProvider).copyWith(topBtnY: v)),
                   ),
-
                   const SizedBox(height: 8),
                   const Text('下按钮位置',
                       style: TextStyle(
                           fontSize: 13, fontWeight: FontWeight.w600)),
-                  _sliderHeader('横向 X', '${(s.bottomBtnX * 100).toStringAsFixed(0)}%'),
+                  _sliderHeader(
+                      '横向 X', '${(s.bottomBtnX * 100).toStringAsFixed(0)}%'),
                   Slider(
                     min: 0.0,
                     max: 1.0,
@@ -249,7 +235,8 @@ const SizedBox(height: 12),
                         .read(readerSettingsProvider)
                         .copyWith(bottomBtnX: v)),
                   ),
-                  _sliderHeader('纵向 Y', '${(s.bottomBtnY * 100).toStringAsFixed(0)}%'),
+                  _sliderHeader(
+                      '纵向 Y', '${(s.bottomBtnY * 100).toStringAsFixed(0)}%'),
                   Slider(
                     min: 0.0,
                     max: 1.0,
@@ -259,7 +246,6 @@ const SizedBox(height: 12),
                         .copyWith(bottomBtnY: v)),
                   ),
                 ],
-
                 const SizedBox(height: 20),
                 Center(
                   child: OutlinedButton(
@@ -312,76 +298,6 @@ const SizedBox(height: 12),
     );
   }
 
-
-
-/// 迷你屏幕预览：显示两个按钮在屏幕上的位置和大小。
-Widget _miniPreview(BuildContext context, ReaderSettings s) {
-  final screenSize = MediaQuery.of(context).size;
-  // 缩略图宽度固定 180，高度按屏幕比例
-  const previewWidth = 180.0;
-  final previewHeight = previewWidth * screenSize.height / screenSize.width;
-
-  return Center(
-    child: Container(
-      width: previewWidth,
-      height: previewHeight,
-      decoration: BoxDecoration(
-        color: Color(s.bgColor),
-        border: Border.all(color: Colors.grey.shade400),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: LayoutBuilder(
-        builder: (ctx, constraints) {
-          final w = constraints.maxWidth;
-          final h = constraints.maxHeight;
-          // 缩略图相对真实屏幕的缩放比
-          final scale = w / screenSize.width;
-          final btnSize = 50.0 * s.buttonScale * scale;
-          final topLeft = Offset(
-            s.topBtnX * w - btnSize / 2,
-            s.topBtnY * h - btnSize / 2,
-          );
-          final botLeft = Offset(
-            s.bottomBtnX * w - btnSize / 2,
-            s.bottomBtnY * h - btnSize / 2,
-          );
-
-          Widget dot(Offset pos, IconData icon) {
-            return Positioned(
-              left: pos.dx,
-              top: pos.dy,
-              child: Opacity(
-                opacity: s.buttonOpacity,
-                child: Container(
-                  width: btnSize,
-                  height: btnSize,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    icon,
-                    color: Colors.white,
-                    size: btnSize * 0.6,
-                  ),
-                ),
-              ),
-            );
-          }
-
-          return Stack(
-            children: [
-              dot(topLeft, Icons.keyboard_arrow_up),
-              dot(botLeft, Icons.keyboard_arrow_down),
-            ],
-          );
-        },
-      ),
-    ),
-  );
-}
-  
-
   Widget _bgSwatch({
     required Color color,
     required String label,
@@ -415,9 +331,69 @@ Widget _miniPreview(BuildContext context, ReaderSettings s) {
   }
 }
 
+Widget _miniPreview(BuildContext context, ReaderSettings s) {
+  final screenSize = MediaQuery.of(context).size;
+  const previewWidth = 180.0;
+  final previewHeight = previewWidth * screenSize.height / screenSize.width;
+
+  return Center(
+    child: Container(
+      width: previewWidth,
+      height: previewHeight,
+      decoration: BoxDecoration(
+        color: Color(s.bgColor),
+        border: Border.all(color: Colors.grey.shade400),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: LayoutBuilder(
+        builder: (ctx, constraints) {
+          final w = constraints.maxWidth;
+          final h = constraints.maxHeight;
+          final scale = w / screenSize.width;
+          final btnSize = 50.0 * s.buttonScale * scale;
+          final topLeft = Offset(
+            s.topBtnX * w - btnSize / 2,
+            s.topBtnY * h - btnSize / 2,
+          );
+          final botLeft = Offset(
+            s.bottomBtnX * w - btnSize / 2,
+            s.bottomBtnY * h - btnSize / 2,
+          );
+
+          Widget dot(Offset pos, IconData icon) {
+            return Positioned(
+              left: pos.dx,
+              top: pos.dy,
+              child: Opacity(
+                opacity: s.buttonOpacity,
+                child: Container(
+                  width: btnSize,
+                  height: btnSize,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon,
+                      color: Colors.white, size: btnSize * 0.6),
+                ),
+              ),
+            );
+          }
+
+          return Stack(
+            children: [
+              dot(topLeft, Icons.keyboard_arrow_up),
+              dot(botLeft, Icons.keyboard_arrow_down),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
 // ==================== 查找栏 ====================
 
-/// 覆盖在顶部。返回时恢复正文显示。
 Future<void> showReaderFindBar(
   BuildContext context,
   String fileKey,
@@ -505,7 +481,6 @@ class _ReaderFindSheetState extends ConsumerState<_ReaderFindSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final history = ref.watch(readerFindHistoryProvider);
     final sorted = ref.read(readerFindHistoryProvider.notifier).sorted();
 
     return SafeArea(
@@ -553,7 +528,8 @@ class _ReaderFindSheetState extends ConsumerState<_ReaderFindSheet> {
                         ? const SizedBox(
                             width: 14,
                             height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.search, size: 16),
                     label: const Text('搜索'),
@@ -563,8 +539,9 @@ class _ReaderFindSheetState extends ConsumerState<_ReaderFindSheet> {
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton(
-                    onPressed: () =>
-                        ref.read(readerFindHistoryProvider.notifier).clearNonFavorites(),
+                    onPressed: () => ref
+                        .read(readerFindHistoryProvider.notifier)
+                        .clearNonFavorites(),
                     child: const Text('清空非收藏'),
                   ),
                 ],
@@ -642,8 +619,7 @@ class PaletteEditScreen extends ConsumerStatefulWidget {
   final int paletteIndex;
 
   @override
-  ConsumerState<PaletteEditScreen> createState() =>
-      _PaletteEditScreenState();
+  ConsumerState<PaletteEditScreen> createState() => _PaletteEditScreenState();
 }
 
 class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
@@ -652,6 +628,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
   late Color _color1;
   late Color _color2;
   late Color _textColor;
+  String? _defaultGroupId;
   bool _loaded = false;
 
   @override
@@ -662,10 +639,10 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     _name = p.name;
     _isGradient = p.isGradient;
     _color1 = Color(p.colors.first);
-    _color2 = p.colors.length > 1
-        ? Color(p.colors[1])
-        : Color(p.colors.first);
+    _color2 =
+        p.colors.length > 1 ? Color(p.colors[1]) : Color(p.colors.first);
     _textColor = Color(p.textColor);
+    _defaultGroupId = p.defaultGroupId;
     _loaded = true;
   }
 
@@ -673,8 +650,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     final colors = _isGradient
         ? <int>[_color1.toARGB32(), _color2.toARGB32()]
         : <int>[_color1.toARGB32()];
-    final stops =
-        _isGradient ? <double>[0.0, 1.0] : <double>[0.0];
+    final stops = _isGradient ? <double>[0.0, 1.0] : <double>[0.0];
     final updated = HighlightPalette(
       index: widget.paletteIndex,
       name: _name.trim().isEmpty ? '色块 ${widget.paletteIndex + 1}' : _name,
@@ -682,6 +658,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
       stops: stops,
       angle: 0.0,
       textColor: _textColor.toARGB32(),
+      defaultGroupId: _defaultGroupId,
     );
     ref.read(readerPaletteProvider.notifier).updateOne(updated);
     Navigator.pop(context);
@@ -696,21 +673,20 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
       _color1 = Color(d.colors.first);
       _color2 = Color(d.colors.first);
       _textColor = Color(d.textColor);
+      _defaultGroupId = null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const SizedBox.shrink();
+    final groups = ref.watch(readerHighlightGroupsProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: Text('编辑色块 ${widget.paletteIndex + 1}'),
         actions: [
-          TextButton(
-            onPressed: _save,
-            child: const Text('保存'),
-          ),
+          TextButton(onPressed: _save, child: const Text('保存')),
         ],
       ),
       body: ListView(
@@ -719,7 +695,8 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           const Text('名称'),
           TextField(
             controller: TextEditingController(text: _name)
-              ..selection = TextSelection.collapsed(offset: _name.length),
+              ..selection =
+                  TextSelection.collapsed(offset: _name.length),
             onChanged: (v) => _name = v,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
@@ -727,7 +704,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
           Row(
             children: [
               const Text('样式：'),
@@ -746,7 +722,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             ],
           ),
           const SizedBox(height: 16),
-
           _colorRow('背景色', _color1, (c) => setState(() => _color1 = c)),
           if (_isGradient) ...[
             const SizedBox(height: 8),
@@ -756,7 +731,37 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           const SizedBox(height: 8),
           _colorRow(
               '文字颜色', _textColor, (c) => setState(() => _textColor = c)),
-
+          const SizedBox(height: 20),
+          const Divider(),
+          const SizedBox(height: 8),
+          const Text('默认分组',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          const Text(
+            '用这个色块加的高亮，默认归到这个分组。',
+            style: TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String?>(
+            value: _defaultGroupId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('未分组'),
+              ),
+              for (final g in groups)
+                DropdownMenuItem<String?>(
+                  value: g.id,
+                  child: Text(g.name),
+                ),
+            ],
+            onChanged: (v) => setState(() => _defaultGroupId = v),
+          ),
           const SizedBox(height: 24),
           const Text('预览'),
           const SizedBox(height: 8),
@@ -796,7 +801,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
               ),
             ),
           ),
-
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 8),
@@ -806,7 +810,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
           const SizedBox(height: 16),
-
           OutlinedButton(
             onPressed: _resetToDefault,
             child: const Text('恢复该色块默认'),
@@ -1011,6 +1014,10 @@ class _BookmarkHighlightManagerState
   final Set<String> _selectedHighlights = {};
   bool _selectionMode = false;
 
+  /// 当前勾选"显示"的分组 id（null 表示"未分组"）。
+  /// 空集 = 全部显示。默认全选。
+  Set<String?> _visibleGroupIds = <String?>{};
+
   @override
   void initState() {
     super.initState();
@@ -1032,8 +1039,16 @@ class _BookmarkHighlightManagerState
   Widget build(BuildContext context) {
     final bookmarks =
         ref.watch(readerBookmarksProvider)[widget.fileKey] ?? const [];
-    final highlights =
+    final allHighlights =
         ref.watch(readerHighlightsProvider)[widget.fileKey] ?? const [];
+    final groups = ref.watch(readerHighlightGroupsProvider);
+
+    // 过滤高亮
+    final highlights = _visibleGroupIds.isEmpty
+        ? allHighlights
+        : allHighlights
+            .where((h) => _visibleGroupIds.contains(h.groupId))
+            .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -1055,12 +1070,18 @@ class _BookmarkHighlightManagerState
               tooltip: '删除所选',
               onPressed: _deleteSelected,
             )
-          else
+          else ...[
+            IconButton(
+              icon: const Icon(Icons.filter_list),
+              tooltip: '按分组过滤',
+              onPressed: () => _showFilterSheet(groups),
+            ),
             IconButton(
               icon: const Icon(Icons.checklist),
               tooltip: '批量选择',
               onPressed: () => setState(() => _selectionMode = true),
             ),
+          ],
         ],
         bottom: TabBar(
           controller: _tab,
@@ -1076,6 +1097,50 @@ class _BookmarkHighlightManagerState
           _buildBookmarks(bookmarks),
           _buildHighlights(highlights),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showFilterSheet(List<HighlightGroup> groups) async {
+    // 收集当前文件里出现过的 groupId（含 null）
+    final all =
+        ref.read(readerHighlightsProvider)[widget.fileKey] ?? const [];
+    final usedIds = <String?>{};
+    for (final h in all) {
+      usedIds.add(h.groupId);
+    }
+
+    final initial = _visibleGroupIds.isEmpty
+        ? <String?>{...usedIds}
+        : Set<String?>.from(_visibleGroupIds);
+
+    final result = await showModalBottomSheet<Set<String?>>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _GroupFilterSheet(
+        groups: groups,
+        usedIds: usedIds,
+        initial: initial,
+      ),
+    );
+
+    if (result == null) return;
+
+    // 全部勾选 = 不过滤
+    if (result.length == usedIds.length) {
+      setState(() => _visibleGroupIds = <String?>{});
+    } else {
+      setState(() => _visibleGroupIds = result);
+    }
+  }
+
+  Future<void> _openGroupManager() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const GroupManagerScreen(),
       ),
     );
   }
@@ -1115,19 +1180,11 @@ class _BookmarkHighlightManagerState
           leading: _selectionMode
               ? Checkbox(
                   value: selected,
-                  onChanged: (_) {
-                    setState(() {
-                      if (selected) {
-                        _selectedBookmarks.remove(b.id);
-                      } else {
-                        _selectedBookmarks.add(b.id);
-                      }
-                    });
-                  },
+                  onChanged: (_) => _toggleBookmark(b.id),
                 )
               : const Icon(Icons.bookmark),
           title: Text(
-            b.preview.isEmpty ? '(空)' : b.preview,
+            b.displayName.isEmpty ? '(空)' : b.displayName,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1136,25 +1193,45 @@ class _BookmarkHighlightManagerState
             style: const TextStyle(fontSize: 11),
           ),
           onTap: _selectionMode
-              ? () {
-                  setState(() {
-                    if (selected) {
-                      _selectedBookmarks.remove(b.id);
-                    } else {
-                      _selectedBookmarks.add(b.id);
+              ? () => _toggleBookmark(b.id)
+              : () async {
+                  final r = await openBookmarkEdit(context, b);
+                  if (r != null && mounted) {
+                    if (r.action == 'delete') {
+                      ref
+                          .read(readerBookmarksProvider.notifier)
+                          .remove(widget.fileKey, b.id);
+                    } else if (r.action == 'save' && r.bookmark != null) {
+                      ref
+                          .read(readerBookmarksProvider.notifier)
+                          .updateOne(widget.fileKey, r.bookmark!);
+                    } else if (r.action == 'jump') {
+                      Navigator.pop(context, b.charOffset);
                     }
-                  });
-                }
-              : null,
-          onLongPress: _selectionMode
-              ? null
-              : () => setState(() {
-                    _selectionMode = true;
-                    _selectedBookmarks.add(b.id);
-                  }),
+                  }
+                },
+          onLongPress:
+              _selectionMode ? null : () => _enterBookmarkSelection(b.id),
         );
       },
     );
+  }
+
+  void _toggleBookmark(String id) {
+    setState(() {
+      if (_selectedBookmarks.contains(id)) {
+        _selectedBookmarks.remove(id);
+      } else {
+        _selectedBookmarks.add(id);
+      }
+    });
+  }
+
+  void _enterBookmarkSelection(String id) {
+    setState(() {
+      _selectionMode = true;
+      _selectedBookmarks.add(id);
+    });
   }
 
   Widget _buildHighlights(List<HighlightEntry> highlights) {
@@ -1171,15 +1248,7 @@ class _BookmarkHighlightManagerState
           leading: _selectionMode
               ? Checkbox(
                   value: selected,
-                  onChanged: (_) {
-                    setState(() {
-                      if (selected) {
-                        _selectedHighlights.remove(h.id);
-                      } else {
-                        _selectedHighlights.add(h.id);
-                      }
-                    });
-                  },
+                  onChanged: (_) => _toggleHighlight(h.id),
                 )
               : Container(
                   width: 28,
@@ -1190,28 +1259,30 @@ class _BookmarkHighlightManagerState
                     border: Border.all(color: Colors.black26),
                   ),
                 ),
-          title: Text(h.keyword),
+          title: Text(h.displayName),
           subtitle: Text(
-            h.isRegex ? '正则' : '关键词',
+            '关键词：${h.keyword}',
             style: const TextStyle(fontSize: 11),
           ),
           onTap: _selectionMode
-              ? () {
-                  setState(() {
-                    if (selected) {
-                      _selectedHighlights.remove(h.id);
-                    } else {
-                      _selectedHighlights.add(h.id);
+              ? () => _toggleHighlight(h.id)
+              : () async {
+                  final r = await openHighlightEdit(context, h);
+                  if (r != null && mounted) {
+                    if (r.action == 'delete') {
+                      ref
+                          .read(readerHighlightsProvider.notifier)
+                          .remove(widget.fileKey, h.id);
+                    } else if (r.action == 'save' && r.entry != null) {
+                      ref
+                          .read(readerHighlightsProvider.notifier)
+                          .updateOne(widget.fileKey, r.entry!);
                     }
-                  });
-                }
-              : null,
+                  }
+                },
           onLongPress: _selectionMode
               ? null
-              : () => setState(() {
-                    _selectionMode = true;
-                    _selectedHighlights.add(h.id);
-                  }),
+              : () => _enterHighlightSelection(h.id),
           trailing: _selectionMode
               ? null
               : IconButton(
@@ -1224,11 +1295,706 @@ class _BookmarkHighlightManagerState
       },
     );
   }
+
+  void _toggleHighlight(String id) {
+    setState(() {
+      if (_selectedHighlights.contains(id)) {
+        _selectedHighlights.remove(id);
+      } else {
+        _selectedHighlights.add(id);
+      }
+    });
+  }
+
+  void _enterHighlightSelection(String id) {
+    setState(() {
+      _selectionMode = true;
+      _selectedHighlights.add(id);
+    });
+  }
+}
+
+// ==================== 分组过滤面板 ====================
+
+class _GroupFilterSheet extends StatefulWidget {
+  const _GroupFilterSheet({
+    required this.groups,
+    required this.usedIds,
+    required this.initial,
+  });
+
+  final List<HighlightGroup> groups;
+  final Set<String?> usedIds;
+  final Set<String?> initial;
+
+  @override
+  State<_GroupFilterSheet> createState() => _GroupFilterSheetState();
+}
+
+class _GroupFilterSheetState extends State<_GroupFilterSheet> {
+  late Set<String?> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = Set<String?>.from(widget.initial);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 构造可见的选项：未分组 + 所有出现过的分组
+    final entries = <({String? id, String name, int count})>[];
+    if (widget.usedIds.contains(null)) {
+      entries.add((id: null, name: '未分组', count: 0));
+    }
+    for (final g in widget.groups) {
+      if (widget.usedIds.contains(g.id)) {
+        entries.add((id: g.id, name: g.name, count: 0));
+      }
+    }
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('显示哪些分组',
+                style: TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            if (entries.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('当前文件还没有高亮')),
+              )
+            else
+              ...entries.map((e) {
+                final checked = _selected.contains(e.id);
+                return CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  value: checked,
+                  title: Text(e.name),
+                  onChanged: (_) {
+                    setState(() {
+                      if (checked) {
+                        _selected.remove(e.id);
+                      } else {
+                        _selected.add(e.id);
+                      }
+                    });
+                  },
+                );
+              }),
+            const Divider(),
+            Row(
+              children: [
+                TextButton.icon(
+                  icon: const Icon(Icons.select_all, size: 18),
+                  label: const Text('全选'),
+                  onPressed: () {
+                    setState(() {
+                      _selected = Set<String?>.from(widget.usedIds);
+                    });
+                  },
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.folder_outlined, size: 18),
+                  label: const Text('管理分组'),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const GroupManagerScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(context, _selected),
+                    child: const Text('确定'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== 分组管理页 ====================
+
+class GroupManagerScreen extends ConsumerStatefulWidget {
+  const GroupManagerScreen({super.key});
+
+  @override
+  ConsumerState<GroupManagerScreen> createState() =>
+      _GroupManagerScreenState();
+}
+
+class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
+  Future<void> _createGroup() async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('新建分组'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '分组名',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(c, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || name.trim().isEmpty) return;
+    ref.read(readerHighlightGroupsProvider.notifier).create(name);
+  }
+
+  Future<void> _renameGroup(HighlightGroup g) async {
+    final ctrl = TextEditingController(text: g.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('重命名分组'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(c, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || name.trim().isEmpty) return;
+    ref.read(readerHighlightGroupsProvider.notifier).rename(g.id, name);
+  }
+
+  Future<void> _deleteGroup(HighlightGroup g) async {
+    // 统计该分组下的高亮数
+    final all = ref.read(readerHighlightsProvider);
+    var count = 0;
+    for (final list in all.values) {
+      for (final h in list) {
+        if (h.groupId == g.id) count++;
+      }
+    }
+
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('删除「${g.name}」分组？'),
+        content: Text(
+          '该分组下有 $count 条高亮。\n'
+          '删除分组后，这些高亮怎么办？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'detach'),
+            child: const Text('保留，变未分组'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, 'delete'),
+            child: const Text('连同高亮删除'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+
+    // 清掉色块里指向这个分组的 defaultGroupId
+    final palette = ref.read(readerPaletteProvider);
+    final paletteNotifier = ref.read(readerPaletteProvider.notifier);
+    for (final p in palette) {
+      if (p.defaultGroupId == g.id) {
+        paletteNotifier.updateOne(p.copyWith(clearDefaultGroup: true));
+      }
+    }
+
+    final highlightsNotifier = ref.read(readerHighlightsProvider.notifier);
+    if (choice == 'detach') {
+      final all = ref.read(readerHighlightsProvider);
+      for (final entry in all.entries) {
+        for (final h in entry.value) {
+          if (h.groupId == g.id) {
+            highlightsNotifier.updateOne(
+              entry.key,
+              h.copyWith(clearGroup: true),
+            );
+          }
+        }
+      }
+    } else if (choice == 'delete') {
+      final all = ref.read(readerHighlightsProvider);
+      for (final entry in all.entries) {
+        final ids = entry.value
+            .where((h) => h.groupId == g.id)
+            .map((h) => h.id)
+            .toSet();
+        if (ids.isNotEmpty) {
+          highlightsNotifier.removeMany(entry.key, ids);
+        }
+      }
+    }
+
+    ref.read(readerHighlightGroupsProvider.notifier).delete(g.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = ref.watch(readerHighlightGroupsProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('分组管理'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: '新建分组',
+            onPressed: _createGroup,
+          ),
+        ],
+      ),
+      body: groups.isEmpty
+          ? const Center(child: Text('还没有分组，点右上角 + 新建'))
+          : ReorderableListView.builder(
+              itemCount: groups.length,
+              onReorder: (oldIndex, newIndex) {
+                ref
+                    .read(readerHighlightGroupsProvider.notifier)
+                    .reorder(oldIndex, newIndex);
+              },
+              itemBuilder: (_, i) {
+                final g = groups[i];
+                return ListTile(
+                  key: ValueKey(g.id),
+                  leading: const Icon(Icons.drag_handle),
+                  title: Text(g.name),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 20),
+                        tooltip: '改名',
+                        onPressed: () => _renameGroup(g),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        tooltip: '删除',
+                        onPressed: () => _deleteGroup(g),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+// ==================== 高亮编辑页 ====================
+
+class HighlightEditResult {
+  const HighlightEditResult({required this.action, this.entry});
+  final String action; // 'save' | 'delete'
+  final HighlightEntry? entry;
+}
+
+Future<HighlightEditResult?> openHighlightEdit(
+  BuildContext context,
+  HighlightEntry entry,
+) {
+  return Navigator.of(context).push<HighlightEditResult>(
+    MaterialPageRoute(
+      builder: (_) => _HighlightEditScreen(entry: entry),
+    ),
+  );
+}
+
+class _HighlightEditScreen extends ConsumerStatefulWidget {
+  const _HighlightEditScreen({required this.entry});
+  final HighlightEntry entry;
+
+  @override
+  ConsumerState<_HighlightEditScreen> createState() =>
+      _HighlightEditScreenState();
+}
+
+class _HighlightEditScreenState
+    extends ConsumerState<_HighlightEditScreen> {
+  late TextEditingController _nameCtrl;
+  late TextEditingController _kwCtrl;
+  late Color _color1;
+  late Color _color2;
+  late bool _isGradient;
+  late Color _textColor;
+  String? _groupId;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.entry;
+    _nameCtrl = TextEditingController(text: e.displayName);
+    _kwCtrl = TextEditingController(text: e.keyword);
+    _isGradient = e.colors.length > 1;
+    _color1 = Color(e.colors.first);
+    _color2 =
+        e.colors.length > 1 ? Color(e.colors[1]) : Color(e.colors.first);
+    _textColor = Color(e.textColor);
+    _groupId = e.groupId;
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _kwCtrl.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final kw = _kwCtrl.text.trim();
+    if (kw.isEmpty) return;
+    final colors = _isGradient
+        ? <int>[_color1.toARGB32(), _color2.toARGB32()]
+        : <int>[_color1.toARGB32()];
+    final stops = _isGradient ? <double>[0.0, 1.0] : <double>[0.0];
+
+    final updated = widget.entry.copyWith(
+      keyword: kw,
+      colors: colors,
+      stops: stops,
+      textColor: _textColor.toARGB32(),
+      name: _nameCtrl.text.trim(),
+      groupId: _groupId,
+      clearGroup: _groupId == null,
+    );
+    Navigator.pop(context, HighlightEditResult(action: 'save', entry: updated));
+  }
+
+  void _delete() {
+    Navigator.pop(context, const HighlightEditResult(action: 'delete'));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = ref.watch(readerHighlightGroupsProvider);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('编辑高亮'),
+        actions: [
+          TextButton(onPressed: _save, child: const Text('保存')),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('高亮名'),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+              hintText: '默认与关键词相同',
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text('关键词'),
+          TextField(
+            controller: _kwCtrl,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Text('样式：'),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('纯色'),
+                selected: !_isGradient,
+                onSelected: (_) => setState(() => _isGradient = false),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('渐变'),
+                selected: _isGradient,
+                onSelected: (_) => setState(() => _isGradient = true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _colorRow('背景色', _color1, (c) => setState(() => _color1 = c)),
+          if (_isGradient) ...[
+            const SizedBox(height: 8),
+            _colorRow(
+                '背景色 2', _color2, (c) => setState(() => _color2 = c)),
+          ],
+          const SizedBox(height: 8),
+          _colorRow(
+              '文字颜色', _textColor, (c) => setState(() => _textColor = c)),
+          const SizedBox(height: 16),
+          const Text('分组'),
+          const SizedBox(height: 4),
+          DropdownButtonFormField<String?>(
+            value: _groupId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('未分组'),
+              ),
+              for (final g in groups)
+                DropdownMenuItem<String?>(
+                  value: g.id,
+                  child: Text(g.name),
+                ),
+            ],
+            onChanged: (v) => setState(() => _groupId = v),
+          ),
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            label: const Text('删除这条高亮',
+                style: TextStyle(color: Colors.red)),
+            onPressed: _delete,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _colorRow(String label, Color color, ValueChanged<Color> onPick) {
+    return Row(
+      children: [
+        Expanded(child: Text(label)),
+        Text(
+          '#${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase().substring(2)}',
+          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        ),
+        const SizedBox(width: 8),
+        InkWell(
+          onTap: () async {
+            final result = await showDialog<Color>(
+              context: context,
+              builder: (_) => _SimpleColorPicker(initial: color),
+            );
+            if (result != null) onPick(result);
+          },
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color,
+              border: Border.all(color: Colors.black26),
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== 书签编辑页 ====================
+
+class BookmarkEditResult {
+  const BookmarkEditResult({required this.action, this.bookmark});
+  final String action; // 'save' | 'delete' | 'jump'
+  final ReaderBookmark? bookmark;
+}
+
+Future<BookmarkEditResult?> openBookmarkEdit(
+  BuildContext context,
+  ReaderBookmark bookmark,
+) {
+  return Navigator.of(context).push<BookmarkEditResult>(
+    MaterialPageRoute(
+      builder: (_) => _BookmarkEditScreen(bookmark: bookmark),
+    ),
+  );
+}
+
+class _BookmarkEditScreen extends StatefulWidget {
+  const _BookmarkEditScreen({required this.bookmark});
+  final ReaderBookmark bookmark;
+
+  @override
+  State<_BookmarkEditScreen> createState() => _BookmarkEditScreenState();
+}
+
+class _BookmarkEditScreenState extends State<_BookmarkEditScreen> {
+  late TextEditingController _nameCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.bookmark.displayName);
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final updated = widget.bookmark.copyWith(
+      name: _nameCtrl.text.trim(),
+    );
+    Navigator.pop(context,
+        BookmarkEditResult(action: 'save', bookmark: updated));
+  }
+
+  void _delete() {
+    Navigator.pop(context, const BookmarkEditResult(action: 'delete'));
+  }
+
+  void _jump() {
+    Navigator.pop(context, const BookmarkEditResult(action: 'jump'));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final b = widget.bookmark;
+    String time = '';
+    if (b.createdAt > 0) {
+      final t = DateTime.fromMillisecondsSinceEpoch(b.createdAt);
+      String two(int n) => n < 10 ? '0$n' : '$n';
+      time = '${t.year}-${two(t.month)}-${two(t.day)} '
+          '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('编辑书签'),
+        actions: [
+          TextButton(onPressed: _save, child: const Text('保存')),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('书签名'),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('位置预览'),
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              b.preview.isEmpty ? '(空)' : b.preview,
+              style: const TextStyle(fontSize: 14, height: 1.5),
+            ),
+          ),
+          if (time.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('创建时间：$time',
+                style:
+                    const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.my_location),
+            label: const Text('跳到这个位置'),
+            onPressed: _jump,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            label: const Text('删除这个书签',
+                style: TextStyle(color: Colors.red)),
+            onPressed: _delete,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ==================== 编辑衔接 ====================
 
-/// 打开编辑器，返回后调 onReturn 让阅读器重新加载。
 Future<void> openEditorAndReturn(
   BuildContext context,
   String filePath,
@@ -1236,13 +2002,12 @@ Future<void> openEditorAndReturn(
   VoidCallback onReturn,
 ) async {
   await Navigator.of(context).push(
-  MaterialPageRoute<void>(
-    builder: (_) => SingleFileEditorScreen(
-      filePath: filePath,
-      fileName: fileName,
+    MaterialPageRoute<void>(
+      builder: (_) => SingleFileEditorScreen(
+        filePath: filePath,
+        fileName: fileName,
+      ),
     ),
-  ),
-);
-    
+  );
   onReturn();
 }
