@@ -991,53 +991,62 @@ _horizontalDrag = false;
   // ==================== 手柄拖动 ====================
 
   void _startDragLeft(Offset fingerPos) {
-    if (_sel == null) return;
+  final sel = _sel;
+  if (sel == null) return;
+  final handleLogic = _posOfChar(sel.startLine, sel.startOffset);
+  setState(() {
+    _draggingHandle = 1;
+    _dragHandlePos = handleLogic ?? fingerPos;
+    _dragHandleOffset =
+        handleLogic == null ? Offset.zero : fingerPos - handleLogic;
+    _hBarVisible = false;
+  });
+}
+
+void _startDragRight(Offset fingerPos) {
+  final sel = _sel;
+  if (sel == null) return;
+  final handleLogic = _posOfChar(sel.endLine, sel.endOffset);
+  setState(() {
+    _draggingHandle = 2;
+    _dragHandlePos = handleLogic ?? fingerPos;
+    _dragHandleOffset =
+        handleLogic == null ? Offset.zero : fingerPos - handleLogic;
+    _hBarVisible = false;
+  });
+}
+
+  /// 参数 [handleLogic] 是手柄的逻辑位置（屏幕全局坐标），
+/// 不是手指位置。调用方负责用偏移量换算。
+void _updateSelectionFromDrag(Offset handleLogic) {
+  final sel = _sel;
+  if (sel == null) return;
+  final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
+  final hit = _hitTestWithBuffer(handleLogic, preferLine);
+  if (hit == null) return;
+
+  if (_draggingHandle == 1) {
     setState(() {
-      _draggingHandle = 1;
-      _dragHandlePos = fingerPos;
-      _hBarVisible = false;
+      _sel = _SelectionRange(
+        startLine: hit.line,
+        startOffset: hit.offset,
+        endLine: sel.endLine,
+        endOffset: sel.endOffset,
+      );
+      _selVersion++;
+    });
+  } else if (_draggingHandle == 2) {
+    setState(() {
+      _sel = _SelectionRange(
+        startLine: sel.startLine,
+        startOffset: sel.startOffset,
+        endLine: hit.line,
+        endOffset: hit.offset,
+      );
+      _selVersion++;
     });
   }
-
-  void _startDragRight(Offset fingerPos) {
-    if (_sel == null) return;
-    setState(() {
-      _draggingHandle = 2;
-      _dragHandlePos = fingerPos;
-      _hBarVisible = false;
-    });
-  }
-
-  void _updateSelectionFromDrag(Offset globalPos) {
-    final sel = _sel;
-    if (sel == null) return;
-    // 拖左手柄时锁定在原 startLine，拖右手柄锁定在原 endLine
-    final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
-    final hit = _hitTestWithBuffer(globalPos, preferLine);
-    if (hit == null) return;
-
-    if (_draggingHandle == 1) {
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: hit.line,
-          startOffset: hit.offset,
-          endLine: sel.endLine,
-          endOffset: sel.endOffset,
-        );
-        _selVersion++;
-      });
-    } else if (_draggingHandle == 2) {
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: sel.startLine,
-          startOffset: sel.startOffset,
-          endLine: hit.line,
-          endOffset: hit.offset,
-        );
-        _selVersion++;
-      });
-    }
-  }
+}
 
   ({Offset left, Offset right})? _handlePositions() {
     final sel = _sel;
