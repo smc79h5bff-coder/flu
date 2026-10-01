@@ -254,17 +254,21 @@ static const double _hDragMinDx = 60.0;  // 右滑超过这个逻辑像素算翻
           ? findPageForOffset(pagination, progress.charOffset)
           : 0;
 
-      setState(() {
-        _text = text;
-        _pagination = pagination;
-        _lines = split.lines;
-        _highlightIndex = index;
-        _currentPage = startPage;
-        _loading = false;
-        _sel = null;
-        _hBarVisible = false;
-      });
-      _lineKeys.clear();
+setState(() {
+  _text = text;
+  _pagination = pagination;
+  _lines = split.lines;
+  _highlightIndex = index;
+  _currentPage = startPage;
+  _loading = false;
+  _sel = null;
+  _hBarVisible = false;
+});
+_lineKeys.clear();
+_syncPagePreview();
+
+
+      
     } catch (e) {
       if (!mounted) return;
       setState(() {
