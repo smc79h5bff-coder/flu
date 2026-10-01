@@ -1282,89 +1282,21 @@ Widget _buildSelectionOverlay(int lineIdx) {
       }
     }
 
-    // ---------- 2. 叠加选区 ----------
-    final sel = _sel;
-    if (sel == null) return baseSpans;
-    final n = sel.normalized();
 
-    int? selStart;
-    int? selEnd;
-    if (lineIdx >= n.startLine && lineIdx <= n.endLine) {
-      if (n.startLine == n.endLine) {
-        selStart = n.startOffset;
-        selEnd = n.endOffset;
-      } else if (lineIdx == n.startLine) {
-        selStart = n.startOffset;
-        selEnd = line.length;
-      } else if (lineIdx == n.endLine) {
-        selStart = 0;
-        selEnd = n.endOffset;
-      } else {
-        selStart = 0;
-        selEnd = line.length;
-      }
-    }
-    if (selStart == null || selEnd == null) return baseSpans;
-    if (selEnd <= selStart && !(selStart == 0 && selEnd == 0)) {
-      return baseSpans;
-    }
 
-    final out = <InlineSpan>[];
-    var charCount = 0;
-    for (final span in baseSpans) {
-      if (span is TextSpan) {
-        final t = span.text ?? '';
-        final segStart = charCount;
-        final segEnd = charCount + t.length;
-        charCount = segEnd;
 
-        final a = math.max(segStart, selStart);
-        final b = math.min(segEnd, selEnd);
-        if (b <= a) {
-          out.add(span);
-          continue;
-        }
-        final before = t.substring(0, a - segStart);
-        final mid = t.substring(a - segStart, b - segStart);
-        final after = t.substring(b - segStart);
-        final midStyle = (span.style ?? base).copyWith(
-          backgroundColor: _selectionBg,
-          color: span.style?.color ?? _selectionFg,
-        );
-        if (before.isNotEmpty) {
-          out.add(TextSpan(text: before, style: span.style));
-        }
-        if (mid.isNotEmpty) {
-          out.add(TextSpan(text: mid, style: midStyle));
-        }
-        if (after.isNotEmpty) {
-          out.add(TextSpan(text: after, style: span.style));
-        }
-      } else if (span is WidgetSpan) {
-        final segStart = charCount;
-        final segEnd = charCount + 1;
-        charCount = segEnd;
-        if (segEnd > selStart && segStart < selEnd) {
-          out.add(WidgetSpan(
-            alignment: PlaceholderAlignment.baseline,
-            baseline: TextBaseline.alphabetic,
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: _selectionBg, width: 6),
-              ),
-              child: span.child,
-            ),
-          ));
-        } else {
-          out.add(span);
-        }
-      } else {
-        out.add(span);
-      }
-    }
 
-    return out;
+
+
+
+
+    
+   return baseSpans;
   }
+
+
+
+  
 
   Widget _buildFloatButton({
     required double x,
