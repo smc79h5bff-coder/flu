@@ -523,26 +523,43 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ),
       itemCount: palette.length,
       itemBuilder: (c, i) {
+
+
+
+
         final p = palette[i];
-        final bg = Color(p.colors.first);
-        return GestureDetector(
-          onTap: () {
-            Navigator.pop(ctx);
-            _applyHighlight(word, p);
-          },
-          onLongPress: () {
-            Navigator.pop(ctx);
-            openPaletteEdit(context, p.index);
-          },
-          child: Column(
-            children: [
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: bg,
-                    border: Border.all(color: Colors.black12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
+return GestureDetector(
+  onTap: () {
+    Navigator.pop(ctx);
+    _applyHighlight(word, p);
+  },
+  onLongPress: () {
+    Navigator.pop(ctx);
+    openPaletteEdit(context, p.index);
+  },
+  child: Column(
+    children: [
+      Expanded(
+        child: Container(
+          decoration: BoxDecoration(
+            color: p.isGradient ? null : Color(p.colors.first),
+            gradient: p.isGradient
+                ? LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: p.colors
+                        .map((c) => Color(c))
+                        .toList(growable: false),
+                  )
+                : null,
+            border: Border.all(color: Colors.black12),
+            borderRadius: BorderRadius.circular(6),
+          ),
+
+
+
+
+                  
                   alignment: Alignment.center,
                   child: Text(
                     word.length > 2 ? '${word.substring(0, 2)}…' : word,
