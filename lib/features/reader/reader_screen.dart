@@ -72,24 +72,28 @@ class _HandlePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    const top = 0.0;
-    final lineBottom = top + lineHeight;
-    final linePaint = Paint()
-      ..color = color
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-    final circlePaint = Paint()..color = color;
+    final r = circleR;
+    final cy = size.height - r;
 
-    canvas.drawLine(
-      Offset(cx, top),
-      Offset(cx, lineBottom),
-      linePaint,
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    // 水滴：顶部尖，往下渐宽，底部圆
+    final path = Path();
+    path.moveTo(cx, 0);
+    path.quadraticBezierTo(cx - r * 1.3, cy * 0.45, cx - r, cy);
+    path.arcTo(
+      Rect.fromCircle(center: Offset(cx, cy), radius: r),
+      math.pi,
+      -math.pi,
+      false,
     );
-    canvas.drawCircle(
-      Offset(cx, lineBottom + circleR + 2),
-      circleR,
-      circlePaint,
-    );
+    path.quadraticBezierTo(cx + r * 1.3, cy * 0.45, cx, 0);
+    path.close();
+
+    canvas.drawPath(path, paint);
   }
 
   @override
