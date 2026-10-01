@@ -1076,11 +1076,10 @@ void _startDragRight(Offset fingerPos) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   for (var i = range.startLine; i < range.endLine; i++)
-                    _buildLine(
-                      i,
-                      settings,
-                      size.width - kReaderHorizontalPadding * 2,
-                    ),
+                    
+_buildLine(i, settings),
+
+                  
                 ],
               ),
             ),
