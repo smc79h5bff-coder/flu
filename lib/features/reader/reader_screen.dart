@@ -34,6 +34,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   late int _fileIndex;
   String? _text;
   String? _error;
+  String? _pendingSelectionText;
   bool _loading = true;
 
   PaginationResult? _pagination;
