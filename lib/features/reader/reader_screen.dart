@@ -687,7 +687,7 @@ Offset? _posOfChar(int line, int offset) {
           endLine: pos.line,
           endOffset: offset + 1,
         );
-        _hBarVisible = true;
+        _hBarVisible = false;
       });
       return;
     }
@@ -708,7 +708,7 @@ Offset? _posOfChar(int line, int offset) {
           endLine: pos.line,
           endOffset: e,
         );
-        _hBarVisible = true;
+        _hBarVisible = false;
       });
       return;
     }
@@ -720,7 +720,7 @@ Offset? _posOfChar(int line, int offset) {
         endLine: pos.line,
         endOffset: offset + 1,
       );
-      _hBarVisible = true;
+      _hBarVisible = false;
     });
   }
 
@@ -813,9 +813,12 @@ Offset? _posOfChar(int line, int offset) {
     }
 
     if (_longPressFired) {
-      _pressDown = false;
-      return;
-    }
+  setState(() {
+    _hBarVisible = true;
+  });
+  _pressDown = false;
+  return;
+}
 
     if (_horizontalDrag) {
       final dx = e.position.dx - _downPos.dx;
