@@ -764,9 +764,10 @@ _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
     _downPos = e.position;
     _downMs = DateTime.now().millisecondsSinceEpoch;
     _longPressFired = false;
-    _movedBeyondThreshold = false;
-    _horizontalDrag = false;
-    _pressDown = true;
+_movedBeyondThreshold = false;
+_horizontalDrag = false;
+_pressDown = true;
+_lastLongPressPos = null;
 
     if (_hBarVisible || _sel != null) {
       setState(() {
@@ -852,12 +853,33 @@ if (_longPressFired) {
     }
 
     if (_longPressFired) {
+  // 保险：万一抖动导致选区退化（start==end），恢复成选中一个字
+  final sel = _sel;
+  if (sel != null &&
+      sel.startLine == sel.endLine &&
+      sel.startOffset == sel.endOffset) {
+    final line = _lines[sel.startLine];
+    if (line.isNotEmpty) {
+      final off = sel.startOffset.clamp(0, line.length - 1);
       setState(() {
+        _sel = _SelectionRange(
+          startLine: sel.startLine,
+          startOffset: off,
+          endLine: sel.startLine,
+          endOffset: off + 1,
+        );
         _hBarVisible = true;
       });
       _pressDown = false;
       return;
     }
+  }
+  setState(() {
+    _hBarVisible = true;
+  });
+  _pressDown = false;
+  return;
+}
 
     if (_horizontalDrag) {
       final dx = e.position.dx - _downPos.dx;
