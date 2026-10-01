@@ -307,6 +307,76 @@ const SizedBox(height: 16),
     );
   }
 
+
+
+/// 迷你屏幕预览：显示两个按钮在屏幕上的位置和大小。
+Widget _miniPreview(BuildContext context, ReaderSettings s) {
+  final screenSize = MediaQuery.of(context).size;
+  // 缩略图宽度固定 180，高度按屏幕比例
+  const previewWidth = 180.0;
+  final previewHeight = previewWidth * screenSize.height / screenSize.width;
+
+  return Center(
+    child: Container(
+      width: previewWidth,
+      height: previewHeight,
+      decoration: BoxDecoration(
+        color: Color(s.bgColor),
+        border: Border.all(color: Colors.grey.shade400),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: LayoutBuilder(
+        builder: (ctx, constraints) {
+          final w = constraints.maxWidth;
+          final h = constraints.maxHeight;
+          // 缩略图相对真实屏幕的缩放比
+          final scale = w / screenSize.width;
+          final btnSize = 50.0 * s.buttonScale * scale;
+          final topLeft = Offset(
+            s.topBtnX * w - btnSize / 2,
+            s.topBtnY * h - btnSize / 2,
+          );
+          final botLeft = Offset(
+            s.bottomBtnX * w - btnSize / 2,
+            s.bottomBtnY * h - btnSize / 2,
+          );
+
+          Widget dot(Offset pos, IconData icon) {
+            return Positioned(
+              left: pos.dx,
+              top: pos.dy,
+              child: Opacity(
+                opacity: s.buttonOpacity,
+                child: Container(
+                  width: btnSize,
+                  height: btnSize,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    color: Colors.white,
+                    size: btnSize * 0.6,
+                  ),
+                ),
+              ),
+            );
+          }
+
+          return Stack(
+            children: [
+              dot(topLeft, Icons.keyboard_arrow_up),
+              dot(botLeft, Icons.keyboard_arrow_down),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+  
+
   Widget _bgSwatch({
     required Color color,
     required String label,
