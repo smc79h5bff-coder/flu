@@ -1472,8 +1472,8 @@ List<Widget> _buildHandles(ReaderSettings settings) {
   if (pos == null) return const [];
 
   final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-  const trapW = 14.0;
-  const trapH = 20.0;
+  const trapW = 22.0;
+  const trapH = 32.0;
   final color = Theme.of(context).colorScheme.primary;
 
   var leftPos = pos.left;
