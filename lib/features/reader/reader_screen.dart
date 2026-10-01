@@ -1344,9 +1344,9 @@ Widget _buildSelectionOverlay(int lineIdx) {
     if (pos == null) return const [];
 
     final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-    const handleW = 22.0;
-    final handleH = lineHeight + 20.0;
-    const circleR = 6.0;
+const handleW = 26.0;
+final handleH = lineHeight + 24.0;
+const circleR = 8.0;
 
 
 
