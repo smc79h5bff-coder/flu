@@ -73,7 +73,7 @@ class _HandleLinePainter extends CustomPainter {
     final cx = size.width / 2;
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 2
+      ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(cx, 0), Offset(cx, lineHeight), paint);
   }
