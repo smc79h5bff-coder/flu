@@ -1471,7 +1471,9 @@ List<Widget> _buildHandles(ReaderSettings settings) {
   Widget handle(Offset globalPos, int which) {
     final isLeft = which == 1;
     final textTopY = globalPos.dy;
-    final textBottomY = globalPos.dy + lineHeight;
+// 文字实际高度约等于 fontSize（不是 lineHeight，lineHeight 含 leading）
+final textBottomY = globalPos.dy + settings.fontSize;
+    
 
     // 屏幕底部放不下 → 翻转，梯形挂到文字上方
     final bottomOverflow = textBottomY + trapH + 4 > screenH;
