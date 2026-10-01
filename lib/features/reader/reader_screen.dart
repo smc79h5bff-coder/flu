@@ -701,48 +701,52 @@ Widget _buildReader(ReaderSettings settings, Size size) {
     return Stack(
       children: [
         // 正文区（点击翻下一页，右划翻上一页）
+
+
+
+
         Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _nextPage,
-            onHorizontalDragEnd: _onHorizontalDragEnd,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: kReaderHorizontalPadding,
-                vertical: kReaderVerticalPadding,
-              ),
-              child: SelectionArea(
-                onSelectionChanged: (SelectedContent? content) {
-                  _lastSelectedContent = content;
-                },
-                contextMenuBuilder: (ctx, state) {
-                  final content = _lastSelectedContent;
-                  if (content == null ||
-                      content.plainText.trim().isEmpty) {
-                    return const SizedBox.shrink();
-                  }
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    _showWordMenuAndClear(
-                        content.plainText.trim(), state);
-                  });
-                  return const SizedBox.shrink();
-                },
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (var i = range.startLine; i < range.endLine; i++)
-                      _buildLine(
-                        i,
-                        settings,
-                        size.width - kReaderHorizontalPadding * 2,
-                      ),
-                  ],
+  child: GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: _nextPage,
+    onHorizontalDragEnd: _onHorizontalDragEnd,
+    child: Listener(
+      onPointerUp: (_) {
+        final text = _pendingSelectionText;
+        if (text != null && text.isNotEmpty) {
+          _pendingSelectionText = null;
+          _showWordMenu(text);
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: kReaderHorizontalPadding,
+          vertical: kReaderVerticalPadding,
+        ),
+        child: SelectionArea(
+          onSelectionChanged: (value) {
+            final text = value?.plainText.trim();
+            _pendingSelectionText =
+                (text == null || text.isEmpty) ? null : text;
+          },
+          contextMenuBuilder: (ctx, state) =>
+              const SizedBox.shrink(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = range.startLine; i < range.endLine; i++)
+                _buildLine(
+                  i,
+                  settings,
+                  size.width - kReaderHorizontalPadding * 2,
                 ),
-              ),
-            ),
+            ],
           ),
         ),
+      ),
+    ),
+  ),
+),
 
         // 顶部 40px 热区 → 打开菜单
         Positioned(
