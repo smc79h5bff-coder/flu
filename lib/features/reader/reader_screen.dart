@@ -254,10 +254,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           ListTile(
             leading: const Icon(Icons.bookmarks_outlined),
             title: const Text('书签与高亮'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _openManager();
-            },
+            onTap: () async {
+  Navigator.pop(ctx);
+  await _openManager();
+},
           ),
           const Divider(height: 1),
           ListTile(
