@@ -1,8 +1,10 @@
 /// Text encoding kind detected by [EncodingDetector].
-/// PRD §2 Module 3.1: UTF-8 / GBK / GB18030 / Big5 / Shift-JIS.
+/// PRD §2 Module 3.1: UTF-8 / GBK / GB18030 / Big5 / Shift-JIS / UTF-16.
 enum EncodingType {
   utf8,
   utf8bom,
+  utf16le,   // ← 新增
+  utf16be,   // ← 新增
   gbk,
   gb18030,
   big5,
@@ -16,6 +18,8 @@ extension EncodingTypeX on EncodingType {
   String get label => switch (this) {
         EncodingType.utf8 => 'UTF-8',
         EncodingType.utf8bom => 'UTF-8 (BOM)',
+        EncodingType.utf16le => 'UTF-16 LE',   // ← 新增
+        EncodingType.utf16be => 'UTF-16 BE',   // ← 新增
         EncodingType.gbk => 'GBK',
         EncodingType.gb18030 => 'GB18030',
         EncodingType.big5 => 'Big5',
