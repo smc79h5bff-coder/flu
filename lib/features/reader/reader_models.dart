@@ -43,6 +43,7 @@ class ReaderBookmark {
     required this.charOffset,
     required this.preview,
     required this.createdAt,
+    this.name = '',
   });
 
   final String id;
@@ -55,11 +56,18 @@ class ReaderBookmark {
 
   final int createdAt;
 
+  /// 书签名（用户可编辑）。空 = 显示 preview。
+  final String name;
+
+  /// 显示用名字
+  String get displayName => name.isEmpty ? preview : name;
+
   Map<String, dynamic> toJson() => {
         'i': id,
         'o': charOffset,
         'p': preview,
         't': createdAt,
+        if (name.isNotEmpty) 'n': name,
       };
 
   factory ReaderBookmark.fromJson(Map<String, dynamic> j) => ReaderBookmark(
@@ -67,22 +75,23 @@ class ReaderBookmark {
         charOffset: (j['o'] as num).toInt(),
         preview: j['p'] as String? ?? '',
         createdAt: (j['t'] as num?)?.toInt() ?? 0,
+        name: j['n'] as String? ?? '',
       );
 
   ReaderBookmark copyWith({
     int? charOffset,
     String? preview,
+    String? name,
   }) =>
       ReaderBookmark(
         id: id,
         charOffset: charOffset ?? this.charOffset,
         preview: preview ?? this.preview,
         createdAt: createdAt,
+        name: name ?? this.name,
       );
 }
 
-/// ==================== 高亮色块（配置） ====================
-///
 /// ==================== 高亮色块（配置） ====================
 ///
 /// 20 个色块槽位。用户长按色块 → 改配置。
@@ -98,6 +107,7 @@ class HighlightPalette {
     required this.stops,
     required this.angle,
     required this.textColor,
+    this.defaultGroupId,
   });
 
   /// 槽位号 0-19
@@ -120,6 +130,9 @@ class HighlightPalette {
   /// 文字颜色
   final int textColor;
 
+  /// 用这个色块加的高亮默认归到哪个分组。null = 未分组。
+  final String? defaultGroupId;
+
   bool get isGradient => colors.length > 1;
 
   Map<String, dynamic> toJson() => {
@@ -129,13 +142,13 @@ class HighlightPalette {
         's': stops,
         'a': angle,
         't': textColor,
+        if (defaultGroupId != null) 'dg': defaultGroupId,
       };
 
   factory HighlightPalette.fromJson(Map<String, dynamic> j) {
     final rawColors = (j['c'] as List?)?.cast<num>() ??
         <num>[(j['b1'] as num?)?.toInt() ?? 0xFFFFEB3B];
-    final rawStops = (j['s'] as List?)?.cast<num>() ??
-        <num>[0.0];
+    final rawStops = (j['s'] as List?)?.cast<num>() ?? <num>[0.0];
     return HighlightPalette(
       index: (j['i'] as num).toInt(),
       name: j['n'] as String? ?? '色块 ${(j['i'] as num).toInt() + 1}',
@@ -143,6 +156,7 @@ class HighlightPalette {
       stops: rawStops.map((e) => e.toDouble()).toList(),
       angle: (j['a'] as num?)?.toDouble() ?? 0.0,
       textColor: (j['t'] as num?)?.toInt() ?? 0xFF000000,
+      defaultGroupId: j['dg'] as String?,
     );
   }
 
@@ -152,6 +166,8 @@ class HighlightPalette {
     List<double>? stops,
     double? angle,
     int? textColor,
+    String? defaultGroupId,
+    bool clearDefaultGroup = false,
   }) =>
       HighlightPalette(
         index: index,
@@ -160,6 +176,8 @@ class HighlightPalette {
         stops: stops ?? this.stops,
         angle: angle ?? this.angle,
         textColor: textColor ?? this.textColor,
+        defaultGroupId:
+            clearDefaultGroup ? null : (defaultGroupId ?? this.defaultGroupId),
       );
 
   /// 20 个默认色块（全部纯色）
@@ -200,6 +218,39 @@ class HighlightPalette {
   }
 }
 
+/// ==================== 高亮分组 ====================
+///
+/// 全局共享。所有书共用同一套分组。
+class HighlightGroup {
+  const HighlightGroup({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final int createdAt;
+
+  Map<String, dynamic> toJson() => {
+        'i': id,
+        'n': name,
+        't': createdAt,
+      };
+
+  factory HighlightGroup.fromJson(Map<String, dynamic> j) => HighlightGroup(
+        id: j['i'] as String,
+        name: j['n'] as String? ?? '未命名分组',
+        createdAt: (j['t'] as num?)?.toInt() ?? 0,
+      );
+
+  HighlightGroup copyWith({String? name}) => HighlightGroup(
+        id: id,
+        name: name ?? this.name,
+        createdAt: createdAt,
+      );
+}
+
 /// ==================== 高亮条目 ====================
 ///
 /// 一个关键词在高亮后生成一条。
@@ -215,6 +266,8 @@ class HighlightEntry {
     required this.textColor,
     required this.createdAt,
     this.isRegex = false,
+    this.name = '',
+    this.groupId,
   });
 
   final String id;
@@ -229,6 +282,15 @@ class HighlightEntry {
   final int createdAt;
   final bool isRegex;
 
+  /// 高亮名（用户可编辑）。空 = 显示 keyword。
+  final String name;
+
+  /// 所属分组 id。null = 未分组。
+  final String? groupId;
+
+  /// 显示用名字
+  String get displayName => name.isEmpty ? keyword : name;
+
   Map<String, dynamic> toJson() => {
         'i': id,
         'k': keyword,
@@ -238,6 +300,8 @@ class HighlightEntry {
         't': textColor,
         't0': createdAt,
         if (isRegex) 'r': true,
+        if (name.isNotEmpty) 'n': name,
+        if (groupId != null) 'g': groupId,
       };
 
   factory HighlightEntry.fromJson(Map<String, dynamic> j) {
@@ -253,6 +317,8 @@ class HighlightEntry {
       textColor: (j['t'] as num).toInt(),
       createdAt: (j['t0'] as num?)?.toInt() ?? 0,
       isRegex: j['r'] as bool? ?? false,
+      name: j['n'] as String? ?? '',
+      groupId: j['g'] as String?,
     );
   }
 
@@ -263,6 +329,9 @@ class HighlightEntry {
     double? angle,
     int? textColor,
     bool? isRegex,
+    String? name,
+    String? groupId,
+    bool clearGroup = false,
   }) =>
       HighlightEntry(
         id: id,
@@ -273,6 +342,8 @@ class HighlightEntry {
         textColor: textColor ?? this.textColor,
         createdAt: createdAt,
         isRegex: isRegex ?? this.isRegex,
+        name: name ?? this.name,
+        groupId: clearGroup ? null : (groupId ?? this.groupId),
       );
 }
 
@@ -323,54 +394,53 @@ class ReaderSettings {
   final double bottomBtnY;
 
   /// 顶部菜单热区高度（像素，20-200）
-final double topHotZoneHeight;
-  
+  final double topHotZoneHeight;
+
   static const int bgCream = 0xFFFAF7EC;
   static const int bgWhite = 0xFFFFFFFF;
   static const int bgGreen = 0xFFC7EDCC;
 
   static const ReaderSettings initial = ReaderSettings(
-  fontSize: 17.0,
-  fontWeight: 400,
-  bgColor: bgCream,
-  buttonOpacity: 0.7,
-  buttonScale: 1.0,
-  showButtons: true,
-  topBtnX: 0.90,
-  topBtnY: 0.15,
-  bottomBtnX: 0.90,
-  bottomBtnY: 0.85,
-  topHotZoneHeight: 40.0,
-);
+    fontSize: 17.0,
+    fontWeight: 400,
+    bgColor: bgCream,
+    buttonOpacity: 0.7,
+    buttonScale: 1.0,
+    showButtons: true,
+    topBtnX: 0.90,
+    topBtnY: 0.15,
+    bottomBtnX: 0.90,
+    bottomBtnY: 0.85,
+    topHotZoneHeight: 40.0,
+  );
 
   Map<String, dynamic> toJson() => {
-      'fs': fontSize,
-      'fw': fontWeight,
-      'bg': bgColor,
-      'op': buttonOpacity,
-      'sc': buttonScale,
-      'sb': showButtons,
-      'tx': topBtnX,
-      'ty': topBtnY,
-      'bx': bottomBtnX,
-      'by': bottomBtnY,
-      'th': topHotZoneHeight,
-    };
+        'fs': fontSize,
+        'fw': fontWeight,
+        'bg': bgColor,
+        'op': buttonOpacity,
+        'sc': buttonScale,
+        'sb': showButtons,
+        'tx': topBtnX,
+        'ty': topBtnY,
+        'bx': bottomBtnX,
+        'by': bottomBtnY,
+        'th': topHotZoneHeight,
+      };
 
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
-      fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
-      fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
-      bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
-      buttonOpacity: (j['op'] as num?)?.toDouble() ?? 0.7,
-      buttonScale: (j['sc'] as num?)?.toDouble() ?? 1.0,
-      showButtons: j['sb'] as bool? ?? true,
-      topBtnX: (j['tx'] as num?)?.toDouble() ?? 0.90,
-      topBtnY: (j['ty'] as num?)?.toDouble() ?? 0.15,
-      bottomBtnX: (j['bx'] as num?)?.toDouble() ?? 0.90,
-      bottomBtnY: (j['by'] as num?)?.toDouble() ?? 0.85,
-      topHotZoneHeight:
-          (j['th'] as num?)?.toDouble() ?? 40.0,
-    );
+        fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
+        fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
+        bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
+        buttonOpacity: (j['op'] as num?)?.toDouble() ?? 0.7,
+        buttonScale: (j['sc'] as num?)?.toDouble() ?? 1.0,
+        showButtons: j['sb'] as bool? ?? true,
+        topBtnX: (j['tx'] as num?)?.toDouble() ?? 0.90,
+        topBtnY: (j['ty'] as num?)?.toDouble() ?? 0.15,
+        bottomBtnX: (j['bx'] as num?)?.toDouble() ?? 0.90,
+        bottomBtnY: (j['by'] as num?)?.toDouble() ?? 0.85,
+        topHotZoneHeight: (j['th'] as num?)?.toDouble() ?? 40.0,
+      );
 
   ReaderSettings copyWith({
     double? fontSize,
@@ -394,26 +464,22 @@ final double topHotZoneHeight;
         showButtons: showButtons ?? this.showButtons,
         topBtnX: topBtnX ?? this.topBtnX,
         topBtnY: topBtnY ?? this.topBtnY,
-          bottomBtnX: bottomBtnX ?? this.bottomBtnX,
-  bottomBtnY: bottomBtnY ?? this.bottomBtnY,
-  topHotZoneHeight: topHotZoneHeight ?? this.topHotZoneHeight,
-);
+        bottomBtnX: bottomBtnX ?? this.bottomBtnX,
+        bottomBtnY: bottomBtnY ?? this.bottomBtnY,
+        topHotZoneHeight: topHotZoneHeight ?? this.topHotZoneHeight,
+      );
 
   String encode() => jsonEncode(toJson());
 
   static ReaderSettings tryDecode(String? s) {
     if (s == null || s.isEmpty) return initial;
     try {
-      return ReaderSettings.fromJson(
-          jsonDecode(s) as Map<String, dynamic>);
+      return ReaderSettings.fromJson(jsonDecode(s) as Map<String, dynamic>);
     } catch (_) {
       return initial;
     }
   }
 }
-    
-  
-
 
 /// ==================== 查找历史项 ====================
 class FindHistoryItem {
