@@ -545,9 +545,14 @@ Offset? _dragHandlePos;
     _longPressTimer?.cancel();
     _longPressFired = false;
     _movedBeyondThreshold = false;
+
+
     _pressDown = false;
-    _draggingHandle = 0;
-    _horizontalDrag = false;
+_draggingHandle = 0;
+_dragHandlePos = null;
+_horizontalDrag = false;
+
+    
     if (_sel != null || _hBarVisible) {
       setState(() {
         _sel = null;
