@@ -58,40 +58,19 @@ class _CharPos {
 
 // ==================== 手柄绘制 ====================
 
-/// 竖线：只负责显示，不接收手势。
-class _HandleLinePainter extends CustomPainter {
-  _HandleLinePainter({
-    required this.color,
-    required this.lineHeight,
-  });
 
-  final Color color;
-  final double lineHeight;
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(Offset(cx, 0), Offset(cx, lineHeight), paint);
-  }
-
-  @override
-  bool shouldRepaint(_HandleLinePainter old) =>
-      old.color != color || old.lineHeight != lineHeight;
-}
-
-/// 梯形：可拖动部分。左右手柄镜像。
+/// 梯形：可拖动部分。左右手柄镜像，尖角朝上（或朝下，取决于 flip）。
 class _TrapezoidPainter extends CustomPainter {
   _TrapezoidPainter({
     required this.color,
     required this.isLeft,
+    required this.flip,
   });
 
   final Color color;
   final bool isLeft;
+  final bool flip;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -105,26 +84,49 @@ class _TrapezoidPainter extends CustomPainter {
       ..isAntiAlias = true;
 
     final path = Path();
-    if (isLeft) {
-      path.moveTo(w, 0);
-      path.lineTo(w, h);
-      path.lineTo(0, h);
-      path.lineTo(0, mid);
-      path.close();
+
+    if (!flip) {
+      // 尖角在顶部
+      if (isLeft) {
+        // 左手柄：尖角在左上，向右下扩展
+        path.moveTo(0, 0);
+        path.lineTo(0, h);
+        path.lineTo(w, h);
+        path.lineTo(w, mid);
+        path.close();
+      } else {
+        // 右手柄：尖角在右上，向左下扩展
+        path.moveTo(w, 0);
+        path.lineTo(w, h);
+        path.lineTo(0, h);
+        path.lineTo(0, mid);
+        path.close();
+      }
     } else {
-      path.moveTo(0, 0);
-      path.lineTo(0, h);
-      path.lineTo(w, h);
-      path.lineTo(w, mid);
-      path.close();
+      // 尖角在底部（翻转到文字上方时用）
+      if (isLeft) {
+        path.moveTo(0, h);
+        path.lineTo(0, 0);
+        path.lineTo(w, 0);
+        path.lineTo(w, mid);
+        path.close();
+      } else {
+        path.moveTo(w, h);
+        path.lineTo(w, 0);
+        path.lineTo(0, 0);
+        path.lineTo(0, mid);
+        path.close();
+      }
     }
+
     canvas.drawPath(path, paint);
   }
 
   @override
   bool shouldRepaint(_TrapezoidPainter old) =>
-      old.color != color || old.isLeft != isLeft;
+      old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
+
 
 // ==================== ReaderScreen ====================
 
