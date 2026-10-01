@@ -1438,11 +1438,12 @@ if (_draggingHandle == 1 && _dragHandlePos != null) {
     final showBelow = midY < screenMid;
 
     double top;
-    if (showBelow) {
-      top = selBottom - safeTop + 8;
-    } else {
-      top = selTop - safeTop - approxH - 8;
-    }
+if (showBelow) {
+  // 手柄圆底部在行底部往下约 14px 处，这里留 24px 让它完全露出来
+  top = selBottom - safeTop + 24;
+} else {
+  top = selTop - safeTop - approxH - 8;
+}
     top = top.clamp(4.0, topAreaH - approxH - 4);
 
     double left = startPos.dx - 8;
