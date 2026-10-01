@@ -4,13 +4,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-import '../preprocessing/application/encoding_detector.dart';
-import '../preprocessing/domain/encoding_type.dart';
+
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../preprocessing/application/encoding_detector.dart';
+import '../preprocessing/domain/encoding_type.dart';
 import 'reader_models.dart';
 import 'reader_pagination.dart';
 import 'reader_panels.dart';
@@ -133,6 +134,112 @@ class _GradRect {
   final List<Color> colors;
 }
 
+// ==================== 编码选择 ====================
+
+/// 编码选择的返回值。encoding == null 表示"选自动"。
+class _EncodingChoice {
+  const _EncodingChoice(this.encoding);
+  final EncodingType? encoding;
+}
+
+/// 手动编码选择弹窗。
+class _EncodingPickerSheet extends StatelessWidget {
+  const _EncodingPickerSheet({
+    required this.currentManual,
+    required this.currentDetected,
+  });
+
+  final EncodingType? currentManual;
+  final EncodingType? currentDetected;
+
+  static const List<EncodingType> _pickable = [
+    EncodingType.utf8,
+    EncodingType.utf8bom,
+    EncodingType.utf16le,
+    EncodingType.utf16be,
+    EncodingType.gbk,
+    EncodingType.gb18030,
+    EncodingType.big5,
+    EncodingType.shiftJis,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '选择编码',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              '如果自动检测错了，可以在这里手动指定。\n'
+              '切换后当前文件会立即按新编码重新打开。',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                ListTile(
+                  leading: Icon(
+                    currentManual == null
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: currentManual == null ? s.primary : null,
+                  ),
+                  title: const Text('自动检测'),
+                  subtitle: Text(
+                    currentDetected == null
+                        ? '当前未识别'
+                        : '当前检测为：${currentDetected!.label}',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  onTap: () =>
+                      Navigator.pop(context, const _EncodingChoice(null)),
+                ),
+                const Divider(height: 1),
+                for (final e in _pickable)
+                  ListTile(
+                    leading: Icon(
+                      currentManual == e
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      color: currentManual == e ? s.primary : null,
+                    ),
+                    title: Text(e.label),
+                    onTap: () =>
+                        Navigator.pop(context, _EncodingChoice(e)),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
 // ==================== ReaderScreen ====================
 
 class ReaderScreen extends ConsumerStatefulWidget {
@@ -164,6 +271,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   int _currentPage = 0;
 
   String? _lastLoadedKey;
+
+  /// 用户手动指定的编码。null = 自动检测。
+  EncodingType? _manualEncoding;
+
+  /// 当前实际使用的编码（手动或自动检测出来的）。
+  EncodingType? _currentEncoding;
 
   bool _menuOpen = false;
 
@@ -237,13 +350,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   // ==================== 加载 ====================
 
-  /// 分页结果依赖：文件路径、屏幕尺寸、字号、字重。
+  /// 分页结果依赖：文件路径、屏幕尺寸、字号、字重、手动编码。
   /// 任何一个变了都要重新分页。
   String _loadKeyFor(String path) {
     final s = ref.read(readerSettingsProvider);
     return '$path|'
         '${_viewportSize.width}x${_viewportSize.height}|'
-        '${s.fontSize}|${s.fontWeight}';
+        '${s.fontSize}|${s.fontWeight}|'
+        '${_manualEncoding?.name ?? "auto"}';
   }
 
   Future<void> _ensureLoaded() async {
@@ -274,10 +388,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _gradRectCache.clear();
 
     try {
-
       final bytes = await File(path).readAsBytes();
-final encoding = EncodingDetector.detect(bytes);
-final text = EncodingDetector.decodeChunked(bytes, encoding);
+      final encoding = _manualEncoding ?? EncodingDetector.detect(bytes);
+      _currentEncoding = encoding;
+      final text = EncodingDetector.decodeChunked(bytes, encoding);
       if (!mounted) return;
       if (_lastLoadedKey != key) return;
 
@@ -422,6 +536,7 @@ final text = EncodingDetector.decodeChunked(bytes, encoding);
     if (_fileIndex <= 0) return;
     _saveProgress();
     _clearSelection();
+    _manualEncoding = null;
     setState(() => _fileIndex--);
     await _ensureLoaded();
   }
@@ -430,6 +545,7 @@ final text = EncodingDetector.decodeChunked(bytes, encoding);
     if (_fileIndex >= widget.filePaths.length - 1) return;
     _saveProgress();
     _clearSelection();
+    _manualEncoding = null;
     setState(() => _fileIndex++);
     await _ensureLoaded();
   }
@@ -515,6 +631,15 @@ final text = EncodingDetector.decodeChunked(bytes, encoding);
             },
           ),
           ListTile(
+            leading: const Icon(Icons.translate),
+            title: const Text('编码'),
+            subtitle: Text(_encodingSubtitle()),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showEncodingPicker();
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.settings),
             title: const Text('设置'),
             onTap: () {
@@ -526,6 +651,39 @@ final text = EncodingDetector.decodeChunked(bytes, encoding);
         ],
       ),
     );
+  }
+
+  String _encodingSubtitle() {
+    final cur = _currentEncoding?.label ?? '未识别';
+    if (_manualEncoding == null) {
+      return '自动检测（$cur）';
+    }
+    return '手动：$cur';
+  }
+
+  Future<void> _showEncodingPicker() async {
+    final picked = await showModalBottomSheet<_EncodingChoice>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _EncodingPickerSheet(
+        currentManual: _manualEncoding,
+        currentDetected: _currentEncoding,
+      ),
+    );
+
+    if (!mounted || picked == null) return;
+
+    // 判断是否真的变了。
+    final same = picked.encoding == _manualEncoding;
+    if (same) return;
+
+    setState(() {
+      _manualEncoding = picked.encoding;
+    });
+    await _ensureLoaded();
   }
 
   void _showProgressSlider() {
