@@ -164,9 +164,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Timer? _autoFadeTimer;
 
   Offset _downPos = Offset.zero;
-  bool _longPressFired = false;
-  bool _movedBeyondThreshold = false;
-  bool _pressDown = false;
+bool _longPressFired = false;
+bool _movedBeyondThreshold = false;
+bool _pressDown = false;
+
+/// 横向滑动检测（右滑翻上一页）
+bool _horizontalDrag = false;
+int _downMs = 0;
+static const double _hDragMinDx = 60.0;  // 右滑超过这个逻辑像素算翻页
 
   int _lastTapUpMs = 0;
 
@@ -700,13 +705,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   // ==================== 手势状态机 ====================
 
-  void _onPointerDown(PointerDownEvent e) {
-    _longPressTimer?.cancel();
-    _downPos = e.position;
-    _longPressFired = false;
-    _movedBeyondThreshold = false;
-    _pressDown = true;
+void _onPointerDown(PointerDownEvent e) {
+  _longPressTimer?.cancel();
+  _downPos = e.position;
+  _downMs = DateTime.now().millisecondsSinceEpoch;
+  _longPressFired = false;
+  _movedBeyondThreshold = false;
+  _horizontalDrag = false;
+  _pressDown = true;
 
+  
     // 照参考 app：任意按下先收起弹窗和手柄
     if (_hBarVisible || _sel != null) {
       setState(() {
@@ -724,62 +732,84 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _onPointerMove(PointerMoveEvent e) {
-    if (!_pressDown) return;
+  if (!_pressDown) return;
 
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final dx = (e.position.dx - _downPos.dx).abs();
-    final dy = (e.position.dy - _downPos.dy).abs();
-    final threshold = _moveThresholdDp * dpr / dpr; // dp 就当逻辑像素
+  final dx = e.position.dx - _downPos.dx;
+  final dy = e.position.dy - _downPos.dy;
+  final absDx = dx.abs();
+  final absDy = dy.abs();
 
-    if (!_movedBeyondThreshold) {
-      if (dx > _moveThresholdDp || dy > _moveThresholdDp) {
-        _movedBeyondThreshold = true;
-        _longPressTimer?.cancel();
-      }
-    }
-
-    // 已经在拖手柄 → 更新选区
-    if (_draggingHandle != 0) {
-      _updateSelectionFromDrag(e.position);
+  if (!_movedBeyondThreshold) {
+    if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
+      _movedBeyondThreshold = true;
+      _longPressTimer?.cancel();
     }
   }
+
+  // 横向滑动判定：横向位移占主导，且超过一定比例
+  if (_draggingHandle == 0 && !_horizontalDrag) {
+    if (absDx > 20 && absDx > absDy * 1.5) {
+      _horizontalDrag = true;
+    }
+  }
+
+  // 已经在拖手柄 → 更新选区
+  if (_draggingHandle != 0) {
+    _updateSelectionFromDrag(e.position);
+  }
+}
+  
 
   void _onPointerUp(PointerUpEvent e) {
-    _longPressTimer?.cancel();
+  _longPressTimer?.cancel();
 
-    if (_draggingHandle != 0) {
-      // 手柄松手：重新显示弹窗
-      setState(() {
-        _draggingHandle = 0;
-        _hBarVisible = true;
-      });
-      _resetAutoFade();
-      _pressDown = false;
-      return;
-    }
-
-    if (_longPressFired) {
-      // 长按已触发，抬起什么都不做
-      _pressDown = false;
-      return;
-    }
-
-    if (_movedBeyondThreshold) {
-      _pressDown = false;
-      return;
-    }
-
-    // 单击判定
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (_lastTapUpMs != 0 && now - _lastTapUpMs < _tapDebounceMs) {
-      _pressDown = false;
-      return;
-    }
-    _lastTapUpMs = now;
-
-    _handleTap(e.position);
+  // 拖手柄松手：重新显示弹窗
+  if (_draggingHandle != 0) {
+    setState(() {
+      _draggingHandle = 0;
+      _hBarVisible = true;
+    });
+    _resetAutoFade();
     _pressDown = false;
+    return;
   }
+
+  // 长按已触发，抬起什么都不做
+  if (_longPressFired) {
+    _pressDown = false;
+    return;
+  }
+
+  // 横向滑动：右滑翻上一页
+  if (_horizontalDrag) {
+    final dx = e.position.dx - _downPos.dx;
+    final elapsed = DateTime.now().millisecondsSinceEpoch - _downMs;
+    if (dx > _hDragMinDx && elapsed < 800) {
+      _prevPage();
+    }
+    _pressDown = false;
+    _horizontalDrag = false;
+    return;
+  }
+
+  // 位移超阈值 → 不算单击
+  if (_movedBeyondThreshold) {
+    _pressDown = false;
+    return;
+  }
+
+  // 单击判定（带 100ms 防抖）
+  final now = DateTime.now().millisecondsSinceEpoch;
+  if (_lastTapUpMs != 0 && now - _lastTapUpMs < _tapDebounceMs) {
+    _pressDown = false;
+    return;
+  }
+  _lastTapUpMs = now;
+
+  _handleTap(e.position);
+  _pressDown = false;
+  }
+  
 
   void _onPointerCancel(PointerCancelEvent e) {
     _longPressTimer?.cancel();
@@ -1246,27 +1276,32 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         if (after.isNotEmpty) {
           out.add(TextSpan(text: after, style: span.style));
         }
-      } else {
-        // WidgetSpan：算作 1 个字符位置
-        final segStart = charCount;
-        final segEnd = charCount + 1;
-        charCount = segEnd;
-        if (segEnd > selStart && segStart < selEnd) {
-          // 选中状态：包一层蓝色边框
-          out.add(WidgetSpan(
-            alignment: PlaceholderAlignment.baseline,
-            baseline: TextBaseline.alphabetic,
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: _selectionBg, width: 6),
-              ),
-              child: span.child,
-            ),
-          ));
-        } else {
-          out.add(span);
-        }
-      }
+      } else if (span is WidgetSpan) {
+  // WidgetSpan：算作 1 个字符位置
+  final segStart = charCount;
+  final segEnd = charCount + 1;
+  charCount = segEnd;
+  if (segEnd > selStart && segStart < selEnd) {
+    // 选中状态：包一层蓝色边框
+    out.add(WidgetSpan(
+      alignment: PlaceholderAlignment.baseline,
+      baseline: TextBaseline.alphabetic,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: _selectionBg, width: 6),
+        ),
+        child: span.child,
+      ),
+    ));
+  } else {
+    out.add(span);
+  }
+} else {
+  out.add(span);
+}
+
+
+      
     }
 
     return out;
