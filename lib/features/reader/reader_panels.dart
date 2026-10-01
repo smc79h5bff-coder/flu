@@ -12,16 +12,22 @@ import 'reader_screen.dart';
 
 // ==================== 设置面板 ====================
 
-Future<void> showReaderSettingsSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: Colors.white,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
-    builder: (_) => const _ReaderSettingsSheet(),
-  );
+Future<void> showReaderSettingsSheet(BuildContext context) async {
+  final container = ProviderScope.containerOf(context);
+  container.read(readerHotZonePreviewProvider.notifier).state = true;
+  try {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const _ReaderSettingsSheet(),
+    );
+  } finally {
+    container.read(readerHotZonePreviewProvider.notifier).state = false;
+  }
 }
 
 class _ReaderSettingsSheet extends ConsumerStatefulWidget {
@@ -32,25 +38,17 @@ class _ReaderSettingsSheet extends ConsumerStatefulWidget {
       _ReaderSettingsSheetState();
 }
 
+
+
+
+
+
 class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        ref.read(readerHotZonePreviewProvider.notifier).state = true;
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    ref.read(readerHotZonePreviewProvider.notifier).state = false;
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+
+
+    
     final s = ref.watch(readerSettingsProvider);
     final n = ref.read(readerSettingsProvider.notifier);
 
