@@ -1343,29 +1343,34 @@ _lastLongPressPos = e.position;
         }
         final entry = h.entry;
         final hlText = line.substring(h.startInLine, h.endInLine);
-     
-        
-        
         if (entry.colors.length > 1) {
-  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-  final shader = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: entry.colors
-        .map((c) => Color(c))
-        .toList(growable: false),
-  ).createShader(Rect.fromLTWH(0, 0, 2000, lineHeight));
-  final hlStyle = base.copyWith(
-    color: Color(entry.textColor),
-    background: Paint()..shader = shader,
-  );
-  baseSpans.add(TextSpan(text: hlText, style: hlStyle));
-} else {
-
-
-
-
-          
+          baseSpans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: entry.colors
+                      .map((c) => Color(c))
+                      .toList(growable: false),
+                ),
+              ),
+              child: Text(
+                hlText,
+                style: base.copyWith(
+                  color: Color(entry.textColor),
+                  height: null,
+                ),
+                textHeightBehavior: const TextHeightBehavior(
+                  applyHeightToFirstAscent: false,
+                  applyHeightToLastDescent: false,
+                ),
+              ),
+            ),
+          ));
+        } else {
           final hlStyle = base.copyWith(
             color: Color(entry.textColor),
             backgroundColor: Color(entry.colors.first),
@@ -1420,30 +1425,27 @@ _lastLongPressPos = e.position;
   // ==================== 手柄渲染 ====================
 
 
-    
-  List<Widget> _buildHandles(ReaderSettings settings) {
+    List<Widget> _buildHandles(ReaderSettings settings) {
   if (_sel == null) return const [];
   final pos = _handlePositions();
   if (pos == null) return const [];
 
-  final fullLineH = settings.fontSize * kReaderLineHeightFactor;
-  final lineDrawH = fullLineH * 0.5; // 竖线缩短到一半
-  const trapW = 24.0;   // 12 * 2
-  const trapH = 36.0;   // 18 * 2
-  const handleW = 48.0; // trapW * 2，让梯形完全在竖线一侧
-  final color = Theme.of(context)
-      .colorScheme
-      .primary
-      .withValues(alpha: 0.5);
+  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
+  const handleW = 24.0;
+  const trapW = 12.0;
+  const trapH = 18.0;
+  final color = Theme.of(context).colorScheme.primary;
 
   var leftPos = pos.left;
   var rightPos = pos.right;
 
+  // 正在拖的手柄，位置用手指的实时位置（跟手）
   if (_draggingHandle == 1 && _dragHandlePos != null) {
     leftPos = _dragHandlePos!;
   } else if (_draggingHandle == 2 && _dragHandlePos != null) {
     rightPos = _dragHandlePos!;
   } else {
+    // 两个手柄水平距离太小 → 往两边推
     final dx = (rightPos.dx - leftPos.dx).abs();
     if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
       final mid = (leftPos.dx + rightPos.dx) / 2;
@@ -1458,9 +1460,9 @@ _lastLongPressPos = e.position;
   Widget handle(Offset globalPos, int which) {
     final isLeft = which == 1;
 
-    // 屏幕底部放不下 → 翻转：梯形在文字上方
+    // 当前行底部 + 梯形 + 一点余量，是否超出屏幕底
     final bottomOverflow =
-        globalPos.dy + fullLineH + trapH + 8 > screenH;
+        globalPos.dy + lineHeight + trapH + 8 > screenH;
 
     final double topPos;
     final double lineTop;
@@ -1468,15 +1470,17 @@ _lastLongPressPos = e.position;
     final double handleH;
 
     if (bottomOverflow) {
-      handleH = trapH + 2 + lineDrawH;
+      // 翻转：梯形在竖线上方
+      handleH = trapH + 2 + lineHeight;
       topPos = globalPos.dy - safeTop - trapH - 2;
-      trapTop = 0;
       lineTop = trapH + 2;
+      trapTop = 0;
     } else {
-      handleH = fullLineH + trapH + 2;
+      // 正常：竖线在上，梯形在下
+      handleH = lineHeight + trapH + 2;
       topPos = globalPos.dy - safeTop;
       lineTop = 0;
-      trapTop = fullLineH + 2; // 紧贴文字底部，留 2px 缝
+      trapTop = lineHeight + 2;
     }
 
     final left = globalPos.dx - handleW / 2;
@@ -1493,19 +1497,19 @@ _lastLongPressPos = e.position;
             left: 0,
             top: lineTop,
             width: handleW,
-            height: lineDrawH,
+            height: lineHeight,
             child: IgnorePointer(
               child: CustomPaint(
                 painter: _HandleLinePainter(
                   color: color,
-                  lineHeight: lineDrawH,
+                  lineHeight: lineHeight,
                 ),
               ),
             ),
           ),
-          // 梯形：触摸区 = 视觉尺寸
+          // 梯形：只有这一块能拖
           Positioned(
-            left: isLeft ? handleW / 2 - trapW : handleW / 2,
+            left: isLeft ? 0 : handleW - trapW,
             top: trapTop,
             width: trapW,
             height: trapH,
@@ -1550,8 +1554,6 @@ _lastLongPressPos = e.position;
     handle(rightPos, 2),
   ];
 }
-              
-      
     
   
 
