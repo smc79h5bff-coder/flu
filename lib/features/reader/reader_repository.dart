@@ -491,3 +491,5 @@ class ReaderFindHistoryNotifier
 
 /// 设置面板打开时临时为 true。控制顶部热区的可视化预览。
 final readerHotZonePreviewProvider = StateProvider<bool>((ref) => false);
+/// 当前阅读页的纯文本。给设置面板里的按钮位置预览用。
+final readerPagePreviewProvider = StateProvider<String>((ref) => '');
