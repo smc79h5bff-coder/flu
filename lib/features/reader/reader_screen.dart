@@ -1487,9 +1487,11 @@ List<Widget> _buildHandles(ReaderSettings settings) {
       flip = false;
     }
 
-    // 尖角对着字符的左/右边界
-    final double left = isLeft ? globalPos.dx : globalPos.dx - trapW;
+// 左手柄：梯形整体在字符左边，尖角贴字符左边缘
+// 右手柄：梯形整体在字符右边，尖角贴字符右边缘
+final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
 
+    
     return Positioned(
       left: left,
       top: topPos,
