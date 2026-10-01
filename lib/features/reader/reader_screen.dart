@@ -1526,20 +1526,32 @@ void _updateSelectionFromDrag(Offset handleLogic) {
                     _startDragRight(d.globalPosition);
                   }
                 },
-                onPanUpdate: (d) {
-                  if (_draggingHandle != which) return;
-                  setState(() {
-                    _dragHandlePos = d.globalPosition;
-                  });
-                  _updateSelectionFromDrag(d.globalPosition);
-                },
-                onPanEnd: (_) {
-                  setState(() {
-                    _draggingHandle = 0;
-                    _dragHandlePos = null;
-                    _hBarVisible = true;
-                  });
-                },
+
+
+
+
+                
+onPanUpdate: (d) {
+  if (_draggingHandle != which) return;
+  final offset = _dragHandleOffset ?? Offset.zero;
+  final handleLogic = d.globalPosition - offset;
+  setState(() {
+    _dragHandlePos = handleLogic;
+  });
+  _updateSelectionFromDrag(handleLogic);
+},
+onPanEnd: (_) {
+  setState(() {
+    _draggingHandle = 0;
+    _dragHandlePos = null;
+    _dragHandleOffset = null;
+    _hBarVisible = true;
+  });
+},
+
+
+
+                
                 child: CustomPaint(
                   painter: _TrapezoidPainter(
                     color: color,
