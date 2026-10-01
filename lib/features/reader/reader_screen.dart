@@ -72,28 +72,22 @@ class _HandlePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    final r = circleR;
-    final cy = size.height - r;
-
-    final paint = Paint()
+    const top = 0.0;
+    final lineBottom = top + lineHeight;
+    final linePaint = Paint()
       ..color = color
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    final circlePaint = Paint()..color = color;
 
-    // 水滴：顶部尖，往下渐宽，底部圆
-    final path = Path();
-    path.moveTo(cx, 0);
-    path.quadraticBezierTo(cx - r * 1.3, cy * 0.45, cx - r, cy);
-    path.arcTo(
-      Rect.fromCircle(center: Offset(cx, cy), radius: r),
-      math.pi,
-      -math.pi,
-      false,
+    // 竖线
+    canvas.drawLine(Offset(cx, top), Offset(cx, lineBottom), linePaint);
+    // 圆
+    canvas.drawCircle(
+      Offset(cx, lineBottom + circleR + 2),
+      circleR,
+      circlePaint,
     );
-    path.quadraticBezierTo(cx + r * 1.3, cy * 0.45, cx, 0);
-    path.close();
-
-    canvas.drawPath(path, paint);
   }
 
   @override
@@ -146,11 +140,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   _SelectionRange? _sel;
   bool _hBarVisible = false;
 
+  /// 选区版本号。每次选区变化 ++。用来在 build 后触发一次重建，
+  /// 让 overlay 能拿到 RenderParagraph。
+  int _selVersion = 0;
+  int _lastOverlayVersion = 0;
+
   /// 0=无, 1=拖左, 2=拖右
   int _draggingHandle = 0;
-/// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
-Offset? _dragHandlePos;
-  
+
+  /// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
+  Offset? _dragHandlePos;
+
   Timer? _longPressTimer;
 
   Offset _downPos = Offset.zero;
@@ -549,14 +549,11 @@ Offset? _dragHandlePos;
     _longPressTimer?.cancel();
     _longPressFired = false;
     _movedBeyondThreshold = false;
-
-
     _pressDown = false;
-_draggingHandle = 0;
-_dragHandlePos = null;
-_horizontalDrag = false;
+    _draggingHandle = 0;
+    _dragHandlePos = null;
+    _horizontalDrag = false;
 
-    
     if (_sel != null || _hBarVisible) {
       setState(() {
         _sel = null;
@@ -595,60 +592,51 @@ _horizontalDrag = false;
     return null;
   }
 
-
-
-
-
-
-
   /// 从 (line, offset) 算屏幕全局坐标。
-/// 返回字符盒的左上角。
-Offset? _posOfChar(int line, int offset) {
-  final ctx = _lineKeys[line]?.currentContext;
-  if (ctx == null) return null;
-  final rp = ctx.findRenderObject();
-  if (rp is! RenderParagraph) return null;
+  /// 返回字符盒的左上角。
+  Offset? _posOfChar(int line, int offset) {
+    final ctx = _lineKeys[line]?.currentContext;
+    if (ctx == null) return null;
+    final rp = ctx.findRenderObject();
+    if (rp is! RenderParagraph) return null;
 
-  final lineText = line < _lines.length ? _lines[line] : '';
-  if (lineText.isEmpty) {
-    // 空行：没有字符可查，返回行首位置
-    return rp.localToGlobal(Offset.zero);
-  }
+    final lineText = line < _lines.length ? _lines[line] : '';
+    if (lineText.isEmpty) {
+      return rp.localToGlobal(Offset.zero);
+    }
 
-  final safeOffset = offset.clamp(0, lineText.length);
+    final safeOffset = offset.clamp(0, lineText.length);
 
-  // 行尾：用最后一个字符的右边缘
-  if (safeOffset >= lineText.length) {
+    // 行尾：用最后一个字符的右边缘
+    if (safeOffset >= lineText.length) {
+      final boxes = rp.getBoxesForSelection(
+        TextSelection(
+          baseOffset: lineText.length - 1,
+          extentOffset: lineText.length,
+        ),
+      );
+      if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
+      final box = boxes.last;
+      return rp.localToGlobal(Offset(box.right, box.top));
+    }
+
+    // 普通情况：用 safeOffset 处那一个字符的盒子
     final boxes = rp.getBoxesForSelection(
       TextSelection(
-        baseOffset: lineText.length - 1,
-        extentOffset: lineText.length,
+        baseOffset: safeOffset,
+        extentOffset: safeOffset + 1,
       ),
     );
-    if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
-    final box = boxes.last;
-    return rp.localToGlobal(Offset(box.right, box.top));
+    if (boxes.isEmpty) {
+      final caret = rp.getOffsetForCaret(
+        TextPosition(offset: safeOffset),
+        Rect.fromLTWH(0, 0, 1, rp.size.height),
+      );
+      return rp.localToGlobal(caret);
+    }
+    final box = boxes.first;
+    return rp.localToGlobal(Offset(box.left, box.top));
   }
-
-  // 普通情况：用 safeOffset 处那一个字符的盒子
-  final boxes = rp.getBoxesForSelection(
-    TextSelection(
-      baseOffset: safeOffset,
-      extentOffset: safeOffset + 1,
-    ),
-  );
-  if (boxes.isEmpty) {
-    // 兜底
-    final caret = rp.getOffsetForCaret(
-      TextPosition(offset: safeOffset),
-      Rect.fromLTWH(0, 0, 1, rp.size.height),
-    );
-    return rp.localToGlobal(caret);
-  }
-  final box = boxes.first;
-  return rp.localToGlobal(Offset(box.left, box.top));
-}
-  
 
   String _selectedText() {
     final sel = _sel;
@@ -692,6 +680,7 @@ Offset? _posOfChar(int line, int offset) {
           endOffset: offset + 1,
         );
         _hBarVisible = false;
+        _selVersion++;
       });
       return;
     }
@@ -713,6 +702,7 @@ Offset? _posOfChar(int line, int offset) {
           endOffset: e,
         );
         _hBarVisible = false;
+        _selVersion++;
       });
       return;
     }
@@ -725,6 +715,7 @@ Offset? _posOfChar(int line, int offset) {
         endOffset: offset + 1,
       );
       _hBarVisible = false;
+      _selVersion++;
     });
   }
 
@@ -761,48 +752,49 @@ Offset? _posOfChar(int line, int offset) {
   }
 
   void _onPointerMove(PointerMoveEvent e) {
-  if (!_pressDown) return;
+    if (!_pressDown) return;
 
-  // ===== 长按已成立：手指移动 → 扩展选区终点 =====
-  if (_longPressFired) {
-    final sel = _sel;
-    if (sel == null) return;
-    final hit = _hitTest(e.position);
-    if (hit == null) return;
-    setState(() {
-      _sel = _SelectionRange(
-        startLine: sel.startLine,
-        startOffset: sel.startOffset,
-        endLine: hit.line,
-        endOffset: hit.offset,
-      );
-    });
-    return;
-  }
+    // ===== 长按已成立：手指移动 → 扩展选区终点 =====
+    if (_longPressFired) {
+      final sel = _sel;
+      if (sel == null) return;
+      final hit = _hitTest(e.position);
+      if (hit == null) return;
+      setState(() {
+        _sel = _SelectionRange(
+          startLine: sel.startLine,
+          startOffset: sel.startOffset,
+          endLine: hit.line,
+          endOffset: hit.offset,
+        );
+        _selVersion++;
+      });
+      return;
+    }
 
-  // ===== 长按还没成立：原有的位移/横向滑动判断 =====
-  final dx = e.position.dx - _downPos.dx;
-  final dy = e.position.dy - _downPos.dy;
-  final absDx = dx.abs();
-  final absDy = dy.abs();
+    // ===== 长按还没成立：原有的位移/横向滑动判断 =====
+    final dx = e.position.dx - _downPos.dx;
+    final dy = e.position.dy - _downPos.dy;
+    final absDx = dx.abs();
+    final absDy = dy.abs();
 
-  if (!_movedBeyondThreshold) {
-    if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
-      _movedBeyondThreshold = true;
-      _longPressTimer?.cancel();
+    if (!_movedBeyondThreshold) {
+      if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
+        _movedBeyondThreshold = true;
+        _longPressTimer?.cancel();
+      }
+    }
+
+    if (_draggingHandle == 0 && !_horizontalDrag) {
+      if (absDx > 20 && absDx > absDy * 1.5) {
+        _horizontalDrag = true;
+      }
+    }
+
+    if (_draggingHandle != 0) {
+      _updateSelectionFromDrag(e.position);
     }
   }
-
-  if (_draggingHandle == 0 && !_horizontalDrag) {
-    if (absDx > 20 && absDx > absDy * 1.5) {
-      _horizontalDrag = true;
-    }
-  }
-
-  if (_draggingHandle != 0) {
-    _updateSelectionFromDrag(e.position);
-  }
-}
 
   void _onPointerUp(PointerUpEvent e) {
     _longPressTimer?.cancel();
@@ -810,6 +802,7 @@ Offset? _posOfChar(int line, int offset) {
     if (_draggingHandle != 0) {
       setState(() {
         _draggingHandle = 0;
+        _dragHandlePos = null;
         _hBarVisible = true;
       });
       _pressDown = false;
@@ -817,12 +810,12 @@ Offset? _posOfChar(int line, int offset) {
     }
 
     if (_longPressFired) {
-  setState(() {
-    _hBarVisible = true;
-  });
-  _pressDown = false;
-  return;
-}
+      setState(() {
+        _hBarVisible = true;
+      });
+      _pressDown = false;
+      return;
+    }
 
     if (_horizontalDrag) {
       final dx = e.position.dx - _downPos.dx;
@@ -904,22 +897,22 @@ Offset? _posOfChar(int line, int offset) {
   // ==================== 手柄拖动 ====================
 
   void _startDragLeft(Offset fingerPos) {
-  if (_sel == null) return;
-  setState(() {
-    _draggingHandle = 1;
-    _dragHandlePos = fingerPos;
-    _hBarVisible = false;
-  });
-}
+    if (_sel == null) return;
+    setState(() {
+      _draggingHandle = 1;
+      _dragHandlePos = fingerPos;
+      _hBarVisible = false;
+    });
+  }
 
-void _startDragRight(Offset fingerPos) {
-  if (_sel == null) return;
-  setState(() {
-    _draggingHandle = 2;
-    _dragHandlePos = fingerPos;
-    _hBarVisible = false;
-  });
-}
+  void _startDragRight(Offset fingerPos) {
+    if (_sel == null) return;
+    setState(() {
+      _draggingHandle = 2;
+      _dragHandlePos = fingerPos;
+      _hBarVisible = false;
+    });
+  }
 
   void _updateSelectionFromDrag(Offset globalPos) {
     final sel = _sel;
@@ -935,6 +928,7 @@ void _startDragRight(Offset fingerPos) {
           endLine: sel.endLine,
           endOffset: sel.endOffset,
         );
+        _selVersion++;
       });
     } else if (_draggingHandle == 2) {
       setState(() {
@@ -944,6 +938,7 @@ void _startDragRight(Offset fingerPos) {
           endLine: hit.line,
           endOffset: hit.offset,
         );
+        _selVersion++;
       });
     }
   }
@@ -956,6 +951,7 @@ void _startDragRight(Offset fingerPos) {
     if (left == null || right == null) return null;
     return (left: left, right: right);
   }
+
   // ==================== 渲染 ====================
 
   TextStyle _baseStyle(ReaderSettings settings) => TextStyle(
@@ -993,6 +989,17 @@ void _startDragRight(Offset fingerPos) {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(readerSettingsProvider);
+
+    // 选区刚变化时，post frame 再 setState 一次，
+    // 让 _buildSelectionOverlay 能拿到新选区对应的 RenderParagraph。
+    if (_sel != null && _selVersion != _lastOverlayVersion) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _lastOverlayVersion = _selVersion;
+        setState(() {});
+      });
+    }
+
     return Scaffold(
       backgroundColor: Color(settings.bgColor),
       body: SafeArea(
@@ -1080,10 +1087,7 @@ void _startDragRight(Offset fingerPos) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   for (var i = range.startLine; i < range.endLine; i++)
-                    
-_buildLine(i, settings),
-
-                  
+                    _buildLine(i, settings),
                 ],
               ),
             ),
@@ -1140,92 +1144,87 @@ _buildLine(i, settings),
     );
   }
 
-
-
-
-  
- Widget _buildLine(int lineIdx, ReaderSettings settings) {
-  final spans = _buildLineSpans(lineIdx, settings);
-  return SizedBox(
-    width: double.infinity,
-    child: Stack(
-      children: [
-        Text.rich(
-          TextSpan(children: spans),
-          softWrap: true,
-          key: _lineKeys[lineIdx],
-        ),
-        _buildSelectionOverlay(lineIdx),
-      ],
-    ),
-  );
-}
-
-/// 用 getBoxesForSelection 画选区蓝背景。
-/// 和手柄用同一套坐标，保证对齐。
-Widget _buildSelectionOverlay(int lineIdx) {
-  final sel = _sel;
-  if (sel == null) return const SizedBox.shrink();
-  final n = sel.normalized();
-  if (lineIdx < n.startLine || lineIdx > n.endLine) {
-    return const SizedBox.shrink();
-  }
-  final line = _lines[lineIdx];
-  if (line.isEmpty) return const SizedBox.shrink();
-
-  int selStart;
-  int selEnd;
-  if (n.startLine == n.endLine) {
-    selStart = n.startOffset;
-    selEnd = n.endOffset;
-  } else if (lineIdx == n.startLine) {
-    selStart = n.startOffset;
-    selEnd = line.length;
-  } else if (lineIdx == n.endLine) {
-    selStart = 0;
-    selEnd = n.endOffset;
-  } else {
-    selStart = 0;
-    selEnd = line.length;
-  }
-  selStart = selStart.clamp(0, line.length);
-  selEnd = selEnd.clamp(0, line.length);
-  if (selStart >= selEnd) return const SizedBox.shrink();
-
-  final ctx = _lineKeys[lineIdx]?.currentContext;
-  if (ctx == null) return const SizedBox.shrink();
-  final rp = ctx.findRenderObject();
-  if (rp is! RenderParagraph) return const SizedBox.shrink();
-
-  final boxes = rp.getBoxesForSelection(
-    TextSelection(baseOffset: selStart, extentOffset: selEnd),
-  );
-  if (boxes.isEmpty) return const SizedBox.shrink();
-
-  return Positioned.fill(
-    child: IgnorePointer(
+  Widget _buildLine(int lineIdx, ReaderSettings settings) {
+    final spans = _buildLineSpans(lineIdx, settings);
+    return SizedBox(
+      width: double.infinity,
       child: Stack(
         children: [
-          for (final box in boxes)
-            Positioned(
-              left: box.left,
-              top: box.top,
-              width: box.right - box.left,
-              height: box.bottom - box.top,
-              child: Container(color: _selectionBg),
-            ),
+          Text.rich(
+            TextSpan(children: spans),
+            softWrap: true,
+            key: _lineKeys[lineIdx],
+          ),
+          _buildSelectionOverlay(lineIdx),
         ],
       ),
-    ),
-  );
-}
+    );
+  }
 
-  /// 把选区叠加到 spans 上。
+  /// 用 getBoxesForSelection 画选区蓝背景。
+  /// 和手柄用同一套坐标，保证对齐。
+  Widget _buildSelectionOverlay(int lineIdx) {
+    final sel = _sel;
+    if (sel == null) return const SizedBox.shrink();
+    final n = sel.normalized();
+    if (lineIdx < n.startLine || lineIdx > n.endLine) {
+      return const SizedBox.shrink();
+    }
+    final line = _lines[lineIdx];
+    if (line.isEmpty) return const SizedBox.shrink();
+
+    int selStart;
+    int selEnd;
+    if (n.startLine == n.endLine) {
+      selStart = n.startOffset;
+      selEnd = n.endOffset;
+    } else if (lineIdx == n.startLine) {
+      selStart = n.startOffset;
+      selEnd = line.length;
+    } else if (lineIdx == n.endLine) {
+      selStart = 0;
+      selEnd = n.endOffset;
+    } else {
+      selStart = 0;
+      selEnd = line.length;
+    }
+    selStart = selStart.clamp(0, line.length);
+    selEnd = selEnd.clamp(0, line.length);
+    if (selStart >= selEnd) return const SizedBox.shrink();
+
+    final ctx = _lineKeys[lineIdx]?.currentContext;
+    if (ctx == null) return const SizedBox.shrink();
+    final rp = ctx.findRenderObject();
+    if (rp is! RenderParagraph) return const SizedBox.shrink();
+
+    final boxes = rp.getBoxesForSelection(
+      TextSelection(baseOffset: selStart, extentOffset: selEnd),
+    );
+    if (boxes.isEmpty) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Stack(
+          children: [
+            for (final box in boxes)
+              Positioned(
+                left: box.left,
+                top: box.top,
+                width: box.right - box.left,
+                height: box.bottom - box.top,
+                child: Container(color: _selectionBg),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 生成行的 spans（含高亮叠加，不含选区）。
   List<InlineSpan> _buildLineSpans(int lineIdx, ReaderSettings settings) {
     final line = _lines[lineIdx];
     final base = _baseStyle(settings);
 
-    // ---------- 1. 生成基础 spans（含高亮叠加） ----------
     final baseSpans = <InlineSpan>[];
     final highlights = _highlightIndex.forLine(lineIdx);
 
@@ -1285,21 +1284,8 @@ Widget _buildSelectionOverlay(int lineIdx) {
       }
     }
 
-
-
-
-
-
-
-
-
-    
-   return baseSpans;
+    return baseSpans;
   }
-
-
-
-  
 
   Widget _buildFloatButton({
     required double x,
@@ -1344,28 +1330,19 @@ Widget _buildSelectionOverlay(int lineIdx) {
     if (pos == null) return const [];
 
     final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-const handleW = 26.0;
-final handleH = lineHeight + 24.0;
-const circleR = 8.0;
-
-
+    const handleW = 22.0;
+    final handleH = lineHeight + 20.0;
+    const circleR = 6.0;
 
     var leftPos = pos.left;
-var rightPos = pos.right;
+    var rightPos = pos.right;
 
-// 正在拖的手柄，位置用手指的实时位置（跟手）
-if (_draggingHandle == 1 && _dragHandlePos != null) {
-  leftPos = _dragHandlePos!;
-} else if (_draggingHandle == 2 && _dragHandlePos != null) {
-  rightPos = _dragHandlePos!;
-} else {
-  // 两个手柄重合时，往两边推
-  final dx = (rightPos.dx - leftPos.dx).abs();
-  if (dx < handleW && (rightPos.dy - leftPos.dy).abs() < 2) {
-    leftPos = Offset(leftPos.dx - handleW, leftPos.dy);
-    rightPos = Offset(rightPos.dx + handleW, rightPos.dy);
-  }
-}
+    // 正在拖的手柄，位置用手指的实时位置（跟手）
+    if (_draggingHandle == 1 && _dragHandlePos != null) {
+      leftPos = _dragHandlePos!;
+    } else if (_draggingHandle == 2 && _dragHandlePos != null) {
+      rightPos = _dragHandlePos!;
+    }
 
     Widget handle(Offset globalPos, int which) {
       final top = MediaQuery.of(context).padding.top;
@@ -1377,36 +1354,29 @@ if (_draggingHandle == 1 && _dragHandlePos != null) {
         top: topPos,
         width: handleW,
         height: handleH,
-
-
-
-
-child: GestureDetector(
-  behavior: HitTestBehavior.opaque,
-  onPanStart: (d) {
-    if (which == 1) {
-      _startDragLeft(d.globalPosition);
-    } else {
-      _startDragRight(d.globalPosition);
-    }
-  },
-  onPanUpdate: (d) {
-    if (_draggingHandle != which) return;
-    setState(() {
-      _dragHandlePos = d.globalPosition;
-    });
-    _updateSelectionFromDrag(d.globalPosition);
-  },
-  onPanEnd: (_) {
-    setState(() {
-      _draggingHandle = 0;
-      _dragHandlePos = null;
-      _hBarVisible = true;
-    });
-  },
-
-
-          
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (d) {
+            if (which == 1) {
+              _startDragLeft(d.globalPosition);
+            } else {
+              _startDragRight(d.globalPosition);
+            }
+          },
+          onPanUpdate: (d) {
+            if (_draggingHandle != which) return;
+            setState(() {
+              _dragHandlePos = d.globalPosition;
+            });
+            _updateSelectionFromDrag(d.globalPosition);
+          },
+          onPanEnd: (_) {
+            setState(() {
+              _draggingHandle = 0;
+              _dragHandlePos = null;
+              _hBarVisible = true;
+            });
+          },
           child: CustomPaint(
             painter: _HandlePainter(
               color: Theme.of(context).colorScheme.primary,
