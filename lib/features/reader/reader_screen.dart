@@ -30,20 +30,8 @@ class _SelectionRange {
   final int endLine;
   final int endOffset;
 
-  _SelectionRange copyWith({
-    int? startLine,
-    int? startOffset,
-    int? endLine,
-    int? endOffset,
-  }) =>
-      _SelectionRange(
-        startLine: startLine ?? this.startLine,
-        startOffset: startOffset ?? this.startOffset,
-        endLine: endLine ?? this.endLine,
-        endOffset: endOffset ?? this.endOffset,
-      );
-
   /// 交换起止，让 start <= end（按阅读顺序）。
+  /// 只用于渲染和文本提取，不用于存状态。
   _SelectionRange normalized() {
     if (startLine < endLine ||
         (startLine == endLine && startOffset <= endOffset)) {
@@ -161,29 +149,24 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   int _draggingHandle = 0;
 
   Timer? _longPressTimer;
-  Timer? _autoFadeTimer;
 
   Offset _downPos = Offset.zero;
-bool _longPressFired = false;
-bool _movedBeyondThreshold = false;
-bool _pressDown = false;
+  bool _longPressFired = false;
+  bool _movedBeyondThreshold = false;
+  bool _pressDown = false;
 
-/// 横向滑动检测（右滑翻上一页）
-bool _horizontalDrag = false;
-int _downMs = 0;
-static const double _hDragMinDx = 60.0;  // 右滑超过这个逻辑像素算翻页
+  /// 横向滑动检测（右滑翻上一页）
+  bool _horizontalDrag = false;
+  int _downMs = 0;
+  static const double _hDragMinDx = 60.0; // 右滑超过这个逻辑像素算翻页
 
   int _lastTapUpMs = 0;
-
-  /// 弹窗大小（用于摆放位置）。每次 build 后记录。
-  Size _hBarSize = const Size(220, 100);
 
   static const Color _selectionBg = Color(0x5533B5FF);
   static const Color _selectionFg = Color(0xFF000000);
   static const int _longPressMs = 400;
   static const double _moveThresholdDp = 10.0;
   static const int _tapDebounceMs = 100;
-  static const int _autoFadeMs = 2000;
 
   @override
   void initState() {
@@ -194,7 +177,6 @@ static const double _hDragMinDx = 60.0;  // 右滑超过这个逻辑像素算翻
   @override
   void dispose() {
     _longPressTimer?.cancel();
-    _autoFadeTimer?.cancel();
     _saveProgress();
     super.dispose();
   }
@@ -254,21 +236,18 @@ static const double _hDragMinDx = 60.0;  // 右滑超过这个逻辑像素算翻
           ? findPageForOffset(pagination, progress.charOffset)
           : 0;
 
-setState(() {
-  _text = text;
-  _pagination = pagination;
-  _lines = split.lines;
-  _highlightIndex = index;
-  _currentPage = startPage;
-  _loading = false;
-  _sel = null;
-  _hBarVisible = false;
-});
-_lineKeys.clear();
-_syncPagePreview();
-
-
-      
+      setState(() {
+        _text = text;
+        _pagination = pagination;
+        _lines = split.lines;
+        _highlightIndex = index;
+        _currentPage = startPage;
+        _loading = false;
+        _sel = null;
+        _hBarVisible = false;
+      });
+      _lineKeys.clear();
+      _syncPagePreview();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -288,6 +267,14 @@ _syncPagePreview();
     ref.read(readerProgressProvider.notifier).set(fileKey, offset);
   }
 
+  void _syncPagePreview() {
+    if (_pagination == null || _lines.isEmpty) return;
+    final range = pageLineRange(_pagination!, _currentPage);
+    if (range.startLine >= range.endLine) return;
+    final text = _lines.sublist(range.startLine, range.endLine).join('\n');
+    ref.read(readerPagePreviewProvider.notifier).state = text;
+  }
+
   // ==================== 翻页 ====================
 
   void _nextPage() {
@@ -297,30 +284,29 @@ _syncPagePreview();
       return;
     }
     if (_currentPage >= _pagination!.pageCount - 1) return;
-     _clearSelection();
-  setState(() => _currentPage++);
-  _saveProgress();
-  _syncPagePreview();
-}
-  
+    _clearSelection();
+    setState(() => _currentPage++);
+    _saveProgress();
+    _syncPagePreview();
+  }
 
   void _prevPage() {
     if (_pagination == null) return;
     if (_currentPage <= 0) return;
-     _clearSelection();
-  setState(() => _currentPage++);
-  _saveProgress();
-  _syncPagePreview();
-}
+    _clearSelection();
+    setState(() => _currentPage--);
+    _saveProgress();
+    _syncPagePreview();
+  }
 
   void _jumpToPage(int page) {
     if (_pagination == null) return;
     final p = page.clamp(0, _pagination!.pageCount - 1);
-     _clearSelection();
-  setState(() => _currentPage = p);
-  _saveProgress();
-  _syncPagePreview();
-}
+    _clearSelection();
+    setState(() => _currentPage = p);
+    _saveProgress();
+    _syncPagePreview();
+  }
 
   // ==================== 切文件 ====================
 
@@ -550,40 +536,21 @@ _syncPagePreview();
     });
   }
 
-void _syncPagePreview() {
-  if (_pagination == null || _lines.isEmpty) return;
-  final range = pageLineRange(_pagination!, _currentPage);
-  if (range.startLine >= range.endLine) return;
-  final text = _lines
-      .sublist(range.startLine, range.endLine)
-      .join('\n');
-  ref.read(readerPagePreviewProvider.notifier).state = text;
-}
-  
   // ==================== 选区操作 ====================
 
   void _clearSelection() {
     _longPressTimer?.cancel();
-    _autoFadeTimer?.cancel();
     _longPressFired = false;
     _movedBeyondThreshold = false;
     _pressDown = false;
     _draggingHandle = 0;
+    _horizontalDrag = false;
     if (_sel != null || _hBarVisible) {
       setState(() {
         _sel = null;
         _hBarVisible = false;
       });
     }
-  }
-
-  void _resetAutoFade() {
-    _autoFadeTimer?.cancel();
-    if (!_hBarVisible) return;
-    _autoFadeTimer = Timer(const Duration(milliseconds: _autoFadeMs), () {
-      if (!mounted) return;
-      _clearSelection();
-    });
   }
 
   /// 用全局坐标找 (line, offset)。
@@ -595,37 +562,40 @@ void _syncPagePreview() {
     final local = contentBox.globalToLocal(globalPos);
     if (!(Offset.zero & contentBox.size).contains(local)) return null;
 
-    for (final entry in _lineKeys.entries) {
-      final ctx = entry.value.currentContext;
+    final keys = _lineKeys.keys.toList()..sort();
+    for (final lineIdx in keys) {
+      final ctx = _lineKeys[lineIdx]?.currentContext;
       if (ctx == null) continue;
       final rp = ctx.findRenderObject();
       if (rp is! RenderParagraph) continue;
       final localLine = rp.globalToLocal(globalPos);
       final size = rp.size;
-      // 允许一点纵向误差，方便点到行边缘
-      if (localLine.dy < -2 || localLine.dy > size.height + 2) continue;
-      if (localLine.dx < -2 || localLine.dx > size.width + 2) continue;
+      // 严格边界：不宽容，避免命中邻近行
+      if (localLine.dy < 0 || localLine.dy > size.height) continue;
+      if (localLine.dx < 0) continue;
       final clamped = Offset(
         localLine.dx.clamp(0.0, size.width),
         localLine.dy.clamp(0.0, size.height),
       );
       final pos = rp.getPositionForOffset(clamped);
-      return _CharPos(line: entry.key, offset: pos.offset);
+      final line = _lines[lineIdx];
+      final safeOffset = pos.offset.clamp(0, line.length);
+      return _CharPos(line: lineIdx, offset: safeOffset);
     }
     return null;
   }
 
   /// 从 (line, offset) 算屏幕全局坐标。
-  Offset? _posOfChar(int line, int offset, {bool isEnd = false}) {
+  Offset? _posOfChar(int line, int offset) {
     final ctx = _lineKeys[line]?.currentContext;
     if (ctx == null) return null;
     final rp = ctx.findRenderObject();
     if (rp is! RenderParagraph) return null;
 
-    // 用 getOffsetForCaret，行尾时要特殊处理一下
-    final textPos = TextPosition(offset: offset);
+    final lineText = line < _lines.length ? _lines[line] : '';
+    final safeOffset = offset.clamp(0, lineText.length);
+    final textPos = TextPosition(offset: safeOffset);
     final local = rp.getOffsetForCaret(textPos, Rect.zero);
-    // 转成全局坐标
     return rp.localToGlobal(local);
   }
 
@@ -675,7 +645,6 @@ void _syncPagePreview() {
         );
         _hBarVisible = true;
       });
-      _resetAutoFade();
       return;
     }
 
@@ -698,7 +667,6 @@ void _syncPagePreview() {
         );
         _hBarVisible = true;
       });
-      _resetAutoFade();
       return;
     }
 
@@ -712,7 +680,6 @@ void _syncPagePreview() {
       );
       _hBarVisible = true;
     });
-    _resetAutoFade();
   }
 
   bool _isWordChar(int code) =>
@@ -723,16 +690,15 @@ void _syncPagePreview() {
 
   // ==================== 手势状态机 ====================
 
-void _onPointerDown(PointerDownEvent e) {
-  _longPressTimer?.cancel();
-  _downPos = e.position;
-  _downMs = DateTime.now().millisecondsSinceEpoch;
-  _longPressFired = false;
-  _movedBeyondThreshold = false;
-  _horizontalDrag = false;
-  _pressDown = true;
+  void _onPointerDown(PointerDownEvent e) {
+    _longPressTimer?.cancel();
+    _downPos = e.position;
+    _downMs = DateTime.now().millisecondsSinceEpoch;
+    _longPressFired = false;
+    _movedBeyondThreshold = false;
+    _horizontalDrag = false;
+    _pressDown = true;
 
-  
     // 照参考 app：任意按下先收起弹窗和手柄
     if (_hBarVisible || _sel != null) {
       setState(() {
@@ -750,84 +716,81 @@ void _onPointerDown(PointerDownEvent e) {
   }
 
   void _onPointerMove(PointerMoveEvent e) {
-  if (!_pressDown) return;
+    if (!_pressDown) return;
 
-  final dx = e.position.dx - _downPos.dx;
-  final dy = e.position.dy - _downPos.dy;
-  final absDx = dx.abs();
-  final absDy = dy.abs();
+    final dx = e.position.dx - _downPos.dx;
+    final dy = e.position.dy - _downPos.dy;
+    final absDx = dx.abs();
+    final absDy = dy.abs();
 
-  if (!_movedBeyondThreshold) {
-    if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
-      _movedBeyondThreshold = true;
-      _longPressTimer?.cancel();
+    if (!_movedBeyondThreshold) {
+      if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
+        _movedBeyondThreshold = true;
+        _longPressTimer?.cancel();
+      }
+    }
+
+    // 横向滑动判定：横向位移占主导
+    if (_draggingHandle == 0 && !_horizontalDrag) {
+      if (absDx > 20 && absDx > absDy * 1.5) {
+        _horizontalDrag = true;
+      }
+    }
+
+    // 已经在拖手柄 → 更新选区
+    if (_draggingHandle != 0) {
+      _updateSelectionFromDrag(e.position);
     }
   }
-
-  // 横向滑动判定：横向位移占主导，且超过一定比例
-  if (_draggingHandle == 0 && !_horizontalDrag) {
-    if (absDx > 20 && absDx > absDy * 1.5) {
-      _horizontalDrag = true;
-    }
-  }
-
-  // 已经在拖手柄 → 更新选区
-  if (_draggingHandle != 0) {
-    _updateSelectionFromDrag(e.position);
-  }
-}
-  
 
   void _onPointerUp(PointerUpEvent e) {
-  _longPressTimer?.cancel();
+    _longPressTimer?.cancel();
 
-  // 拖手柄松手：重新显示弹窗
-  if (_draggingHandle != 0) {
-    setState(() {
-      _draggingHandle = 0;
-      _hBarVisible = true;
-    });
-    _resetAutoFade();
-    _pressDown = false;
-    return;
-  }
-
-  // 长按已触发，抬起什么都不做
-  if (_longPressFired) {
-    _pressDown = false;
-    return;
-  }
-
-  // 横向滑动：右滑翻上一页
-  if (_horizontalDrag) {
-    final dx = e.position.dx - _downPos.dx;
-    final elapsed = DateTime.now().millisecondsSinceEpoch - _downMs;
-    if (dx > _hDragMinDx && elapsed < 800) {
-      _prevPage();
+    // 拖手柄松手：重新显示弹窗
+    if (_draggingHandle != 0) {
+      setState(() {
+        _draggingHandle = 0;
+        _hBarVisible = true;
+      });
+      _pressDown = false;
+      return;
     }
-    _pressDown = false;
-    _horizontalDrag = false;
-    return;
-  }
 
-  // 位移超阈值 → 不算单击
-  if (_movedBeyondThreshold) {
-    _pressDown = false;
-    return;
-  }
+    // 长按已触发，抬起什么都不做
+    if (_longPressFired) {
+      _pressDown = false;
+      return;
+    }
 
-  // 单击判定（带 100ms 防抖）
-  final now = DateTime.now().millisecondsSinceEpoch;
-  if (_lastTapUpMs != 0 && now - _lastTapUpMs < _tapDebounceMs) {
-    _pressDown = false;
-    return;
-  }
-  _lastTapUpMs = now;
+    // 横向滑动：右滑翻上一页
+    if (_horizontalDrag) {
+      final dx = e.position.dx - _downPos.dx;
+      final elapsed = DateTime.now().millisecondsSinceEpoch - _downMs;
+      if (dx > _hDragMinDx && elapsed < 800) {
+        _prevPage();
+      }
+      _pressDown = false;
+      _horizontalDrag = false;
+      return;
+    }
 
-  _handleTap(e.position);
-  _pressDown = false;
+    // 位移超阈值 → 不算单击
+    if (_movedBeyondThreshold) {
+      _pressDown = false;
+      return;
+    }
+
+    // 单击判定（带 100ms 防抖）
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_lastTapUpMs != 0 && now - _lastTapUpMs < _tapDebounceMs) {
+      _pressDown = false;
+      return;
+    }
+    _lastTapUpMs = now;
+
+    _handleTap(e.position);
+    _pressDown = false;
   }
-  
 
   void _onPointerCancel(PointerCancelEvent e) {
     _longPressTimer?.cancel();
@@ -836,73 +799,52 @@ void _onPointerDown(PointerDownEvent e) {
   }
 
   void _handleLongPress() {
-    final settings = ref.read(readerSettingsProvider);
     final pos = _hitTest(_downPos);
     if (pos == null) return;
-
-    // 顶部热区？悬浮按钮？—— 照参考 app，长按优先级更高，不区分区域
-    // 但保留一个开关位置，方便以后修改。
-    // if (_isInTopZone(_downPos) && !_allowLongPressInTopZone) return;
-
     _selectWordAt(pos);
-    // 触发一次重绘让手柄和弹窗出来
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() {});
-    });
-    // 忽略 settings 警告（保留占位）
-    // ignore: unused_local_variable
-    final _ = settings;
   }
 
   /// 点击分发。
-  
-void _handleTap(Offset globalPos) {
-  final settings = ref.read(readerSettingsProvider);
+  void _handleTap(Offset globalPos) {
+    final settings = ref.read(readerSettingsProvider);
 
-  final contentBox =
-      _contentKey.currentContext?.findRenderObject() as RenderBox?;
-  if (contentBox == null) {
+    final contentBox =
+        _contentKey.currentContext?.findRenderObject() as RenderBox?;
+    if (contentBox == null) {
+      _nextPage();
+      return;
+    }
+    final origin = contentBox.localToGlobal(Offset.zero);
+    final w = contentBox.size.width;
+    final h = contentBox.size.height;
+
+    // 1. 悬浮按钮
+    if (settings.showButtons) {
+      final topBtnSize = 50.0 * settings.buttonScale;
+      final topCenter =
+          origin + Offset(settings.topBtnX * w, settings.topBtnY * h);
+      if ((globalPos - topCenter).distance <= topBtnSize / 2 + 8) {
+        _prevFile();
+        return;
+      }
+      final bottomCenter =
+          origin + Offset(settings.bottomBtnX * w, settings.bottomBtnY * h);
+      if ((globalPos - bottomCenter).distance <= topBtnSize / 2 + 8) {
+        _nextFile();
+        return;
+      }
+    }
+
+    // 2. 顶部热区
+    final safeTop = MediaQuery.of(context).padding.top;
+    if (globalPos.dy < safeTop + settings.topHotZoneHeight) {
+      _showTopMenu();
+      return;
+    }
+
+    // 3. 正文 → 翻页
     _nextPage();
-    return;
   }
-  final origin = contentBox.localToGlobal(Offset.zero);
-  final w = contentBox.size.width;
-  final h = contentBox.size.height;
-
-  // 1. 悬浮按钮
-  if (settings.showButtons) {
-    final topBtnSize = 50.0 * settings.buttonScale;
-    final topCenter = origin +
-        Offset(settings.topBtnX * w, settings.topBtnY * h);
-    if ((globalPos - topCenter).distance <= topBtnSize / 2 + 8) {
-      _prevFile();
-      return;
-    }
-    final bottomCenter = origin +
-        Offset(settings.bottomBtnX * w, settings.bottomBtnY * h);
-    if ((globalPos - bottomCenter).distance <= topBtnSize / 2 + 8) {
-      _nextFile();
-      return;
-    }
-  }
-
-  // 2. 顶部热区
-  final safeTop = MediaQuery.of(context).padding.top;
-  if (globalPos.dy < safeTop + settings.topHotZoneHeight) {
-    _showTopMenu();
-    return;
-  }
-
-  // 3. 正文 → 翻页
-  _nextPage();
-}
-
-
-
-
-
-
-  
 
   // ==================== 手柄拖动 ====================
 
@@ -912,7 +854,6 @@ void _handleTap(Offset globalPos) {
       _draggingHandle = 1;
       _hBarVisible = false;
     });
-    _autoFadeTimer?.cancel();
   }
 
   void _startDragRight() {
@@ -921,7 +862,6 @@ void _handleTap(Offset globalPos) {
       _draggingHandle = 2;
       _hBarVisible = false;
     });
-    _autoFadeTimer?.cancel();
   }
 
   void _updateSelectionFromDrag(Offset globalPos) {
@@ -931,38 +871,37 @@ void _handleTap(Offset globalPos) {
     if (hit == null) return;
 
     if (_draggingHandle == 1) {
-      // 拖左：新起点 = hit，终点 = 原 end
-      // 如果越过终点，则交换
+      // 拖左：只改 start，end 不动。允许 start > end（交叉）。
       setState(() {
         _sel = _SelectionRange(
           startLine: hit.line,
           startOffset: hit.offset,
           endLine: sel.endLine,
           endOffset: sel.endOffset,
-        ).normalized();
+        );
       });
     } else if (_draggingHandle == 2) {
-      // 拖右
+      // 拖右：只改 end，start 不动。
       setState(() {
         _sel = _SelectionRange(
           startLine: sel.startLine,
           startOffset: sel.startOffset,
           endLine: hit.line,
           endOffset: hit.offset,
-        ).normalized();
+        );
       });
     }
   }
 
   // ==================== 手柄位置 ====================
 
-  /// 返回左 / 右两个手柄顶端的全局坐标（手柄尺寸由 _HandleSize 决定）
+  /// 返回左 / 右两个手柄顶端的全局坐标。
+  /// 左手柄永远对应 sel.start，右手柄永远对应 sel.end。
   ({Offset left, Offset right})? _handlePositions() {
     final sel = _sel;
     if (sel == null) return null;
-    final n = sel.normalized();
-    final left = _posOfChar(n.startLine, n.startOffset);
-    final right = _posOfChar(n.endLine, n.endOffset);
+    final left = _posOfChar(sel.startLine, sel.startOffset);
+    final right = _posOfChar(sel.endLine, sel.endOffset);
     if (left == null || right == null) return null;
     return (left: left, right: right);
   }
@@ -1066,7 +1005,8 @@ void _handleTap(Offset globalPos) {
     final previewHotZone = ref.watch(readerHotZonePreviewProvider);
 
     // 为当前页每一行准备 key
-    _lineKeys.removeWhere((k, v) => k < range.startLine || k >= range.endLine);
+    _lineKeys.removeWhere(
+        (k, v) => k < range.startLine || k >= range.endLine);
     for (var i = range.startLine; i < range.endLine; i++) {
       _lineKeys.putIfAbsent(i, () => GlobalKey());
     }
@@ -1087,28 +1027,17 @@ void _handleTap(Offset globalPos) {
                 horizontal: kReaderHorizontalPadding,
                 vertical: kReaderVerticalPadding,
               ),
-
-
-
-              
               child: Column(
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    for (var i = range.startLine; i < range.endLine; i++)
-      _buildLine(
-        i,
-        settings,
-        size.width - kReaderHorizontalPadding * 2,
-      ),
-  ],
-),
-
-
-
-
-
-
-              
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = range.startLine; i < range.endLine; i++)
+                    _buildLine(
+                      i,
+                      settings,
+                      size.width - kReaderHorizontalPadding * 2,
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1163,19 +1092,17 @@ void _handleTap(Offset globalPos) {
     );
   }
 
-Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
-  final spans = _buildLineSpans(lineIdx, settings);
-  return SizedBox(
-    width: double.infinity,
-    child: Text.rich(
-      TextSpan(children: spans),
-      softWrap: true,
-      key: _lineKeys[lineIdx],
-    ),
-  );
-}
-
-  
+  Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
+    final spans = _buildLineSpans(lineIdx, settings);
+    return SizedBox(
+      width: double.infinity,
+      child: Text.rich(
+        TextSpan(children: spans),
+        softWrap: true,
+        key: _lineKeys[lineIdx],
+      ),
+    );
+  }
 
   /// 把选区叠加到 spans 上。
   List<InlineSpan> _buildLineSpans(int lineIdx, ReaderSettings settings) {
@@ -1238,6 +1165,7 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
     // ---------- 2. 叠加选区 ----------
     final sel = _sel;
     if (sel == null) return baseSpans;
+    // 渲染时用 normalized 的 start/end（视觉顺序）
     final n = sel.normalized();
 
     int? selStart;
@@ -1262,30 +1190,16 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
       return baseSpans;
     }
 
-    // 把 baseSpans 按选区区间重新切分。
-    // 因为 baseSpans 里的 TextSpan 已经是"连续片段"，
-    // 这里不做精细合并，直接用字符串整体重切：
-    final plainSpans = <InlineSpan>[];
-    for (final span in baseSpans) {
-      if (span is TextSpan && span.text != null) {
-        plainSpans.add(span);
-      } else {
-        // WidgetSpan 原样保留（渐变高亮），把它当成一个字符处理
-        plainSpans.add(span);
-      }
-    }
-
-    // 找出"纯文本"总长，用于对齐
+    // 把 baseSpans 按选区区间重新切分
     final out = <InlineSpan>[];
     var charCount = 0;
-    for (final span in plainSpans) {
+    for (final span in baseSpans) {
       if (span is TextSpan) {
         final t = span.text ?? '';
         final segStart = charCount;
         final segEnd = charCount + t.length;
         charCount = segEnd;
 
-        // 与本行选区求交集
         final a = math.max(segStart, selStart);
         final b = math.min(segEnd, selEnd);
         if (b <= a) {
@@ -1309,31 +1223,27 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
           out.add(TextSpan(text: after, style: span.style));
         }
       } else if (span is WidgetSpan) {
-  // WidgetSpan：算作 1 个字符位置
-  final segStart = charCount;
-  final segEnd = charCount + 1;
-  charCount = segEnd;
-  if (segEnd > selStart && segStart < selEnd) {
-    // 选中状态：包一层蓝色边框
-    out.add(WidgetSpan(
-      alignment: PlaceholderAlignment.baseline,
-      baseline: TextBaseline.alphabetic,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: _selectionBg, width: 6),
-        ),
-        child: span.child,
-      ),
-    ));
-  } else {
-    out.add(span);
-  }
-} else {
-  out.add(span);
-}
-
-
-      
+        // WidgetSpan：算作 1 个字符位置
+        final segStart = charCount;
+        final segEnd = charCount + 1;
+        charCount = segEnd;
+        if (segEnd > selStart && segStart < selEnd) {
+          out.add(WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: _selectionBg, width: 6),
+              ),
+              child: span.child,
+            ),
+          ));
+        } else {
+          out.add(span);
+        }
+      } else {
+        out.add(span);
+      }
     }
 
     return out;
@@ -1386,6 +1296,15 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
     final handleH = lineHeight + 20.0;
     const circleR = 6.0;
 
+    // 两个手柄位置重合时，往两边推一点，避免点不到
+    var leftPos = pos.left;
+    var rightPos = pos.right;
+    final dx = (rightPos.dx - leftPos.dx).abs();
+    if (dx < handleW && (rightPos.dy - leftPos.dy).abs() < 2) {
+      leftPos = Offset(leftPos.dx - handleW, leftPos.dy);
+      rightPos = Offset(rightPos.dx + handleW, rightPos.dy);
+    }
+
     Widget handle(Offset globalPos, int which) {
       // 相对于 Stack（= SafeArea 内部），需要扣掉 SafeArea padding。
       final top = MediaQuery.of(context).padding.top;
@@ -1419,7 +1338,6 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
               _draggingHandle = 0;
               _hBarVisible = true;
             });
-            _resetAutoFade();
           },
           child: CustomPaint(
             painter: _HandlePainter(
@@ -1433,8 +1351,8 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
     }
 
     return [
-      handle(pos.left, 1),
-      handle(pos.right, 2),
+      handle(leftPos, 1),
+      handle(rightPos, 2),
     ];
   }
 
@@ -1447,21 +1365,21 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
 
     final startPos = _posOfChar(n.startLine, n.startOffset);
     final endPos = _posOfChar(n.endLine, n.endOffset);
-    if (startPos == null || endPos == null) return const SizedBox.shrink();
+    if (startPos == null || endPos == null) {
+      return const SizedBox.shrink();
+    }
 
     final safeTop = MediaQuery.of(context).padding.top;
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final topAreaH = size.height - safeTop - safeBottom;
 
-    // 弹窗参考高度：两行色块 + 复制按钮 ≈ 140
     const approxW = 260.0;
     const approxH = 150.0;
-    _hBarSize = const Size(approxW, approxH);
 
     final selTop = startPos.dy;
-    final selBottom = endPos.dy + settings.fontSize * kReaderLineHeightFactor;
+    final selBottom =
+        endPos.dy + settings.fontSize * kReaderLineHeightFactor;
 
-    // 选区在屏幕上半 → 放下方；下半 → 放上方
     final midY = (selTop + selBottom) / 2;
     final screenMid = safeTop + topAreaH / 2;
     final showBelow = midY < screenMid;
@@ -1474,7 +1392,6 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
     }
     top = top.clamp(4.0, topAreaH - approxH - 4);
 
-    // 水平：以选区左边缘为参照，超出右边贴右
     double left = startPos.dx - 8;
     if (left + approxW > size.width - 4) {
       left = size.width - approxW - 4;
@@ -1495,7 +1412,6 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ---------- 顶部：复制按钮 ----------
               Row(
                 children: [
                   IconButton(
@@ -1512,7 +1428,6 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
                           duration: Duration(seconds: 1),
                         ),
                       );
-                      _resetAutoFade();
                     },
                   ),
                   const SizedBox(width: 4),
@@ -1527,7 +1442,6 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
                 ],
               ),
               const Divider(height: 6),
-              // ---------- 色块：两行，每行横向滚动 ----------
               _buildColorRow(0, 10),
               const SizedBox(height: 4),
               _buildColorRow(10, 20),
@@ -1540,7 +1454,8 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
 
   Widget _buildColorRow(int from, int to) {
     final palette = ref.read(readerPaletteProvider);
-    final list = palette.where((p) => p.index >= from && p.index < to).toList();
+    final list =
+        palette.where((p) => p.index >= from && p.index < to).toList();
     if (list.isEmpty) return const SizedBox.shrink();
 
     const tileW = 44.0;
@@ -1560,7 +1475,6 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
                 final word = _selectedText();
                 if (word.isEmpty) return;
                 _applyHighlight(word, p);
-                _resetAutoFade();
               },
               onLongPress: () {
                 _clearSelection();
@@ -1617,9 +1531,7 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
       createdAt: DateTime.now().millisecondsSinceEpoch,
       groupId: palette.defaultGroupId,
     );
-    ref
-        .read(readerHighlightsProvider.notifier)
-        .addOrReplace(fileKey, entry);
+    ref.read(readerHighlightsProvider.notifier).addOrReplace(fileKey, entry);
 
     final newHighlights =
         ref.read(readerHighlightsProvider)[fileKey] ?? const [];
@@ -1628,7 +1540,6 @@ Widget _buildLine(int lineIdx, ReaderSettings settings, double maxWidth) {
         lines: _lines,
         highlights: newHighlights,
       );
-      // 加完高亮保留选区，但让用户看到结果
     });
   }
 }
