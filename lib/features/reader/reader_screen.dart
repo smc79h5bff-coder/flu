@@ -58,6 +58,8 @@ class _CharPos {
 
 // ==================== 手柄绘制 ====================
 
+
+
 /// 梯形：可拖动部分。左右手柄镜像，尖角朝上（或朝下，取决于 flip）。
 class _TrapezoidPainter extends CustomPainter {
   _TrapezoidPainter({
@@ -83,40 +85,48 @@ class _TrapezoidPainter extends CustomPainter {
 
     final path = Path();
 
-    if (!flip) {
-      // 尖角在顶部
-      if (isLeft) {
-        // 左手柄：尖角在右上，向左下扩展
-        path.moveTo(w, 0);
-        path.lineTo(w, h);
-        path.lineTo(0, h);
-        path.lineTo(0, mid);
-        path.close();
-      } else {
-        // 右手柄：尖角在左上，向右下扩展
-        path.moveTo(0, 0);
-        path.lineTo(0, h);
-        path.lineTo(w, h);
-        path.lineTo(w, mid);
-        path.close();
-      }
-    } else {
-      // 尖角在底部（翻转到文字上方时用）
-      if (isLeft) {
-        path.moveTo(w, h);
-        path.lineTo(w, 0);
-        path.lineTo(0, 0);
-        path.lineTo(0, mid);
-        path.close();
-      } else {
-        path.moveTo(0, h);
-        path.lineTo(0, 0);
-        path.lineTo(w, 0);
-        path.lineTo(w, mid);
-        path.close();
-      }
-    }
 
+
+
+    
+if (!flip) {
+  // 尖角在顶部
+  if (isLeft) {
+    // 左手柄：尖角在右上，向左下扩展
+    path.moveTo(w, 0);
+    path.lineTo(w, h);
+    path.lineTo(0, h);
+    path.lineTo(0, mid);
+    path.close();
+  } else {
+    // 右手柄：尖角在左上，向右下扩展
+    path.moveTo(0, 0);
+    path.lineTo(0, h);
+    path.lineTo(w, h);
+    path.lineTo(w, mid);
+    path.close();
+  }
+} else {
+  // 尖角在底部（翻转到文字上方时用）
+  if (isLeft) {
+    path.moveTo(w, h);
+    path.lineTo(w, 0);
+    path.lineTo(0, 0);
+    path.lineTo(0, mid);
+    path.close();
+  } else {
+    path.moveTo(0, h);
+    path.lineTo(0, 0);
+    path.lineTo(w, 0);
+    path.lineTo(w, mid);
+    path.close();
+  }
+}
+
+
+
+
+    
     canvas.drawPath(path, paint);
   }
 
@@ -124,6 +134,7 @@ class _TrapezoidPainter extends CustomPainter {
   bool shouldRepaint(_TrapezoidPainter old) =>
       old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
+
 
 // ==================== ReaderScreen ====================
 
@@ -178,11 +189,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
   Offset? _dragHandlePos;
-
-  /// 拖动开始时手指相对手柄逻辑位置的偏移。
-  /// 用来把手指位置换算成手柄逻辑位置（只用于视觉跟随）。
-  Offset? _dragHandleOffset;
-
+/// 拖动开始时手指相对手柄逻辑位置的偏移。
+/// 用来把手指位置换算成手柄逻辑位置。
+Offset? _dragHandleOffset;
   /// 长按后手指最后处理过的位置。用来做去抖。
   Offset? _lastLongPressPos;
 
@@ -586,10 +595,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _movedBeyondThreshold = false;
     _pressDown = false;
     _draggingHandle = 0;
-    _dragHandlePos = null;
-    _dragHandleOffset = null;
-    _lastLongPressPos = null;
-    _horizontalDrag = false;
+_dragHandlePos = null;
+_dragHandleOffset = null;
+_lastLongPressPos = null;
+_horizontalDrag = false;
     if (_sel != null || _hBarVisible) {
       setState(() {
         _sel = null;
@@ -629,9 +638,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   /// 带 Y 方向缓冲的命中测试，只用于拖手柄。
-  /// 手指还在 preferLine 的 ±行高/3 范围内时锁定在 preferLine，
-  /// 避免横拖时手指上下抖动导致跨行；超出缓冲则跨行。
-  /// 参数 [globalPos] 是手指的全局坐标（不是手柄逻辑坐标）。
+  /// 如果手指还在 preferLine 的 ±行高/3 范围内，锁定在 preferLine，
+  /// 避免横拖时手指上下抖动导致跨行。
   _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
     final ctx = _lineKeys[preferLine]?.currentContext;
     if (ctx != null) {
@@ -855,6 +863,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       if (sel == null) return;
 
       // 去抖：距基准位置不到 10 像素就不管
+      // 第一次用 _downPos 作基准，之后用上次处理位置
       final ref = _lastLongPressPos ?? _downPos;
       if ((e.position - ref).distance < 10.0) return;
       _lastLongPressPos = e.position;
@@ -873,7 +882,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    // ===== 长按还没成立：位移/横向滑动判断 =====
+    // ===== 长按还没成立：原有的位移/横向滑动判断 =====
     final dx = e.position.dx - _downPos.dx;
     final dy = e.position.dy - _downPos.dy;
     final absDx = dx.abs();
@@ -1019,63 +1028,62 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // ==================== 手柄拖动 ====================
 
   void _startDragLeft(Offset fingerPos) {
-    final sel = _sel;
-    if (sel == null) return;
-    final handleLogic = _posOfCharLeft(sel.startLine, sel.startOffset);
+  final sel = _sel;
+  if (sel == null) return;
+  final handleLogic = _posOfCharLeft(sel.startLine, sel.startOffset);
+  setState(() {
+    _draggingHandle = 1;
+    _dragHandlePos = handleLogic ?? fingerPos;
+    _dragHandleOffset =
+        handleLogic == null ? Offset.zero : fingerPos - handleLogic;
+    _hBarVisible = false;
+  });
+}
+
+void _startDragRight(Offset fingerPos) {
+  final sel = _sel;
+  if (sel == null) return;
+  final handleLogic = _posOfCharRight(sel.endLine, sel.endOffset);
+  setState(() {
+    _draggingHandle = 2;
+    _dragHandlePos = handleLogic ?? fingerPos;
+    _dragHandleOffset =
+        handleLogic == null ? Offset.zero : fingerPos - handleLogic;
+    _hBarVisible = false;
+  });
+}
+
+  /// 参数 [handleLogic] 是手柄的逻辑位置（屏幕全局坐标），
+/// 不是手指位置。调用方负责用偏移量换算。
+void _updateSelectionFromDrag(Offset handleLogic) {
+  final sel = _sel;
+  if (sel == null) return;
+  final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
+  final hit = _hitTestWithBuffer(handleLogic, preferLine);
+  if (hit == null) return;
+
+  if (_draggingHandle == 1) {
     setState(() {
-      _draggingHandle = 1;
-      _dragHandlePos = handleLogic ?? fingerPos;
-      _dragHandleOffset =
-          handleLogic == null ? Offset.zero : fingerPos - handleLogic;
-      _hBarVisible = false;
+      _sel = _SelectionRange(
+        startLine: hit.line,
+        startOffset: hit.offset,
+        endLine: sel.endLine,
+        endOffset: sel.endOffset,
+      );
+      _selVersion++;
+    });
+  } else if (_draggingHandle == 2) {
+    setState(() {
+      _sel = _SelectionRange(
+        startLine: sel.startLine,
+        startOffset: sel.startOffset,
+        endLine: hit.line,
+        endOffset: hit.offset,
+      );
+      _selVersion++;
     });
   }
-
-  void _startDragRight(Offset fingerPos) {
-    final sel = _sel;
-    if (sel == null) return;
-    final handleLogic = _posOfCharRight(sel.endLine, sel.endOffset);
-    setState(() {
-      _draggingHandle = 2;
-      _dragHandlePos = handleLogic ?? fingerPos;
-      _dragHandleOffset =
-          handleLogic == null ? Offset.zero : fingerPos - handleLogic;
-      _hBarVisible = false;
-    });
-  }
-
-  /// 参数 [fingerPos] 是手指的屏幕全局坐标。
-  /// 命中测试用真实手指位置，避免因手指与手柄逻辑位置相差一个
-  /// "fontSize + trapH/2" 而导致要拖很远才跨行。
-  void _updateSelectionFromDrag(Offset fingerPos) {
-    final sel = _sel;
-    if (sel == null) return;
-    final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
-    final hit = _hitTestWithBuffer(fingerPos, preferLine);
-    if (hit == null) return;
-
-    if (_draggingHandle == 1) {
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: hit.line,
-          startOffset: hit.offset,
-          endLine: sel.endLine,
-          endOffset: sel.endOffset,
-        );
-        _selVersion++;
-      });
-    } else if (_draggingHandle == 2) {
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: sel.startLine,
-          startOffset: sel.startOffset,
-          endLine: hit.line,
-          endOffset: hit.offset,
-        );
-        _selVersion++;
-      });
-    }
-  }
+}
 
   ({Offset left, Offset right})? _handlePositions() {
     final sel = _sel;
@@ -1458,109 +1466,109 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   // ==================== 手柄渲染 ====================
 
-  List<Widget> _buildHandles(ReaderSettings settings) {
-    if (_sel == null) return const [];
-    final pos = _handlePositions();
-    if (pos == null) return const [];
+List<Widget> _buildHandles(ReaderSettings settings) {
+  if (_sel == null) return const [];
+  final pos = _handlePositions();
+  if (pos == null) return const [];
 
-    const trapW = 22.0;
-    const trapH = 32.0;
-    final color = Theme.of(context).colorScheme.primary;
+  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
+  const trapW = 22.0;
+  const trapH = 32.0;
+  final color = Theme.of(context).colorScheme.primary;
 
-    var leftPos = pos.left;
-    var rightPos = pos.right;
+  var leftPos = pos.left;
+  var rightPos = pos.right;
 
-    if (_draggingHandle == 1 && _dragHandlePos != null) {
-      leftPos = _dragHandlePos!;
-    } else if (_draggingHandle == 2 && _dragHandlePos != null) {
-      rightPos = _dragHandlePos!;
-    } else {
-      final dx = (rightPos.dx - leftPos.dx).abs();
-      if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
-        final mid = (leftPos.dx + rightPos.dx) / 2;
-        leftPos = Offset(mid - 10, leftPos.dy);
-        rightPos = Offset(mid + 10, rightPos.dy);
-      }
+  if (_draggingHandle == 1 && _dragHandlePos != null) {
+    leftPos = _dragHandlePos!;
+  } else if (_draggingHandle == 2 && _dragHandlePos != null) {
+    rightPos = _dragHandlePos!;
+  } else {
+    final dx = (rightPos.dx - leftPos.dx).abs();
+    if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
+      final mid = (leftPos.dx + rightPos.dx) / 2;
+      leftPos = Offset(mid - 10, leftPos.dy);
+      rightPos = Offset(mid + 10, rightPos.dy);
     }
-
-    final safeTop = MediaQuery.of(context).padding.top;
-    final screenH = MediaQuery.of(context).size.height;
-
-    Widget handle(Offset globalPos, int which) {
-      final isLeft = which == 1;
-      final textTopY = globalPos.dy;
-      // 文字实际高度约等于 fontSize（不是 lineHeight，lineHeight 含 leading）
-      final textBottomY = globalPos.dy + settings.fontSize;
-
-      // 屏幕底部放不下 → 翻转，梯形挂到文字上方
-      final bottomOverflow = textBottomY + trapH + 4 > screenH;
-
-      final double topPos;
-      final bool flip;
-
-      if (bottomOverflow) {
-        topPos = textTopY - safeTop - trapH;
-        flip = true;
-      } else {
-        topPos = textBottomY - safeTop;
-        flip = false;
-      }
-
-      // 左手柄：梯形整体在字符左边，尖角贴字符左边缘
-      // 右手柄：梯形整体在字符右边，尖角贴字符右边缘
-      final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
-
-      return Positioned(
-        left: left,
-        top: topPos,
-        width: trapW,
-        height: trapH,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: (d) {
-            if (isLeft) {
-              _startDragLeft(d.globalPosition);
-            } else {
-              _startDragRight(d.globalPosition);
-            }
-          },
-          onPanUpdate: (d) {
-            if (_draggingHandle != which) return;
-            // 视觉手柄位置：按按下时的偏移量跟随手指，保持按下瞬间不跳变
-            final offset = _dragHandleOffset ?? Offset.zero;
-            final handleLogic = d.globalPosition - offset;
-            setState(() {
-              _dragHandlePos = handleLogic;
-            });
-            // 命中测试用真实手指位置：手指进入下一行 + h/3 缓冲才跨行，
-            // 避免因手指与手柄逻辑位置相差一个 fontSize+trapH/2 而拖很远
-            _updateSelectionFromDrag(d.globalPosition);
-          },
-          onPanEnd: (_) {
-            setState(() {
-              _draggingHandle = 0;
-              _dragHandlePos = null;
-              _dragHandleOffset = null;
-              _hBarVisible = true;
-            });
-          },
-          child: CustomPaint(
-            painter: _TrapezoidPainter(
-              color: color,
-              isLeft: isLeft,
-              flip: flip,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return [
-      handle(leftPos, 1),
-      handle(rightPos, 2),
-    ];
   }
 
+  final safeTop = MediaQuery.of(context).padding.top;
+  final screenH = MediaQuery.of(context).size.height;
+
+  Widget handle(Offset globalPos, int which) {
+    final isLeft = which == 1;
+    final textTopY = globalPos.dy;
+// 文字实际高度约等于 fontSize（不是 lineHeight，lineHeight 含 leading）
+final textBottomY = globalPos.dy + settings.fontSize;
+    
+
+    // 屏幕底部放不下 → 翻转，梯形挂到文字上方
+    final bottomOverflow = textBottomY + trapH + 4 > screenH;
+
+    final double topPos;
+    final bool flip;
+
+    if (bottomOverflow) {
+      topPos = textTopY - safeTop - trapH;
+      flip = true;
+    } else {
+      topPos = textBottomY - safeTop;
+      flip = false;
+    }
+
+// 左手柄：梯形整体在字符左边，尖角贴字符左边缘
+// 右手柄：梯形整体在字符右边，尖角贴字符右边缘
+final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
+
+    
+    return Positioned(
+      left: left,
+      top: topPos,
+      width: trapW,
+      height: trapH,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (d) {
+          if (isLeft) {
+            _startDragLeft(d.globalPosition);
+          } else {
+            _startDragRight(d.globalPosition);
+          }
+        },
+        onPanUpdate: (d) {
+          if (_draggingHandle != which) return;
+          final offset = _dragHandleOffset ?? Offset.zero;
+          final handleLogic = d.globalPosition - offset;
+          setState(() {
+            _dragHandlePos = handleLogic;
+          });
+          _updateSelectionFromDrag(handleLogic);
+        },
+        onPanEnd: (_) {
+          setState(() {
+            _draggingHandle = 0;
+            _dragHandlePos = null;
+            _dragHandleOffset = null;
+            _hBarVisible = true;
+          });
+        },
+        child: CustomPaint(
+          painter: _TrapezoidPainter(
+            color: color,
+            isLeft: isLeft,
+            flip: flip,
+          ),
+        ),
+      ),
+    );
+  }
+
+  return [
+    handle(leftPos, 1),
+    handle(rightPos, 2),
+  ];
+}
+  
   // ==================== 弹窗渲染 ====================
 
   Widget _buildHBar(ReaderSettings settings, Size size) {
