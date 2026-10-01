@@ -204,9 +204,9 @@ const SizedBox(height: 16),
                   _sliderHeader(
                       '按钮大小', '${s.buttonScale.toStringAsFixed(1)}×'),
                   Slider(
-                    min: 0.3,
-                    max: 5.0,
-                    value: s.buttonScale.clamp(0.3, 5.0),
+                    min: 0.2,
+                    max: 10.0,
+                    value: s.buttonScale.clamp(0.2, 10.0),
                     onChanged: n.setButtonScale,
                   ),
 
