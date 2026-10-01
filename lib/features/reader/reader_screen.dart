@@ -757,30 +757,48 @@ Offset? _posOfChar(int line, int offset) {
   }
 
   void _onPointerMove(PointerMoveEvent e) {
-    if (!_pressDown) return;
+  if (!_pressDown) return;
 
-    final dx = e.position.dx - _downPos.dx;
-    final dy = e.position.dy - _downPos.dy;
-    final absDx = dx.abs();
-    final absDy = dy.abs();
+  // ===== 长按已成立：手指移动 → 扩展选区终点 =====
+  if (_longPressFired) {
+    final sel = _sel;
+    if (sel == null) return;
+    final hit = _hitTest(e.position);
+    if (hit == null) return;
+    setState(() {
+      _sel = _SelectionRange(
+        startLine: sel.startLine,
+        startOffset: sel.startOffset,
+        endLine: hit.line,
+        endOffset: hit.offset,
+      );
+    });
+    return;
+  }
 
-    if (!_movedBeyondThreshold) {
-      if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
-        _movedBeyondThreshold = true;
-        _longPressTimer?.cancel();
-      }
-    }
+  // ===== 长按还没成立：原有的位移/横向滑动判断 =====
+  final dx = e.position.dx - _downPos.dx;
+  final dy = e.position.dy - _downPos.dy;
+  final absDx = dx.abs();
+  final absDy = dy.abs();
 
-    if (_draggingHandle == 0 && !_horizontalDrag) {
-      if (absDx > 20 && absDx > absDy * 1.5) {
-        _horizontalDrag = true;
-      }
-    }
-
-    if (_draggingHandle != 0) {
-      _updateSelectionFromDrag(e.position);
+  if (!_movedBeyondThreshold) {
+    if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
+      _movedBeyondThreshold = true;
+      _longPressTimer?.cancel();
     }
   }
+
+  if (_draggingHandle == 0 && !_horizontalDrag) {
+    if (absDx > 20 && absDx > absDy * 1.5) {
+      _horizontalDrag = true;
+    }
+  }
+
+  if (_draggingHandle != 0) {
+    _updateSelectionFromDrag(e.position);
+  }
+}
 
   void _onPointerUp(PointerUpEvent e) {
     _longPressTimer?.cancel();
