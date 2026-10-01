@@ -1424,90 +1424,138 @@ if (_longPressFired) {
 
   // ==================== 手柄渲染 ====================
 
-  List<Widget> _buildHandles(ReaderSettings settings) {
-    if (_sel == null) return const [];
-    final pos = _handlePositions();
-    if (pos == null) return const [];
 
-    final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-    const handleW = 22.0;
-    final handleH = lineHeight + 20.0;
-    const circleR = 6.0;
+    List<Widget> _buildHandles(ReaderSettings settings) {
+  if (_sel == null) return const [];
+  final pos = _handlePositions();
+  if (pos == null) return const [];
 
+  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
+  const handleW = 24.0;
+  const trapW = 12.0;
+  const trapH = 18.0;
+  final color = Theme.of(context).colorScheme.primary;
 
+  var leftPos = pos.left;
+  var rightPos = pos.right;
 
-
-var leftPos = pos.left;
-var rightPos = pos.right;
-
-// 正在拖的手柄，位置用手指的实时位置（跟手）
-if (_draggingHandle == 1 && _dragHandlePos != null) {
-  leftPos = _dragHandlePos!;
-} else if (_draggingHandle == 2 && _dragHandlePos != null) {
-  rightPos = _dragHandlePos!;
-} else {
-  // 两个手柄水平距离太小（字符太窄 / 零宽 / 行尾）→ 往两边推
-  final dx = (rightPos.dx - leftPos.dx).abs();
-  if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
-    final mid = (leftPos.dx + rightPos.dx) / 2;
-    leftPos = Offset(mid - 10, leftPos.dy);
-    rightPos = Offset(mid + 10, rightPos.dy);
+  // 正在拖的手柄，位置用手指的实时位置（跟手）
+  if (_draggingHandle == 1 && _dragHandlePos != null) {
+    leftPos = _dragHandlePos!;
+  } else if (_draggingHandle == 2 && _dragHandlePos != null) {
+    rightPos = _dragHandlePos!;
+  } else {
+    // 两个手柄水平距离太小 → 往两边推
+    final dx = (rightPos.dx - leftPos.dx).abs();
+    if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
+      final mid = (leftPos.dx + rightPos.dx) / 2;
+      leftPos = Offset(mid - 10, leftPos.dy);
+      rightPos = Offset(mid + 10, rightPos.dy);
+    }
   }
-}
 
+  final safeTop = MediaQuery.of(context).padding.top;
+  final screenH = MediaQuery.of(context).size.height;
 
+  Widget handle(Offset globalPos, int which) {
+    final isLeft = which == 1;
 
+    // 当前行底部 + 梯形 + 一点余量，是否超出屏幕底
+    final bottomOverflow =
+        globalPos.dy + lineHeight + trapH + 8 > screenH;
 
-    
-    Widget handle(Offset globalPos, int which) {
-      final top = MediaQuery.of(context).padding.top;
-      final left = globalPos.dx - handleW / 2;
-      final topPos = globalPos.dy - top;
+    final double topPos;
+    final double lineTop;
+    final double trapTop;
+    final double handleH;
 
-      return Positioned(
-        left: left,
-        top: topPos,
-        width: handleW,
-        height: handleH,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: (d) {
-            if (which == 1) {
-              _startDragLeft(d.globalPosition);
-            } else {
-              _startDragRight(d.globalPosition);
-            }
-          },
-          onPanUpdate: (d) {
-            if (_draggingHandle != which) return;
-            setState(() {
-              _dragHandlePos = d.globalPosition;
-            });
-            _updateSelectionFromDrag(d.globalPosition);
-          },
-          onPanEnd: (_) {
-            setState(() {
-              _draggingHandle = 0;
-              _dragHandlePos = null;
-              _hBarVisible = true;
-            });
-          },
-          child: CustomPaint(
-            painter: _HandlePainter(
-              color: Theme.of(context).colorScheme.primary,
-              lineHeight: lineHeight,
-              circleR: circleR,
-            ),
-          ),
-        ),
-      );
+    if (bottomOverflow) {
+      // 翻转：梯形在竖线上方
+      handleH = trapH + 2 + lineHeight;
+      topPos = globalPos.dy - safeTop - trapH - 2;
+      lineTop = trapH + 2;
+      trapTop = 0;
+    } else {
+      // 正常：竖线在上，梯形在下
+      handleH = lineHeight + trapH + 2;
+      topPos = globalPos.dy - safeTop;
+      lineTop = 0;
+      trapTop = lineHeight + 2;
     }
 
-    return [
-      handle(leftPos, 1),
-      handle(rightPos, 2),
-    ];
+    final left = globalPos.dx - handleW / 2;
+
+    return Positioned(
+      left: left,
+      top: topPos,
+      width: handleW,
+      height: handleH,
+      child: Stack(
+        children: [
+          // 竖线：不接收手势
+          Positioned(
+            left: 0,
+            top: lineTop,
+            width: handleW,
+            height: lineHeight,
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _HandleLinePainter(
+                  color: color,
+                  lineHeight: lineHeight,
+                ),
+              ),
+            ),
+          ),
+          // 梯形：只有这一块能拖
+          Positioned(
+            left: isLeft ? 0 : handleW - trapW,
+            top: trapTop,
+            width: trapW,
+            height: trapH,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: (d) {
+                if (isLeft) {
+                  _startDragLeft(d.globalPosition);
+                } else {
+                  _startDragRight(d.globalPosition);
+                }
+              },
+              onPanUpdate: (d) {
+                if (_draggingHandle != which) return;
+                setState(() {
+                  _dragHandlePos = d.globalPosition;
+                });
+                _updateSelectionFromDrag(d.globalPosition);
+              },
+              onPanEnd: (_) {
+                setState(() {
+                  _draggingHandle = 0;
+                  _dragHandlePos = null;
+                  _hBarVisible = true;
+                });
+              },
+              child: CustomPaint(
+                painter: _TrapezoidPainter(
+                  color: color,
+                  isLeft: isLeft,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
+
+  return [
+    handle(leftPos, 1),
+    handle(rightPos, 2),
+  ];
+}
+    
+  
 
   // ==================== 弹窗渲染 ====================
 
