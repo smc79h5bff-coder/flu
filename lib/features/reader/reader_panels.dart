@@ -172,13 +172,21 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     ),
                   ],
                 ),
+
+
+
                 if (s.showButtons) ...[
-                  const SizedBox(height: 8),
-                  const Text('按钮位置预览',
-                      style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  _miniPreview(context, s),
+  const SizedBox(height: 8),
+  const Text('按钮位置预览',
+      style: TextStyle(
+          fontSize: 13, fontWeight: FontWeight.w600)),
+  const SizedBox(height: 8),
+  _miniPreview(context, s, ref.watch(readerPagePreviewProvider)),
+
+
+
+
+                  
                   const SizedBox(height: 12),
                   _sliderHeader(
                       '按钮透明度',
@@ -329,7 +337,15 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
   }
 }
 
-Widget _miniPreview(BuildContext context, ReaderSettings s) {
+
+
+
+
+Widget _miniPreview(
+  BuildContext context,
+  ReaderSettings s,
+  String pageText,
+) {
   final screenSize = MediaQuery.of(context).size;
   const previewWidth = 180.0;
   final previewHeight = previewWidth * screenSize.height / screenSize.width;
@@ -343,6 +359,7 @@ Widget _miniPreview(BuildContext context, ReaderSettings s) {
         border: Border.all(color: Colors.grey.shade400),
         borderRadius: BorderRadius.circular(6),
       ),
+      clipBehavior: Clip.antiAlias,
       child: LayoutBuilder(
         builder: (ctx, constraints) {
           final w = constraints.maxWidth;
@@ -380,6 +397,25 @@ Widget _miniPreview(BuildContext context, ReaderSettings s) {
 
           return Stack(
             children: [
+              if (pageText.isNotEmpty)
+                Positioned.fill(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 12 * scale + 2,
+                      vertical: 8 * scale + 2,
+                    ),
+                    child: Text(
+                      pageText,
+                      style: TextStyle(
+                        fontSize: s.fontSize * scale,
+                        height: 1.4,
+                        color: const Color(0xFF222222),
+                      ),
+                      softWrap: true,
+                      overflow: TextOverflow.clip,
+                    ),
+                  ),
+                ),
               dot(topLeft, Icons.keyboard_arrow_up),
               dot(botLeft, Icons.keyboard_arrow_down),
             ],
@@ -389,6 +425,14 @@ Widget _miniPreview(BuildContext context, ReaderSettings s) {
     ),
   );
 }
+
+
+          
+          
+
+
+
+
 
 // ==================== 查找栏 ====================
 
