@@ -589,12 +589,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (ctx == null) return null;
     final rp = ctx.findRenderObject();
     if (rp is! RenderParagraph) return null;
-
-    final lineText = line < _lines.length ? _lines[line] : '';
-    final safeOffset = offset.clamp(0, lineText.length);
-    final textPos = TextPosition(offset: safeOffset);
-    final local = rp.getOffsetForCaret(textPos, Rect.zero);
-    return rp.localToGlobal(local);
+final lineText = line < _lines.length ? _lines[line] : '';
+final safeOffset = offset.clamp(0, lineText.length);
+final textPos = TextPosition(offset: safeOffset);
+// 传完整行高，让 caret 从行顶部开始
+final caretRect = Rect.fromLTWH(0, 0, 1, rp.size.height);
+final local = rp.getOffsetForCaret(textPos, caretRect);
+return rp.localToGlobal(local);
   }
 
   String _selectedText() {
