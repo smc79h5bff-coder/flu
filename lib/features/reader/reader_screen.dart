@@ -58,8 +58,6 @@ class _CharPos {
 
 // ==================== 手柄绘制 ====================
 
-// ==================== 手柄绘制 ====================
-
 /// 竖线：只负责显示，不接收手势。
 class _HandleLinePainter extends CustomPainter {
   _HandleLinePainter({
@@ -108,14 +106,12 @@ class _TrapezoidPainter extends CustomPainter {
 
     final path = Path();
     if (isLeft) {
-      // 左手柄：右侧是长直角边（全高），左侧是短直角边（下半），顶边斜
       path.moveTo(w, 0);
       path.lineTo(w, h);
       path.lineTo(0, h);
       path.lineTo(0, mid);
       path.close();
     } else {
-      // 右手柄：镜像
       path.moveTo(0, 0);
       path.lineTo(0, h);
       path.lineTo(w, h);
@@ -129,7 +125,6 @@ class _TrapezoidPainter extends CustomPainter {
   bool shouldRepaint(_TrapezoidPainter old) =>
       old.color != color || old.isLeft != isLeft;
 }
-
 
 // ==================== ReaderScreen ====================
 
@@ -184,8 +179,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
   Offset? _dragHandlePos;
-/// 长按后手指最后处理过的位置。用来做去抖。
-Offset? _lastLongPressPos;
+
+  /// 长按后手指最后处理过的位置。用来做去抖。
+  Offset? _lastLongPressPos;
+
   Timer? _longPressTimer;
 
   Offset _downPos = Offset.zero;
@@ -200,7 +197,7 @@ Offset? _lastLongPressPos;
 
   int _lastTapUpMs = 0;
 
-  static const Color _selectionBg = Color(0x773D7CFF);
+  static const Color _selectionBg = Color(0xFFD6EAFF);
   static const Color _selectionFg = Color(0xFF000000);
   static const int _longPressMs = 400;
   static const double _moveThresholdDp = 10.0;
@@ -587,6 +584,7 @@ Offset? _lastLongPressPos;
     _pressDown = false;
     _draggingHandle = 0;
     _dragHandlePos = null;
+    _lastLongPressPos = null;
     _horizontalDrag = false;
 
     if (_sel != null || _hBarVisible) {
@@ -627,37 +625,36 @@ Offset? _lastLongPressPos;
     return null;
   }
 
-/// 带 Y 方向缓冲的命中测试，只用于拖手柄。
-/// 如果手指还在 preferLine 的 ±行高/3 范围内，锁定在 preferLine，
-/// 避免横拖时手指上下抖动导致跨行。
-_CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
-  final ctx = _lineKeys[preferLine]?.currentContext;
-  if (ctx != null) {
-    final rp = ctx.findRenderObject();
-    if (rp is RenderParagraph) {
-      final topLeft = rp.localToGlobal(Offset.zero);
-      final h = rp.size.height;
-      final buffer = h / 3;
-      final dy = globalPos.dy;
-      if (dy >= topLeft.dy - buffer && dy <= topLeft.dy + h + buffer) {
-        final local = rp.globalToLocal(globalPos);
-        final clamped = Offset(
-          local.dx.clamp(0.0, rp.size.width),
-          local.dy.clamp(0.0, rp.size.height),
-        );
-        final pos = rp.getPositionForOffset(clamped);
-        final line = _lines[preferLine];
-        return _CharPos(
-          line: preferLine,
-          offset: pos.offset.clamp(0, line.length),
-        );
+  /// 带 Y 方向缓冲的命中测试，只用于拖手柄。
+  /// 如果手指还在 preferLine 的 ±行高/3 范围内，锁定在 preferLine，
+  /// 避免横拖时手指上下抖动导致跨行。
+  _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
+    final ctx = _lineKeys[preferLine]?.currentContext;
+    if (ctx != null) {
+      final rp = ctx.findRenderObject();
+      if (rp is RenderParagraph) {
+        final topLeft = rp.localToGlobal(Offset.zero);
+        final h = rp.size.height;
+        final buffer = h / 3;
+        final dy = globalPos.dy;
+        if (dy >= topLeft.dy - buffer && dy <= topLeft.dy + h + buffer) {
+          final local = rp.globalToLocal(globalPos);
+          final clamped = Offset(
+            local.dx.clamp(0.0, rp.size.width),
+            local.dy.clamp(0.0, rp.size.height),
+          );
+          final pos = rp.getPositionForOffset(clamped);
+          final line = _lines[preferLine];
+          return _CharPos(
+            line: preferLine,
+            offset: pos.offset.clamp(0, line.length),
+          );
+        }
       }
     }
+    return _hitTest(globalPos);
   }
-  return _hitTest(globalPos);
-}
 
-  
   /// 从 (line, offset) 算屏幕全局坐标。
   /// 返回字符盒的左上角。
   Offset? _posOfChar(int line, int offset) {
@@ -798,10 +795,10 @@ _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
     _downPos = e.position;
     _downMs = DateTime.now().millisecondsSinceEpoch;
     _longPressFired = false;
-_movedBeyondThreshold = false;
-_horizontalDrag = false;
-_pressDown = true;
-_lastLongPressPos = null;
+    _movedBeyondThreshold = false;
+    _horizontalDrag = false;
+    _pressDown = true;
+    _lastLongPressPos = null;
 
     if (_hBarVisible || _sel != null) {
       setState(() {
@@ -822,32 +819,29 @@ _lastLongPressPos = null;
     if (!_pressDown) return;
 
     // ===== 长按已成立：手指移动 → 扩展选区终点 =====
-   // ===== 长按已成立：手指移动 → 扩展选区终点 =====
-if (_longPressFired) {
-  final sel = _sel;
-  if (sel == null) return;
+    if (_longPressFired) {
+      final sel = _sel;
+      if (sel == null) return;
 
-  // 去抖：距上次处理位置不到 10 像素就不管，过滤触摸屏抖动
-// 去抖：距基准位置不到 10 像素就不管
-// 第一次用 _downPos 作基准，之后用上次处理位置
-final ref = _lastLongPressPos ?? _downPos;
-if ((e.position - ref).distance < 10.0) return;
-_lastLongPressPos = e.position;
-  
+      // 去抖：距基准位置不到 10 像素就不管
+      // 第一次用 _downPos 作基准，之后用上次处理位置
+      final ref0 = _lastLongPressPos ?? _downPos;
+      if ((e.position - ref0).distance < 10.0) return;
+      _lastLongPressPos = e.position;
 
-  final hit = _hitTest(e.position);
-  if (hit == null) return;
-  setState(() {
-    _sel = _SelectionRange(
-      startLine: sel.startLine,
-      startOffset: sel.startOffset,
-      endLine: hit.line,
-      endOffset: hit.offset,
-    );
-    _selVersion++;
-  });
-  return;
-}
+      final hit = _hitTest(e.position);
+      if (hit == null) return;
+      setState(() {
+        _sel = _SelectionRange(
+          startLine: sel.startLine,
+          startOffset: sel.startOffset,
+          endLine: hit.line,
+          endOffset: hit.offset,
+        );
+        _selVersion++;
+      });
+      return;
+    }
 
     // ===== 长按还没成立：原有的位移/横向滑动判断 =====
     final dx = e.position.dx - _downPos.dx;
@@ -887,33 +881,33 @@ _lastLongPressPos = e.position;
     }
 
     if (_longPressFired) {
-  // 保险：万一抖动导致选区退化（start==end），恢复成选中一个字
-  final sel = _sel;
-  if (sel != null &&
-      sel.startLine == sel.endLine &&
-      sel.startOffset == sel.endOffset) {
-    final line = _lines[sel.startLine];
-    if (line.isNotEmpty) {
-      final off = sel.startOffset.clamp(0, line.length - 1);
+      // 保险：万一抖动导致选区退化（start==end），恢复成选中一个字
+      final sel = _sel;
+      if (sel != null &&
+          sel.startLine == sel.endLine &&
+          sel.startOffset == sel.endOffset) {
+        final line = _lines[sel.startLine];
+        if (line.isNotEmpty) {
+          final off = sel.startOffset.clamp(0, line.length - 1);
+          setState(() {
+            _sel = _SelectionRange(
+              startLine: sel.startLine,
+              startOffset: off,
+              endLine: sel.startLine,
+              endOffset: off + 1,
+            );
+            _hBarVisible = true;
+          });
+          _pressDown = false;
+          return;
+        }
+      }
       setState(() {
-        _sel = _SelectionRange(
-          startLine: sel.startLine,
-          startOffset: off,
-          endLine: sel.startLine,
-          endOffset: off + 1,
-        );
         _hBarVisible = true;
       });
       _pressDown = false;
       return;
     }
-  }
-  setState(() {
-    _hBarVisible = true;
-  });
-  _pressDown = false;
-  return;
-}
 
     if (_horizontalDrag) {
       final dx = e.position.dx - _downPos.dx;
@@ -1013,12 +1007,12 @@ _lastLongPressPos = e.position;
   }
 
   void _updateSelectionFromDrag(Offset globalPos) {
-  final sel = _sel;
-  if (sel == null) return;
-  // 拖左手柄时锁定在原 startLine，拖右手柄锁定在原 endLine
-  final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
-  final hit = _hitTestWithBuffer(globalPos, preferLine);
-  if (hit == null) return;
+    final sel = _sel;
+    if (sel == null) return;
+    // 拖左手柄时锁定在原 startLine，拖右手柄锁定在原 endLine
+    final preferLine = _draggingHandle == 1 ? sel.startLine : sel.endLine;
+    final hit = _hitTestWithBuffer(globalPos, preferLine);
+    if (hit == null) return;
 
     if (_draggingHandle == 1) {
       setState(() {
@@ -1343,29 +1337,34 @@ _lastLongPressPos = e.position;
         }
         final entry = h.entry;
         final hlText = line.substring(h.startInLine, h.endInLine);
-     
-        
-        
         if (entry.colors.length > 1) {
-  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-  final shader = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: entry.colors
-        .map((c) => Color(c))
-        .toList(growable: false),
-  ).createShader(Rect.fromLTWH(0, 0, 2000, lineHeight));
-  final hlStyle = base.copyWith(
-    color: Color(entry.textColor),
-    background: Paint()..shader = shader,
-  );
-  baseSpans.add(TextSpan(text: hlText, style: hlStyle));
-} else {
-
-
-
-
-          
+          baseSpans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: entry.colors
+                      .map((c) => Color(c))
+                      .toList(growable: false),
+                ),
+              ),
+              child: Text(
+                hlText,
+                style: base.copyWith(
+                  color: Color(entry.textColor),
+                  height: null,
+                ),
+                textHeightBehavior: const TextHeightBehavior(
+                  applyHeightToFirstAscent: false,
+                  applyHeightToLastDescent: false,
+                ),
+              ),
+            ),
+          ));
+        } else {
           final hlStyle = base.copyWith(
             color: Color(entry.textColor),
             backgroundColor: Color(entry.colors.first),
@@ -1419,141 +1418,144 @@ _lastLongPressPos = e.position;
 
   // ==================== 手柄渲染 ====================
 
-
-    
   List<Widget> _buildHandles(ReaderSettings settings) {
-  if (_sel == null) return const [];
-  final pos = _handlePositions();
-  if (pos == null) return const [];
+    if (_sel == null) return const [];
+    final pos = _handlePositions();
+    if (pos == null) return const [];
 
-  final fullLineH = settings.fontSize * kReaderLineHeightFactor;
-  final lineDrawH = fullLineH * 0.5; // 竖线缩短到一半
-  const trapW = 24.0;   // 12 * 2
-  const trapH = 36.0;   // 18 * 2
-  const handleW = 48.0; // trapW * 2，让梯形完全在竖线一侧
-  final color = Theme.of(context)
-      .colorScheme
-      .primary
-      .withValues(alpha: 0.5);
+    final lineHeight = settings.fontSize * kReaderLineHeightFactor;
+    const handleW = 24.0;
+    const trapW = 12.0;
+    const trapH = 18.0;
+    final color = Theme.of(context).colorScheme.primary;
 
-  var leftPos = pos.left;
-  var rightPos = pos.right;
+    var leftPos = pos.left;
+    var rightPos = pos.right;
 
-  if (_draggingHandle == 1 && _dragHandlePos != null) {
-    leftPos = _dragHandlePos!;
-  } else if (_draggingHandle == 2 && _dragHandlePos != null) {
-    rightPos = _dragHandlePos!;
-  } else {
-    final dx = (rightPos.dx - leftPos.dx).abs();
-    if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
-      final mid = (leftPos.dx + rightPos.dx) / 2;
-      leftPos = Offset(mid - 10, leftPos.dy);
-      rightPos = Offset(mid + 10, rightPos.dy);
-    }
-  }
-
-  final safeTop = MediaQuery.of(context).padding.top;
-  final screenH = MediaQuery.of(context).size.height;
-
-  Widget handle(Offset globalPos, int which) {
-    final isLeft = which == 1;
-
-    // 屏幕底部放不下 → 翻转：梯形在文字上方
-    final bottomOverflow =
-        globalPos.dy + fullLineH + trapH + 8 > screenH;
-
-    final double topPos;
-    final double lineTop;
-    final double trapTop;
-    final double handleH;
-
-    if (bottomOverflow) {
-      handleH = trapH + 2 + lineDrawH;
-      topPos = globalPos.dy - safeTop - trapH - 2;
-      trapTop = 0;
-      lineTop = trapH + 2;
+    // 正在拖的手柄，位置用手指的实时位置（跟手）
+    if (_draggingHandle == 1 && _dragHandlePos != null) {
+      leftPos = _dragHandlePos!;
+    } else if (_draggingHandle == 2 && _dragHandlePos != null) {
+      rightPos = _dragHandlePos!;
     } else {
-      handleH = fullLineH + trapH + 2;
-      topPos = globalPos.dy - safeTop;
-      lineTop = 0;
-      trapTop = fullLineH + 2; // 紧贴文字底部，留 2px 缝
+      // 两个手柄水平距离太小 → 往两边推
+      final dx = (rightPos.dx - leftPos.dx).abs();
+      if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
+        final mid = (leftPos.dx + rightPos.dx) / 2;
+        leftPos = Offset(mid - 10, leftPos.dy);
+        rightPos = Offset(mid + 10, rightPos.dy);
+      }
     }
 
-    final left = globalPos.dx - handleW / 2;
+    final safeTop = MediaQuery.of(context).padding.top;
+    final screenH = MediaQuery.of(context).size.height;
 
-    return Positioned(
-      left: left,
-      top: topPos,
-      width: handleW,
-      height: handleH,
-      child: Stack(
-        children: [
-          // 竖线：不接收手势
-          Positioned(
-            left: 0,
-            top: lineTop,
-            width: handleW,
-            height: lineDrawH,
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _HandleLinePainter(
-                  color: color,
-                  lineHeight: lineDrawH,
+    Widget handle(Offset globalPos, int which) {
+      final isLeft = which == 1;
+
+      // 当前行底部 + 梯形 + 一点余量，是否超出屏幕底
+      final bottomOverflow =
+          globalPos.dy + lineHeight + trapH + 8 > screenH;
+
+      final double topPos;
+      final double lineTop;
+      final double trapTop;
+      final double handleH;
+
+      if (bottomOverflow) {
+        // 翻转：梯形在竖线上方
+        handleH = trapH + 2 + lineHeight;
+        topPos = globalPos.dy - safeTop - trapH - 2;
+        lineTop = trapH + 2;
+        trapTop = 0;
+      } else {
+        // 正常：竖线在上，梯形在下
+        handleH = lineHeight + trapH + 2;
+        topPos = globalPos.dy - safeTop;
+        lineTop = 0;
+        trapTop = lineHeight + 2;
+      }
+
+      final left = globalPos.dx - handleW / 2;
+
+      return Positioned(
+        left: left,
+        top: topPos,
+        width: handleW,
+        height: handleH,
+        child: Stack(
+          children: [
+            // 竖线：不接收手势
+            Positioned(
+              left: 0,
+              top: lineTop,
+              width: handleW,
+              height: lineHeight,
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _HandleLinePainter(
+                    color: color,
+                    lineHeight: lineHeight,
+                  ),
                 ),
               ),
             ),
-          ),
-          // 梯形：触摸区 = 视觉尺寸
-          Positioned(
-            left: isLeft ? handleW / 2 - trapW : handleW / 2,
-            top: trapTop,
-            width: trapW,
-            height: trapH,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onPanStart: (d) {
-                if (isLeft) {
-                  _startDragLeft(d.globalPosition);
-                } else {
-                  _startDragRight(d.globalPosition);
-                }
-              },
-              onPanUpdate: (d) {
-                if (_draggingHandle != which) return;
-                setState(() {
-                  _dragHandlePos = d.globalPosition;
-                });
-                _updateSelectionFromDrag(d.globalPosition);
-              },
-              onPanEnd: (_) {
-                setState(() {
-                  _draggingHandle = 0;
-                  _dragHandlePos = null;
-                  _hBarVisible = true;
-                });
-              },
-              child: CustomPaint(
-                painter: _TrapezoidPainter(
-                  color: color,
-                  isLeft: isLeft,
+            // 梯形：可见区域小，触摸区域向手柄外侧、向下扩
+            Positioned(
+              left: isLeft ? -trapW : handleW - trapW,
+              top: trapTop,
+              width: trapW * 2,
+              height: trapH + 8,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (d) {
+                  if (isLeft) {
+                    _startDragLeft(d.globalPosition);
+                  } else {
+                    _startDragRight(d.globalPosition);
+                  }
+                },
+                onPanUpdate: (d) {
+                  if (_draggingHandle != which) return;
+                  setState(() {
+                    _dragHandlePos = d.globalPosition;
+                  });
+                  _updateSelectionFromDrag(d.globalPosition);
+                },
+                onPanEnd: (_) {
+                  setState(() {
+                    _draggingHandle = 0;
+                    _dragHandlePos = null;
+                    _hBarVisible = true;
+                  });
+                },
+                child: Align(
+                  alignment: isLeft
+                      ? Alignment.topRight
+                      : Alignment.topLeft,
+                  child: SizedBox(
+                    width: trapW,
+                    height: trapH,
+                    child: CustomPaint(
+                      painter: _TrapezoidPainter(
+                        color: color,
+                        isLeft: isLeft,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    }
+
+    return [
+      handle(leftPos, 1),
+      handle(rightPos, 2),
+    ];
   }
-
-  return [
-    handle(leftPos, 1),
-    handle(rightPos, 2),
-  ];
-}
-              
-      
-    
-  
 
   // ==================== 弹窗渲染 ====================
 
@@ -1584,12 +1586,12 @@ _lastLongPressPos = e.position;
     final showBelow = midY < screenMid;
 
     double top;
-if (showBelow) {
-  // 手柄圆底部在行底部往下约 14px 处，这里留 24px 让它完全露出来
-  top = selBottom - safeTop + 24;
-} else {
-  top = selTop - safeTop - approxH - 8;
-}
+    if (showBelow) {
+      // 手柄梯形底部在行底往下约 20px，这里留 24px 让它完全露出来
+      top = selBottom - safeTop + 24;
+    } else {
+      top = selTop - safeTop - approxH - 8;
+    }
     top = top.clamp(4.0, topAreaH - approxH - 4);
 
     double left = startPos.dx - 8;
