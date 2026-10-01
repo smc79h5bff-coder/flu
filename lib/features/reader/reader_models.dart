@@ -514,24 +514,48 @@ class FindHistoryItem {
 }
 
 /// ==================== 分页结果 ====================
+
+/// ==================== 渲染单元 ====================
+///
+/// 普通行：一个逻辑行 = 一个 RenderUnit。
+/// 超长行（一屏放不下）：拆成多个 RenderUnit，每段高度 ≤ 一页。
+class RenderUnit {
+  const RenderUnit({
+    required this.lineIndex,
+    required this.charStart,
+    required this.charEnd,
+    required this.height,
+  });
+
+  final int lineIndex;
+  final int charStart;
+  final int charEnd;
+  final double height;
+
+  @override
+  String toString() =>
+      'RenderUnit(line=$lineIndex, [$charStart,$charEnd), h=$height)';
+}
+
+/// ==================== 分页结果 ====================
 class PaginationResult {
   const PaginationResult({
     required this.pageStarts,
+    required this.renderUnits,
     required this.lineStarts,
-    required this.lineHeights,
     required this.totalChars,
   });
 
-  /// 每页的起始行号
+  /// 每页的起始 RenderUnit 索引。
   final List<int> pageStarts;
 
-  /// 每行在全文的起始字符偏移
+  /// 所有渲染单元，按顺序排列。
+  final List<RenderUnit> renderUnits;
+
+  /// 每个逻辑行的字符起始偏移。
   final List<int> lineStarts;
 
-  /// 每行的估算高度（像素）
-  final List<double> lineHeights;
-
-  /// 全文总字符数
+  /// 全文总字符数。
   final int totalChars;
 
   int get pageCount => pageStarts.length;
