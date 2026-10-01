@@ -377,13 +377,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  void _openManager() {
-    if (widget.filePaths.isEmpty) return;
-    final path = widget.filePaths[_fileIndex];
-    final fileKey = readerFileKey(path);
-    final fileName = path.split('/').last;
-    openBookmarkHighlightManager(context, fileKey, fileName);
+  Future<void> _openManager() async {
+  if (widget.filePaths.isEmpty) return;
+  final path = widget.filePaths[_fileIndex];
+  final fileKey = readerFileKey(path);
+  final fileName = path.split('/').last;
+  final result = await openBookmarkHighlightManager(context, fileKey, fileName);
+  if (!mounted) return;
+  if (result != null && _pagination != null) {
+    final page = findPageForOffset(_pagination!, result);
+    _jumpToPage(page);
   }
+}
 
   Future<void> _openEditor() async {
     if (widget.filePaths.isEmpty) return;
