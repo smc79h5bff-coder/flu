@@ -200,7 +200,7 @@ Offset? _lastLongPressPos;
 
   int _lastTapUpMs = 0;
 
-  static const Color _selectionBg = Color(0xDDD6EAFF);
+  static const Color _selectionBg = Color(0x773D7CFF);
   static const Color _selectionFg = Color(0xFF000000);
   static const int _longPressMs = 400;
   static const double _moveThresholdDp = 10.0;
