@@ -1128,27 +1128,43 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         }
         final entry = h.entry;
         final hlText = line.substring(h.startInLine, h.endInLine);
+       
+        
+        
+        
+        
+        
         if (entry.colors.length > 1) {
-          baseSpans.add(WidgetSpan(
-            alignment: PlaceholderAlignment.baseline,
-            baseline: TextBaseline.alphabetic,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: entry.colors
-                      .map((c) => Color(c))
-                      .toList(growable: false),
-                ),
-              ),
-              child: Text(
-                hlText,
-                style: base.copyWith(color: Color(entry.textColor)),
-              ),
-            ),
-          ));
-        } else {
+  baseSpans.add(WidgetSpan(
+    alignment: PlaceholderAlignment.baseline,
+    baseline: TextBaseline.alphabetic,
+    child: Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: entry.colors
+              .map((c) => Color(c))
+              .toList(growable: false),
+        ),
+      ),
+      child: Text(
+        hlText,
+        style: base.copyWith(
+          color: Color(entry.textColor),
+          height: null,
+        ),
+        textHeightBehavior: const TextHeightBehavior(
+          applyHeightToFirstAscent: false,
+          applyHeightToLastDescent: false,
+        ),
+      ),
+    ),
+  ));
+} else {
+          
+
+          
           final hlStyle = base.copyWith(
             color: Color(entry.textColor),
             backgroundColor: Color(entry.colors.first),
@@ -1540,6 +1556,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         lines: _lines,
         highlights: newHighlights,
       );
-    });
-  }
+    _sel = null;
+    _hBarVisible = false;
+  });
 }
