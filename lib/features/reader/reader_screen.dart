@@ -144,7 +144,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// 0=无, 1=拖左, 2=拖右
   int _draggingHandle = 0;
-
+/// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
+Offset? _dragHandlePos;
+  
   Timer? _longPressTimer;
 
   Offset _downPos = Offset.zero;
