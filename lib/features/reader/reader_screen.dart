@@ -692,10 +692,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ),
     );
   }
-
-  Widget _buildReader(ReaderSettings settings, Size size) {
-    final pagination = _pagination!;
-    final range = pageLineRange(pagination, _currentPage);
+Widget _buildReader(ReaderSettings settings, Size size) {
+  final pagination = _pagination!;
+  final range = pageLineRange(pagination, _currentPage);
+  final previewHotZone = ref.watch(readerHotZonePreviewProvider);
 
     return Stack(
       children: [
@@ -745,16 +745,33 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
         // 顶部 40px 热区 → 打开菜单
         Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          height: settings.topHotZoneHeight,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _showTopMenu,
-            child: Container(color: Colors.transparent),
-          ),
-        ),
+  top: 0,
+  left: 0,
+  right: 0,
+  height: settings.topHotZoneHeight,
+  child: GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: _showTopMenu,
+    child: Container(
+      color: previewHotZone
+          ? Colors.red.withValues(alpha: 0.25)
+          : Colors.transparent,
+      child: previewHotZone
+          ? Align(
+              alignment: Alignment.center,
+              child: Text(
+                '菜单热区 · ${settings.topHotZoneHeight.toStringAsFixed(0)}px',
+                style: const TextStyle(
+                  color: Colors.red,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            )
+          : null,
+    ),
+  ),
+),
 
         // 浮动按钮
         if (settings.showButtons) ...[
