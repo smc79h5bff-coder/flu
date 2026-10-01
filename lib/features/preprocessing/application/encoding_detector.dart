@@ -9,9 +9,9 @@ import '../domain/encoding_type.dart';
 
 /// Sniff text encoding from raw bytes.
 ///
-/// PRD §2 Module 3.1: priority order — UTF-8 BOM → UTF-8 → GBK → GB18030 →
-/// Big5 → Shift-JIS. We implement BOM detection + strict UTF-8 validation +
-/// a simple GB-family heuristic. Full Big5/Shift-JIS path is P2 (TODO).
+/// 优先级：
+///   UTF-8 BOM → UTF-16 BOM → UTF-16 无 BOM 启发式
+///   → UTF-8 严格 → GBK → Big5 → Shift-JIS → unknown
 class EncodingDetector {
   const EncodingDetector._();
 
@@ -22,6 +22,7 @@ class EncodingDetector {
     if (bytes.isEmpty) return EncodingType.ascii;
 
     // 1. BOM checks（必须用原文，BOM 只在文件头）
+    // 顺序重要：先 UTF-8 BOM，再 UTF-16，再排除 UTF-32。
     if (bytes.length >= 3 &&
         bytes[0] == 0xEF &&
         bytes[1] == 0xBB &&
@@ -29,34 +30,51 @@ class EncodingDetector {
       return EncodingType.utf8bom;
     }
 
+    if (bytes.length >= 2) {
+      // UTF-16 LE BOM: FF FE，但要排除 UTF-32 LE (FF FE 00 00)
+      if (bytes[0] == 0xFF && bytes[1] == 0xFE) {
+        if (bytes.length >= 4 && bytes[2] == 0x00 && bytes[3] == 0x00) {
+          // UTF-32 LE，暂不支持
+          return EncodingType.unknown;
+        }
+        return EncodingType.utf16le;
+      }
+      // UTF-16 BE BOM: FE FF（UTF-32 BE 是 00 00 FE FF，不冲突）
+      if (bytes[0] == 0xFE && bytes[1] == 0xFF) {
+        return EncodingType.utf16be;
+      }
+    }
+
+    // 2. UTF-16 无 BOM 启发式（必须在 UTF-8 之前！
+    //    因为 UTF-16 里的 NUL 字节在 UTF-8 里是合法字符，
+    //    会被 _isStrictUtf8 误判为 UTF-8）
+    final utf16Guess = _guessUtf16WithoutBom(bytes);
+    if (utf16Guess != null) return utf16Guess;
+
     // 采样前缀用于启发式判断（编码对全文一致，取前 64KB 判断足够，
     // 避免对大 TXT 全文反复 O(n) 扫描导致导入卡顿）。
     final sample = bytes.length <= _sampleSize
         ? bytes
         : Uint8List.sublistView(bytes, 0, _sampleSize);
 
-    // 2. Strict UTF-8 trial
+    // 3. Strict UTF-8 trial
     if (_isStrictUtf8(sample)) {
       return bytes.every((b) => b < 0x80)
           ? EncodingType.ascii
           : EncodingType.utf8;
     }
 
-    // 3. GB-family heuristic（P0 covers UTF-8/GBK/GB18030）。GBK 优先，因为
-    //    中文场景最常见；Big5/Shift-JIS 因字节范围重叠难以用单字节对区分，
-    //    放在后面仅作弱 fallback（常规中文文本几乎不会命中）。
-    //    同时要求 UTF-8 容错解码下替换符密度高，避免把稀疏 ANSI 西文
-    //    或近似 UTF-8 文本误判成 GBK 而错解成中文乱码。
+    // 4. GB-family heuristic
     if (_looksLikeGbk(sample) && _isHighMissRate(sample)) {
       return EncodingType.gbk;
     }
 
-    // 4. Big5 heuristic: lead 0x81–0xFE, trail 0x40–0x7E / 0xA1–0xFE。
+    // 5. Big5 heuristic
     if (_looksLikeBig5(sample)) {
       return EncodingType.big5;
     }
 
-    // 5. Shift-JIS heuristic: lead 0x81–0x9F / 0xE0–0xEF, trail 0x40–0x7E / 0x80–0xFC。
+    // 6. Shift-JIS heuristic
     if (_looksLikeShiftJis(sample)) {
       return EncodingType.shiftJis;
     }
@@ -64,8 +82,8 @@ class EncodingDetector {
     return EncodingType.unknown;
   }
 
-  /// Decode bytes using the detected encoding. Falls back to lossy UTF-8 +
-  /// '' on illegal sequences (PRD §3.1 异常处理).
+  /// Decode bytes using the detected encoding. Falls back to lossy UTF-8
+  /// on illegal sequences.
   static String decode(Uint8List bytes, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.ascii:
@@ -74,6 +92,10 @@ class EncodingDetector {
       case EncodingType.utf8bom:
         final skip = bytes.length >= 3 ? 3 : 0;
         return utf8.decode(bytes.sublist(skip), allowMalformed: true);
+      case EncodingType.utf16le:
+        return _decodeUtf16(bytes, littleEndian: true);
+      case EncodingType.utf16be:
+        return _decodeUtf16(bytes, littleEndian: false);
       case EncodingType.gbk:
       case EncodingType.gb18030:
         // dart:convert 无 GBK 解码器，使用第三方 gbk_codec 包。
@@ -95,19 +117,21 @@ class EncodingDetector {
   }
 
   /// 分块窗口大小（字节）。用于大文本解码时避免一次性全量处理。
+  static const int _decodeChunkSize = 64 * 1024;
 
   /// 按完整字符边界对齐的分块解码：GBK/Big5/Shift-JIS 都是
   /// `<0x80` 单字节 or `lead(0x80+) + 1 trail` 双字节结构，块尾若切开某个
   /// 双字节字符则把该 lead 字节留到下一块，保证每块解码跨块不乱码。
   ///
-  /// 第三方解码器（gbk/big5/shiftJis）不是跨块 stateful 的，因此不能在
-  /// 块边界直接断开；此方法在传入前先对齐字符边界。UTF-8/ascii 仍用内置
-  /// 快路径（全量一次性即可，速度快且无此问题）。
+  /// UTF-16 也走一次性解码（有 BOM 处理，且字节长度必须偶数）；
+  /// UTF-8 / ascii 也走一次性解码（内置快路径）。
   static String decodeChunked(Uint8List bytes, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.ascii:
       case EncodingType.utf8:
       case EncodingType.utf8bom:
+      case EncodingType.utf16le:
+      case EncodingType.utf16be:
       case EncodingType.binary:
       case EncodingType.unknown:
         return decode(bytes, encoding);
@@ -155,8 +179,72 @@ class EncodingDetector {
     }
   }
 
-  /// 分块解码窗口大小（字节）。
-  static const int _decodeChunkSize = 64 * 1024;
+  // ==================== UTF-16 解码 ====================
+
+  /// UTF-16 解码。自动处理 BOM（如果开头有的话），
+  /// 剩下的按 2 字节一组组成 UTF-16 码元。
+  /// `String.fromCharCodes` 接受含代理对的码元序列，
+  /// 所以 BMP 和补充平面（emoji 等）都能正确解码。
+  static String _decodeUtf16(Uint8List bytes, {required bool littleEndian}) {
+    var start = 0;
+    if (bytes.length >= 2) {
+      // 跳过 BOM（如果存在）
+      if (littleEndian && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+        start = 2;
+      } else if (!littleEndian && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+        start = 2;
+      }
+    }
+
+    final codeUnits = <int>[];
+    for (var i = start; i + 1 < bytes.length; i += 2) {
+      final int cu;
+      if (littleEndian) {
+        cu = bytes[i] | (bytes[i + 1] << 8);
+      } else {
+        cu = (bytes[i] << 8) | bytes[i + 1];
+      }
+      codeUnits.add(cu);
+    }
+    return String.fromCharCodes(codeUnits);
+  }
+
+  /// 无 BOM 的 UTF-16 启发式检测。
+  ///
+  /// 原理：ASCII 字符在 UTF-16 里高位字节是 0x00。
+  ///   LE: 'a' = 61 00  → 奇数位是 0x00
+  ///   BE: 'a' = 00 61  → 偶数位是 0x00
+  /// 所以统计偶数位和奇数位的 0x00 占比即可。
+  ///
+  /// 触发条件：偶数位（或奇数位）中 0x00 占比 > 60%，
+  /// 而另一侧 < 20%。这是保守阈值，不会误伤普通文本。
+  static EncodingType? _guessUtf16WithoutBom(Uint8List bytes) {
+    if (bytes.length < 8) return null;
+    final n = bytes.length > 512 ? 512 : bytes.length;
+    var evenZero = 0;
+    var oddZero = 0;
+    final pairs = n ~/ 2;
+    for (var i = 0; i + 1 < n; i += 2) {
+      if (bytes[i] == 0) evenZero++;
+      if (bytes[i + 1] == 0) oddZero++;
+    }
+    if (pairs < 4) return null;
+
+    final evenRatio = evenZero / pairs;
+    final oddRatio = oddZero / pairs;
+
+    // 偶数位大量 0x00 → BE
+    if (evenRatio > 0.6 && oddRatio < 0.2) {
+      return EncodingType.utf16be;
+    }
+    // 奇数位大量 0x00 → LE
+    if (oddRatio > 0.6 && evenRatio < 0.2) {
+      return EncodingType.utf16le;
+    }
+    return null;
+  }
+
+  // ==================== 第三方 codec 辅助 ====================
 
   static Encoding _multiByteCodec(EncodingType encoding) {
     switch (encoding) {
@@ -194,6 +282,8 @@ class EncodingDetector {
       return String.fromCharCodes(bytes);
     }
   }
+
+  // ==================== 原有启发式（保持原样） ====================
 
   static bool _isStrictUtf8(Uint8List bytes) {
     try {
