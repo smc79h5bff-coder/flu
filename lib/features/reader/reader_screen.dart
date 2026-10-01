@@ -4,7 +4,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-
+import '../preprocessing/application/encoding_detector.dart';
+import '../preprocessing/domain/encoding_type.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -273,8 +274,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _gradRectCache.clear();
 
     try {
+
       final bytes = await File(path).readAsBytes();
-      final text = utf8.decode(bytes, allowMalformed: true);
+final encoding = EncodingDetector.detect(bytes);
+final text = EncodingDetector.decodeChunked(bytes, encoding);
       if (!mounted) return;
       if (_lastLoadedKey != key) return;
 
