@@ -427,3 +427,9 @@ class ReaderFindHistoryNotifier
     return copy;
   }
 }
+/// 设置面板打开时临时为 true。控制顶部热区的可视化预览。
+final readerHotZonePreviewProvider = StateProvider<bool>((ref) => false);
+
+
+
+
