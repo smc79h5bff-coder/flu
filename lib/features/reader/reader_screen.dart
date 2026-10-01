@@ -542,6 +542,16 @@ static const double _hDragMinDx = 60.0;  // 右滑超过这个逻辑像素算翻
     });
   }
 
+void _syncPagePreview() {
+  if (_pagination == null || _lines.isEmpty) return;
+  final range = pageLineRange(_pagination!, _currentPage);
+  if (range.startLine >= range.endLine) return;
+  final text = _lines
+      .sublist(range.startLine, range.endLine)
+      .join('\n');
+  ref.read(readerPagePreviewProvider.notifier).state = text;
+}
+  
   // ==================== 选区操作 ====================
 
   void _clearSelection() {
