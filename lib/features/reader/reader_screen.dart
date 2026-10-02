@@ -2099,71 +2099,95 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   List<_GradRect> _measureGradientRects(
-    int unitIdx,
-    RenderUnit unit,
-    String sub,
-    ReaderSettings settings,
-    double maxWidth,
-    List<HighlightSpan> highlights,
-  ) {
-    if (sub.isEmpty) return const [];
+  int unitIdx,
+  RenderUnit unit,
+  String sub,
+  ReaderSettings settings,
+  double maxWidth,
+  List<HighlightSpan> highlights,
+) {
+  if (sub.isEmpty) return const [];
 
-    if (_gradCacheFontSize != settings.fontSize ||
-        _gradCacheFontWeight != settings.fontWeight ||
-        _gradCacheWidth != maxWidth) {
-      _gradRectCache.clear();
-      _gradCacheFontSize = settings.fontSize;
-      _gradCacheFontWeight = settings.fontWeight;
-      _gradCacheWidth = maxWidth;
-    }
-
-    final key = '$unitIdx|${maxWidth.round()}';
-    final hit = _gradRectCache[key];
-    if (hit != null) return hit;
-
-    final gradientHighlights = <HighlightSpan>[];
-    for (final h in highlights) {
-      if (h.entry.colors.length > 1 &&
-          h.endInLine > unit.charStart &&
-          h.startInLine < unit.charEnd) {
-        gradientHighlights.add(h);
-      }
-    }
-    if (gradientHighlights.isEmpty) {
-      _gradRectCache[key] = const [];
-      return const [];
-    }
-
-    final style = _baseStyle(settings);
-    final tp = _gradTP;
-    tp.text = TextSpan(text: sub, style: style);
-    tp.layout(maxWidth: maxWidth);
-
-    final rects = <_GradRect>[];
-    final subStart = unit.charStart;
-
-    for (final h in gradientHighlights) {
-      final hs = (h.startInLine - subStart).clamp(0, sub.length);
-      final he = (h.endInLine - subStart).clamp(0, sub.length);
-      if (hs >= he) continue;
-
-      final boxes = tp.getBoxesForSelection(
-        TextSelection(baseOffset: hs, extentOffset: he),
-      );
-      final colors =
-          h.entry.colors.map((c) => Color(c)).toList(growable: false);
-      for (final box in boxes) {
-        rects.add(_GradRect(
-          Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
-          colors,
-        ));
-      }
-    }
-
-    if (_gradRectCache.length > 256) _gradRectCache.clear();
-    _gradRectCache[key] = rects;
-    return rects;
+  if (_gradCacheFontSize != settings.fontSize ||
+      _gradCacheFontWeight != settings.fontWeight ||
+      _gradCacheWidth != maxWidth) {
+    _gradRectCache.clear();
+    _gradCacheFontSize = settings.fontSize;
+    _gradCacheFontWeight = settings.fontWeight;
+    _gradCacheWidth = maxWidth;
   }
+
+  final key = '$unitIdx|${maxWidth.round()}';
+  final hit = _gradRectCache[key];
+  if (hit != null) return hit;
+
+  final gradientHighlights = <HighlightSpan>[];
+  for (final h in highlights) {
+    if (h.entry.colors.length > 1 &&
+        h.endInLine > unit.charStart &&
+        h.startInLine < unit.charEnd) {
+      gradientHighlights.add(h);
+    }
+  }
+  if (gradientHighlights.isEmpty) {
+    _gradRectCache[key] = const [];
+    return const [];
+  }
+
+  final style = _baseStyle(settings);
+  final tp = _gradTP;
+  tp.text = TextSpan(text: sub, style: style);
+  tp.layout(maxWidth: maxWidth);
+
+  final rects = <_GradRect>[];
+  final subStart = unit.charStart;
+
+  for (final h in gradientHighlights) {
+    final hs = (h.startInLine - subStart).clamp(0, sub.length);
+    final he = (h.endInLine - subStart).clamp(0, sub.length);
+    if (hs >= he) continue;
+
+    final boxes = tp.getBoxesForSelection(
+      TextSelection(baseOffset: hs, extentOffset: he),
+    );
+    final colors =
+        h.entry.colors.map((c) => Color(c)).toList(growable: false);
+
+    // ★ 修正：
+    // getBoxesForSelection 对多行 selection 的"最后一个 box"，
+    // 会把它的 right 拉到"这一行整行宽"（含行尾空白），
+    // 导致渐变背景一直涂到屏幕右边。
+    // 用 getOffsetForCaret 拿到 selection 右端的精确 x 坐标来替代。
+    // 只在"确实比原 box.right 小"时才替换，避免异常时反而画大。
+    final caretAtEnd = tp.getOffsetForCaret(
+      TextPosition(offset: he),
+      Rect.zero,
+    );
+    final caretEndDx = caretAtEnd.dx;
+
+    for (var bi = 0; bi < boxes.length; bi++) {
+      final box = boxes[bi];
+      var right = box.right;
+      if (bi == boxes.length - 1 && caretEndDx < right) {
+        right = caretEndDx;
+      }
+      rects.add(_GradRect(
+        Rect.fromLTRB(box.left, box.top, right, box.bottom),
+        colors,
+      ));
+    }
+  }
+
+  if (_gradRectCache.length > 256) _gradRectCache.clear();
+  _gradRectCache[key] = rects;
+  return rects;
+}
+
+
+
+
+
+  
 
   List<InlineSpan> _buildUnitSpans(
     int unitIdx,
