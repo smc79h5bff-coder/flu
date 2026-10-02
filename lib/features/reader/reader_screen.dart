@@ -2428,6 +2428,10 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
     return [handle(leftPos, 1), handle(rightPos, 2)];
   }
 
+
+
+
+  
   // ==================== 放大镜 ====================
 
  Widget _buildLoupe(
@@ -2442,26 +2446,22 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
   int? selEndInLine;
 
   if (drag.handle == 1) {
-    // 左手柄：放大镜看选区左端
     line = sel.startLine;
     offset = sel.startOffset;
     selStartInLine = sel.startOffset;
     if (sel.startLine == sel.endLine) {
       selEndInLine = sel.endOffset;
     } else {
-      // 选区跨行：左手柄所在行，选中从 startOffset 到行尾
       selEndInLine = (line >= 0 && line < _lines.length)
           ? _lines[line].length
           : sel.startOffset;
     }
   } else {
-    // 右手柄：放大镜看选区右端
     line = sel.endLine;
     offset = sel.endOffset;
     if (sel.startLine == sel.endLine) {
       selStartInLine = sel.startOffset;
     } else {
-      // 选区跨行：右手柄所在行，选中从行首到 endOffset
       selStartInLine = 0;
     }
     selEndInLine = sel.endOffset;
@@ -2469,43 +2469,46 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
 
   if (line < 0 || line >= _lines.length) return const SizedBox.shrink();
 
-  const double diameter = 140;
-  const double scale = 1.8;
-  const double gap = 26;
+  // ---- 放大镜参数（长方形，倍数小，看到更多字）----
+  const double loupeW = 160;
+  const double loupeH = 56;
+  const double scale = 1.4;
+  const double gap = 18;
   const double margin = 8;
 
   final h = drag.handlePos;
 
-  final aboveCenter = Offset(h.dx, h.dy - gap - diameter / 2);
-  final belowCenter = Offset(h.dx, h.dy + gap + diameter / 2);
+  // 默认放在手指上方，水平居中在手指上；上方不够就放下方
+  final aboveCenter = Offset(h.dx, h.dy - gap - loupeH / 2);
+  final belowCenter = Offset(h.dx, h.dy + gap + loupeH / 2);
   var center = aboveCenter;
-  if (aboveCenter.dy - diameter / 2 < margin) {
+  if (aboveCenter.dy - loupeH / 2 < margin) {
     center = belowCenter;
   }
   center = Offset(
     center.dx.clamp(
-        margin + diameter / 2, size.width - margin - diameter / 2),
+        margin + loupeW / 2, size.width - margin - loupeW / 2),
     center.dy.clamp(
-        margin + diameter / 2, size.height - margin - diameter / 2),
+        margin + loupeH / 2, size.height - margin - loupeH / 2),
   );
 
   final base = _baseStyle(settings);
   final loupeStyle = base.copyWith(color: null);
 
   return Positioned(
-    left: center.dx - diameter / 2,
-    top: center.dy - diameter / 2,
+    left: center.dx - loupeW / 2,
+    top: center.dy - loupeH / 2,
     child: IgnorePointer(
       child: RepaintBoundary(
         child: PhysicalModel(
           color: Colors.transparent,
-          elevation: 8,
+          elevation: 6,
           shadowColor: Colors.black.withValues(alpha: 0.35),
-          shape: BoxShape.circle,
+          borderRadius: BorderRadius.circular(4),
           clipBehavior: Clip.antiAlias,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(4),
               border: Border.all(
                 color: Colors.black.withValues(alpha: 0.10),
                 width: 0.5,
@@ -2522,16 +2525,15 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
               selectionEnd: selEndInLine,
               selectionBg: _selectionBg,
               scale: scale,
-              diameter: diameter,
+              width: loupeW,
+              height: loupeH,
             ),
           ),
         ),
       ),
     ),
   );
-}
-  
-  
+} 
 
   // ==================== 弹窗渲染 ====================
 
