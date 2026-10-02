@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:convert';                              // ← 加这行（utf8）
 import 'package:file_picker/file_picker.dart';      // ← 加这行（FilePicker / FileType）
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../reader/reader_screen.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show compute;
@@ -233,6 +234,9 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   final TextEditingController _searchCtrl = TextEditingController();
   final GlobalKey _searchBtnKey = GlobalKey();
 
+  /// 列表滚动控制器。用来从阅读器返回时滚到"当前文件"那一项。
+  final ItemScrollController _itemScrollController = ItemScrollController();
+
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
@@ -390,41 +394,6 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   }
   }
 
-  /// 增量刷新搜索结果：只检查现有的项还在不在，不重扫目录。
-  /// 存在的保留，不存在的剔除。比全量重搜快很多。
-  /// 至少转 250ms，让用户看到"刷新过"的反馈。
-  Future<void> _incrementalRefreshSearch() async {
-    final sw = Stopwatch()..start();
-
-    final still = <_SearchHit>[];
-    var removed = 0;
-    for (final hit in _searchResults) {
-      if (FileSystemEntity.typeSync(hit.path) !=
-          FileSystemEntityType.notFound) {
-        still.add(hit);
-      } else {
-        removed++;
-        _selectedPaths.remove(hit.path);
-      }
-    }
-
-    if (removed > 0 && mounted) {
-      setState(() {
-        _searchResults = still;
-        if (_selectedPaths.isEmpty) {
-          _selectionMode = false;
-          _anchorPath = null;
-        }
-      });
-    }
-
-    // 最短显示 250ms
-    final elapsed = sw.elapsedMilliseconds;
-    if (elapsed < 250) {
-      await Future.delayed(Duration(milliseconds: 250 - elapsed));
-    }
-  }
-
   void _toggleSelection(FileSystemEntity e) {
     setState(() {
       _selectionMode = true;
@@ -519,88 +488,104 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
     });
   }
 
-  /// 点击文件的统一入口
-void _openFile(String path, String name, int? size) {
-  final isText = _textExts.contains(_extOf(name));
+  /// 点击文件的统一入口。
+  /// 进阅读器时拿到返回的"当前文件路径"，返回后自动滚到那一项。
+  Future<void> _openFile(String path, String name, int? size) async {
+    final isText = _textExts.contains(_extOf(name));
 
-  // 非文本文件：走现有预览页（会提示"暂不支持预览"）
-  if (!isText) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => TextPreviewScreen(
-          filePath: path,
-          fileName: name,
+    // 非文本文件：走预览页，不需要返回定位。
+    if (!isText) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => TextPreviewScreen(
+            filePath: path,
+            fileName: name,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // 文本文件：进阅读器
+    final textPaths = _collectTextFilePaths();
+    var index = textPaths.indexOf(path);
+    if (index < 0) {
+      // 兜底：当前文件不在列表里（比如搜索模式下点历史文件）
+      textPaths.insert(0, path);
+      index = 0;
+    }
+
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => ReaderScreen(
+          filePaths: textPaths,
+          initialIndex: index,
         ),
       ),
     );
-    return;
+
+    if (!mounted || result == null) return;
+    _scrollToPath(result);
   }
 
-  // 文本文件：进阅读器
-  final textPaths = _collectTextFilePaths();
-  var index = textPaths.indexOf(path);
-  if (index < 0) {
-    // 兜底：当前文件不在列表里（比如搜索模式下点历史文件）
-    textPaths.insert(0, path);
-    index = 0;
+  /// 把列表滚到指定路径那一项。
+  /// 路径不在当前列表里就什么都不做（比如搜索词改了、目录变了）。
+  void _scrollToPath(String path) {
+    int index = -1;
+    if (_searchActive) {
+      index = _searchResults.indexWhere((h) => h.path == path);
+    } else {
+      index = (_entries ?? const <_EntryInfo>[])
+          .indexWhere((e) => e.entity.path == path);
+    }
+    if (index < 0) return;
+    if (!_itemScrollController.isAttached) return;
+
+    _itemScrollController.scrollTo(
+      index: index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
 
-  Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => ReaderScreen(
-        filePaths: textPaths,
-        initialIndex: index,
-      ),
-    ),
-  );
-}
-
-/// 收集"当前视图里所有文本文件的路径"。
-///
-/// - 普通浏览模式：用当前目录的所有文件（已按排序排好）
-/// - 搜索模式：用搜索结果里所有文本文件
-List<String> _collectTextFilePaths() {
-  if (_searchActive) {
+  /// 收集"当前视图里所有文本文件的路径"。
+  ///
+  /// - 普通浏览模式：用当前目录的所有文件（已按排序排好）
+  /// - 搜索模式：用搜索结果里所有文本文件
+  List<String> _collectTextFilePaths() {
+    if (_searchActive) {
+      return [
+        for (final hit in _searchResults)
+          if (_textExts.contains(_extOf(hit.name))) hit.path,
+      ];
+    }
+    final entries = _entries ?? const <_EntryInfo>[];
     return [
-      for (final hit in _searchResults)
-        if (_textExts.contains(_extOf(hit.name))) hit.path,
+      for (final info in entries)
+        if (!info.isDir && _textExts.contains(_extOf(info.name)))
+          info.entity.path,
     ];
   }
-  final entries = _entries ?? const <_EntryInfo>[];
-  return [
-    for (final info in entries)
-      if (!info.isDir && _textExts.contains(_extOf(info.name)))
-        info.entity.path,
-  ];
-}
-  
 
+  void _openPreview(_EntryInfo info) {
+    _openFile(info.entity.path, info.name, info.size);
+  }
 
+  Widget _leading({
+    required bool selectionMode,
+    required bool selected,
+    required bool isDir,
+    required String name,
+    required VoidCallback onToggle,
+  }) {
+    final icon = isDir ? Icons.folder : Icons.insert_drive_file_outlined;
+    final color = isDir ? Colors.amber.shade600 : _fileColor(name);
 
-
-
-  
-void _openPreview(_EntryInfo info) {
-  _openFile(info.entity.path, info.name, info.size);
-}
-  
-
-  
-Widget _leading({
-  required bool selectionMode,
-  required bool selected,
-  required bool isDir,
-  required String name,
-  required VoidCallback onToggle,
-}) {
-  final icon = isDir ? Icons.folder : Icons.insert_drive_file_outlined;
-  final color = isDir ? Colors.amber.shade600 : _fileColor(name);
-
-  return Padding(
-    padding: const EdgeInsets.only(top: 4),
-    child: Icon(icon, color: color),
-  );
-}
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Icon(icon, color: color),
+    );
+  }
 
   // ==================== 搜索 ====================
 
@@ -614,7 +599,6 @@ Widget _leading({
 
     ref.read(browserSearchHistoryProvider.notifier).add(q);   // ← 加这行
 
-    
     setState(() => _searchActive = true);
     _startSearch(q);
   }
@@ -636,7 +620,6 @@ Widget _leading({
     _searchTaskId++;
     setState(() => _searching = false);
   }
-
 
   Future<void> _showSearchHistory() async {
   await showDialog<void>(
@@ -699,8 +682,6 @@ Widget _leading({
   );
 }
 
-
-  
   Future<void> _showScopeMenu() async {
     final ctx = _searchBtnKey.currentContext;
     if (ctx == null) return;
@@ -965,7 +946,6 @@ ref.read(editedModifiedProvider.notifier).state = null;
       // 对比页可能删过文件；返回后清掉选中，并把已经不存在的
       // 搜索结果从列表里剔除。目录列表不需要动。
       setState(() {
-        
         _pruneSearchResults();
       });
     } catch (e) {
@@ -1085,7 +1065,6 @@ ref.read(editedModifiedProvider.notifier).state = null;
       _toast('计算 MD5 失败：$e');
     }
   }
-
 
 Future<void> _exportFolderListing() async {
   if (_selectedPaths.length != 1) {
@@ -1561,7 +1540,6 @@ Future<void> _importConfig() async {
     ref.read(recentMoveTargetsProvider.notifier).add(target);
   }
 
-    
     _clearSelection();
     _load();
     _toast('已移动 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
@@ -1958,12 +1936,7 @@ title: GestureDetector(
     case 'importConfig':
       _importConfig();
     case 'refresh':
-      if (_searchActive && _searchCtrl.text.isNotEmpty) {
-        // 搜索模式下点菜单刷新 = 重新执行搜索（全量，能看到新出现的文件）
-        _startSearch(_searchCtrl.text);
-      } else {
-        _load();
-      }
+      _load();
     case 'sort':
       _showSortDialog();
     case 'favorites':
@@ -2288,8 +2261,6 @@ else
   ],
 ),
 
-
-            
             const SizedBox(height: 4),
             Row(
               children: [
@@ -2373,83 +2344,80 @@ else
           child: Text(_searching ? '正在扫描...' : '未找到匹配'),
         );
       }
-      return RefreshIndicator(
-        onRefresh: _incrementalRefreshSearch,
-        child: ListView.builder(
-          itemCount: _searchResults.length,
-          itemBuilder: (ctx, i) {
-            final hit = _searchResults[i];
-            final selected = _selectedPaths.contains(hit.path);
-            final metaLine = [
-              _formatSize(hit.size),
-              _formatTime(hit.modified),
-            ].where((s) => s.isNotEmpty).join(' · ');
+      return ScrollablePositionedList.builder(
+        itemScrollController: _itemScrollController,
+        itemCount: _searchResults.length,
+        itemBuilder: (ctx, i) {
+          final hit = _searchResults[i];
+          final selected = _selectedPaths.contains(hit.path);
+          final metaLine = [
+            _formatSize(hit.size),
+            _formatTime(hit.modified),
+          ].where((s) => s.isNotEmpty).join(' · ');
 
-            return Container(
-              foregroundDecoration: selected
-                  ? BoxDecoration(
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 2,
-                      ),
-                    )
-                  : null,
-              child: ListTile(
-                dense: true,
-                isThreeLine: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 8),
-                selected: selected,
-                selectedTileColor: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withOpacity(0.08),
-                leading: _leading(
-                  selectionMode: _selectionMode,
-                  selected: selected,
-                  isDir: false,
-                  name: hit.name,
-                  onToggle: () => _toggleSelectionPath(hit.path),
-                ),
-                title: Text(
-                  hit.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (metaLine.isNotEmpty)
-                      Text(
-                        metaLine,
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                    Text(
-                      hit.path,
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(
-                            color:
-                                Theme.of(context).colorScheme.onSurface,
-                          ),
-                      softWrap: true,
-                    ),
-                  ],
-                ),
-                onTap: () {
-                  if (_selectionMode) {
-                    _toggleSelectionPath(hit.path);
-                    return;
-                  }
-                  _openFile(hit.path, hit.name, hit.size);
-                },
-                onLongPress: () => _onLongPressPath(hit.path),
+        return Container(
+  foregroundDecoration: selected
+      ? BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary,
+            width: 2,
+          ),
+        )
+      : null,
+  child: ListTile(
+    dense: true,
+    isThreeLine: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+    selected: selected,
+    selectedTileColor: Theme.of(context)
+        .colorScheme
+        .primary
+        .withOpacity(0.08),
+    leading: _leading(
+      selectionMode: _selectionMode,
+      selected: selected,
+      isDir: false,
+      name: hit.name,
+      onToggle: () => _toggleSelectionPath(hit.path),
+    ),
+    title: Text(
+      hit.name,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontWeight: FontWeight.bold),
+    ),
+    subtitle: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (metaLine.isNotEmpty)
+          Text(
+            metaLine,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        Text(
+          hit.path,
+          style: Theme.of(context)
+              .textTheme
+              .labelSmall
+              ?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
               ),
-            );
-          },
+          softWrap: true,
         ),
+      ],
+    ),
+    onTap: () {
+      if (_selectionMode) {
+        _toggleSelectionPath(hit.path);
+        return;
+      }
+      _openFile(hit.path, hit.name, hit.size);
+    },
+    onLongPress: () => _onLongPressPath(hit.path),
+  ),
+);
+          
+        },
       );
     }
 
@@ -2480,87 +2448,82 @@ else
       return const Center(child: Text('空目录'));
     }
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.builder(
-        itemCount: entries.length,
-        itemBuilder: (ctx, i) {
-          final info = entries[i];
-          final e = info.entity;
-          final selected = _selectedPaths.contains(e.path);
+    return ScrollablePositionedList.builder(
+      itemScrollController: _itemScrollController,
+      itemCount: entries.length,
+      itemBuilder: (ctx, i) {
+        final info = entries[i];
+        final e = info.entity;
+        final selected = _selectedPaths.contains(e.path);
 
-          final String metaLine;
-          if (info.isDir) {
-            metaLine = _formatTime(info.modified);
-          } else {
-            final size = _formatSize(info.size);
-            final time = _formatTime(info.modified);
-            metaLine =
-                [size, time].where((s) => s.isNotEmpty).join(' · ');
-          }
+        final String metaLine;
+        if (info.isDir) {
+          metaLine = _formatTime(info.modified);
+        } else {
+          final size = _formatSize(info.size);
+          final time = _formatTime(info.modified);
+          metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
+        }
 
-          return Container(
-            foregroundDecoration: selected
-                ? BoxDecoration(
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 2,
-                    ),
-                  )
-                : null,
-            child: ListTile(
-              dense: true,
-              isThreeLine: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-              selected: selected,
-              selectedTileColor: Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withOpacity(0.08),
-              leading: _leading(
-                selectionMode: _selectionMode,
-                selected: selected,
-                isDir: info.isDir,
-                name: info.name,
-                onToggle: () => _toggleSelection(e),
-              ),
-              title: Text(
-                info.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (metaLine.isNotEmpty)
-                    Text(
-                      metaLine,
-                      style: Theme.of(context).textTheme.labelSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                ],
-              ),
-              onTap: () {
-                if (_selectionMode) {
-                  _toggleSelection(e);
-                  return;
-                }
-                if (info.isDir) {
-                  _navigateTo(e.path);
-                } else {
-                  _openPreview(info);
-                }
-              },
-              onLongPress: () => _onLongPressPath(e.path),
-            ),
-          );
-        },
+return Container(
+  foregroundDecoration: selected
+      ? BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary,
+            width: 2,
+          ),
+        )
+      : null,
+  child: ListTile(
+    dense: true,
+    isThreeLine: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+    selected: selected,
+    selectedTileColor:
+        Theme.of(context).colorScheme.primary.withOpacity(0.08),
+    leading: _leading(
+      selectionMode: _selectionMode,
+      selected: selected,
+      isDir: info.isDir,
+      name: info.name,
+      onToggle: () => _toggleSelection(e),
+    ),
+    title: Text(
+      info.name,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.bold,
       ),
+    ),
+    subtitle: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (metaLine.isNotEmpty)
+          Text(
+            metaLine,
+            style: Theme.of(context).textTheme.labelSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+      ],
+    ),
+    onTap: () {
+      if (_selectionMode) {
+        _toggleSelection(e);
+        return;
+      }
+      if (info.isDir) {
+        _navigateTo(e.path);
+      } else {
+        _openPreview(info);
+      }
+    },
+    onLongPress: () => _onLongPressPath(e.path),
+  ),
+);
+      },
     );
   }
 }
@@ -2627,15 +2590,6 @@ class _TextInputDialogState extends State<_TextInputDialog> {
     );
   }
 }
-
-
-
-
-
-
-
-
-
 
 /// 只显示目录的路径选择器。用于"移动到 / 复制到"。
 class _DirectoryPickerDialog extends ConsumerStatefulWidget {
@@ -3116,8 +3070,6 @@ onLongPress: () async {
     );
   }
 }
-
-
 
 /// 自定义搜索文件夹的勾选器。
 class _SearchFolderPickerDialog extends StatefulWidget {
