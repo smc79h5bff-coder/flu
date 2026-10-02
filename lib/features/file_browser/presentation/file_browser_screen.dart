@@ -390,6 +390,41 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   }
   }
 
+  /// 增量刷新搜索结果：只检查现有的项还在不在，不重扫目录。
+  /// 存在的保留，不存在的剔除。比全量重搜快很多。
+  /// 至少转 250ms，让用户看到"刷新过"的反馈。
+  Future<void> _incrementalRefreshSearch() async {
+    final sw = Stopwatch()..start();
+
+    final still = <_SearchHit>[];
+    var removed = 0;
+    for (final hit in _searchResults) {
+      if (FileSystemEntity.typeSync(hit.path) !=
+          FileSystemEntityType.notFound) {
+        still.add(hit);
+      } else {
+        removed++;
+        _selectedPaths.remove(hit.path);
+      }
+    }
+
+    if (removed > 0 && mounted) {
+      setState(() {
+        _searchResults = still;
+        if (_selectedPaths.isEmpty) {
+          _selectionMode = false;
+          _anchorPath = null;
+        }
+      });
+    }
+
+    // 最短显示 250ms
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed < 250) {
+      await Future.delayed(Duration(milliseconds: 250 - elapsed));
+    }
+  }
+
   void _toggleSelection(FileSystemEntity e) {
     setState(() {
       _selectionMode = true;
@@ -1923,7 +1958,12 @@ title: GestureDetector(
     case 'importConfig':
       _importConfig();
     case 'refresh':
-      _load();
+      if (_searchActive && _searchCtrl.text.isNotEmpty) {
+        // 搜索模式下点菜单刷新 = 重新执行搜索（全量，能看到新出现的文件）
+        _startSearch(_searchCtrl.text);
+      } else {
+        _load();
+      }
     case 'sort':
       _showSortDialog();
     case 'favorites':
@@ -2333,80 +2373,83 @@ else
           child: Text(_searching ? '正在扫描...' : '未找到匹配'),
         );
       }
-      return ListView.builder(
-        itemCount: _searchResults.length,
-        itemBuilder: (ctx, i) {
-          final hit = _searchResults[i];
-          final selected = _selectedPaths.contains(hit.path);
-          final metaLine = [
-            _formatSize(hit.size),
-            _formatTime(hit.modified),
-          ].where((s) => s.isNotEmpty).join(' · ');
-      
-          
-        return Container(
-  foregroundDecoration: selected
-      ? BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary,
-            width: 2,
-          ),
-        )
-      : null,
-  child: ListTile(
-    dense: true,
-    isThreeLine: true,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-    selected: selected,
-    selectedTileColor: Theme.of(context)
-        .colorScheme
-        .primary
-        .withOpacity(0.08),
-    leading: _leading(
-      selectionMode: _selectionMode,
-      selected: selected,
-      isDir: false,
-      name: hit.name,
-      onToggle: () => _toggleSelectionPath(hit.path),
-    ),
-    title: Text(
-      hit.name,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontWeight: FontWeight.bold),
-    ),
-    subtitle: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (metaLine.isNotEmpty)
-          Text(
-            metaLine,
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-        Text(
-          hit.path,
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface,
+      return RefreshIndicator(
+        onRefresh: _incrementalRefreshSearch,
+        child: ListView.builder(
+          itemCount: _searchResults.length,
+          itemBuilder: (ctx, i) {
+            final hit = _searchResults[i];
+            final selected = _selectedPaths.contains(hit.path);
+            final metaLine = [
+              _formatSize(hit.size),
+              _formatTime(hit.modified),
+            ].where((s) => s.isNotEmpty).join(' · ');
+
+            return Container(
+              foregroundDecoration: selected
+                  ? BoxDecoration(
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 2,
+                      ),
+                    )
+                  : null,
+              child: ListTile(
+                dense: true,
+                isThreeLine: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8),
+                selected: selected,
+                selectedTileColor: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withOpacity(0.08),
+                leading: _leading(
+                  selectionMode: _selectionMode,
+                  selected: selected,
+                  isDir: false,
+                  name: hit.name,
+                  onToggle: () => _toggleSelectionPath(hit.path),
+                ),
+                title: Text(
+                  hit.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (metaLine.isNotEmpty)
+                      Text(
+                        metaLine,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    Text(
+                      hit.path,
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurface,
+                          ),
+                      softWrap: true,
+                    ),
+                  ],
+                ),
+                onTap: () {
+                  if (_selectionMode) {
+                    _toggleSelectionPath(hit.path);
+                    return;
+                  }
+                  _openFile(hit.path, hit.name, hit.size);
+                },
+                onLongPress: () => _onLongPressPath(hit.path),
               ),
-          softWrap: true,
+            );
+          },
         ),
-      ],
-    ),
-    onTap: () {
-      if (_selectionMode) {
-        _toggleSelectionPath(hit.path);
-        return;
-      }
-      _openFile(hit.path, hit.name, hit.size);
-    },
-    onLongPress: () => _onLongPressPath(hit.path),
-  ),
-);
-          
-        },
       );
     }
 
@@ -2437,81 +2480,87 @@ else
       return const Center(child: Text('空目录'));
     }
 
-    return ListView.builder(
-      itemCount: entries.length,
-      itemBuilder: (ctx, i) {
-        final info = entries[i];
-        final e = info.entity;
-        final selected = _selectedPaths.contains(e.path);
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        itemCount: entries.length,
+        itemBuilder: (ctx, i) {
+          final info = entries[i];
+          final e = info.entity;
+          final selected = _selectedPaths.contains(e.path);
 
-        final String metaLine;
-        if (info.isDir) {
-          metaLine = _formatTime(info.modified);
-        } else {
-          final size = _formatSize(info.size);
-          final time = _formatTime(info.modified);
-          metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
-        }
+          final String metaLine;
+          if (info.isDir) {
+            metaLine = _formatTime(info.modified);
+          } else {
+            final size = _formatSize(info.size);
+            final time = _formatTime(info.modified);
+            metaLine =
+                [size, time].where((s) => s.isNotEmpty).join(' · ');
+          }
 
-return Container(
-  foregroundDecoration: selected
-      ? BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary,
-            width: 2,
-          ),
-        )
-      : null,
-  child: ListTile(
-    dense: true,
-    isThreeLine: true,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-    selected: selected,
-    selectedTileColor:
-        Theme.of(context).colorScheme.primary.withOpacity(0.08),
-    leading: _leading(
-      selectionMode: _selectionMode,
-      selected: selected,
-      isDir: info.isDir,
-      name: info.name,
-      onToggle: () => _toggleSelection(e),
-    ),
-    title: Text(
-      info.name,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        fontSize: 15,
-        fontWeight: FontWeight.bold,
+          return Container(
+            foregroundDecoration: selected
+                ? BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2,
+                    ),
+                  )
+                : null,
+            child: ListTile(
+              dense: true,
+              isThreeLine: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              selected: selected,
+              selectedTileColor: Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withOpacity(0.08),
+              leading: _leading(
+                selectionMode: _selectionMode,
+                selected: selected,
+                isDir: info.isDir,
+                name: info.name,
+                onToggle: () => _toggleSelection(e),
+              ),
+              title: Text(
+                info.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (metaLine.isNotEmpty)
+                    Text(
+                      metaLine,
+                      style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+              onTap: () {
+                if (_selectionMode) {
+                  _toggleSelection(e);
+                  return;
+                }
+                if (info.isDir) {
+                  _navigateTo(e.path);
+                } else {
+                  _openPreview(info);
+                }
+              },
+              onLongPress: () => _onLongPressPath(e.path),
+            ),
+          );
+        },
       ),
-    ),
-    subtitle: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (metaLine.isNotEmpty)
-          Text(
-            metaLine,
-            style: Theme.of(context).textTheme.labelSmall,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-      ],
-    ),
-    onTap: () {
-      if (_selectionMode) {
-        _toggleSelection(e);
-        return;
-      }
-      if (info.isDir) {
-        _navigateTo(e.path);
-      } else {
-        _openPreview(info);
-      }
-    },
-    onLongPress: () => _onLongPressPath(e.path),
-  ),
-);
-      },
     );
   }
 }
