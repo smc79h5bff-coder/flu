@@ -2101,8 +2101,10 @@ InkWell(
   ),
 ),
 
-
-
+// 占位：让正常模式下 actions 的宽度和选中模式一致，
+    // 这样切进/切出选中模式时 TabBar 不会左右跳。
+    if (_isHighlightTab) const SizedBox(width: 48),
+if (_isBookmarkTab) const SizedBox(width: 48),
                 
                 ],
         ),
