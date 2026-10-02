@@ -828,144 +828,227 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     });
   }
 
+
+
+
+
+
   Widget _buildTopMenuSheet(BuildContext ctx) {
-    final p = _paginator?.result;
-    final pct = p == null
-        ? '-'
-        : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
+  final p = _paginator?.result;
+  final pct = p == null
+      ? '-'
+      : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
 
-    final path = widget.filePaths.isEmpty ? '' : widget.filePaths[_fileIndex];
-    final fileName = path.split('/').last;
+  final path = widget.filePaths.isEmpty ? '' : widget.filePaths[_fileIndex];
+  final fileName = path.split('/').last;
 
-    return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 8),
+  // 当前编码简称（给"编码"按钮显示用）
+  final encodingLabel = _currentEncoding?.label ?? '未识别';
 
-          // ---------- 文件名（长按复制完整路径） ----------
-          ListTile(
-  isThreeLine: true,
-  leading: const Icon(Icons.description_outlined),
-  title: Text(
-    fileName.isEmpty ? '（未命名）' : fileName,
-    maxLines: 2,
-    overflow: TextOverflow.ellipsis,
-    style: const TextStyle(fontSize: 14),
-  ),
-  subtitle: Text(
-    path,
-    maxLines: 2,
-    overflow: TextOverflow.ellipsis,
-    style: const TextStyle(fontSize: 11),
-  ),
-
-            
-            onLongPress: () {
-              if (path.isEmpty) return;
-              Clipboard.setData(ClipboardData(text: path));
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(
-                  content: Text('路径已复制'),
-                  duration: Duration(seconds: 1),
+  Widget menuButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: color,
                 ),
-              );
-            },
-          ),
-          const Divider(height: 1),
-
-          // ---------- 进度 ----------
-          ListTile(
-            leading: const Icon(Icons.tune),
-            title: Text(pct, style: const TextStyle(fontSize: 18)),
-            subtitle: const Text('点击调整进度'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _showProgressSlider();
-            },
-          ),
-          const Divider(height: 1),
-
-          ListTile(
-            leading: const Icon(Icons.search),
-            title: const Text('查找'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _openFind();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.bookmark_add_outlined),
-            title: const Text('加书签'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _addBookmark();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.bookmarks_outlined),
-            title: const Text('书签与高亮'),
-            onTap: () async {
-              Navigator.pop(ctx);
-              await _openManager();
-            },
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.edit),
-            title: const Text('编辑'),
-            onTap: () async {
-              Navigator.pop(ctx);
-              await _openEditor();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.translate),
-            title: const Text('编码'),
-            subtitle: Text(_encodingSubtitle()),
-            onTap: () {
-              Navigator.pop(ctx);
-              _showEncodingPicker();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('设置'),
-            onTap: () {
-              Navigator.pop(ctx);
-              showReaderSettingsSheet(context);
-            },
-          ),
-
-          const Divider(height: 1),
-
-          // ---------- 关闭当前文件 ----------
-          ListTile(
-            leading: const Icon(Icons.close, color: Colors.red),
-            title: const Text(
-              '关闭当前文件',
-              style: TextStyle(color: Colors.red),
+              ),
             ),
-            onTap: () {
-              Navigator.pop(ctx);
-              _closeFile();
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
+          ],
+        ),
       ),
     );
   }
 
+  return SafeArea(
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // ---------- 文件名（全宽，长按复制路径） ----------
+            ListTile(
+              isThreeLine: true,
+              leading: const Icon(Icons.description_outlined),
+              title: Text(
+                fileName.isEmpty ? '（未命名）' : fileName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 14),
+              ),
+              subtitle: Text(
+                path,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11),
+              ),
+              onLongPress: () {
+                if (path.isEmpty) return;
+                Clipboard.setData(ClipboardData(text: path));
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text('路径已复制'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 1),
+
+            // ---------- 进度 / 查找 ----------
+            Row(
+              children: [
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.tune,
+                    label: '进度 $pct',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showProgressSlider();
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.search,
+                    label: '查找',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openFind();
+                    },
+                  ),
+                ),
+              ],
+            ),
+
+            // ---------- 加书签 / 书签与高亮 ----------
+            Row(
+              children: [
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.bookmark_add_outlined,
+                    label: '加书签',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _addBookmark();
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.bookmarks_outlined,
+                    label: '书签与高亮',
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _openManager();
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 1),
+
+            // ---------- 编辑 / 编码 ----------
+            Row(
+              children: [
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.edit,
+                    label: '编辑',
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _openEditor();
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.translate,
+                    label: '编码 $encodingLabel',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showEncodingPicker();
+                    },
+                  ),
+                ),
+              ],
+            ),
+
+            // ---------- 设置 / 关闭 ----------
+            Row(
+              children: [
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.settings,
+                    label: '设置',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showReaderSettingsSheet(context);
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.close,
+                    label: '关闭文件',
+                    color: Colors.red,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _closeFile();
+                    },
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    ),
+  );
+  }
+
+
+
+
+
+
+
+
+
+  
   String _encodingSubtitle() {
     final cur = _currentEncoding?.label ?? '未识别';
     if (_manualEncoding == null) return '自动检测（$cur）';
