@@ -298,8 +298,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   /// 更快点 3：渐变测量用 TextPainter 单例。
   static final TextPainter _gradTP = TextPainter(
-    textDirection: TextDirection.ltr,
-  );
+  textDirection: TextDirection.ltr,
+  locale: const Locale('zh', 'CN'),
+);
 
   _SelectionRange? _sel;
   bool _hBarVisible = false;
