@@ -77,66 +77,36 @@ class AhoCorasick {
     }
   }
 
-
-/// 扫描文本，把每个匹配通过回调返回。
-///
-/// 相比 replaceAll，这个不物化结果列表、不做替换，内存零开销。
-/// 匹配按"结束位置升序"输出（AC 的天然顺序）。
-///
-/// - [onMatch] 参数：(start, end, patternIndex)
-/// - 跨行匹配不做处理，调用方自己判断。
-void findAllMatches(
-  String text,
-  void Function(int start, int end, int patternIndex) onMatch,
-) {
-  if (text.isEmpty || patterns.isEmpty) return;
-
-  var node = 0;
-  for (var pos = 0; pos < text.length; pos++) {
-    final code = text.codeUnitAt(pos);
-    while (node != 0 && _children[node][code] == null) {
-      node = _fail[node];
-    }
-    node = _children[node][code] ?? 0;
-    final outs = _output[node];
-    if (outs.isEmpty) continue;
-    for (final pi in outs) {
-      final len = patterns[pi].length;
-      final start = pos - len + 1;
-      if (start < 0) continue;
-      onMatch(start, pos + 1, pi);
-    }
-  }
-}
   /// 扫描文本，通过回调流式输出每个匹配。
-///
-/// 相比 replaceAll 不物化列表、不做替换，零额外内存。
-/// 匹配按"结束位置升序"输出（AC 的天然顺序）。
-///
-/// [onMatch] 参数：(start, end, patternIndex)。
-void findAllMatches(
-  String text,
-  void Function(int start, int end, int patternIndex) onMatch,
-) {
-  if (text.isEmpty || patterns.isEmpty) return;
+  ///
+  /// 相比 replaceAll 不物化列表、不做替换，零额外内存。
+  /// 匹配按"结束位置升序"输出（AC 的天然顺序）。
+  ///
+  /// [onMatch] 参数：(start, end, patternIndex)。
+  void findAllMatches(
+    String text,
+    void Function(int start, int end, int patternIndex) onMatch,
+  ) {
+    if (text.isEmpty || patterns.isEmpty) return;
 
-  var node = 0;
-  for (var pos = 0; pos < text.length; pos++) {
-    final code = text.codeUnitAt(pos);
-    while (node != 0 && _children[node][code] == null) {
-      node = _fail[node];
-    }
-    node = _children[node][code] ?? 0;
-    final outs = _output[node];
-    if (outs.isEmpty) continue;
-    for (final pi in outs) {
-      final len = patterns[pi].length;
-      final start = pos - len + 1;
-      if (start < 0) continue;
-      onMatch(start, pos + 1, pi);
+    var node = 0;
+    for (var pos = 0; pos < text.length; pos++) {
+      final code = text.codeUnitAt(pos);
+      while (node != 0 && _children[node][code] == null) {
+        node = _fail[node];
+      }
+      node = _children[node][code] ?? 0;
+      final outs = _output[node];
+      if (outs.isEmpty) continue;
+      for (final pi in outs) {
+        final len = patterns[pi].length;
+        final start = pos - len + 1;
+        if (start < 0) continue;
+        onMatch(start, pos + 1, pi);
+      }
     }
   }
-}
+
   /// 单次扫描，按"行号最小优先"替换所有匹配。非重叠、贪心。
   String replaceAll(String text) {
     if (text.isEmpty || patterns.isEmpty) return text;
