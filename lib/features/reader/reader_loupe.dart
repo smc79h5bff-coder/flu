@@ -13,8 +13,9 @@ class ReaderLoupe extends StatelessWidget {
     this.selectionStart,
     this.selectionEnd,
     this.selectionBg = const Color(0x773D7CFF),
-    this.scale = 1.8,
-    this.diameter = 140.0,
+    this.scale = 1.3,
+    this.width = 160.0,
+    this.height = 56.0,
     this.windowChars = 40,
   });
 
@@ -25,17 +26,17 @@ class ReaderLoupe extends StatelessWidget {
   final Color fgColor;
   final Color caretColor;
 
-  /// 选区在当前行内的起始字符偏移（相对整行 lineText）。
-  /// 和 [selectionEnd] 一起决定窗口内哪段文字带选中背景。
-  /// 都传 null 或相同值 → 不画选中背景。
+  /// 选区在当前行内的起始字符偏移。
   final int? selectionStart;
+
+  /// 选区在当前行内的结束字符偏移。
   final int? selectionEnd;
 
-  /// 选中背景色。默认跟阅读页选区一致。
   final Color selectionBg;
 
   final double scale;
-  final double diameter;
+  final double width;
+  final double height;
   final int windowChars;
 
   static final TextPainter _tp = TextPainter(
@@ -54,7 +55,6 @@ class ReaderLoupe extends StatelessWidget {
     final window = lineText.substring(left, right);
     final windowCaret = caretOffset - left;
 
-    // 选区在 window 内的相对位置（如果和 window 有重叠）
     int? selA;
     int? selB;
     if (selectionStart != null && selectionEnd != null) {
@@ -67,7 +67,6 @@ class ReaderLoupe extends StatelessWidget {
     }
 
     // ---- 2. 测量 caret x（带 LRU 缓存）----
-    // 测量时用纯 style，不含选区背景色，保证 caret x 精确。
     final key = '${window.hashCode}|$windowCaret|'
         '${style.fontSize}|${style.fontWeight?.index}|'
         '${style.letterSpacing}|${style.wordSpacing}';
@@ -91,10 +90,10 @@ class ReaderLoupe extends StatelessWidget {
     }
 
     // ---- 3. 渲染 ----
-    final r = diameter / 2;
+    final cx = width / 2;
+    final cy = height / 2;
     final textStyle = style.copyWith(color: fgColor);
 
-    // 构建文本（如有选区，用 TextSpan 分段加背景）
     final InlineSpan span;
     if (selA != null && selB != null) {
       final before = window.substring(0, selA);
@@ -117,17 +116,18 @@ class ReaderLoupe extends StatelessWidget {
     }
 
     return SizedBox(
-      width: diameter,
-      height: diameter,
-      child: ClipOval(
+      width: width,
+      height: height,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
         child: ColoredBox(
           color: bgColor,
           child: Stack(
             clipBehavior: Clip.hardEdge,
             children: [
               Positioned(
-                left: r - caretX * scale,
-                top: r - lineH * scale / 2,
+                left: cx - caretX * scale,
+                top: cy - lineH * scale / 2,
                 child: Transform.scale(
                   scale: scale,
                   alignment: Alignment.topLeft,
@@ -140,9 +140,9 @@ class ReaderLoupe extends StatelessWidget {
                 ),
               ),
               Positioned(
-                left: r - 0.5,
-                top: diameter * 0.15,
-                bottom: diameter * 0.15,
+                left: cx - 0.5,
+                top: height * 0.15,
+                bottom: height * 0.15,
                 width: 1,
                 child: ColoredBox(color: caretColor),
               ),
@@ -166,7 +166,7 @@ class _MeasureCache {
 
   static _Measure? get(String k) {
     final v = _m.remove(k);
-    if (v != null) _m[k] = v; // LRU 提升
+    if (v != null) _m[k] = v;
     return v;
   }
 
