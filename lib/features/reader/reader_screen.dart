@@ -297,10 +297,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   double _gradCacheWidth = 0;
 
   /// 更快点 3：渐变测量用 TextPainter 单例。
+  /// 显式 textAlign: TextAlign.left，与 Text.rich 渲染保持一致。
   static final TextPainter _gradTP = TextPainter(
-  textDirection: TextDirection.ltr,
-  locale: const Locale('zh', 'CN'),
-);
+    textDirection: TextDirection.ltr,
+    textAlign: TextAlign.left,
+    locale: const Locale('zh', 'CN'),
+  );
 
   _SelectionRange? _sel;
   bool _hBarVisible = false;
@@ -1537,11 +1539,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // ==================== 渲染 ====================
 
+  /// 注意：这里显式设 `letterSpacing: 0` 和 `wordSpacing: 0`，
+  /// 防止系统主题 / App 主题通过 DefaultTextStyle 把字符间距渗透进来，
+  /// 导致 Text.rich 渲染宽度与 _gradTP 测量宽度不一致（渐变背景左偏）。
   TextStyle _baseStyle(ReaderSettings settings) => TextStyle(
         fontSize: settings.fontSize,
         fontWeight: _toFontWeight(settings.fontWeight),
         height: kReaderLineHeightFactor,
         color: const Color(0xFF222222),
+        letterSpacing: 0,
+        wordSpacing: 0,
       );
 
   FontWeight _toFontWeight(int v) {
@@ -1569,67 +1576,57 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(readerSettingsProvider);
 
+    if (_sel != null && _selVersion != _lastOverlayVersion) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _lastOverlayVersion = _selVersion;
+        setState(() {});
+      });
+    }
 
+    // 禁用 textScaler：让渲染和 TextPainter 测量使用完全相同的字号。
+    // 阅读器有自己的字号设置，不需要叠加系统字号。
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        textScaler: TextScaler.noScaling,
+      ),
+      child: Scaffold(
+        backgroundColor: Color(settings.bgColor),
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (ctx, constraints) {
+              final size = Size(constraints.maxWidth, constraints.maxHeight);
+              if (size.width > 10 &&
+                  size.height > 10 &&
+                  _viewportSize != size) {
+                _viewportSize = size;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _ensureLoaded();
+                });
+              }
 
+              if (widget.filePaths.isEmpty) {
+                return const Center(child: Text('没有可读取的文件'));
+              }
+              if (_loading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (_error != null) return _buildError();
+              if (_paginator?.result == null) {
+                return const SizedBox.shrink();
+              }
 
-  
-@override
-Widget build(BuildContext context) {
-  final settings = ref.watch(readerSettingsProvider);
-
-  if (_sel != null && _selVersion != _lastOverlayVersion) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _lastOverlayVersion = _selVersion;
-      setState(() {});
-    });
-  }
-
-  // 禁用 textScaler：让渲染和 TextPainter 测量使用完全相同的字号。
-  // 阅读器有自己的字号设置，不需要叠加系统字号。
-  return MediaQuery(
-    data: MediaQuery.of(context).copyWith(
-      textScaler: TextScaler.noScaling,
-    ),
-    child: Scaffold(
-      backgroundColor: Color(settings.bgColor),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (ctx, constraints) {
-            final size = Size(constraints.maxWidth, constraints.maxHeight);
-            if (size.width > 10 &&
-                size.height > 10 &&
-                _viewportSize != size) {
-              _viewportSize = size;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _ensureLoaded();
-              });
-            }
-
-            if (widget.filePaths.isEmpty) {
-              return const Center(child: Text('没有可读取的文件'));
-            }
-            if (_loading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (_error != null) return _buildError();
-            if (_paginator?.result == null) {
-              return const SizedBox.shrink();
-            }
-
-            return _buildReader(settings, size);
-          },
+              return _buildReader(settings, size);
+            },
+          ),
         ),
       ),
-    ),
-  );
-}
-  
-
-
-
-  
+    );
+  }
 
   Widget _buildError() {
     return Center(
@@ -1761,6 +1758,7 @@ Widget build(BuildContext context) {
             Text.rich(
               TextSpan(children: spans),
               style: _baseStyle(settings),
+              textAlign: TextAlign.left,
               softWrap: true,
               key: _unitKeys[unitIdx],
             ),
@@ -1805,6 +1803,7 @@ Widget build(BuildContext context) {
               Text.rich(
                 TextSpan(children: spans),
                 style: _baseStyle(settings),
+                textAlign: TextAlign.left,
                 softWrap: true,
                 key: _unitKeys[unitIdx],
               ),
@@ -1882,6 +1881,8 @@ Widget build(BuildContext context) {
       final colors =
           h.entry.colors.map((c) => Color(c)).toList(growable: false);
       for (final box in boxes) {
+        // 若个别机型上仍存在 subpixel 级别的左偏，可把左右各 +0.5 补偿：
+        // Rect.fromLTRB(box.left + 0.5, box.top, box.right + 0.5, box.bottom)
         rects.add(_GradRect(
           Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
           colors,
