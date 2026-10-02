@@ -236,6 +236,9 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
+  /// 区间选择锚点。长按某项后记住，再长按另一项时从锚点到它整段选中。
+  String? _anchorPath;
+
   // 搜索运行时状态（不持久化）
   List<_SearchHit> _searchResults = <_SearchHit>[];
   bool _searching = false;
@@ -360,6 +363,7 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   void _clearSelection() {
     _selectionMode = false;
     _selectedPaths.clear();
+    _anchorPath = null;
   }
 
   /// 检查搜索结果，把磁盘上已经不存在的条目剔除。
@@ -382,6 +386,7 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   _searchResults = still;
   if (_selectedPaths.isEmpty) {          // ← 新增
     _selectionMode = false;              // 选中全没了，退出选择模式
+    _anchorPath = null;
   }
   }
 
@@ -390,9 +395,13 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
       _selectionMode = true;
       if (_selectedPaths.contains(e.path)) {
         _selectedPaths.remove(e.path);
-        if (_selectedPaths.isEmpty) _selectionMode = false;
+        if (_selectedPaths.isEmpty) {
+          _selectionMode = false;
+          _anchorPath = null;
+        }
       } else {
         _selectedPaths.add(e.path);
+        _anchorPath = e.path;
       }
     });
   }
@@ -402,9 +411,75 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
       _selectionMode = true;
       if (_selectedPaths.contains(path)) {
         _selectedPaths.remove(path);
-        if (_selectedPaths.isEmpty) _selectionMode = false;
+        if (_selectedPaths.isEmpty) {
+          _selectionMode = false;
+          _anchorPath = null;
+        }
       } else {
         _selectedPaths.add(path);
+        _anchorPath = path;
+      }
+    });
+  }
+
+  /// 当前屏幕上显示的路径列表（按显示顺序）。
+  /// 目录模式 = 目录里的文件/文件夹；搜索模式 = 搜索结果。
+  List<String> get _currentDisplayedPaths {
+    if (_searchActive) {
+      return _searchResults.map((h) => h.path).toList();
+    }
+    return (_entries ?? const <_EntryInfo>[])
+        .map((e) => e.entity.path)
+        .toList();
+  }
+
+  /// 长按某一项。
+  /// - 不在选中模式 → 进入选中模式、选中该项、记锚点。
+  /// - 已在选中模式 + 有锚点 → 从锚点到该项整段选中（区间选择）。
+  void _onLongPressPath(String path) {
+    if (!_selectionMode) {
+      setState(() {
+        _selectionMode = true;
+        _selectedPaths.add(path);
+        _anchorPath = path;
+      });
+      return;
+    }
+    if (_anchorPath != null) {
+      final all = _currentDisplayedPaths;
+      final from = all.indexOf(_anchorPath!);
+      final to = all.indexOf(path);
+      if (from >= 0 && to >= 0) {
+        final lo = from < to ? from : to;
+        final hi = from < to ? to : from;
+        setState(() {
+          for (var i = lo; i <= hi; i++) {
+            _selectedPaths.add(all[i]);
+          }
+          _anchorPath = path;
+        });
+        return;
+      }
+    }
+    setState(() {
+      _selectedPaths.add(path);
+      _anchorPath = path;
+    });
+  }
+
+  /// 全选 / 全不选当前屏幕上显示的项。
+  void _toggleSelectAll() {
+    final all = _currentDisplayedPaths;
+    final allSelected =
+        all.isNotEmpty && all.every((p) => _selectedPaths.contains(p));
+    setState(() {
+      if (allSelected) {
+        _selectedPaths.clear();
+        _selectionMode = false;
+        _anchorPath = null;
+      } else {
+        _selectionMode = true;
+        _selectedPaths.addAll(all);
       }
     });
   }
@@ -514,6 +589,7 @@ Widget _leading({
     _searchCtrl.clear();
     _selectionMode = false;
     _selectedPaths.clear();
+    _anchorPath = null;
     setState(() {
       _searchResults = [];
       _searching = false;
@@ -1931,15 +2007,25 @@ const PopupMenuItem<String>(
   }
 
   PreferredSizeWidget _buildSelectionAppBar() {
-  return AppBar(
-    toolbarHeight: kToolbarHeight + 28,   // ← 加这行，默认 56 + 28 = 84
-    leading: IconButton(
-      icon: const Icon(Icons.close),
-      onPressed: () => setState(_clearSelection),
-    ),
-    title: Text('已选 ${_selectedPaths.length} 个'),
-  );
-}
+    final all = _currentDisplayedPaths;
+    final allSelected =
+        all.isNotEmpty && all.every((p) => _selectedPaths.contains(p));
+    return AppBar(
+      toolbarHeight: kToolbarHeight + 28,
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: () => setState(_clearSelection),
+      ),
+      title: Text('已选 ${_selectedPaths.length} 个'),
+      actions: [
+        IconButton(
+          icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
+          tooltip: allSelected ? '全不选' : '全选',
+          onPressed: _toggleSelectAll,
+        ),
+      ],
+    );
+  }
   
 
   // ==================== 搜索栏 UI ====================
@@ -2316,7 +2402,7 @@ else
       }
       _openFile(hit.path, hit.name, hit.size);
     },
-    onLongPress: () => _toggleSelectionPath(hit.path),
+    onLongPress: () => _onLongPressPath(hit.path),
   ),
 );
           
@@ -2422,7 +2508,7 @@ return Container(
         _openPreview(info);
       }
     },
-    onLongPress: () => _toggleSelection(e),
+    onLongPress: () => _onLongPressPath(e.path),
   ),
 );
       },
