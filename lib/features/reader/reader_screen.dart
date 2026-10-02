@@ -2430,80 +2430,106 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   // ==================== 放大镜 ====================
 
   Widget _buildLoupe(
-    ReaderSettings settings,
-    Size size,
-    _DragInfo drag,
-    _SelectionRange sel,
-  ) {
-    final int line;
-    final int offset;
-    if (drag.handle == 1) {
-      line = sel.startLine;
-      offset = sel.startOffset;
+  ReaderSettings settings,
+  Size size,
+  _DragInfo drag,
+  _SelectionRange sel,
+) {
+  final int line;
+  final int offset;
+  int? selStartInLine;
+  int? selEndInLine;
+
+  if (drag.handle == 1) {
+    // 左手柄：放大镜看选区左端
+    line = sel.startLine;
+    offset = sel.startOffset;
+    selStartInLine = sel.startOffset;
+    if (sel.startLine == sel.endLine) {
+      selEndInLine = sel.endOffset;
     } else {
-      line = sel.endLine;
-      offset = sel.endOffset;
+      // 选区跨行：左手柄所在行，选中从 startOffset 到行尾
+      selEndInLine = (line >= 0 && line < _lines.length)
+          ? _lines[line].length
+          : sel.startOffset;
     }
-    if (line < 0 || line >= _lines.length) return const SizedBox.shrink();
-
-    const double diameter = 140;
-    const double scale = 1.8;
-    const double gap = 26;
-    const double margin = 8;
-
-    final h = drag.handlePos;
-
-    final aboveCenter = Offset(h.dx, h.dy - gap - diameter / 2);
-    final belowCenter = Offset(h.dx, h.dy + gap + diameter / 2);
-    var center = aboveCenter;
-    if (aboveCenter.dy - diameter / 2 < margin) {
-      center = belowCenter;
+  } else {
+    // 右手柄：放大镜看选区右端
+    line = sel.endLine;
+    offset = sel.endOffset;
+    if (sel.startLine == sel.endLine) {
+      selStartInLine = sel.startOffset;
+    } else {
+      // 选区跨行：右手柄所在行，选中从行首到 endOffset
+      selStartInLine = 0;
     }
-    center = Offset(
-      center.dx.clamp(
-          margin + diameter / 2, size.width - margin - diameter / 2),
-      center.dy.clamp(
-          margin + diameter / 2, size.height - margin - diameter / 2),
-    );
+    selEndInLine = sel.endOffset;
+  }
 
-    final base = _baseStyle(settings);
-    final loupeStyle = base.copyWith(color: null);
+  if (line < 0 || line >= _lines.length) return const SizedBox.shrink();
 
-    return Positioned(
-      left: center.dx - diameter / 2,
-      top: center.dy - diameter / 2,
-      child: IgnorePointer(
-        child: RepaintBoundary(
-          child: PhysicalModel(
-            color: Colors.transparent,
-            elevation: 8,
-            shadowColor: Colors.black.withValues(alpha: 0.35),
-            shape: BoxShape.circle,
-            clipBehavior: Clip.antiAlias,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.black.withValues(alpha: 0.10),
-                  width: 0.5,
-                ),
+  const double diameter = 140;
+  const double scale = 1.8;
+  const double gap = 26;
+  const double margin = 8;
+
+  final h = drag.handlePos;
+
+  final aboveCenter = Offset(h.dx, h.dy - gap - diameter / 2);
+  final belowCenter = Offset(h.dx, h.dy + gap + diameter / 2);
+  var center = aboveCenter;
+  if (aboveCenter.dy - diameter / 2 < margin) {
+    center = belowCenter;
+  }
+  center = Offset(
+    center.dx.clamp(
+        margin + diameter / 2, size.width - margin - diameter / 2),
+    center.dy.clamp(
+        margin + diameter / 2, size.height - margin - diameter / 2),
+  );
+
+  final base = _baseStyle(settings);
+  final loupeStyle = base.copyWith(color: null);
+
+  return Positioned(
+    left: center.dx - diameter / 2,
+    top: center.dy - diameter / 2,
+    child: IgnorePointer(
+      child: RepaintBoundary(
+        child: PhysicalModel(
+          color: Colors.transparent,
+          elevation: 8,
+          shadowColor: Colors.black.withValues(alpha: 0.35),
+          shape: BoxShape.circle,
+          clipBehavior: Clip.antiAlias,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.black.withValues(alpha: 0.10),
+                width: 0.5,
               ),
-              child: ReaderLoupe(
-                lineText: _lines[line],
-                caretOffset: offset,
-                style: loupeStyle,
-                bgColor: Color(settings.bgColor),
-                fgColor: const Color(0xFF222222),
-                caretColor: Theme.of(context).colorScheme.primary,
-                scale: scale,
-                diameter: diameter,
-              ),
+            ),
+            child: ReaderLoupe(
+              lineText: _lines[line],
+              caretOffset: offset,
+              style: loupeStyle,
+              bgColor: Color(settings.bgColor),
+              fgColor: const Color(0xFF222222),
+              caretColor: Theme.of(context).colorScheme.primary,
+              selectionStart: selStartInLine,
+              selectionEnd: selEndInLine,
+              selectionBg: _selectionBg,
+              scale: scale,
+              diameter: diameter,
             ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+  
 
   // ==================== 弹窗渲染 ====================
 
