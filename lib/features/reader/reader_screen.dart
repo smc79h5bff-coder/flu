@@ -2066,7 +2066,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     const trapW = 22.0;
     const trapH = 32.0;
     final baseColor = Theme.of(context).colorScheme.primary;
-final color = baseColor.withValues(alpha: 0.55); // 0.0~1.0 自己调
+final color = baseColor.withValues(alpha: 0.75); // 0.0~1.0 自己调
 
     var leftPos = pos.left;
     var rightPos = pos.right;
