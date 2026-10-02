@@ -803,11 +803,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     await _ensureLoaded();
   }
 
-  /// 关闭当前文件：退出整个阅读器。跟按返回键效果一样，但入口在菜单里。
+  /// 关闭当前文件：退出整个阅读器，并把"当前在哪个文件"返回给调用方。
   void _closeFile() {
     _saveProgressNow();
     _clearSelection();
-    Navigator.of(context).pop();
+    final path =
+        widget.filePaths.isEmpty ? null : widget.filePaths[_fileIndex];
+    Navigator.of(context).pop(path);
   }
 
   // ==================== 顶部菜单 ====================
@@ -827,11 +829,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       if (mounted) setState(() => _menuOpen = false);
     });
   }
-
-
-
-
-
 
   Widget _buildTopMenuSheet(BuildContext ctx) {
   final p = _paginator?.result;
@@ -1040,15 +1037,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   );
   }
 
-
-
-
-
-
-
-
-
-  
   String _encodingSubtitle() {
     final cur = _currentEncoding?.label ?? '未识别';
     if (_manualEncoding == null) return '自动检测（$cur）';
@@ -1768,65 +1756,76 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   @override
-Widget build(BuildContext context) {
-  final settings = ref.watch(readerSettingsProvider);
+  Widget build(BuildContext context) {
+    final settings = ref.watch(readerSettingsProvider);
 
-  if (_sel != null && _selVersion != _lastOverlayVersion) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _lastOverlayVersion = _selVersion;
-      setState(() {});
-    });
-  }
-
-  // 设置一变（字号 / 字重 / 手动编码）→ 重建分页器。
-  // 不重建的话，_paginator 还按旧字号算"每页几行"，
-  // 正文却按新字号渲染 → 下方留白或溢出。
-  if (!_loading &&
-      !widget.filePaths.isEmpty &&
-      _fileIndex >= 0 &&
-      _fileIndex < widget.filePaths.length) {
-    final path = widget.filePaths[_fileIndex];
-    final currentKey = _loadKeyFor(path);
-    if (_lastLoadedKey != currentKey) {
+    if (_sel != null && _selVersion != _lastOverlayVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _ensureLoaded();
+        if (!mounted) return;
+        _lastOverlayVersion = _selVersion;
+        setState(() {});
       });
     }
-  }
 
-  return MediaQuery(
-      data: MediaQuery.of(context).copyWith(
-        textScaler: TextScaler.noScaling,
-      ),
-      child: Scaffold(
-        backgroundColor: Color(settings.bgColor),
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (ctx, constraints) {
-              final size = Size(constraints.maxWidth, constraints.maxHeight);
-              if (size.width > 10 &&
-                  size.height > 10 &&
-                  _viewportSize != size) {
-                _viewportSize = size;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _ensureLoaded();
-                });
-              }
+    // 设置一变（字号 / 字重 / 手动编码）→ 重建分页器。
+    // 不重建的话，_paginator 还按旧字号算"每页几行"，
+    // 正文却按新字号渲染 → 下方留白或溢出。
+    if (!_loading &&
+        !widget.filePaths.isEmpty &&
+        _fileIndex >= 0 &&
+        _fileIndex < widget.filePaths.length) {
+      final path = widget.filePaths[_fileIndex];
+      final currentKey = _loadKeyFor(path);
+      if (_lastLoadedKey != currentKey) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _ensureLoaded();
+        });
+      }
+    }
 
-              if (widget.filePaths.isEmpty) {
-                return const Center(child: Text('没有可读取的文件'));
-              }
-              if (_loading) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (_error != null) return _buildError();
-              if (_paginator?.result == null) {
-                return const SizedBox.shrink();
-              }
+    // 系统返回键也要把"当前文件路径"返回给文件浏览器，
+    // 这样返回后列表能滚到当前文件那一项。
+    return PopScope<String?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        final path =
+            widget.filePaths.isEmpty ? null : widget.filePaths[_fileIndex];
+        Navigator.of(context).pop(path);
+      },
+      child: MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.noScaling,
+        ),
+        child: Scaffold(
+          backgroundColor: Color(settings.bgColor),
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (ctx, constraints) {
+                final size = Size(constraints.maxWidth, constraints.maxHeight);
+                if (size.width > 10 &&
+                    size.height > 10 &&
+                    _viewportSize != size) {
+                  _viewportSize = size;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _ensureLoaded();
+                  });
+                }
 
-              return _buildReader(settings, size);
-            },
+                if (widget.filePaths.isEmpty) {
+                  return const Center(child: Text('没有可读取的文件'));
+                }
+                if (_loading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (_error != null) return _buildError();
+                if (_paginator?.result == null) {
+                  return const SizedBox.shrink();
+                }
+
+                return _buildReader(settings, size);
+              },
+            ),
           ),
         ),
       ),
@@ -2527,10 +2526,6 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
     return [handle(leftPos, 1), handle(rightPos, 2)];
   }
 
-
-
-
-  
   // ==================== 放大镜 ====================
 
  Widget _buildLoupe(
@@ -2691,8 +2686,6 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
 
-
-
 Row(
   children: [
     IconButton(
@@ -2723,11 +2716,6 @@ Row(
     ),
     const SizedBox(width: 4),
 
-
-
-
-
-                  
                   Expanded(
                     child: Text(
                       _selectedText(),
