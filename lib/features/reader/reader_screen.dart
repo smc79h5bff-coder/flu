@@ -854,19 +854,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
           // ---------- 文件名（长按复制完整路径） ----------
           ListTile(
-            leading: const Icon(Icons.description_outlined),
-            title: Text(
-              fileName.isEmpty ? '（未命名）' : fileName,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14),
-            ),
-            subtitle: Text(
-              path,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11),
-            ),
+  isThreeLine: true,
+  leading: const Icon(Icons.description_outlined),
+  title: Text(
+    fileName.isEmpty ? '（未命名）' : fileName,
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    style: const TextStyle(fontSize: 14),
+  ),
+  subtitle: Text(
+    path,
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    style: const TextStyle(fontSize: 11),
+  ),
+
+            
             onLongPress: () {
               if (path.isEmpty) return;
               Clipboard.setData(ClipboardData(text: path));
