@@ -1568,19 +1568,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final settings = ref.watch(readerSettingsProvider);
 
-    if (_sel != null && _selVersion != _lastOverlayVersion) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _lastOverlayVersion = _selVersion;
-        setState(() {});
-      });
-    }
 
-    return Scaffold(
+
+
+  
+@override
+Widget build(BuildContext context) {
+  final settings = ref.watch(readerSettingsProvider);
+
+  if (_sel != null && _selVersion != _lastOverlayVersion) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _lastOverlayVersion = _selVersion;
+      setState(() {});
+    });
+  }
+
+  // 禁用 textScaler：让渲染和 TextPainter 测量使用完全相同的字号。
+  // 阅读器有自己的字号设置，不需要叠加系统字号。
+  return MediaQuery(
+    data: MediaQuery.of(context).copyWith(
+      textScaler: TextScaler.noScaling,
+    ),
+    child: Scaffold(
       backgroundColor: Color(settings.bgColor),
       body: SafeArea(
         child: LayoutBuilder(
@@ -1610,8 +1621,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           },
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+  
+
+
+
+  
 
   Widget _buildError() {
     return Center(
