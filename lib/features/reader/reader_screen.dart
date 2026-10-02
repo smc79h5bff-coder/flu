@@ -2148,12 +2148,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   // 不要用梯形右侧中点：它在字符底下方 trapH/2 ≈ 16px，
   // 小字号时已经踩到下一行，手指轻微抖动就会误判到下一行。
   // 翻转时（贴近屏幕底部）改用字符顶。
-  final judge = Offset(
-    handleLogic.dx,
-    bottomOverflow
-        ? handleLogic.dy
-        : handleLogic.dy + settings.fontSize,
-  );
+  
+  
+  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
+final charBottom = handleLogic.dy + settings.fontSize;
+final judge = Offset(
+  handleLogic.dx,
+  charBottom - lineHeight / 3,
+);
+  
+  
+  
   _updateSelectionFromDrag(judge);
 },
 
