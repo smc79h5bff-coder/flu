@@ -23,7 +23,7 @@ final readerSettingsProvider =
 
 class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
   @override
-  String get key => 'reader.settings.v1';
+  String get key => 'reader.settings.v2';
 
   @override
   ReaderSettings get defaultValue => ReaderSettings.initial;
@@ -34,6 +34,8 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
   @override
   String encode(ReaderSettings value) => value.encode();
 
+  // ---- 通用 ----
+
   void setFontSize(double v) =>
       update(state.copyWith(fontSize: v.clamp(4.0, 60.0)));
 
@@ -42,17 +44,65 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
 
   void setBgColor(int v) => update(state.copyWith(bgColor: v));
 
-  void setButtonOpacity(double v) =>
-      update(state.copyWith(buttonOpacity: v.clamp(0.1, 1.0)));
-
-  void setButtonScale(double v) =>
-      update(state.copyWith(buttonScale: v.clamp(0.2, 10.0)));
-
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
 
-  void setTopHotZone(double v) =>
-      update(state.copyWith(topHotZoneHeight: v.clamp(20.0, 200.0)));
+  // ---- 上一文件按钮 ----
+
+  void setTopBtnStyle(int v) => update(state.copyWith(topBtnStyle: v));
+  void setTopBtnBgColor(int v) => update(state.copyWith(topBtnBgColor: v));
+  void setTopBtnFgColor(int v) => update(state.copyWith(topBtnFgColor: v));
+  void setTopBtnRingColor(int v) =>
+      update(state.copyWith(topBtnRingColor: v));
+  void setTopBtnRingWidth(double v) =>
+      update(state.copyWith(topBtnRingWidth: v.clamp(0.5, 20.0)));
+  void setTopBtnOpacity(double v) =>
+      update(state.copyWith(topBtnOpacity: v.clamp(0.05, 1.0)));
+  void setTopBtnScale(double v) =>
+      update(state.copyWith(topBtnScale: v.clamp(0.2, 10.0)));
+  void setTopBtnX(double v) =>
+      update(state.copyWith(topBtnX: v.clamp(0.0, 1.0)));
+  void setTopBtnY(double v) =>
+      update(state.copyWith(topBtnY: v.clamp(0.0, 1.0)));
+
+  // ---- 下一文件按钮 ----
+
+  void setBottomBtnStyle(int v) => update(state.copyWith(bottomBtnStyle: v));
+  void setBottomBtnBgColor(int v) =>
+      update(state.copyWith(bottomBtnBgColor: v));
+  void setBottomBtnFgColor(int v) =>
+      update(state.copyWith(bottomBtnFgColor: v));
+  void setBottomBtnRingColor(int v) =>
+      update(state.copyWith(bottomBtnRingColor: v));
+  void setBottomBtnRingWidth(double v) =>
+      update(state.copyWith(bottomBtnRingWidth: v.clamp(0.5, 20.0)));
+  void setBottomBtnOpacity(double v) =>
+      update(state.copyWith(bottomBtnOpacity: v.clamp(0.05, 1.0)));
+  void setBottomBtnScale(double v) =>
+      update(state.copyWith(bottomBtnScale: v.clamp(0.2, 10.0)));
+  void setBottomBtnX(double v) =>
+      update(state.copyWith(bottomBtnX: v.clamp(0.0, 1.0)));
+  void setBottomBtnY(double v) =>
+      update(state.copyWith(bottomBtnY: v.clamp(0.0, 1.0)));
+
+  // ---- 菜单热区 ----
+
+  void setHotZoneVisible(bool v) =>
+      update(state.copyWith(hotZoneVisible: v));
+  void setHotZoneStyle(int v) => update(state.copyWith(hotZoneStyle: v));
+  void setHotZoneColor(int v) => update(state.copyWith(hotZoneColor: v));
+  void setHotZoneOpacity(double v) =>
+      update(state.copyWith(hotZoneOpacity: v.clamp(0.0, 1.0)));
+  void setHotZoneBorderWidth(double v) =>
+      update(state.copyWith(hotZoneBorderWidth: v.clamp(0.5, 20.0)));
+  void setHotZoneX(double v) =>
+      update(state.copyWith(hotZoneX: v.clamp(0.0, 1.0)));
+  void setHotZoneY(double v) =>
+      update(state.copyWith(hotZoneY: v.clamp(0.0, 1.0)));
+  void setHotZoneW(double v) =>
+      update(state.copyWith(hotZoneW: v.clamp(0.02, 1.0)));
+  void setHotZoneH(double v) =>
+      update(state.copyWith(hotZoneH: v.clamp(0.02, 1.0)));
 }
 
 // ==================== 阅读进度（每个文件一条） ====================
@@ -258,6 +308,21 @@ class ReaderHighlightsNotifier
     next[fileKey] = [
       for (final h in current)
         if (h.id == entry.id) entry else h,
+    ];
+    update(next);
+  }
+
+  /// 批量改分组（把 ids 里的高亮都改成 groupId）。groupId 为 null = 未分组。
+  void setGroupMany(String fileKey, Set<String> ids, String? groupId) {
+    final current = state[fileKey];
+    if (current == null) return;
+    final next = Map<String, List<HighlightEntry>>.from(state);
+    next[fileKey] = [
+      for (final h in current)
+        if (ids.contains(h.id))
+          h.copyWith(groupId: groupId, clearGroup: groupId == null)
+        else
+          h,
     ];
     update(next);
   }
