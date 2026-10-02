@@ -37,421 +37,448 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
   Widget build(BuildContext context) {
     final s = ref.watch(readerSettingsProvider);
     final n = ref.read(readerSettingsProvider.notifier);
+    final pagePreview = ref.watch(readerPagePreviewProvider);
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.85,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: Column(
+          children: [
+            // ==================== 顶部把手 + 标题 ====================
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                const SizedBox(height: 16),
-                const Text('阅读设置',
-                    style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-
-                // ==================== 字号 / 字重 / 背景色 ====================
-                _sliderHeader('字号', s.fontSize.toStringAsFixed(0)),
-                Row(
-                  children: [
-                    const Text('4', style: TextStyle(fontSize: 11)),
-                    Expanded(
-                      child: Slider(
-                        min: 4,
-                        max: 60,
-                        value: s.fontSize.clamp(4, 60),
-                        onChanged: n.setFontSize,
-                      ),
-                    ),
-                    const Text('60', style: TextStyle(fontSize: 11)),
-                  ],
-                ),
-                _numberInput(
-                  value: s.fontSize.toStringAsFixed(0),
-                  onSubmitted: (v) {
-                    final d = double.tryParse(v);
-                    if (d != null) n.setFontSize(d);
-                  },
-                ),
-                const SizedBox(height: 12),
-
-                _sliderHeader('字重', s.fontWeight.toString()),
-                Row(
-                  children: [
-                    const Text('100', style: TextStyle(fontSize: 11)),
-                    Expanded(
-                      child: Slider(
-                        min: 100,
-                        max: 900,
-                        divisions: 8,
-                        value: s.fontWeight.toDouble().clamp(100, 900),
-                        onChanged: (v) => n.setFontWeight(v.round()),
-                      ),
-                    ),
-                    const Text('900', style: TextStyle(fontSize: 11)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                _sliderHeader('背景颜色', ''),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    _bgSwatch(
-                      color: Color(ReaderSettings.bgCream),
-                      label: '米黄',
-                      selected: s.bgColor == ReaderSettings.bgCream,
-                      onTap: () => n.setBgColor(ReaderSettings.bgCream),
-                    ),
-                    const SizedBox(width: 12),
-                    _bgSwatch(
-                      color: Color(ReaderSettings.bgWhite),
-                      label: '白色',
-                      selected: s.bgColor == ReaderSettings.bgWhite,
-                      onTap: () => n.setBgColor(ReaderSettings.bgWhite),
-                    ),
-                    const SizedBox(width: 12),
-                    _bgSwatch(
-                      color: Color(ReaderSettings.bgGreen),
-                      label: '护眼绿',
-                      selected: s.bgColor == ReaderSettings.bgGreen,
-                      onTap: () => n.setBgColor(ReaderSettings.bgGreen),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Divider(),
-                const SizedBox(height: 8),
-
-                // ==================== 预览 ====================
-                const Text('实时预览',
-                    style: TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text(
-                  '下面所有参数改动会实时反映到这张图上。',
-                  style: TextStyle(
-                      fontSize: 11, color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 8),
-                _miniPreview(
-                  context,
-                  s,
-                  ref.watch(readerPagePreviewProvider),
-                ),
-                const SizedBox(height: 20),
-                const Divider(),
-                const SizedBox(height: 8),
-
-                // ==================== 悬浮按钮总开关 ====================
-                Row(
-                  children: [
-                    const Text('浮动按钮',
-                        style: TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w600)),
-                    const Spacer(),
-                    Switch(
-                      value: s.showButtons,
-                      onChanged: (_) => n.toggleButtons(),
-                    ),
-                  ],
-                ),
-                if (!s.showButtons)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4, bottom: 8),
-                    child: Text(
-                      '已关闭。点击原按钮位置会走正常翻页 / 打开菜单逻辑。',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
-                    ),
-                  ),
-
-                if (s.showButtons) ...[
-                  // ==================== 上一文件按钮 ====================
-                  _sectionTitle('上一文件按钮'),
-                  _buttonStyleChooser(
-                    style: s.topBtnStyle,
-                    onChanged: n.setTopBtnStyle,
-                  ),
-                  if (s.topBtnStyle == 0) ...[
-                    _colorRow(
-                      context: context,
-                      label: '背景色',
-                      color: Color(s.topBtnBgColor),
-                      onPick: n.setTopBtnBgColor,
-                    ),
-                    _colorRow(
-                      context: context,
-                      label: '箭头色',
-                      color: Color(s.topBtnFgColor),
-                      onPick: n.setTopBtnFgColor,
-                    ),
-                  ] else ...[
-                    _colorRow(
-                      context: context,
-                      label: '圆环颜色',
-                      color: Color(s.topBtnRingColor),
-                      onPick: n.setTopBtnRingColor,
-                    ),
-                    _sliderHeader('圆环粗细',
-                        '${s.topBtnRingWidth.toStringAsFixed(1)} px'),
-                    Slider(
-                      min: 0.5,
-                      max: 20,
-                      value: s.topBtnRingWidth.clamp(0.5, 20),
-                      onChanged: n.setTopBtnRingWidth,
-                    ),
-                  ],
-                  _sliderHeader(
-                      '透明度',
-                      '${(s.topBtnOpacity * 100).toStringAsFixed(0)}%'),
-                  Slider(
-                    min: 0.05,
-                    max: 1.0,
-                    value: s.topBtnOpacity.clamp(0.05, 1.0),
-                    onChanged: n.setTopBtnOpacity,
-                  ),
-                  _sliderHeader(
-                      '大小', '${s.topBtnScale.toStringAsFixed(1)}×'),
-                  Slider(
-                    min: 0.2,
-                    max: 10.0,
-                    value: s.topBtnScale.clamp(0.2, 10.0),
-                    onChanged: n.setTopBtnScale,
-                  ),
-                  _sliderHeader(
-                      '横向 X', '${(s.topBtnX * 100).toStringAsFixed(0)}%'),
-                  Slider(
-                    min: 0.0,
-                    max: 1.0,
-                    value: s.topBtnX.clamp(0.0, 1.0),
-                    onChanged: n.setTopBtnX,
-                  ),
-                  _sliderHeader(
-                      '纵向 Y', '${(s.topBtnY * 100).toStringAsFixed(0)}%'),
-                  Slider(
-                    min: 0.0,
-                    max: 1.0,
-                    value: s.topBtnY.clamp(0.0, 1.0),
-                    onChanged: n.setTopBtnY,
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ==================== 下一文件按钮 ====================
-                  _sectionTitle('下一文件按钮'),
-                  _buttonStyleChooser(
-                    style: s.bottomBtnStyle,
-                    onChanged: n.setBottomBtnStyle,
-                  ),
-                  if (s.bottomBtnStyle == 0) ...[
-                    _colorRow(
-                      context: context,
-                      label: '背景色',
-                      color: Color(s.bottomBtnBgColor),
-                      onPick: n.setBottomBtnBgColor,
-                    ),
-                    _colorRow(
-                      context: context,
-                      label: '箭头色',
-                      color: Color(s.bottomBtnFgColor),
-                      onPick: n.setBottomBtnFgColor,
-                    ),
-                  ] else ...[
-                    _colorRow(
-                      context: context,
-                      label: '圆环颜色',
-                      color: Color(s.bottomBtnRingColor),
-                      onPick: n.setBottomBtnRingColor,
-                    ),
-                    _sliderHeader('圆环粗细',
-                        '${s.bottomBtnRingWidth.toStringAsFixed(1)} px'),
-                    Slider(
-                      min: 0.5,
-                      max: 20,
-                      value: s.bottomBtnRingWidth.clamp(0.5, 20),
-                      onChanged: n.setBottomBtnRingWidth,
-                    ),
-                  ],
-                  _sliderHeader(
-                      '透明度',
-                      '${(s.bottomBtnOpacity * 100).toStringAsFixed(0)}%'),
-                  Slider(
-                    min: 0.05,
-                    max: 1.0,
-                    value: s.bottomBtnOpacity.clamp(0.05, 1.0),
-                    onChanged: n.setBottomBtnOpacity,
-                  ),
-                  _sliderHeader(
-                      '大小', '${s.bottomBtnScale.toStringAsFixed(1)}×'),
-                  Slider(
-                    min: 0.2,
-                    max: 10.0,
-                    value: s.bottomBtnScale.clamp(0.2, 10.0),
-                    onChanged: n.setBottomBtnScale,
-                  ),
-                  _sliderHeader(
-                      '横向 X', '${(s.bottomBtnX * 100).toStringAsFixed(0)}%'),
-                  Slider(
-                    min: 0.0,
-                    max: 1.0,
-                    value: s.bottomBtnX.clamp(0.0, 1.0),
-                    onChanged: n.setBottomBtnX,
-                  ),
-                  _sliderHeader(
-                      '纵向 Y', '${(s.bottomBtnY * 100).toStringAsFixed(0)}%'),
-                  Slider(
-                    min: 0.0,
-                    max: 1.0,
-                    value: s.bottomBtnY.clamp(0.0, 1.0),
-                    onChanged: n.setBottomBtnY,
-                  ),
-                ],
-
-                const SizedBox(height: 20),
-                const Divider(),
-                const SizedBox(height: 8),
-
-                // ==================== 菜单热区 ====================
-                _sectionTitle('菜单热区'),
-                Text(
-                  '点击此区域 → 打开顶部菜单；点击其它区域 → 翻下一页。',
-                  style: TextStyle(
-                      fontSize: 11, color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 8),
-
-                Row(
-                  children: [
-                    const Text('在阅读页显示热区',
-                        style: TextStyle(fontSize: 13)),
-                    const Spacer(),
-                    Switch(
-                      value: s.hotZoneVisible,
-                      onChanged: n.setHotZoneVisible,
-                    ),
-                  ],
-                ),
-                Text(
-                  '关掉后依旧能点，只是不画出来。',
-                  style: TextStyle(
-                      fontSize: 11, color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 8),
-
-                const Text('显示样式',
-                    style: TextStyle(fontSize: 13)),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    ChoiceChip(
-                      label: const Text('整块填色'),
-                      selected: s.hotZoneStyle == 0,
-                      onSelected: (_) => n.setHotZoneStyle(0),
-                    ),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: const Text('分界线'),
-                      selected: s.hotZoneStyle == 1,
-                      onSelected: (_) => n.setHotZoneStyle(1),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                _colorRow(
-                  context: context,
-                  label: s.hotZoneStyle == 0 ? '填充颜色' : '边框颜色',
-                  color: Color(s.hotZoneColor),
-                  onPick: n.setHotZoneColor,
-                ),
-
-                if (s.hotZoneStyle == 1) ...[
-                  _sliderHeader('边框粗细',
-                      '${s.hotZoneBorderWidth.toStringAsFixed(1)} px'),
-                  Slider(
-                    min: 0.5,
-                    max: 20,
-                    value: s.hotZoneBorderWidth.clamp(0.5, 20),
-                    onChanged: n.setHotZoneBorderWidth,
-                  ),
-                ],
-
-                _sliderHeader(
-                    '透明度',
-                    '${(s.hotZoneOpacity * 100).toStringAsFixed(0)}%'),
-                Slider(
-                  min: 0.0,
-                  max: 1.0,
-                  value: s.hotZoneOpacity.clamp(0.0, 1.0),
-                  onChanged: n.setHotZoneOpacity,
-                ),
-
-                if (s.hotZoneStyle == 1)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4, bottom: 8),
-                    child: Text(
-                      'ⓘ 贴屏幕边的边框不显示，比如热区贴顶时只画下边那条线。',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
-                    ),
-                  ),
-
-                _sliderHeader(
-                    '横向 X', '${(s.hotZoneX * 100).toStringAsFixed(0)}%'),
-                Slider(
-                  min: 0.0,
-                  max: 1.0,
-                  value: s.hotZoneX.clamp(0.0, 1.0),
-                  onChanged: n.setHotZoneX,
-                ),
-                _sliderHeader(
-                    '纵向 Y', '${(s.hotZoneY * 100).toStringAsFixed(0)}%'),
-                Slider(
-                  min: 0.0,
-                  max: 1.0,
-                  value: s.hotZoneY.clamp(0.0, 1.0),
-                  onChanged: n.setHotZoneY,
-                ),
-                _sliderHeader(
-                    '宽度', '${(s.hotZoneW * 100).toStringAsFixed(0)}%'),
-                Slider(
-                  min: 0.02,
-                  max: 1.0,
-                  value: s.hotZoneW.clamp(0.02, 1.0),
-                  onChanged: n.setHotZoneW,
-                ),
-                _sliderHeader(
-                    '高度', '${(s.hotZoneH * 100).toStringAsFixed(0)}%'),
-                Slider(
-                  min: 0.02,
-                  max: 1.0,
-                  value: s.hotZoneH.clamp(0.02, 1.0),
-                  onChanged: n.setHotZoneH,
-                ),
-
-                const SizedBox(height: 24),
-                Center(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('关闭'),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 8),
+            const Text('阅读设置',
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+
+            // ==================== 固定预览区 ====================
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '点击预览可放大查看',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '所有参数改动实时反映到预览。',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _miniPreview(context, s, pagePreview),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 4),
+            const Divider(height: 1),
+
+            // ==================== 滚动设置区 ====================
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ---------- 字号 ----------
+                    _sliderHeader('字号', s.fontSize.toStringAsFixed(0)),
+                    Row(
+                      children: [
+                        const Text('4', style: TextStyle(fontSize: 11)),
+                        Expanded(
+                          child: Slider(
+                            min: 4,
+                            max: 60,
+                            value: s.fontSize.clamp(4, 60),
+                            onChanged: n.setFontSize,
+                          ),
+                        ),
+                        const Text('60', style: TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                    _numberInput(
+                      value: s.fontSize.toStringAsFixed(0),
+                      onSubmitted: (v) {
+                        final d = double.tryParse(v);
+                        if (d != null) n.setFontSize(d);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ---------- 字重 ----------
+                    _sliderHeader('字重', s.fontWeight.toString()),
+                    Row(
+                      children: [
+                        const Text('100', style: TextStyle(fontSize: 11)),
+                        Expanded(
+                          child: Slider(
+                            min: 100,
+                            max: 900,
+                            divisions: 8,
+                            value: s.fontWeight.toDouble().clamp(100, 900),
+                            onChanged: (v) => n.setFontWeight(v.round()),
+                          ),
+                        ),
+                        const Text('900', style: TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ---------- 背景色 ----------
+                    _sliderHeader('背景颜色', ''),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        _bgSwatch(
+                          color: Color(ReaderSettings.bgCream),
+                          label: '米黄',
+                          selected: s.bgColor == ReaderSettings.bgCream,
+                          onTap: () => n.setBgColor(ReaderSettings.bgCream),
+                        ),
+                        const SizedBox(width: 12),
+                        _bgSwatch(
+                          color: Color(ReaderSettings.bgWhite),
+                          label: '白色',
+                          selected: s.bgColor == ReaderSettings.bgWhite,
+                          onTap: () => n.setBgColor(ReaderSettings.bgWhite),
+                        ),
+                        const SizedBox(width: 12),
+                        _bgSwatch(
+                          color: Color(ReaderSettings.bgGreen),
+                          label: '护眼绿',
+                          selected: s.bgColor == ReaderSettings.bgGreen,
+                          onTap: () => n.setBgColor(ReaderSettings.bgGreen),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 8),
+
+                    // ---------- 悬浮按钮总开关 ----------
+                    Row(
+                      children: [
+                        const Text('浮动按钮',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Switch(
+                          value: s.showButtons,
+                          onChanged: (_) => n.toggleButtons(),
+                        ),
+                      ],
+                    ),
+                    if (!s.showButtons)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4, bottom: 8),
+                        child: Text(
+                          '已关闭。点击原按钮位置会走正常翻页 / 打开菜单逻辑。',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ),
+
+                    if (s.showButtons) ...[
+                      // ---------- 上一文件按钮 ----------
+                      _sectionTitle('上一文件按钮'),
+                      _buttonStyleChooser(
+                        style: s.topBtnStyle,
+                        onChanged: n.setTopBtnStyle,
+                      ),
+                      if (s.topBtnStyle == 0) ...[
+                        _colorRow(
+                          context: context,
+                          label: '背景色',
+                          color: Color(s.topBtnBgColor),
+                          onPick: n.setTopBtnBgColor,
+                        ),
+                        _colorRow(
+                          context: context,
+                          label: '箭头色',
+                          color: Color(s.topBtnFgColor),
+                          onPick: n.setTopBtnFgColor,
+                        ),
+                      ] else ...[
+                        _colorRow(
+                          context: context,
+                          label: '圆环颜色',
+                          color: Color(s.topBtnRingColor),
+                          onPick: n.setTopBtnRingColor,
+                        ),
+                        _sliderHeader('圆环粗细',
+                            '${s.topBtnRingWidth.toStringAsFixed(1)} px'),
+                        Slider(
+                          min: 0.5,
+                          max: 20,
+                          value: s.topBtnRingWidth.clamp(0.5, 20),
+                          onChanged: n.setTopBtnRingWidth,
+                        ),
+                      ],
+                      _sliderHeader(
+                          '透明度',
+                          '${(s.topBtnOpacity * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.05,
+                        max: 1.0,
+                        value: s.topBtnOpacity.clamp(0.05, 1.0),
+                        onChanged: n.setTopBtnOpacity,
+                      ),
+                      _sliderHeader(
+                          '大小', '${s.topBtnScale.toStringAsFixed(1)}×'),
+                      Slider(
+                        min: 0.2,
+                        max: 10.0,
+                        value: s.topBtnScale.clamp(0.2, 10.0),
+                        onChanged: n.setTopBtnScale,
+                      ),
+                      _sliderHeader(
+                          '横向 X',
+                          '${(s.topBtnX * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.0,
+                        max: 1.0,
+                        value: s.topBtnX.clamp(0.0, 1.0),
+                        onChanged: n.setTopBtnX,
+                      ),
+                      _sliderHeader(
+                          '纵向 Y',
+                          '${(s.topBtnY * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.0,
+                        max: 1.0,
+                        value: s.topBtnY.clamp(0.0, 1.0),
+                        onChanged: n.setTopBtnY,
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ---------- 下一文件按钮 ----------
+                      _sectionTitle('下一文件按钮'),
+                      _buttonStyleChooser(
+                        style: s.bottomBtnStyle,
+                        onChanged: n.setBottomBtnStyle,
+                      ),
+                      if (s.bottomBtnStyle == 0) ...[
+                        _colorRow(
+                          context: context,
+                          label: '背景色',
+                          color: Color(s.bottomBtnBgColor),
+                          onPick: n.setBottomBtnBgColor,
+                        ),
+                        _colorRow(
+                          context: context,
+                          label: '箭头色',
+                          color: Color(s.bottomBtnFgColor),
+                          onPick: n.setBottomBtnFgColor,
+                        ),
+                      ] else ...[
+                        _colorRow(
+                          context: context,
+                          label: '圆环颜色',
+                          color: Color(s.bottomBtnRingColor),
+                          onPick: n.setBottomBtnRingColor,
+                        ),
+                        _sliderHeader('圆环粗细',
+                            '${s.bottomBtnRingWidth.toStringAsFixed(1)} px'),
+                        Slider(
+                          min: 0.5,
+                          max: 20,
+                          value: s.bottomBtnRingWidth.clamp(0.5, 20),
+                          onChanged: n.setBottomBtnRingWidth,
+                        ),
+                      ],
+                      _sliderHeader(
+                          '透明度',
+                          '${(s.bottomBtnOpacity * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.05,
+                        max: 1.0,
+                        value: s.bottomBtnOpacity.clamp(0.05, 1.0),
+                        onChanged: n.setBottomBtnOpacity,
+                      ),
+                      _sliderHeader(
+                          '大小', '${s.bottomBtnScale.toStringAsFixed(1)}×'),
+                      Slider(
+                        min: 0.2,
+                        max: 10.0,
+                        value: s.bottomBtnScale.clamp(0.2, 10.0),
+                        onChanged: n.setBottomBtnScale,
+                      ),
+                      _sliderHeader(
+                          '横向 X',
+                          '${(s.bottomBtnX * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.0,
+                        max: 1.0,
+                        value: s.bottomBtnX.clamp(0.0, 1.0),
+                        onChanged: n.setBottomBtnX,
+                      ),
+                      _sliderHeader(
+                          '纵向 Y',
+                          '${(s.bottomBtnY * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.0,
+                        max: 1.0,
+                        value: s.bottomBtnY.clamp(0.0, 1.0),
+                        onChanged: n.setBottomBtnY,
+                      ),
+                    ],
+
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 8),
+
+                    // ---------- 菜单热区 ----------
+                    _sectionTitle('菜单热区'),
+                    Text(
+                      '点击此区域 → 打开顶部菜单；点击其它区域 → 翻下一页。',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 8),
+
+                    Row(
+                      children: [
+                        const Text('在阅读页显示热区',
+                            style: TextStyle(fontSize: 13)),
+                        const Spacer(),
+                        Switch(
+                          value: s.hotZoneVisible,
+                          onChanged: n.setHotZoneVisible,
+                        ),
+                      ],
+                    ),
+                    Text(
+                      '关掉后依旧能点，只是不画出来。',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 8),
+
+                    const Text('显示样式', style: TextStyle(fontSize: 13)),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('整块填色'),
+                          selected: s.hotZoneStyle == 0,
+                          onSelected: (_) => n.setHotZoneStyle(0),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: const Text('分界线'),
+                          selected: s.hotZoneStyle == 1,
+                          onSelected: (_) => n.setHotZoneStyle(1),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    _colorRow(
+                      context: context,
+                      label: s.hotZoneStyle == 0 ? '填充颜色' : '边框颜色',
+                      color: Color(s.hotZoneColor),
+                      onPick: n.setHotZoneColor,
+                    ),
+
+                    if (s.hotZoneStyle == 1) ...[
+                      _sliderHeader('边框粗细',
+                          '${s.hotZoneBorderWidth.toStringAsFixed(1)} px'),
+                      Slider(
+                        min: 0.5,
+                        max: 20,
+                        value: s.hotZoneBorderWidth.clamp(0.5, 20),
+                        onChanged: n.setHotZoneBorderWidth,
+                      ),
+                    ],
+
+                    _sliderHeader(
+                        '透明度',
+                        '${(s.hotZoneOpacity * 100).toStringAsFixed(0)}%'),
+                    Slider(
+                      min: 0.0,
+                      max: 1.0,
+                      value: s.hotZoneOpacity.clamp(0.0, 1.0),
+                      onChanged: n.setHotZoneOpacity,
+                    ),
+
+                    if (s.hotZoneStyle == 1)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4, bottom: 8),
+                        child: Text(
+                          'ⓘ 贴屏幕边的边框不显示，比如热区贴顶时只画下边那条线。',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ),
+
+                    _sliderHeader(
+                        '横向 X',
+                        '${(s.hotZoneX * 100).toStringAsFixed(0)}%'),
+                    Slider(
+                      min: 0.0,
+                      max: 1.0,
+                      value: s.hotZoneX.clamp(0.0, 1.0),
+                      onChanged: n.setHotZoneX,
+                    ),
+                    _sliderHeader(
+                        '纵向 Y',
+                        '${(s.hotZoneY * 100).toStringAsFixed(0)}%'),
+                    Slider(
+                      min: 0.0,
+                      max: 1.0,
+                      value: s.hotZoneY.clamp(0.0, 1.0),
+                      onChanged: n.setHotZoneY,
+                    ),
+                    _sliderHeader(
+                        '宽度', '${(s.hotZoneW * 100).toStringAsFixed(0)}%'),
+                    Slider(
+                      min: 0.02,
+                      max: 1.0,
+                      value: s.hotZoneW.clamp(0.02, 1.0),
+                      onChanged: n.setHotZoneW,
+                    ),
+                    _sliderHeader(
+                        '高度', '${(s.hotZoneH * 100).toStringAsFixed(0)}%'),
+                    Slider(
+                      min: 0.02,
+                      max: 1.0,
+                      value: s.hotZoneH.clamp(0.02, 1.0),
+                      onChanged: n.setHotZoneH,
+                    ),
+
+                    const SizedBox(height: 24),
+                    Center(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('关闭'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -608,113 +635,164 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
 Widget _miniPreview(
   BuildContext context,
   ReaderSettings s,
-  String pageText,
-) {
+  String pageText, {
+  double previewWidth = 110,
+  bool tapToEnlarge = true,
+}) {
   final screenSize = MediaQuery.of(context).size;
-  const previewWidth = 200.0;
   final previewHeight = previewWidth * screenSize.height / screenSize.width;
 
-  return Center(
-    child: Container(
-      width: previewWidth,
-      height: previewHeight,
-      decoration: BoxDecoration(
-        color: Color(s.bgColor),
-        border: Border.all(color: Colors.grey.shade400),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: LayoutBuilder(
-        builder: (ctx, constraints) {
-          final w = constraints.maxWidth;
-          final h = constraints.maxHeight;
-          final scale = w / screenSize.width;
-
-          final sampleText = pageText.isNotEmpty
-              ? pageText
-              : '正文示例。正文示例。正文示例。\n'
-                  '正文示例。正文示例。\n'
-                  '正文示例。正文示例。正文示例。\n'
-                  '正文示例。';
-
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 12 * scale + 2,
-                    vertical: 8 * scale + 2,
-                  ),
-                  child: Text(
-                    sampleText,
-                    style: TextStyle(
-                      fontSize: s.fontSize * scale * 1.6,
-                      height: 1.4,
-                      color: const Color(0xFF222222),
-                    ),
-                    softWrap: true,
-                    overflow: TextOverflow.clip,
-                  ),
-                ),
-              ),
-
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: _HotZonePainter(
-                      x: s.hotZoneX,
-                      y: s.hotZoneY,
-                      w: s.hotZoneW,
-                      h: s.hotZoneH,
-                      color: Color(s.hotZoneColor),
-                      opacity: s.hotZoneVisible ? s.hotZoneOpacity : 0.5,
-                      borderWidth: s.hotZoneStyle == 1
-                          ? s.hotZoneBorderWidth * scale
-                          : 0,
-                      fill: s.hotZoneStyle == 0,
-                      previewOnly: !s.hotZoneVisible,
-                    ),
-                  ),
-                ),
-              ),
-
-              if (s.showButtons) ...[
-                _previewButton(
-                  scale: scale,
-                  screenW: screenSize.width,
-                  screenH: screenSize.height,
-                  centerX: s.topBtnX * w,
-                  centerY: s.topBtnY * h,
-                  btnSize: 50.0 * s.topBtnScale * scale,
-                  opacity: s.topBtnOpacity,
-                  style: s.topBtnStyle,
-                  bg: Color(s.topBtnBgColor),
-                  fg: Color(s.topBtnFgColor),
-                  ringColor: Color(s.topBtnRingColor),
-                  ringWidth: s.topBtnRingWidth * scale,
-                  icon: Icons.keyboard_arrow_up,
-                ),
-                _previewButton(
-                  scale: scale,
-                  screenW: screenSize.width,
-                  screenH: screenSize.height,
-                  centerX: s.bottomBtnX * w,
-                  centerY: s.bottomBtnY * h,
-                  btnSize: 50.0 * s.bottomBtnScale * scale,
-                  opacity: s.bottomBtnOpacity,
-                  style: s.bottomBtnStyle,
-                  bg: Color(s.bottomBtnBgColor),
-                  fg: Color(s.bottomBtnFgColor),
-                  ringColor: Color(s.bottomBtnRingColor),
-                  ringWidth: s.bottomBtnRingWidth * scale,
-                  icon: Icons.keyboard_arrow_down,
-                ),
-              ],
-            ],
-          );
-        },
-      ),
+  Widget inner = Container(
+    width: previewWidth,
+    height: previewHeight,
+    decoration: BoxDecoration(
+      color: Color(s.bgColor),
+      border: Border.all(color: Colors.grey.shade400),
+      borderRadius: BorderRadius.circular(6),
     ),
+    clipBehavior: Clip.antiAlias,
+    child: LayoutBuilder(
+      builder: (ctx, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        final scale = w / screenSize.width;
+
+        final sampleText = pageText.isNotEmpty
+            ? pageText
+            : '正文示例。正文示例。正文示例。\n'
+                '正文示例。正文示例。\n'
+                '正文示例。正文示例。正文示例。\n'
+                '正文示例。';
+
+        return Stack(
+          children: [
+            // 正文：严格等比缩放（字号 × scale）
+            Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 4.0 * scale,
+                  vertical: 2.0 * scale,
+                ),
+                child: Text(
+                  sampleText,
+                  style: TextStyle(
+                    fontSize: s.fontSize * scale,
+                    height: 1.1,
+                    color: const Color(0xFF222222),
+                  ),
+                  softWrap: true,
+                  overflow: TextOverflow.clip,
+                ),
+              ),
+            ),
+
+            // 热区
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _HotZonePainter(
+                    x: s.hotZoneX,
+                    y: s.hotZoneY,
+                    w: s.hotZoneW,
+                    h: s.hotZoneH,
+                    color: Color(s.hotZoneColor),
+                    opacity: s.hotZoneVisible ? s.hotZoneOpacity : 0.5,
+                    borderWidth: s.hotZoneStyle == 1
+                        ? s.hotZoneBorderWidth * scale
+                        : 0,
+                    fill: s.hotZoneStyle == 0,
+                    previewOnly: !s.hotZoneVisible,
+                  ),
+                ),
+              ),
+            ),
+
+            // 悬浮按钮
+            if (s.showButtons) ...[
+              _previewButton(
+                scale: scale,
+                screenW: screenSize.width,
+                screenH: screenSize.height,
+                centerX: s.topBtnX * w,
+                centerY: s.topBtnY * h,
+                btnSize: 50.0 * s.topBtnScale * scale,
+                opacity: s.topBtnOpacity,
+                style: s.topBtnStyle,
+                bg: Color(s.topBtnBgColor),
+                fg: Color(s.topBtnFgColor),
+                ringColor: Color(s.topBtnRingColor),
+                ringWidth: s.topBtnRingWidth * scale,
+                icon: Icons.keyboard_arrow_up,
+              ),
+              _previewButton(
+                scale: scale,
+                screenW: screenSize.width,
+                screenH: screenSize.height,
+                centerX: s.bottomBtnX * w,
+                centerY: s.bottomBtnY * h,
+                btnSize: 50.0 * s.bottomBtnScale * scale,
+                opacity: s.bottomBtnOpacity,
+                style: s.bottomBtnStyle,
+                bg: Color(s.bottomBtnBgColor),
+                fg: Color(s.bottomBtnFgColor),
+                ringColor: Color(s.bottomBtnRingColor),
+                ringWidth: s.bottomBtnRingWidth * scale,
+                icon: Icons.keyboard_arrow_down,
+              ),
+            ],
+          ],
+        );
+      },
+    ),
+  );
+
+  if (!tapToEnlarge) return Center(child: inner);
+
+  return Center(
+    child: GestureDetector(
+      onTap: () => _showFullPreview(context, s, pageText),
+      child: inner,
+    ),
+  );
+}
+
+/// 弹出全屏预览。点击任意位置关闭。
+Future<void> _showFullPreview(
+  BuildContext context,
+  ReaderSettings s,
+  String pageText,
+) async {
+  await showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.75),
+    builder: (ctx) {
+      final screenSize = MediaQuery.of(ctx).size;
+      // 大预览宽：屏幕宽 72%
+      final w = screenSize.width * 0.72;
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.pop(ctx),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _miniPreview(
+                ctx,
+                s,
+                pageText,
+                previewWidth: w,
+                tapToEnlarge: false,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '点任意位置关闭',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
   );
 }
 
@@ -1117,7 +1195,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
   String? _defaultGroupId;
   bool _loaded = false;
 
-  /// 用于强制 `_GradientEditor` 在"重置"后重建。
   int _editorKey = 0;
 
   @override
@@ -1554,14 +1631,12 @@ class _GradientEditorState extends State<_GradientEditor> {
           i / (_colors.length - 1),
       ];
     }
-    // 保证 stops 严格递增
     for (var i = 1; i < _stops.length; i++) {
       if (_stops[i] <= _stops[i - 1]) {
         _stops[i] = _stops[i - 1] + _minGap;
       }
     }
     if (_stops.last > 1.0) {
-      // 极端情况压缩
       final n = _stops.length;
       for (var i = 0; i < n; i++) {
         _stops[i] = i / (n - 1);
@@ -1592,8 +1667,6 @@ class _GradientEditorState extends State<_GradientEditor> {
     return bestI;
   }
 
-  // ---------- 拖动 ----------
-
   void _onPanStart(DragStartDetails d) {
     final i = _nearestDot(d.localPosition.dy);
     setState(() => _draggingIndex = i);
@@ -1603,9 +1676,7 @@ class _GradientEditorState extends State<_GradientEditor> {
     final i = _draggingIndex;
     if (i == null) return;
     final localY = d.localPosition.dy;
-    // 转成 stop：圆点中心位置
     var stop = (localY - _dotSize / 2) / (_barHeight - _dotSize);
-    // clamp 到相邻点之间
     final lower = i == 0 ? 0.0 : _stops[i - 1] + _minGap;
     final upper =
         i == _colors.length - 1 ? 1.0 : _stops[i + 1] - _minGap;
@@ -1630,8 +1701,6 @@ class _GradientEditorState extends State<_GradientEditor> {
     }
   }
 
-  // ---------- 操作 ----------
-
   Future<void> _pickColor(int i) async {
     final picked = await showDialog<Color>(
       context: context,
@@ -1644,7 +1713,6 @@ class _GradientEditorState extends State<_GradientEditor> {
 
   void _addColor() {
     if (_colors.length >= widget.maxColors) return;
-    // 找最大间隔
     var bestI = 0;
     var bestGap = 0.0;
     for (var i = 0; i < _stops.length - 1; i++) {
@@ -1679,8 +1747,6 @@ class _GradientEditorState extends State<_GradientEditor> {
     _emit();
   }
 
-  // ---------- 渲染 ----------
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -1689,7 +1755,6 @@ class _GradientEditorState extends State<_GradientEditor> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 左：竖向渐变条 + 可拖圆点
             SizedBox(
               width: _barWidth,
               height: _barHeight,
@@ -1701,7 +1766,6 @@ class _GradientEditorState extends State<_GradientEditor> {
                 onTapUp: _onTapUp,
                 child: Stack(
                   children: [
-                    // 色条本体
                     Positioned(
                       left: 0,
                       top: _dotSize / 2,
@@ -1720,7 +1784,6 @@ class _GradientEditorState extends State<_GradientEditor> {
                         ),
                       ),
                     ),
-                    // 圆点
                     for (var i = 0; i < _colors.length; i++)
                       Positioned(
                         left: _barWidth / 2 - _dotSize / 2,
@@ -1755,7 +1818,6 @@ class _GradientEditorState extends State<_GradientEditor> {
 
             const SizedBox(width: 16),
 
-            // 右：颜色列表
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2199,8 +2261,6 @@ class _BookmarkHighlightManagerState
         return _selectionTile(
           selected: selected,
           child: ListTile(
-
-
             leading: const Icon(Icons.bookmark),
             title: Text(
               b.displayName.isEmpty ? '(空)' : b.displayName,
@@ -2295,11 +2355,7 @@ class _BookmarkHighlightManagerState
         return _selectionTile(
           selected: selected,
           child: ListTile(
-
-
             leading: _highlightSwatch(h),
-
-            
             title: Text(h.displayName),
             subtitle: Text(
               '关键词：${h.keyword}',
@@ -2397,9 +2453,6 @@ class _BookmarkHighlightManagerState
     );
   }
 
-  
-
-  /// 高亮色块：支持纯色 / 渐变（含自定义 stops）。
   Widget _highlightSwatch(HighlightEntry h) {
     final colors = h.colors.map((c) => Color(c)).toList();
     final stops = h.stops.length == colors.length ? h.stops : null;
