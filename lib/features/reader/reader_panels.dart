@@ -2082,20 +2082,28 @@ class _BookmarkHighlightManagerState
                       tooltip: '筛选（分组 / 范围）',
                       onPressed: () => _showFilterSheet(groups),
                     ),
-                  // 批量选择：长按在高亮 Tab 打开显示设置
-                  GestureDetector(
-                    onLongPress: _isHighlightTab
-                        ? _showHighlightViewSettings
-                        : null,
-                    child: IconButton(
-                      icon: const Icon(Icons.checklist),
-                      tooltip: _isHighlightTab
-                          ? '批量选择（长按设置）'
-                          : '批量选择',
-                      onPressed: () =>
-                          setState(() => _selectionMode = true),
-                    ),
-                  ),
+                 
+                
+                
+                
+                
+                // 批量选择：长按在高亮 Tab 打开显示设置
+// （不用 IconButton，因为它的 tooltip 会截获长按）
+InkWell(
+  onTap: () => setState(() => _selectionMode = true),
+  onLongPress: _isHighlightTab
+      ? _showHighlightViewSettings
+      : null,
+  child: const SizedBox(
+    width: 48,
+    height: kToolbarHeight,
+    child: Icon(Icons.checklist),
+  ),
+),
+
+
+
+                
                 ],
         ),
         body: TabBarView(
