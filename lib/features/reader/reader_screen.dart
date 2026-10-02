@@ -243,7 +243,8 @@ class ReaderScreen extends ConsumerStatefulWidget {
   ConsumerState<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends ConsumerState<ReaderScreen> {
+class _ReaderScreenState extends ConsumerState<ReaderScreen>
+    with WidgetsBindingObserver {
   Size _viewportSize = Size.zero;
 
   late int _fileIndex;
@@ -264,35 +265,41 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   bool _menuOpen = false;
 
-  // ==================== 高亮（延迟匹配） ====================
+  // ==================== 高亮（页级 AC 匹配） ====================
 
-  /// 当前文件的所有高亮条目。不再建全文索引。
   List<HighlightEntry> _highlights = const [];
-
-  /// 高亮的 AC 树缓存。高亮列表变化时重建。
   AhoCorasick? _highlightAc;
-
-  /// AC 树的 pattern index → 高亮条目。
   Map<int, HighlightEntry> _highlightEntryByPattern = const {};
-
-  /// 每次高亮列表变化 ++，用来触发缓存失效。
   int _highlightsRevision = 0;
 
-  /// 当前页的高亮匹配结果（行号 → spans）。
   Map<int, List<HighlightSpan>> _pageHighlightCache = {};
   int _pageHighlightCacheForPage = -1;
   int _pageHighlightCacheForRevision = -1;
+
+  /// 更快点 4：`_highlightsForLine` memo。
+  int _lastHighlightQueryLine = -1;
+  List<HighlightSpan> _lastHighlightQueryResult = const [];
 
   // ==================== 手势 / 选区 ====================
 
   final GlobalKey _contentKey = GlobalKey();
   final Map<int, GlobalKey> _unitKeys = <int, GlobalKey>{};
+  int _lastUnitStart = -1;
+  int _lastUnitEnd = -1;
 
-  /// 渐变矩形缓存。
+  /// 耗电 4 / 更快点 1：每页 spans 缓存。key = unitIdx。
+  final Map<int, List<InlineSpan>> _spansCache = {};
+
+  // 渐变矩形缓存
   final Map<String, List<_GradRect>> _gradRectCache = {};
   double _gradCacheFontSize = 0;
   int _gradCacheFontWeight = 0;
   double _gradCacheWidth = 0;
+
+  /// 更快点 3：渐变测量用 TextPainter 单例。
+  static final TextPainter _gradTP = TextPainter(
+    textDirection: TextDirection.ltr,
+  );
 
   _SelectionRange? _sel;
   bool _hBarVisible = false;
@@ -329,10 +336,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void initState() {
     super.initState();
     _fileIndex = widget.initialIndex.clamp(0, widget.filePaths.length - 1);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _longPressTimer?.cancel();
     _resumePrecisionTimer?.cancel();
     _progressSaveTimer?.cancel();
@@ -340,6 +349,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     super.dispose();
+  }
+
+  // ==================== 耗电 2：后台/锁屏暂停 ====================
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _scheduleResumePrecision();
+    } else {
+      _pausePrecision();
+    }
   }
 
   // ==================== 加载 ====================
@@ -376,11 +396,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _sel = null;
       _hBarVisible = false;
     });
-    _unitKeys.clear();
-    _gradRectCache.clear();
-    _pageHighlightCache = {};
-    _pageHighlightCacheForPage = -1;
-    _pageHighlightCacheForRevision = -1;
+    _invalidateAllCaches();
 
     try {
       final bytes = await File(path).readAsBytes();
@@ -425,14 +441,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         _hBarVisible = false;
       });
 
-      // 高亮 AC 树重建一次。
       _rebuildHighlightAc();
-
-      _unitKeys.clear();
-      _gradRectCache.clear();
-      _pageHighlightCache = {};
-      _pageHighlightCacheForPage = -1;
-      _pageHighlightCacheForRevision = -1;
+      // 通知分页器当前页，让它滑动精修窗口。
+      paginator.notifyVisiblePage(startPage);
       _syncPagePreview();
     } catch (e) {
       if (!mounted) return;
@@ -441,6 +452,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         _loading = false;
       });
     }
+  }
+
+  void _invalidateAllCaches() {
+    _unitKeys.clear();
+    _lastUnitStart = -1;
+    _lastUnitEnd = -1;
+    _spansCache.clear();
+    _gradRectCache.clear();
+    _pageHighlightCache = {};
+    _pageHighlightCacheForPage = -1;
+    _pageHighlightCacheForRevision = -1;
+    _lastHighlightQueryLine = -1;
+    _lastHighlightQueryResult = const [];
   }
 
   void _onPaginatorChanged() {
@@ -456,13 +480,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
     setState(() {
       if (newPage != null) _currentPage = newPage;
+      // 精修后 result 变了，spans 和 unit key 都要失效。
+      _spansCache.clear();
       _unitKeys.clear();
+      _lastUnitStart = -1;
+      _lastUnitEnd = -1;
       _gradRectCache.clear();
     });
+    _paginator?.notifyVisiblePage(_currentPage);
     _syncPagePreview();
   }
 
-  // ==================== 高亮延迟匹配 ====================
+  // ==================== 高亮页级 AC 匹配 ====================
 
   void _rebuildHighlightAc() {
     final patterns = <String>[];
@@ -509,14 +538,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    // 收集当前页涉及的行号。
     final lineSet = <int>{};
     for (var i = range.startUnit; i < range.endUnit; i++) {
       lineSet.add(p.result!.renderUnits[i].lineIndex);
     }
     final sortedLineIdxs = lineSet.toList()..sort();
 
-    // 拼接当前页文本 + 记录每行在 buf 的起始偏移。
     final buf = StringBuffer();
     final lineStartInBuf = <int>[];
     final lineIdxAtPos = <int>[];
@@ -529,10 +556,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final pageText = buf.toString();
     final pageLen = pageText.length;
 
-    // AC 扫描当前页。
     final byLine = <int, List<HighlightSpan>>{};
     _highlightAc!.findAllMatches(pageText, (start, end, pi) {
-      // 二分找 start 所在的行。
       var lo = 0;
       var hi = lineStartInBuf.length - 1;
       while (lo < hi) {
@@ -546,9 +571,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final rowIdx = lo;
       final lineStart = lineStartInBuf[rowIdx];
       final lineEnd = rowIdx + 1 < lineStartInBuf.length
-          ? lineStartInBuf[rowIdx + 1] - 1 // -1 去掉 \n
+          ? lineStartInBuf[rowIdx + 1] - 1
           : pageLen - 1;
-      if (end > lineEnd) return; // 跨行，丢弃
+      if (end > lineEnd) return;
 
       final actualLineIdx = lineIdxAtPos[rowIdx];
       (byLine[actualLineIdx] ??= <HighlightSpan>[]).add(HighlightSpan(
@@ -558,7 +583,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ));
     });
 
-    // 每行排序 + 短词优先 + 去重叠。
     for (final i in byLine.keys.toList()) {
       final list = byLine[i]!;
       list.sort((a, b) {
@@ -578,11 +602,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     _pageHighlightCache = byLine;
+    _lastHighlightQueryLine = -1;
+    _lastHighlightQueryResult = const [];
   }
 
+  /// 更快点 4：加 memo 的查询。
   List<HighlightSpan> _highlightsForLine(int lineIdx) {
+    if (_lastHighlightQueryLine == lineIdx) {
+      return _lastHighlightQueryResult;
+    }
     _ensurePageHighlightCache();
-    return _pageHighlightCache[lineIdx] ?? const [];
+    final r = _pageHighlightCache[lineIdx] ?? const <HighlightSpan>[];
+    _lastHighlightQueryLine = lineIdx;
+    _lastHighlightQueryResult = r;
+    return r;
   }
 
   // ==================== 精度暂停/恢复 ====================
@@ -649,6 +682,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (_currentPage >= maxPage) return;
     _clearSelection();
     setState(() => _currentPage = (_currentPage + 1).clamp(0, maxPage));
+    _invalidatePageCaches();
+    p.notifyVisiblePage(_currentPage);
     _saveProgress();
     _syncPagePreview();
   }
@@ -660,6 +695,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _clearSelection();
     setState(() => _currentPage =
         (_currentPage - 1).clamp(0, p!.result!.pageCount - 1));
+    _invalidatePageCaches();
+    p.notifyVisiblePage(_currentPage);
     _saveProgress();
     _syncPagePreview();
   }
@@ -671,8 +708,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final pg = page.clamp(0, maxPage);
     _clearSelection();
     setState(() => _currentPage = pg);
+    _invalidatePageCaches();
+    p.notifyVisiblePage(pg);
     _saveProgress();
     _syncPagePreview();
+  }
+
+  /// 翻页时清掉页面级缓存。不要把 `_gradRectCache` 也清了——它是按 unit 的，
+  /// 同字号下跨页可以复用；只有 unitIdx 会重复，但 key 里带了 width，
+  /// 不同页的 unitIdx 可能撞车。保险起见还是清一下（渐变行不多，代价小）。
+  void _invalidatePageCaches() {
+    _spansCache.clear();
+    _gradRectCache.clear();
+    _lastHighlightQueryLine = -1;
+    _lastHighlightQueryResult = const [];
+    // _unitKeys 不清，交给 _syncUnitKeys 做增量。
   }
 
   // ==================== 切文件 ====================
@@ -917,6 +967,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (result != null && _paginator?.result != null) {
       final page = findPageForOffset(_paginator!.result!, result);
       _jumpToPage(page);
+    }
+    // 用户可能在管理页删/改了高亮，重新读一次。
+    final updated =
+        ref.read(readerHighlightsProvider)[fileKey] ?? const [];
+    if (mounted) {
+      setState(() {
+        _highlights = updated;
+        _highlightsRevision++;
+        _rebuildHighlightAc();
+        _invalidatePageCaches();
+        _pageHighlightCache = {};
+        _pageHighlightCacheForPage = -1;
+        _pageHighlightCacheForRevision = -1;
+      });
     }
   }
 
@@ -1580,10 +1644,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final range = pageUnitRange(result, _currentPage);
     final previewHotZone = ref.watch(readerHotZonePreviewProvider);
 
-    _unitKeys.removeWhere(
-        (k, v) => k < range.startUnit || k >= range.endUnit);
-    for (var i = range.startUnit; i < range.endUnit; i++) {
-      _unitKeys.putIfAbsent(i, () => GlobalKey());
+    // 更快点 2：unitKeys 增量更新。
+    if (range.startUnit != _lastUnitStart || range.endUnit != _lastUnitEnd) {
+      _unitKeys.removeWhere(
+          (k, _) => k < range.startUnit || k >= range.endUnit);
+      for (var i = range.startUnit; i < range.endUnit; i++) {
+        _unitKeys.putIfAbsent(i, () => GlobalKey());
+      }
+      _lastUnitStart = range.startUnit;
+      _lastUnitEnd = range.endUnit;
     }
 
     return Stack(
@@ -1661,7 +1730,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final int e = unit.charEnd.clamp(0, line.length);
     final String sub = e > s ? line.substring(s, e) : '';
 
-    final spans = _buildUnitSpans(unit, sub, settings);
+    final spans = _buildUnitSpans(unitIdx, unit, sub, settings);
     final highlights = _highlightsForLine(unit.lineIndex);
 
     final hasGrad = _hasGradientIn(highlights, unit);
@@ -1727,7 +1796,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  /// 检查 unit 里有没有渐变高亮。传入当前行的 highlights（避免重复查缓存）。
   bool _hasGradientIn(List<HighlightSpan> highlights, RenderUnit unit) {
     for (final h in highlights) {
       if (h.entry.colors.length <= 1) continue;
@@ -1774,11 +1842,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return const [];
     }
 
+    // 更快点 3：用单例 TextPainter。
     final style = _baseStyle(settings);
-    final tp = TextPainter(
-      text: TextSpan(text: sub, style: style),
-      textDirection: TextDirection.ltr,
-    );
+    final tp = _gradTP;
+    tp.text = TextSpan(text: sub, style: style);
     tp.layout(maxWidth: maxWidth);
 
     final rects = <_GradRect>[];
@@ -1807,7 +1874,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return rects;
   }
 
+  /// 耗电 4 / 更快点 1：spans 缓存。
   List<InlineSpan> _buildUnitSpans(
+    int unitIdx,
+    RenderUnit unit,
+    String sub,
+    ReaderSettings settings,
+  ) {
+    final hit = _spansCache[unitIdx];
+    if (hit != null) return hit;
+
+    final spans = _doBuildUnitSpans(unit, sub, settings);
+    if (_spansCache.length > 256) _spansCache.clear();
+    _spansCache[unitIdx] = spans;
+    return spans;
+  }
+
+  List<InlineSpan> _doBuildUnitSpans(
     RenderUnit unit,
     String sub,
     ReaderSettings settings,
@@ -2230,10 +2313,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _rebuildHighlightAc();
       _sel = null;
       _hBarVisible = false;
+      _spansCache.clear();
       _gradRectCache.clear();
       _pageHighlightCache = {};
       _pageHighlightCacheForPage = -1;
       _pageHighlightCacheForRevision = -1;
+      _lastHighlightQueryLine = -1;
+      _lastHighlightQueryResult = const [];
     });
   }
 }
