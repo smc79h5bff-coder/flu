@@ -1574,6 +1574,7 @@ class _SimpleColorPickerState extends State<_SimpleColorPicker> {
 
 // ==================== 渐变色编辑器 ====================
 
+
 class _GradientEditor extends StatefulWidget {
   const _GradientEditor({
     super.key,
@@ -1595,54 +1596,19 @@ class _GradientEditor extends StatefulWidget {
 }
 
 class _GradientEditorState extends State<_GradientEditor> {
-  late List<Color> _colors;
-  late List<double> _stops;
-
+  /// 正在拖的圆点索引。交换后自动换成新的索引。
   int? _draggingIndex;
 
   static const double _barWidth = 60;
   static const double _barHeight = 240;
   static const double _dotSize = 26;
-  static const double _minGap = 0.02;
 
-  @override
-  void initState() {
-    super.initState();
-    _colors = List<Color>.from(widget.colors);
-    _stops = List<double>.from(widget.stops);
-    _normalize();
-  }
+  // 单一数据源：全部读写 widget 上的，内部不再存副本。
+  List<Color> get _colors => widget.colors;
+  List<double> get _stops => widget.stops;
 
-  void _normalize() {
-    if (_colors.length < 2) {
-      while (_colors.length < 2) {
-        _colors.add(_colors.isEmpty ? Colors.red : _colors.last);
-      }
-    }
-    if (_stops.length != _colors.length) {
-      _stops = [
-        for (var i = 0; i < _colors.length; i++)
-          i / (_colors.length - 1),
-      ];
-    }
-    for (var i = 1; i < _stops.length; i++) {
-      if (_stops[i] <= _stops[i - 1]) {
-        _stops[i] = _stops[i - 1] + _minGap;
-      }
-    }
-    if (_stops.last > 1.0) {
-      final n = _stops.length;
-      for (var i = 0; i < n; i++) {
-        _stops[i] = i / (n - 1);
-      }
-    }
-  }
-
-  void _emit() {
-    widget.onChanged(
-      List<Color>.from(_colors),
-      List<double>.from(_stops),
-    );
+  void _emit(List<Color> colors, List<double> stops) {
+    widget.onChanged(colors, stops);
   }
 
   double _dotTop(int i) => _stops[i] * (_barHeight - _dotSize);
@@ -1661,6 +1627,32 @@ class _GradientEditorState extends State<_GradientEditor> {
     return bestI;
   }
 
+  /// 越过相邻点就交换。返回新索引。
+  int _swapIfCrossed(
+      List<Color> newColors, List<double> newStops, int i) {
+    if (i > 0 && newStops[i] < newStops[i - 1]) {
+      final ts = newStops[i];
+      newStops[i] = newStops[i - 1];
+      newStops[i - 1] = ts;
+      final tc = newColors[i];
+      newColors[i] = newColors[i - 1];
+      newColors[i - 1] = tc;
+      return i - 1;
+    }
+    if (i < newStops.length - 1 && newStops[i] > newStops[i + 1]) {
+      final ts = newStops[i];
+      newStops[i] = newStops[i + 1];
+      newStops[i + 1] = ts;
+      final tc = newColors[i];
+      newColors[i] = newColors[i + 1];
+      newColors[i + 1] = tc;
+      return i + 1;
+    }
+    return i;
+  }
+
+  // ==================== 拖动色条 ====================
+
   void _onPanStart(DragStartDetails d) {
     final i = _nearestDot(d.localPosition.dy);
     setState(() => _draggingIndex = i);
@@ -1671,16 +1663,17 @@ class _GradientEditorState extends State<_GradientEditor> {
     if (i == null) return;
     final localY = d.localPosition.dy;
     var stop = (localY - _dotSize / 2) / (_barHeight - _dotSize);
-    final lower = i == 0 ? 0.0 : _stops[i - 1] + _minGap;
-    final upper =
-        i == _colors.length - 1 ? 1.0 : _stops[i + 1] - _minGap;
-    if (upper < lower) {
-      stop = lower;
-    } else {
-      stop = stop.clamp(lower, upper);
+    stop = stop.clamp(0.0, 1.0);
+
+    final newColors = List<Color>.from(_colors);
+    final newStops = List<double>.from(_stops);
+    newStops[i] = stop;
+
+    final newIndex = _swapIfCrossed(newColors, newStops, i);
+    if (newIndex != i) {
+      setState(() => _draggingIndex = newIndex);
     }
-    setState(() => _stops[i] = stop);
-    _emit();
+    _emit(newColors, newStops);
   }
 
   void _onPanEnd(DragEndDetails d) {
@@ -1695,18 +1688,32 @@ class _GradientEditorState extends State<_GradientEditor> {
     }
   }
 
+  // ==================== 操作 ====================
+
   Future<void> _pickColor(int i) async {
     final picked = await showDialog<Color>(
       context: context,
       builder: (_) => _SimpleColorPicker(initial: _colors[i]),
     );
     if (picked == null) return;
-    setState(() => _colors[i] = picked);
-    _emit();
+    final newColors = List<Color>.from(_colors);
+    newColors[i] = picked;
+    _emit(newColors, List<double>.from(_stops));
+  }
+
+  void _setStop(int i, double pct) {
+    pct = pct.clamp(0.0, 1.0);
+    final newColors = List<Color>.from(_colors);
+    final newStops = List<double>.from(_stops);
+    newStops[i] = pct;
+    _swapIfCrossed(newColors, newStops, i);
+    _emit(newColors, newStops);
   }
 
   void _addColor() {
     if (_colors.length >= widget.maxColors) return;
+
+    // 找最大间隔
     var bestI = 0;
     var bestGap = 0.0;
     for (var i = 0; i < _stops.length - 1; i++) {
@@ -1716,30 +1723,29 @@ class _GradientEditorState extends State<_GradientEditor> {
         bestI = i;
       }
     }
-    if (bestGap < _minGap * 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('间隔太小，无法插入新颜色')),
-      );
-      return;
-    }
+
     final newStop = (_stops[bestI] + _stops[bestI + 1]) / 2;
     final newColor =
         Color.lerp(_colors[bestI], _colors[bestI + 1], 0.5) ?? _colors[bestI];
-    setState(() {
-      _stops.insert(bestI + 1, newStop);
-      _colors.insert(bestI + 1, newColor);
-    });
-    _emit();
+
+    final newColors = List<Color>.from(_colors);
+    final newStops = List<double>.from(_stops);
+    newStops.insert(bestI + 1, newStop);
+    newColors.insert(bestI + 1, newColor);
+
+    _emit(newColors, newStops);
   }
 
   void _removeColor(int i) {
     if (_colors.length <= widget.minColors) return;
-    setState(() {
-      _colors.removeAt(i);
-      _stops.removeAt(i);
-    });
-    _emit();
+    final newColors = List<Color>.from(_colors);
+    final newStops = List<double>.from(_stops);
+    newColors.removeAt(i);
+    newStops.removeAt(i);
+    _emit(newColors, newStops);
   }
+
+  // ==================== 渲染 ====================
 
   @override
   Widget build(BuildContext context) {
@@ -1797,7 +1803,8 @@ class _GradientEditorState extends State<_GradientEditor> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.25),
+                                  color:
+                                      Colors.black.withValues(alpha: 0.25),
                                   blurRadius: 3,
                                 ),
                               ],
@@ -1831,7 +1838,8 @@ class _GradientEditorState extends State<_GradientEditor> {
         ),
         const SizedBox(height: 8),
         Text(
-          '拖动色条上的圆点改位置，点圆点改颜色，点右侧 [×] 删除。'
+          '拖动色条上的圆点改位置，点圆点改颜色。'
+          '也可以拖动下面的滑块，或直接输入百分比。'
           '（顶部 = 高亮的上边缘）',
           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
@@ -1842,42 +1850,91 @@ class _GradientEditorState extends State<_GradientEditor> {
   Widget _colorEntry(int i) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 20,
-            child: Text(
-              '${i + 1}',
-              style: const TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-          ),
-          InkWell(
-            onTap: () => _pickColor(i),
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: _colors[i],
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.black26),
+          // 第一行：序号 + 色块（点改色）+ 删除
+          Row(
+            children: [
+              SizedBox(
+                width: 20,
+                child: Text(
+                  '${i + 1}',
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600),
+                ),
               ),
+              InkWell(
+                onTap: () => _pickColor(i),
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: _colors[i],
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.black26),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('位置', style: TextStyle(fontSize: 12)),
+              ),
+              if (_colors.length > widget.minColors)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  tooltip: '删除此色',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _removeColor(i),
+                ),
+            ],
+          ),
+
+          // 第二行：Slider + 百分比输入
+          Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2,
+                      thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 7),
+                      overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14),
+                    ),
+                    child: Slider(
+                      min: 0.0,
+                      max: 1.0,
+                      value: _stops[i].clamp(0.0, 1.0),
+                      onChanged: (v) => _setStop(i, v),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 64,
+                  child: TextFormField(
+                    key: ValueKey('stop_${i}_${_stops[i]}'),
+                    initialValue: (_stops[i] * 100).round().toString(),
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      suffixText: '%',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 6),
+                    ),
+                    onFieldSubmitted: (v) {
+                      final n = double.tryParse(v.trim());
+                      if (n == null) return;
+                      _setStop(i, n / 100);
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '位置 ${(_stops[i] * 100).toStringAsFixed(0)}%',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ),
-          if (_colors.length > widget.minColors)
-            IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              tooltip: '删除此色',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => _removeColor(i),
-            ),
         ],
       ),
     );
