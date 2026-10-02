@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../file_browser/presentation/single_file_editor_screen.dart';
@@ -666,7 +667,6 @@ Widget _miniPreview(
 
         return Stack(
           children: [
-            // 正文：严格等比缩放（字号 × scale）
             Positioned.fill(
               child: Padding(
                 padding: EdgeInsets.symmetric(
@@ -686,7 +686,6 @@ Widget _miniPreview(
               ),
             ),
 
-            // 热区
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
@@ -707,7 +706,6 @@ Widget _miniPreview(
               ),
             ),
 
-            // 悬浮按钮
             if (s.showButtons) ...[
               _previewButton(
                 scale: scale,
@@ -756,7 +754,6 @@ Widget _miniPreview(
   );
 }
 
-/// 弹出全屏预览。点击任意位置关闭。
 Future<void> _showFullPreview(
   BuildContext context,
   ReaderSettings s,
@@ -848,7 +845,6 @@ Widget _previewButton({
   );
 }
 
-/// 画菜单热区。贴屏幕的边不画。预览模式下画淡灰虚线。
 class _HotZonePainter extends CustomPainter {
   _HotZonePainter({
     required this.x,
@@ -1888,7 +1884,13 @@ class _GradientEditorState extends State<_GradientEditor> {
   }
 }
 
-// ==================== 书签 / 高亮 管理页 ====================
+// ==================== 高亮管理页 ====================
+
+/// 一条高亮 + 它所属的文件路径。
+typedef _HighlightItem = ({String fileKey, HighlightEntry entry});
+
+/// 选中集合的 key：(fileKey, entryId)。
+typedef _HighlightKey = (String fileKey, String entryId);
 
 Future<int?> openBookmarkHighlightManager(
   BuildContext context,
@@ -1925,13 +1927,19 @@ class _BookmarkHighlightManagerState
     with SingleTickerProviderStateMixin {
   late TabController _tab;
   final Set<String> _selectedBookmarks = {};
-  final Set<String> _selectedHighlights = {};
+  final Set<_HighlightKey> _selectedHighlights = {};
 
   bool _selectionMode = false;
 
-  String? _anchorId;
+  /// 区间选择锚点（书签用 id，高亮用 (fileKey,id)）。
+  String? _anchorBookmarkId;
+  _HighlightKey? _anchorHighlightKey;
 
+  /// 筛选：显示哪些分组。空集 = 全部显示。
   Set<String?> _visibleGroupIds = <String?>{};
+
+  /// 筛选：是否显示全部书籍。false = 仅本书。
+  bool _allBooksMode = false;
 
   @override
   void initState() {
@@ -1942,7 +1950,8 @@ class _BookmarkHighlightManagerState
           _selectionMode = false;
           _selectedBookmarks.clear();
           _selectedHighlights.clear();
-          _anchorId = null;
+          _anchorBookmarkId = null;
+          _anchorHighlightKey = null;
         }));
   }
 
@@ -1960,7 +1969,8 @@ class _BookmarkHighlightManagerState
       _selectionMode = false;
       _selectedBookmarks.clear();
       _selectedHighlights.clear();
-      _anchorId = null;
+      _anchorBookmarkId = null;
+      _anchorHighlightKey = null;
     });
   }
 
@@ -1968,21 +1978,32 @@ class _BookmarkHighlightManagerState
   Widget build(BuildContext context) {
     final bookmarks =
         ref.watch(readerBookmarksProvider)[widget.fileKey] ?? const [];
-    final allHighlights =
-        ref.watch(readerHighlightsProvider)[widget.fileKey] ?? const [];
+    final allMap = ref.watch(readerHighlightsProvider);
     final groups = ref.watch(readerHighlightGroupsProvider);
+    final viewSettings = ref.watch(highlightViewSettingsProvider);
+
+    // 高亮：先按范围（本书 / 全部），再按分组过滤
+    final highlightsRaw = _allBooksMode
+        ? <_HighlightItem>[
+            for (final e in allMap.entries)
+              for (final h in e.value) (fileKey: e.key, entry: h),
+          ]
+        : <_HighlightItem>[
+            for (final h in (allMap[widget.fileKey] ?? const <HighlightEntry>[]))
+              (fileKey: widget.fileKey, entry: h),
+          ];
 
     final highlights = _visibleGroupIds.isEmpty
-        ? allHighlights
-        : allHighlights
-            .where((h) => _visibleGroupIds.contains(h.groupId))
+        ? highlightsRaw
+        : highlightsRaw
+            .where((h) => _visibleGroupIds.contains(h.entry.groupId))
             .toList();
 
-    final selectedCount = _isBookmarkTab
-        ? _selectedBookmarks.length
-        : _selectedHighlights.length;
+    final selectedCount =
+        _isBookmarkTab ? _selectedBookmarks.length : _selectedHighlights.length;
 
-    final allCount = _isBookmarkTab ? bookmarks.length : highlights.length;
+    final allCount =
+        _isBookmarkTab ? bookmarks.length : highlights.length;
     final allSelected = allCount > 0 && selectedCount == allCount;
 
     return PopScope(
@@ -2032,7 +2053,8 @@ class _BookmarkHighlightManagerState
                           } else {
                             _selectedHighlights
                               ..clear()
-                              ..addAll(highlights.map((h) => h.id));
+                              ..addAll(highlights
+                                  .map((h) => (h.fileKey, h.entry.id)));
                           }
                         }
                       });
@@ -2053,29 +2075,100 @@ class _BookmarkHighlightManagerState
                   ),
                 ]
               : [
-                  IconButton(
-                    icon: const Icon(Icons.filter_list),
-                    tooltip: '按分组过滤',
-                    onPressed: () => _showFilterSheet(groups),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.checklist),
-                    tooltip: '批量选择',
-                    onPressed: () =>
-                        setState(() => _selectionMode = true),
+                  // 筛选：只有高亮 Tab 才有意义（按分组筛 / 按范围筛）
+                  if (_isHighlightTab)
+                    IconButton(
+                      icon: const Icon(Icons.filter_list),
+                      tooltip: '筛选（分组 / 范围）',
+                      onPressed: () => _showFilterSheet(groups),
+                    ),
+                  // 批量选择：长按在高亮 Tab 打开显示设置
+                  GestureDetector(
+                    onLongPress: _isHighlightTab
+                        ? _showHighlightViewSettings
+                        : null,
+                    child: IconButton(
+                      icon: const Icon(Icons.checklist),
+                      tooltip: _isHighlightTab
+                          ? '批量选择（长按设置）'
+                          : '批量选择',
+                      onPressed: () =>
+                          setState(() => _selectionMode = true),
+                    ),
                   ),
                 ],
         ),
         body: TabBarView(
           controller: _tab,
           children: [
-            _buildHighlights(highlights),
+            _buildHighlights(highlights, viewSettings),
             _buildBookmarks(bookmarks),
           ],
         ),
       ),
     );
   }
+
+  // ==================== 显示设置弹窗 ====================
+
+  Future<void> _showHighlightViewSettings() async {
+    await showDialog<void>(
+      context: context,
+      builder: (c) => Consumer(
+        builder: (c, ref, _) {
+          final s = ref.watch(highlightViewSettingsProvider);
+          final n = ref.read(highlightViewSettingsProvider.notifier);
+          return AlertDialog(
+            insetPadding: const EdgeInsets.all(8),
+            title: const Text('高亮卡片显示设置'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.of(c).size.height * 0.7,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('卡片内容',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('显示书名'),
+                      subtitle: const Text(
+                        '在卡片底部显示这条高亮所属的书名。'
+                        '「本书模式」和「全部书籍模式」都受这个开关控制。',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      value: s.showBookName,
+                      onChanged: n.setShowBookName,
+                    ),
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Text(
+                      '更多设置项（高亮名大小、书名字号/颜色/背景、'
+                      '删除按钮大小等）后续会加到这里。',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ==================== 筛选弹窗 ====================
 
   Future<void> _showFilterSheet(List<HighlightGroup> groups) async {
     final all =
@@ -2085,30 +2178,37 @@ class _BookmarkHighlightManagerState
       usedIds.add(h.groupId);
     }
 
-    final initial = _visibleGroupIds.isEmpty
+    final initialGroups = _visibleGroupIds.isEmpty
         ? <String?>{...usedIds}
         : Set<String?>.from(_visibleGroupIds);
 
-    final result = await showModalBottomSheet<Set<String?>>(
+    final result = await showModalBottomSheet<
+        ({bool allBooks, Set<String?> groups})>(
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _GroupFilterSheet(
+      builder: (_) => _HighlightFilterSheet(
         groups: groups,
         usedIds: usedIds,
-        initial: initial,
+        initialGroups: initialGroups,
+        initialAllBooks: _allBooksMode,
       ),
     );
 
     if (result == null) return;
-    if (result.length == usedIds.length) {
-      setState(() => _visibleGroupIds = <String?>{});
-    } else {
-      setState(() => _visibleGroupIds = result);
-    }
+    setState(() {
+      _allBooksMode = result.allBooks;
+      if (result.groups.length == usedIds.length) {
+        _visibleGroupIds = <String?>{};
+      } else {
+        _visibleGroupIds = result.groups;
+      }
+    });
   }
+
+  // ==================== 批量删除 / 移入分组 ====================
 
   void _deleteSelected() {
     if (_isBookmarkTab) {
@@ -2119,17 +2219,23 @@ class _BookmarkHighlightManagerState
       setState(() {
         _selectedBookmarks.clear();
         _selectionMode = false;
-        _anchorId = null;
+        _anchorBookmarkId = null;
       });
     } else {
       if (_selectedHighlights.isEmpty) return;
-      ref
-          .read(readerHighlightsProvider.notifier)
-          .removeMany(widget.fileKey, Set<String>.from(_selectedHighlights));
+      // 按 bookKey 分组，逐本处理
+      final byBook = <String, Set<String>>{};
+      for (final (fileKey, id) in _selectedHighlights) {
+        (byBook[fileKey] ??= <String>{}).add(id);
+      }
+      final notifier = ref.read(readerHighlightsProvider.notifier);
+      for (final e in byBook.entries) {
+        notifier.removeMany(e.key, e.value);
+      }
       setState(() {
         _selectedHighlights.clear();
         _selectionMode = false;
-        _anchorId = null;
+        _anchorHighlightKey = null;
       });
     }
   }
@@ -2227,16 +2333,21 @@ class _BookmarkHighlightManagerState
       groupId = picked;
     }
 
-    ref.read(readerHighlightsProvider.notifier).setGroupMany(
-          widget.fileKey,
-          Set<String>.from(_selectedHighlights),
-          groupId,
-        );
+    // 按 bookKey 分组处理
+    final byBook = <String, Set<String>>{};
+    for (final (fileKey, id) in _selectedHighlights) {
+      (byBook[fileKey] ??= <String>{}).add(id);
+    }
+    final notifier = ref.read(readerHighlightsProvider.notifier);
+    for (final e in byBook.entries) {
+      notifier.setGroupMany(e.key, e.value, groupId);
+    }
+
     if (!mounted) return;
     setState(() {
       _selectedHighlights.clear();
       _selectionMode = false;
-      _anchorId = null;
+      _anchorHighlightKey = null;
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -2300,13 +2411,13 @@ class _BookmarkHighlightManagerState
       setState(() {
         _selectionMode = true;
         _selectedBookmarks.add(id);
-        _anchorId = id;
+        _anchorBookmarkId = id;
       });
       return;
     }
-    if (_anchorId != null) {
+    if (_anchorBookmarkId != null) {
       final ids = all.map((b) => b.id).toList();
-      final from = ids.indexOf(_anchorId!);
+      final from = ids.indexOf(_anchorBookmarkId!);
       final to = ids.indexOf(id);
       if (from >= 0 && to >= 0) {
         final lo = from < to ? from : to;
@@ -2315,14 +2426,14 @@ class _BookmarkHighlightManagerState
           for (var i = lo; i <= hi; i++) {
             _selectedBookmarks.add(ids[i]);
           }
-          _anchorId = id;
+          _anchorBookmarkId = id;
         });
         return;
       }
     }
     setState(() {
       _selectedBookmarks.add(id);
-      _anchorId = id;
+      _anchorBookmarkId = id;
     });
   }
 
@@ -2332,18 +2443,21 @@ class _BookmarkHighlightManagerState
         _selectedBookmarks.remove(id);
         if (_selectedBookmarks.isEmpty) {
           _selectionMode = false;
-          _anchorId = null;
+          _anchorBookmarkId = null;
         }
       } else {
         _selectedBookmarks.add(id);
-        _anchorId = id;
+        _anchorBookmarkId = id;
       }
     });
   }
 
   // ==================== 高亮网格 ====================
 
-  Widget _buildHighlights(List<HighlightEntry> highlights) {
+  Widget _buildHighlights(
+    List<_HighlightItem> highlights,
+    HighlightViewSettings viewSettings,
+  ) {
     if (highlights.isEmpty) {
       return const Center(child: Text('还没有高亮'));
     }
@@ -2353,40 +2467,51 @@ class _BookmarkHighlightManagerState
         crossAxisCount: 3,
         mainAxisSpacing: 2,
         crossAxisSpacing: 2,
-        childAspectRatio: 1.8,
+        childAspectRatio: 1.5,
       ),
       itemCount: highlights.length,
       itemBuilder: (_, i) {
-        final h = highlights[i];
-        final selected = _selectedHighlights.contains(h.id);
+        final item = highlights[i];
+        final h = item.entry;
+        final key = (item.fileKey, h.id);
+        final selected = _selectedHighlights.contains(key);
+        final bookName = item.fileKey.split('/').last;
+
         return _HighlightCard(
           entry: h,
+          bookName: bookName,
+          showBookName: viewSettings.showBookName,
           selected: selected,
           selectionMode: _selectionMode,
           onTap: _selectionMode
-              ? () => _toggleHighlight(h.id)
+              ? () => _toggleHighlight(key)
               : () async {
-                  final r = await openHighlightEdit(context, h);
+                  final r = await openHighlightEdit(
+                    context,
+                    h,
+                    fileKey: item.fileKey,
+                  );
                   if (r != null && mounted) {
                     if (r.action == 'delete') {
                       ref
                           .read(readerHighlightsProvider.notifier)
-                          .remove(widget.fileKey, h.id);
+                          .remove(item.fileKey, h.id);
                     } else if (r.action == 'save' && r.entry != null) {
                       ref
                           .read(readerHighlightsProvider.notifier)
-                          .updateOne(widget.fileKey, r.entry!);
+                          .updateOne(item.fileKey, r.entry!);
                     }
                   }
                 },
-          onLongPress: () => _onLongPressHighlight(h.id, highlights),
-          onDelete: () => _confirmDeleteHighlight(h),
+          onLongPress: () => _onLongPressHighlight(key, highlights),
+          onDelete: () => _confirmDeleteHighlight(item),
         );
       },
     );
   }
 
-  Future<void> _confirmDeleteHighlight(HighlightEntry h) async {
+  Future<void> _confirmDeleteHighlight(_HighlightItem item) async {
+    final h = item.entry;
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -2408,52 +2533,55 @@ class _BookmarkHighlightManagerState
     if (ok == true && mounted) {
       ref
           .read(readerHighlightsProvider.notifier)
-          .remove(widget.fileKey, h.id);
+          .remove(item.fileKey, h.id);
     }
   }
 
-  void _onLongPressHighlight(String id, List<HighlightEntry> all) {
+  void _onLongPressHighlight(
+    _HighlightKey key,
+    List<_HighlightItem> all,
+  ) {
     if (!_selectionMode) {
       setState(() {
         _selectionMode = true;
-        _selectedHighlights.add(id);
-        _anchorId = id;
+        _selectedHighlights.add(key);
+        _anchorHighlightKey = key;
       });
       return;
     }
-    if (_anchorId != null) {
-      final ids = all.map((h) => h.id).toList();
-      final from = ids.indexOf(_anchorId!);
-      final to = ids.indexOf(id);
+    if (_anchorHighlightKey != null) {
+      final keys = all.map((h) => (h.fileKey, h.entry.id)).toList();
+      final from = keys.indexOf(_anchorHighlightKey!);
+      final to = keys.indexOf(key);
       if (from >= 0 && to >= 0) {
         final lo = from < to ? from : to;
         final hi = from < to ? to : from;
         setState(() {
           for (var i = lo; i <= hi; i++) {
-            _selectedHighlights.add(ids[i]);
+            _selectedHighlights.add(keys[i]);
           }
-          _anchorId = id;
+          _anchorHighlightKey = key;
         });
         return;
       }
     }
     setState(() {
-      _selectedHighlights.add(id);
-      _anchorId = id;
+      _selectedHighlights.add(key);
+      _anchorHighlightKey = key;
     });
   }
 
-  void _toggleHighlight(String id) {
+  void _toggleHighlight(_HighlightKey key) {
     setState(() {
-      if (_selectedHighlights.contains(id)) {
-        _selectedHighlights.remove(id);
+      if (_selectedHighlights.contains(key)) {
+        _selectedHighlights.remove(key);
         if (_selectedHighlights.isEmpty) {
           _selectionMode = false;
-          _anchorId = null;
+          _anchorHighlightKey = null;
         }
       } else {
-        _selectedHighlights.add(id);
-        _anchorId = id;
+        _selectedHighlights.add(key);
+        _anchorHighlightKey = key;
       }
     });
   }
@@ -2474,12 +2602,17 @@ class _BookmarkHighlightManagerState
   }
 }
 
+// ==================== 高亮卡片 ====================
+
 /// 网格里一个高亮卡片。
 /// 上块：名字 + 删除按钮（选中模式下换成右上角的对勾，删除按钮隐藏）。
-/// 下块：高亮样式的预览（背景用高亮颜色/渐变，文字用高亮文字色）。
+/// 中块：高亮样式的预览（只有文字本身带背景色）。
+/// 下块：书名（可选，受 highlightViewSettings.showBookName 控制）。
 class _HighlightCard extends StatelessWidget {
   const _HighlightCard({
     required this.entry,
+    required this.bookName,
+    required this.showBookName,
     required this.selected,
     required this.selectionMode,
     required this.onTap,
@@ -2488,6 +2621,8 @@ class _HighlightCard extends StatelessWidget {
   });
 
   final HighlightEntry entry;
+  final String bookName;
+  final bool showBookName;
   final bool selected;
   final bool selectionMode;
   final VoidCallback onTap;
@@ -2557,8 +2692,22 @@ class _HighlightCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            // 下块：预览
+            // 中块：预览（占满剩余空间）
             Expanded(child: _preview()),
+            // 下块：书名（可选，接在卡片底部）
+            if (showBookName) ...[
+              const SizedBox(height: 2),
+              Text(
+                bookName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -2571,71 +2720,77 @@ class _HighlightCard extends StatelessWidget {
         entry.stops.length == colors.length ? entry.stops : null;
     final isGradient = colors.length > 1;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isGradient ? null : colors.first,
-        gradient: isGradient
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: colors,
-                stops: stops,
-              )
-            : null,
-        borderRadius: BorderRadius.circular(3),
-      ),
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      child: Text(
-        entry.keyword,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: Color(entry.textColor),
-          fontSize: 11,
-          height: 1.15,
+    // 只有文字本身有背景色，其它区域透明（跟阅读器里一致）。
+    return Center(
+      child: Container(
+        decoration: BoxDecoration(
+          color: isGradient ? null : colors.first,
+          gradient: isGradient
+              ? LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: colors,
+                  stops: stops,
+                )
+              : null,
+          borderRadius: BorderRadius.circular(2),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        child: Text(
+          entry.keyword,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(entry.textColor),
+            fontSize: 11,
+            height: 1.15,
+          ),
         ),
       ),
     );
   }
 }
 
-// ==================== 分组过滤面板 ====================
+// ==================== 高亮筛选面板（范围 + 分组） ====================
 
-class _GroupFilterSheet extends StatefulWidget {
-  const _GroupFilterSheet({
+class _HighlightFilterSheet extends StatefulWidget {
+  const _HighlightFilterSheet({
     required this.groups,
     required this.usedIds,
-    required this.initial,
+    required this.initialGroups,
+    required this.initialAllBooks,
   });
 
   final List<HighlightGroup> groups;
   final Set<String?> usedIds;
-  final Set<String?> initial;
+  final Set<String?> initialGroups;
+  final bool initialAllBooks;
 
   @override
-  State<_GroupFilterSheet> createState() => _GroupFilterSheetState();
+  State<_HighlightFilterSheet> createState() => _HighlightFilterSheetState();
 }
 
-class _GroupFilterSheetState extends State<_GroupFilterSheet> {
+class _HighlightFilterSheetState extends State<_HighlightFilterSheet> {
   late Set<String?> _selected;
+  late bool _allBooks;
 
   @override
   void initState() {
     super.initState();
-    _selected = Set<String?>.from(widget.initial);
+    _selected = Set<String?>.from(widget.initialGroups);
+    _allBooks = widget.initialAllBooks;
   }
 
   @override
   Widget build(BuildContext context) {
-    final entries = <({String? id, String name, int count})>[];
+    final entries = <({String? id, String name})>[];
     if (widget.usedIds.contains(null)) {
-      entries.add((id: null, name: '未分组', count: 0));
+      entries.add((id: null, name: '未分组'));
     }
     for (final g in widget.groups) {
       if (widget.usedIds.contains(g.id)) {
-        entries.add((id: g.id, name: g.name, count: 0));
+        entries.add((id: g.id, name: g.name));
       }
     }
 
@@ -2657,34 +2812,69 @@ class _GroupFilterSheetState extends State<_GroupFilterSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            const Text('显示哪些分组',
+            const Text('显示范围',
                 style: TextStyle(
                     fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            RadioListTile<bool>(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              value: false,
+              groupValue: _allBooks,
+              title: const Text('仅本书'),
+              onChanged: (v) => setState(() => _allBooks = v ?? false),
+            ),
+            RadioListTile<bool>(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              value: true,
+              groupValue: _allBooks,
+              title: const Text('全部书籍'),
+              subtitle: const Text(
+                '显示 App 里所有书的高亮',
+                style: TextStyle(fontSize: 11),
+              ),
+              onChanged: (v) => setState(() => _allBooks = v ?? false),
+            ),
+            const Divider(),
+            const SizedBox(height: 4),
+            const Text('显示哪些分组',
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
             if (entries.isEmpty)
               const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Center(child: Text('当前文件还没有高亮')),
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(child: Text('当前没有高亮')),
               )
             else
-              ...entries.map((e) {
-                final checked = _selected.contains(e.id);
-                return CheckboxListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  value: checked,
-                  title: Text(e.name),
-                  onChanged: (_) {
-                    setState(() {
-                      if (checked) {
-                        _selected.remove(e.id);
-                      } else {
-                        _selected.add(e.id);
-                      }
-                    });
-                  },
-                );
-              }),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.3,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final e in entries)
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: _selected.contains(e.id),
+                          title: Text(e.name),
+                          onChanged: (_) {
+                            setState(() {
+                              if (_selected.contains(e.id)) {
+                                _selected.remove(e.id);
+                              } else {
+                                _selected.add(e.id);
+                              }
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             const Divider(),
             Row(
               children: [
@@ -2724,7 +2914,10 @@ class _GroupFilterSheetState extends State<_GroupFilterSheet> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: FilledButton(
-                    onPressed: () => Navigator.pop(context, _selected),
+                    onPressed: () => Navigator.pop(
+                      context,
+                      (allBooks: _allBooks, groups: _selected),
+                    ),
                     child: const Text('确定'),
                   ),
                 ),
@@ -2948,18 +3141,27 @@ class HighlightEditResult {
 
 Future<HighlightEditResult?> openHighlightEdit(
   BuildContext context,
-  HighlightEntry entry,
-) {
+  HighlightEntry entry, {
+  required String fileKey,
+}) {
   return Navigator.of(context).push<HighlightEditResult>(
     MaterialPageRoute(
-      builder: (_) => _HighlightEditScreen(entry: entry),
+      builder: (_) => _HighlightEditScreen(
+        entry: entry,
+        fileKey: fileKey,
+      ),
     ),
   );
 }
 
 class _HighlightEditScreen extends ConsumerStatefulWidget {
-  const _HighlightEditScreen({required this.entry});
+  const _HighlightEditScreen({
+    required this.entry,
+    required this.fileKey,
+  });
+
   final HighlightEntry entry;
+  final String fileKey;
 
   @override
   ConsumerState<_HighlightEditScreen> createState() =>
@@ -3032,6 +3234,8 @@ class _HighlightEditScreenState
   @override
   Widget build(BuildContext context) {
     final groups = ref.watch(readerHighlightGroupsProvider);
+    final fileName = widget.fileKey.split('/').last;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('编辑高亮'),
@@ -3042,6 +3246,57 @@ class _HighlightEditScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ---------- 作用文件信息 ----------
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.black12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  fileName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                GestureDetector(
+                  onLongPress: () {
+                    Clipboard.setData(ClipboardData(text: widget.fileKey));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('路径已复制'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    widget.fileKey,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '长按路径可复制',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
           const Text('高亮名'),
           TextField(
             controller: _nameCtrl,
