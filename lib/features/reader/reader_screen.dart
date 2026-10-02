@@ -2066,7 +2066,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     const trapW = 22.0;
     const trapH = 32.0;
     final baseColor = Theme.of(context).colorScheme.primary;
-final color = baseColor.withValues(alpha: 0.75); // 0.0~1.0 自己调
+    final color = baseColor.withValues(alpha: 0.75); // 0.0~1.0 自己调
 
     var leftPos = pos.left;
     var rightPos = pos.right;
@@ -2126,7 +2126,24 @@ final color = baseColor.withValues(alpha: 0.75); // 0.0~1.0 自己调
             final offset = _dragHandleOffset ?? Offset.zero;
             final handleLogic = d.globalPosition - offset;
             setState(() => _dragHandlePos = handleLogic);
-            _updateSelectionFromDrag(handleLogic);
+
+            // 判定点用梯形尖端的视觉位置（用户看着拖的那个点），
+            // 而不是 handleLogic（它停在字符顶部，比手指高 30~60px，
+            // 会导致"尖端已经到下一行了，却还没切行"）。
+            //
+            // 不翻转时，梯形从 handleLogic.dy + fontSize 处开始画，
+            // 高 trapH，尖端在垂直中点，所以尖端屏幕 Y =
+            //   handleLogic.dy + fontSize + trapH / 2
+            // 翻转时，梯形在 handleLogic.dy 上方，尖端屏幕 Y =
+            //   handleLogic.dy - trapH / 2
+            // X 继续用 handleLogic.dx，保证选到对的那一列。
+            final judge = Offset(
+              handleLogic.dx,
+              bottomOverflow
+                  ? handleLogic.dy - trapH / 2
+                  : handleLogic.dy + settings.fontSize + trapH / 2,
+            );
+            _updateSelectionFromDrag(judge);
           },
           onPanEnd: (_) {
             setState(() {
