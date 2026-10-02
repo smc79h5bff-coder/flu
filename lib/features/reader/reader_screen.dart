@@ -673,12 +673,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _nextPage() {
     final p = _paginator;
-    if (p?.result == null) return;
+    if (p == null || p.result == null) return;
     if (_menuOpen) {
       setState(() => _menuOpen = false);
       return;
     }
-    final maxPage = p!.result!.pageCount - 1;
+    final maxPage = p.result!.pageCount - 1;
     if (_currentPage >= maxPage) return;
     _clearSelection();
     setState(() => _currentPage = (_currentPage + 1).clamp(0, maxPage));
@@ -690,11 +690,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _prevPage() {
     final p = _paginator;
-    if (p?.result == null) return;
+    if (p == null || p.result == null) return;
     if (_currentPage <= 0) return;
     _clearSelection();
-    setState(() => _currentPage =
-        (_currentPage - 1).clamp(0, p!.result!.pageCount - 1));
+    setState(() =>
+        _currentPage = (_currentPage - 1).clamp(0, p.result!.pageCount - 1));
     _invalidatePageCaches();
     p.notifyVisiblePage(_currentPage);
     _saveProgress();
@@ -703,8 +703,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _jumpToPage(int page) {
     final p = _paginator;
-    if (p?.result == null) return;
-    final maxPage = p!.result!.pageCount - 1;
+    if (p == null || p.result == null) return;
+    final maxPage = p.result!.pageCount - 1;
     final pg = page.clamp(0, maxPage);
     _clearSelection();
     setState(() => _currentPage = pg);
