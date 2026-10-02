@@ -17,17 +17,13 @@ const double kReaderParaSpacing = 4.0;
 
 /// 分页调度器：先秒开，再后台全量精修。
 ///
+/// **核心思路**：所有行高都统一成 [_singleLineHeight] 的整数倍，
+/// 这样每页容纳的行数绝对固定，不会出现"这页 27 行、那页 32 行"。
+///
 /// 三阶段：
-///   1. [start] 同步跑一次**估算分页** → 立即有 [result] 可用
-///   2. 后台分帧用 TextPainter **精确测量每一行**
-///   3. 全部测完 → 用精确高度**重跑分页**，替换 [result]
-///
-/// **省电措施**（不牺牲精确性）：
-///   · 每帧只跑 2ms（原来是 8ms），CPU 峰值从 50% 降到 12%
-///   · 用户交互时暂停
-///   · App 后台/锁屏时暂停
-///
-/// 用户位置保持：精修前后用"页首字符偏移"锚定。
+///   1. [start] 同步估算分页 → 秒开
+///   2. 后台分帧精修：用 TextPainter 拿到每行的**显示行数**
+///   3. 全部测完 → 用显示行数 × 单行高 重跑分页
 class ReaderPaginator extends ChangeNotifier {
   ReaderPaginator({
     required this.text,
@@ -43,10 +39,8 @@ class ReaderPaginator extends ChangeNotifier {
   final double fontSize;
   final int fontWeight;
 
-  // ---- 内部状态 ----
   late final List<String> _lines;
   late final List<int> _lineStarts;
-  late final List<double> _estimatedHeights;
   late final List<double?> _preciseHeights;
 
   PaginationResult? _result;
@@ -54,18 +48,21 @@ class ReaderPaginator extends ChangeNotifier {
   bool _paused = false;
   bool _chunkScheduled = false;
 
-  /// 精修游标：下一个要精修的行。
   int _precisionCursor = 0;
 
-  /// TextPainter 单例，避免每帧 new 一个。
+  /// 单行基准高度。所有行高都是它的整数倍。
+  double _singleLineHeight = 0;
+
   static final TextPainter _precisionTP = TextPainter(
     textDirection: ui.TextDirection.ltr,
   );
 
   PaginationResult? get result => _result;
-
-  /// 用户位置锚点。
   int? anchorCharOffset;
+
+  /// 精修进度 0.0~1.0。
+  double get precisionRatio =>
+      _lines.isEmpty ? 1.0 : _precisionCursor / _lines.length;
 
   // ==================== 启动 ====================
 
@@ -73,21 +70,28 @@ class ReaderPaginator extends ChangeNotifier {
     final split = splitLinesWithOffsets(text);
     _lines = split.lines;
     _lineStarts = split.lineStarts;
-    _estimatedHeights = List<double>.filled(_lines.length, 0);
     _preciseHeights = List<double?>.filled(_lines.length, null);
 
-    final usableWidth =
-        math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
-    for (var i = 0; i < _lines.length; i++) {
-      _estimatedHeights[i] =
-          _estimateLineHeight(_lines[i], fontSize, usableWidth);
-    }
+    final style = TextStyle(
+      fontSize: fontSize,
+      fontWeight: _toFontWeight(fontWeight),
+      height: kReaderLineHeightFactor,
+      color: const Color(0xFF222222),
+    );
+
+    // 计算基准单行高度。
+    // 用中英混合的参考串，取真实 layout 高度。
+    final refTp = TextPainter(
+      text: TextSpan(text: '中文Aa1，。', style: style),
+      textDirection: ui.TextDirection.ltr,
+    );
+    refTp.layout();
+    _singleLineHeight = refTp.height;
 
     // 立即给一个估算 result。
     _result = _buildResult();
     notifyListeners();
 
-    // 启动全量精修。
     _precisionCursor = 0;
     _scheduleNextChunk();
   }
@@ -112,15 +116,16 @@ class ReaderPaginator extends ChangeNotifier {
     }
   }
 
-  /// 兼容 reader_screen 的调用。当前实现是全量精修，不使用窗口。
+  /// 兼容 reader_screen 的调用。全量精修不使用窗口。
   void notifyVisiblePage(int pageIndex) {
     // no-op
   }
 
   // ==================== 精修（分帧） ====================
 
-  /// 每帧精修的时间预算（毫秒）。
-  /// 2ms 让 CPU 峰值从 50% 降到 12%，大核可降频到小核。
+  /// 每帧精修时间预算（毫秒）。
+  /// 2ms 让 CPU 峰值从 50% 降到 12%，显著省电。
+  /// 精修总时间变长但用户不感知（后台任务）。
   static const int _chunkBudgetMs = 2;
 
   void _scheduleNextChunk() {
@@ -155,22 +160,23 @@ class ReaderPaginator extends ChangeNotifier {
       if (_preciseHeights[i] == null) {
         final line = _lines[i];
         if (line.isEmpty) {
-          _preciseHeights[i] = fontSize * kReaderLineHeightFactor;
+          _preciseHeights[i] = _singleLineHeight;
         } else {
           tp.text = TextSpan(text: line, style: style);
           tp.layout(maxWidth: usableWidth);
-          _preciseHeights[i] = tp.height;
+          // 关键：用显示行数 × 单行高，保证所有行高都是基准整数倍。
+          final displayLines = tp.computeLineMetrics().length;
+          _preciseHeights[i] =
+              math.max(1, displayLines) * _singleLineHeight;
         }
       }
       _precisionCursor++;
     }
 
     if (_precisionCursor >= _lines.length) {
-      // 全部精修完成，重跑分页。
       _applyPrecision();
       return;
     }
-
     _scheduleNextChunk();
   }
 
@@ -187,12 +193,14 @@ class ReaderPaginator extends ChangeNotifier {
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
     final usableHeight =
         math.max(10.0, viewportHeight - kReaderVerticalPadding * 2);
-    final singleLineHeight = fontSize * kReaderLineHeightFactor;
+
+    // 每页固定显示行数。
+    final rowsPerPage = math.max(1, (usableHeight / _singleLineHeight).floor());
 
     final n = _lines.length;
     final renderUnits = <RenderUnit>[];
     final pageStarts = <int>[]..add(0);
-    var pageHeight = 0.0;
+    var rowsInPage = 0;
 
     final style = TextStyle(
       fontSize: fontSize,
@@ -202,30 +210,35 @@ class ReaderPaginator extends ChangeNotifier {
     );
     final tp = _precisionTP;
 
-    void place(RenderUnit unit) {
-      if (pageHeight + unit.height > usableHeight && pageHeight > 0) {
+    void place(RenderUnit unit, int rowCount) {
+      if (rowsInPage + rowCount > rowsPerPage && rowsInPage > 0) {
         pageStarts.add(renderUnits.length);
-        pageHeight = unit.height;
-      } else {
-        pageHeight += unit.height;
+        rowsInPage = 0;
       }
       renderUnits.add(unit);
+      rowsInPage += rowCount;
     }
 
     for (var i = 0; i < n; i++) {
       final line = _lines[i];
-      final h = _preciseHeights[i] ?? _estimatedHeights[i];
+      final h = _preciseHeights[i] ?? _estimatedHeight(line, usableWidth);
+      final rows = math.max(1, (h / _singleLineHeight).round());
 
-      if (h <= usableHeight) {
-        place(RenderUnit(
-          lineIndex: i,
-          charStart: 0,
-          charEnd: line.length,
-          height: h,
-        ));
+      // 短行（一页放得下）。
+      if (rows <= rowsPerPage) {
+        place(
+          RenderUnit(
+            lineIndex: i,
+            charStart: 0,
+            charEnd: line.length,
+            height: rows * _singleLineHeight,
+          ),
+          rows,
+        );
         continue;
       }
 
+      // 超长行：拆成多个 unit，每个 ≤ 一页。
       final isPrecise = _preciseHeights[i] != null;
       final units = isPrecise
           ? _splitLongLinePrecise(
@@ -234,18 +247,21 @@ class ReaderPaginator extends ChangeNotifier {
               tp: tp,
               style: style,
               maxWidth: usableWidth,
-              maxHeight: usableHeight,
+              maxHeight: rowsPerPage * _singleLineHeight,
+              singleLineHeight: _singleLineHeight,
             )
           : _splitLongLineEstimated(
               lineIndex: i,
               content: line,
               usableWidth: usableWidth,
-              usableHeight: usableHeight,
-              singleLineHeight: singleLineHeight,
+              rowsPerPage: rowsPerPage,
+              singleLineHeight: _singleLineHeight,
             );
 
       for (final u in units) {
-        place(u);
+        final uRows =
+            math.max(1, (u.height / _singleLineHeight).round());
+        place(u, uRows);
       }
     }
 
@@ -255,6 +271,13 @@ class ReaderPaginator extends ChangeNotifier {
       lineStarts: _lineStarts,
       totalChars: text.length,
     );
+  }
+
+  double _estimatedHeight(String line, double usableWidth) {
+    if (line.isEmpty) return _singleLineHeight;
+    final w = _estimateLineWidth(line, fontSize);
+    final displayLines = math.max(1, (w / usableWidth).ceil());
+    return displayLines * _singleLineHeight;
   }
 }
 
@@ -267,6 +290,7 @@ List<RenderUnit> _splitLongLinePrecise({
   required TextStyle style,
   required double maxWidth,
   required double maxHeight,
+  required double singleLineHeight,
 }) {
   tp.text = TextSpan(text: content, style: style);
   tp.layout(maxWidth: maxWidth);
@@ -278,12 +302,12 @@ List<RenderUnit> _splitLongLinePrecise({
         lineIndex: lineIndex,
         charStart: 0,
         charEnd: content.length,
-        height: tp.height,
+        height: singleLineHeight,
       )
     ];
   }
 
-  final ranges = <({int start, int end, double height})>[];
+  final ranges = <({int start, int end})>[];
   for (var i = 0; i < metrics.length; i++) {
     final m = metrics[i];
     final yMid = m.baseline + (m.ascent + m.descent) / 2;
@@ -294,10 +318,10 @@ List<RenderUnit> _splitLongLinePrecise({
     if (e <= s) e = s + 1;
     if (s < 0) s = 0;
     if (e > content.length) e = content.length;
-    ranges.add((start: s, end: e, height: m.height));
+    ranges.add((start: s, end: e));
   }
 
-  ranges[0] = (start: 0, end: ranges[0].end, height: ranges[0].height);
+  ranges[0] = (start: 0, end: ranges[0].end);
   for (var i = 1; i < ranges.length; i++) {
     final prevEnd = ranges[i - 1].end;
     var s = ranges[i].start;
@@ -305,39 +329,35 @@ List<RenderUnit> _splitLongLinePrecise({
     if (s < prevEnd) s = prevEnd;
     if (e < s + 1) e = s + 1;
     if (e > content.length) e = content.length;
-    ranges[i] = (start: s, end: e, height: ranges[i].height);
+    ranges[i] = (start: s, end: e);
   }
   final last = ranges.length - 1;
-  ranges[last] = (
-    start: ranges[last].start,
-    end: content.length,
-    height: ranges[last].height,
-  );
+  ranges[last] = (start: ranges[last].start, end: content.length);
 
+  final maxRows = math.max(1, (maxHeight / singleLineHeight).floor());
   final units = <RenderUnit>[];
   var chunkStart = 0;
-  var chunkHeight = 0.0;
+
   for (var i = 0; i < ranges.length; i++) {
-    final r = ranges[i];
-    if (chunkHeight + r.height > maxHeight && i > chunkStart) {
+    final wouldBe = i - chunkStart + 1;
+    if (wouldBe > maxRows && i > chunkStart) {
+      final rowCount = i - chunkStart;
       units.add(RenderUnit(
         lineIndex: lineIndex,
         charStart: ranges[chunkStart].start,
         charEnd: ranges[i].start,
-        height: chunkHeight,
+        height: rowCount * singleLineHeight,
       ));
       chunkStart = i;
-      chunkHeight = r.height;
-    } else {
-      chunkHeight += r.height;
     }
   }
   if (chunkStart < ranges.length) {
+    final rowCount = ranges.length - chunkStart;
     units.add(RenderUnit(
       lineIndex: lineIndex,
       charStart: ranges[chunkStart].start,
       charEnd: content.length,
-      height: chunkHeight,
+      height: rowCount * singleLineHeight,
     ));
   }
   return units;
@@ -347,25 +367,13 @@ List<RenderUnit> _splitLongLineEstimated({
   required int lineIndex,
   required String content,
   required double usableWidth,
-  required double usableHeight,
+  required int rowsPerPage,
   required double singleLineHeight,
 }) {
   final charWidth = singleLineHeight / kReaderLineHeightFactor;
-  final charsPerLine = (usableWidth / charWidth).floor();
-  final linesPerPage = (usableHeight / singleLineHeight).floor();
+  final charsPerLine = math.max(1, (usableWidth / charWidth).floor());
+  final charsPerChunk = charsPerLine * rowsPerPage;
 
-  if (charsPerLine <= 0 || linesPerPage <= 0) {
-    return [
-      RenderUnit(
-        lineIndex: lineIndex,
-        charStart: 0,
-        charEnd: content.length,
-        height: singleLineHeight,
-      )
-    ];
-  }
-
-  final charsPerChunk = charsPerLine * linesPerPage;
   final units = <RenderUnit>[];
   var start = 0;
   while (start < content.length) {
@@ -376,7 +384,7 @@ List<RenderUnit> _splitLongLineEstimated({
       lineIndex: lineIndex,
       charStart: start,
       charEnd: end,
-      height: displayLines * singleLineHeight,
+      height: math.min(displayLines, rowsPerPage) * singleLineHeight,
     ));
     start = end;
   }
@@ -384,14 +392,6 @@ List<RenderUnit> _splitLongLineEstimated({
 }
 
 // ==================== 估算 ====================
-
-double _estimateLineHeight(String line, double fontSize, double usableWidth) {
-  final baseLineHeight = fontSize * kReaderLineHeightFactor;
-  if (line.isEmpty) return baseLineHeight;
-  final w = _estimateLineWidth(line, fontSize);
-  final displayLines = math.max(1, (w / usableWidth).ceil());
-  return displayLines * baseLineHeight;
-}
 
 double _estimateLineWidth(String line, double fontSize) {
   if (line.isEmpty) return 0;
