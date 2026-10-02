@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../preprocessing/application/aho_corasick.dart';
 import '../preprocessing/application/encoding_detector.dart';
 import '../preprocessing/domain/encoding_type.dart';
 import 'reader_models.dart';
@@ -32,7 +33,6 @@ class _SelectionRange {
   final int endLine;
   final int endOffset;
 
-  /// 交换起止，让 start <= end（按阅读顺序）。
   _SelectionRange normalized() {
     if (startLine < endLine ||
         (startLine == endLine && startOffset <= endOffset)) {
@@ -47,19 +47,14 @@ class _SelectionRange {
   }
 }
 
-/// 某个 (line, offset) 的位置信息。
 class _CharPos {
-  const _CharPos({
-    required this.line,
-    required this.offset,
-  });
+  const _CharPos({required this.line, required this.offset});
   final int line;
   final int offset;
 }
 
 // ==================== 手柄绘制 ====================
 
-/// 梯形：可拖动部分。左右手柄镜像，尖角朝上（或朝下，取决于 flip）。
 class _TrapezoidPainter extends CustomPainter {
   _TrapezoidPainter({
     required this.color,
@@ -85,16 +80,13 @@ class _TrapezoidPainter extends CustomPainter {
     final path = Path();
 
     if (!flip) {
-      // 尖角在顶部
       if (isLeft) {
-        // 左手柄：尖角在右上，向左下扩展
         path.moveTo(w, 0);
         path.lineTo(w, h);
         path.lineTo(0, h);
         path.lineTo(0, mid);
         path.close();
       } else {
-        // 右手柄：尖角在左上，向右下扩展
         path.moveTo(0, 0);
         path.lineTo(0, h);
         path.lineTo(w, h);
@@ -102,7 +94,6 @@ class _TrapezoidPainter extends CustomPainter {
         path.close();
       }
     } else {
-      // 尖角在底部（翻转到文字上方时用）
       if (isLeft) {
         path.moveTo(w, h);
         path.lineTo(w, 0);
@@ -136,13 +127,11 @@ class _GradRect {
 
 // ==================== 编码选择 ====================
 
-/// 编码选择的返回值。encoding == null 表示"选自动"。
 class _EncodingChoice {
   const _EncodingChoice(this.encoding);
   final EncodingType? encoding;
 }
 
-/// 手动编码选择弹窗。
 class _EncodingPickerSheet extends StatelessWidget {
   const _EncodingPickerSheet({
     required this.currentManual,
@@ -180,10 +169,8 @@ class _EncodingPickerSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            '选择编码',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
+          const Text('选择编码',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -266,28 +253,42 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   ReaderPaginator? _paginator;
   List<String> _lines = const [];
-  HighlightIndex _highlightIndex = HighlightIndex.empty;
+  List<int> _lineStarts = const [];
 
   int _currentPage = 0;
 
   String? _lastLoadedKey;
 
-  /// 用户手动指定的编码。null = 自动检测。
   EncodingType? _manualEncoding;
-
-  /// 当前实际使用的编码（手动或自动检测出来的）。
   EncodingType? _currentEncoding;
 
   bool _menuOpen = false;
 
-  // ==================== 手势 / 选区状态 ====================
+  // ==================== 高亮（延迟匹配） ====================
+
+  /// 当前文件的所有高亮条目。不再建全文索引。
+  List<HighlightEntry> _highlights = const [];
+
+  /// 高亮的 AC 树缓存。高亮列表变化时重建。
+  AhoCorasick? _highlightAc;
+
+  /// AC 树的 pattern index → 高亮条目。
+  Map<int, HighlightEntry> _highlightEntryByPattern = const {};
+
+  /// 每次高亮列表变化 ++，用来触发缓存失效。
+  int _highlightsRevision = 0;
+
+  /// 当前页的高亮匹配结果（行号 → spans）。
+  Map<int, List<HighlightSpan>> _pageHighlightCache = {};
+  int _pageHighlightCacheForPage = -1;
+  int _pageHighlightCacheForRevision = -1;
+
+  // ==================== 手势 / 选区 ====================
 
   final GlobalKey _contentKey = GlobalKey();
-  /// RenderUnit 索引 → GlobalKey。
   final Map<int, GlobalKey> _unitKeys = <int, GlobalKey>{};
 
-  /// 渐变矩形缓存。key = (unitIdx|width)。
-  /// 字体/宽度变了整体清空。
+  /// 渐变矩形缓存。
   final Map<String, List<_GradRect>> _gradRectCache = {};
   double _gradCacheFontSize = 0;
   int _gradCacheFontWeight = 0;
@@ -296,31 +297,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   _SelectionRange? _sel;
   bool _hBarVisible = false;
 
-  /// 选区版本号。每次选区变化 ++。用来在 build 后触发一次重建，
-  /// 让 overlay 能拿到 RenderParagraph。
   int _selVersion = 0;
   int _lastOverlayVersion = 0;
 
-  /// 0=无, 1=拖左, 2=拖右
   int _draggingHandle = 0;
-
-  /// 拖动时手柄的实时位置（屏幕全局坐标）。null = 没在拖。
   Offset? _dragHandlePos;
-
-  /// 拖动开始时手指相对手柄逻辑位置的偏移。
   Offset? _dragHandleOffset;
-
-  /// 长按后手指最后处理过的位置。用来做去抖。
   Offset? _lastLongPressPos;
 
   Timer? _longPressTimer;
+  Timer? _resumePrecisionTimer;
+  Timer? _progressSaveTimer;
 
   Offset _downPos = Offset.zero;
   bool _longPressFired = false;
   bool _movedBeyondThreshold = false;
   bool _pressDown = false;
 
-  /// 横向滑动检测（右滑翻上一页）
   bool _horizontalDrag = false;
   int _downMs = 0;
   static const double _hDragMinDx = 60.0;
@@ -328,7 +321,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   int _lastTapUpMs = 0;
 
   static const Color _selectionBg = Color(0x773D7CFF);
-  static const Color _selectionFg = Color(0xDD000000);
   static const int _longPressMs = 400;
   static const double _moveThresholdDp = 10.0;
   static const int _tapDebounceMs = 100;
@@ -342,7 +334,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   void dispose() {
     _longPressTimer?.cancel();
-    _saveProgress();
+    _resumePrecisionTimer?.cancel();
+    _progressSaveTimer?.cancel();
+    _saveProgressNow();
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     super.dispose();
@@ -350,8 +344,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   // ==================== 加载 ====================
 
-  /// 分页结果依赖：文件路径、屏幕尺寸、字号、字重、手动编码。
-  /// 任何一个变了都要重新分页。
   String _loadKeyFor(String path) {
     final s = ref.read(readerSettingsProvider);
     return '$path|'
@@ -369,7 +361,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (_lastLoadedKey == key) return;
     _lastLoadedKey = key;
 
-    // 旧的 paginator 释放。
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     _paginator = null;
@@ -379,13 +370,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _error = null;
       _text = null;
       _lines = const [];
-      _highlightIndex = HighlightIndex.empty;
+      _lineStarts = const [];
+      _highlights = const [];
       _currentPage = 0;
       _sel = null;
       _hBarVisible = false;
     });
     _unitKeys.clear();
     _gradRectCache.clear();
+    _pageHighlightCache = {};
+    _pageHighlightCacheForPage = -1;
+    _pageHighlightCacheForRevision = -1;
 
     try {
       final bytes = await File(path).readAsBytes();
@@ -410,10 +405,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final fileKey = readerFileKey(path);
       final highlights =
           ref.read(readerHighlightsProvider)[fileKey] ?? const [];
-      final index = buildHighlightIndex(
-        lines: split.lines,
-        highlights: highlights,
-      );
 
       final progress = ref.read(readerProgressProvider)[fileKey];
       final startPage = progress != null
@@ -425,14 +416,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         _text = text;
         _paginator = paginator;
         _lines = split.lines;
-        _highlightIndex = index;
+        _lineStarts = split.lineStarts;
+        _highlights = highlights;
+        _highlightsRevision++;
         _currentPage = startPage;
         _loading = false;
         _sel = null;
         _hBarVisible = false;
       });
+
+      // 高亮 AC 树重建一次。
+      _rebuildHighlightAc();
+
       _unitKeys.clear();
       _gradRectCache.clear();
+      _pageHighlightCache = {};
+      _pageHighlightCacheForPage = -1;
+      _pageHighlightCacheForRevision = -1;
       _syncPagePreview();
     } catch (e) {
       if (!mounted) return;
@@ -443,7 +443,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
   }
 
-  /// 精修完成后重算：用"页首字符偏移"锚定，保持用户位置。
   void _onPaginatorChanged() {
     if (!mounted) return;
     final p = _paginator;
@@ -463,9 +462,155 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _syncPagePreview();
   }
 
-  // ==================== 进度 ====================
+  // ==================== 高亮延迟匹配 ====================
+
+  void _rebuildHighlightAc() {
+    final patterns = <String>[];
+    final entryByPattern = <int, HighlightEntry>{};
+    for (final h in _highlights) {
+      if (h.keyword.isEmpty) continue;
+      patterns.add(h.keyword);
+      entryByPattern[patterns.length - 1] = h;
+    }
+    if (patterns.isEmpty) {
+      _highlightAc = null;
+      _highlightEntryByPattern = const {};
+      return;
+    }
+    _highlightAc = AhoCorasick(
+      patterns: patterns,
+      replacements: List<String>.filled(patterns.length, ''),
+      priorities: List<int>.generate(patterns.length, (i) => i),
+    );
+    _highlightEntryByPattern = entryByPattern;
+  }
+
+  void _ensurePageHighlightCache() {
+    if (_pageHighlightCacheForPage == _currentPage &&
+        _pageHighlightCacheForRevision == _highlightsRevision) {
+      return;
+    }
+    _rebuildPageHighlightCache();
+  }
+
+  void _rebuildPageHighlightCache() {
+    _pageHighlightCacheForPage = _currentPage;
+    _pageHighlightCacheForRevision = _highlightsRevision;
+
+    final p = _paginator;
+    if (p?.result == null || _highlightAc == null) {
+      _pageHighlightCache = {};
+      return;
+    }
+
+    final range = pageUnitRange(p!.result!, _currentPage);
+    if (range.startUnit >= range.endUnit) {
+      _pageHighlightCache = {};
+      return;
+    }
+
+    // 收集当前页涉及的行号。
+    final lineSet = <int>{};
+    for (var i = range.startUnit; i < range.endUnit; i++) {
+      lineSet.add(p.result!.renderUnits[i].lineIndex);
+    }
+    final sortedLineIdxs = lineSet.toList()..sort();
+
+    // 拼接当前页文本 + 记录每行在 buf 的起始偏移。
+    final buf = StringBuffer();
+    final lineStartInBuf = <int>[];
+    final lineIdxAtPos = <int>[];
+    for (final li in sortedLineIdxs) {
+      lineStartInBuf.add(buf.length);
+      lineIdxAtPos.add(li);
+      buf.write(_lines[li]);
+      buf.write('\n');
+    }
+    final pageText = buf.toString();
+    final pageLen = pageText.length;
+
+    // AC 扫描当前页。
+    final byLine = <int, List<HighlightSpan>>{};
+    _highlightAc!.findAllMatches(pageText, (start, end, pi) {
+      // 二分找 start 所在的行。
+      var lo = 0;
+      var hi = lineStartInBuf.length - 1;
+      while (lo < hi) {
+        final mid = (lo + hi + 1) >> 1;
+        if (lineStartInBuf[mid] <= start) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      final rowIdx = lo;
+      final lineStart = lineStartInBuf[rowIdx];
+      final lineEnd = rowIdx + 1 < lineStartInBuf.length
+          ? lineStartInBuf[rowIdx + 1] - 1 // -1 去掉 \n
+          : pageLen - 1;
+      if (end > lineEnd) return; // 跨行，丢弃
+
+      final actualLineIdx = lineIdxAtPos[rowIdx];
+      (byLine[actualLineIdx] ??= <HighlightSpan>[]).add(HighlightSpan(
+        startInLine: start - lineStart,
+        endInLine: end - lineStart,
+        entry: _highlightEntryByPattern[pi]!,
+      ));
+    });
+
+    // 每行排序 + 短词优先 + 去重叠。
+    for (final i in byLine.keys.toList()) {
+      final list = byLine[i]!;
+      list.sort((a, b) {
+        final byStart = a.startInLine.compareTo(b.startInLine);
+        if (byStart != 0) return byStart;
+        return (a.endInLine - a.startInLine)
+            .compareTo(b.endInLine - b.startInLine);
+      });
+      final kept = <HighlightSpan>[];
+      var lastEnd = -1;
+      for (final s in list) {
+        if (s.startInLine < lastEnd) continue;
+        kept.add(s);
+        lastEnd = s.endInLine;
+      }
+      byLine[i] = kept;
+    }
+
+    _pageHighlightCache = byLine;
+  }
+
+  List<HighlightSpan> _highlightsForLine(int lineIdx) {
+    _ensurePageHighlightCache();
+    return _pageHighlightCache[lineIdx] ?? const [];
+  }
+
+  // ==================== 精度暂停/恢复 ====================
+
+  void _pausePrecision() {
+    _resumePrecisionTimer?.cancel();
+    _paginator?.pause();
+  }
+
+  void _scheduleResumePrecision() {
+    _resumePrecisionTimer?.cancel();
+    _resumePrecisionTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _paginator?.resume();
+    });
+  }
+
+  // ==================== 进度（防抖） ====================
 
   void _saveProgress() {
+    _progressSaveTimer?.cancel();
+    _progressSaveTimer = Timer(
+      const Duration(milliseconds: 800),
+      _saveProgressNow,
+    );
+  }
+
+  void _saveProgressNow() {
     final p = _paginator;
     if (p?.result == null || widget.filePaths.isEmpty) return;
     final path = widget.filePaths[_fileIndex];
@@ -534,7 +679,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _prevFile() async {
     if (_fileIndex <= 0) return;
-    _saveProgress();
+    _saveProgressNow();
     _clearSelection();
     _manualEncoding = null;
     setState(() => _fileIndex--);
@@ -543,7 +688,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _nextFile() async {
     if (_fileIndex >= widget.filePaths.length - 1) return;
-    _saveProgress();
+    _saveProgressNow();
     _clearSelection();
     _manualEncoding = null;
     setState(() => _fileIndex++);
@@ -655,9 +800,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   String _encodingSubtitle() {
     final cur = _currentEncoding?.label ?? '未识别';
-    if (_manualEncoding == null) {
-      return '自动检测（$cur）';
-    }
+    if (_manualEncoding == null) return '自动检测（$cur）';
     return '手动：$cur';
   }
 
@@ -675,14 +818,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
 
     if (!mounted || picked == null) return;
-
-    // 判断是否真的变了。
     final same = picked.encoding == _manualEncoding;
     if (same) return;
 
-    setState(() {
-      _manualEncoding = picked.encoding;
-    });
+    setState(() => _manualEncoding = picked.encoding);
     await _ensureLoaded();
   }
 
@@ -701,11 +840,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '${pct.toStringAsFixed(1)}%',
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.bold),
-                ),
+                Text('${pct.toStringAsFixed(1)}%',
+                    style: const TextStyle(
+                        fontSize: 24, fontWeight: FontWeight.bold)),
                 Slider(
                   value: tempPage.toDouble(),
                   min: 0,
@@ -717,9 +854,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('取消'),
-              ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('取消')),
               FilledButton(
                 onPressed: () {
                   Navigator.pop(ctx);
@@ -752,9 +888,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     ref.read(readerBookmarksProvider.notifier).add(fileKey, bookmark);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('已加书签'),
-        duration: Duration(seconds: 1),
-      ),
+          content: Text('已加书签'), duration: Duration(seconds: 1)),
     );
   }
 
@@ -763,17 +897,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final path = widget.filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     _clearSelection();
-    showReaderFindBar(
-      context,
-      fileKey,
-      _text!,
-      (offset) {
-        final p = _paginator?.result;
-        if (p == null) return;
-        final page = findPageForOffset(p, offset);
-        _jumpToPage(page);
-      },
-    );
+    showReaderFindBar(context, fileKey, _text!, (offset) {
+      final p = _paginator?.result;
+      if (p == null) return;
+      final page = findPageForOffset(p, offset);
+      _jumpToPage(page);
+    });
   }
 
   Future<void> _openManager() async {
@@ -795,17 +924,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (widget.filePaths.isEmpty) return;
     final path = widget.filePaths[_fileIndex];
     final fileName = path.split('/').last;
-
-    _saveProgress();
+    _saveProgressNow();
     _clearSelection();
-
     await openEditorAndReturn(context, path, fileName, () {
       _lastLoadedKey = null;
       _ensureLoaded();
     });
   }
 
-  // ==================== 选区操作 ====================
+  // ==================== 选区 ====================
 
   void _clearSelection() {
     _longPressTimer?.cancel();
@@ -866,9 +993,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return null;
   }
 
-  /// 带 Y 方向缓冲的命中测试，只用于拖手柄。
-  /// 如果手指还在 preferLine 的 ±行高/3 范围内，锁定在 preferLine，
-  /// 避免横拖时手指上下抖动导致跨行。
   _CharPos? _hitTestWithBuffer(Offset globalPos, int preferLine) {
     final p = _paginator;
     if (p?.result == null) return _hitTest(globalPos);
@@ -906,7 +1030,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return _hitTest(globalPos);
   }
 
-  /// 找到包含 (line, offset) 的 RenderUnit（只扫当前页）。
   ({int unitIdx, RenderUnit unit})? _findUnitFor(int line, int offset) {
     final p = _paginator;
     if (p?.result == null) return null;
@@ -921,7 +1044,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return null;
   }
 
-  /// 返回 offset 处字符的左上角（用于左手柄 / 起点）。
   Offset? _posOfCharLeft(int line, int offset) {
     final found = _findUnitFor(line, offset);
     if (found == null) return null;
@@ -963,7 +1085,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return rp.localToGlobal(Offset(box.left, box.top));
   }
 
-  /// 返回选区终点处字符的右上角（用于右手柄 / 终点）。
   Offset? _posOfCharRight(int line, int offset) {
     final found = _findUnitFor(line, offset);
     if (found == null) return null;
@@ -1095,6 +1216,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // ==================== 手势状态机 ====================
 
   void _onPointerDown(PointerDownEvent e) {
+    _pausePrecision();
     _longPressTimer?.cancel();
     _downPos = e.position;
     _downMs = DateTime.now().millisecondsSinceEpoch;
@@ -1105,9 +1227,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _lastLongPressPos = null;
 
     if (_hBarVisible || _sel != null) {
-      setState(() {
-        _hBarVisible = false;
-      });
+      setState(() => _hBarVisible = false);
     }
 
     _longPressTimer = Timer(const Duration(milliseconds: _longPressMs), () {
@@ -1122,15 +1242,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _onPointerMove(PointerMoveEvent e) {
     if (!_pressDown) return;
 
-    // ===== 长按已成立：手指移动 → 扩展选区终点 =====
     if (_longPressFired) {
       final sel = _sel;
       if (sel == null) return;
-
       final ref = _lastLongPressPos ?? _downPos;
       if ((e.position - ref).distance < 10.0) return;
       _lastLongPressPos = e.position;
-
       final hit = _hitTest(e.position);
       if (hit == null) return;
       setState(() {
@@ -1145,7 +1262,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    // ===== 长按还没成立：原有的位移/横向滑动判断 =====
     final dx = e.position.dx - _downPos.dx;
     final dy = e.position.dy - _downPos.dy;
     final absDx = dx.abs();
@@ -1171,6 +1287,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   void _onPointerUp(PointerUpEvent e) {
     _longPressTimer?.cancel();
+    _scheduleResumePrecision();
 
     if (_draggingHandle != 0) {
       setState(() {
@@ -1203,9 +1320,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           return;
         }
       }
-      setState(() {
-        _hBarVisible = true;
-      });
+      setState(() => _hBarVisible = true);
       _pressDown = false;
       return;
     }
@@ -1238,6 +1353,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _onPointerCancel(PointerCancelEvent e) {
+    _scheduleResumePrecision();
     _longPressTimer?.cancel();
     _pressDown = false;
     _draggingHandle = 0;
@@ -1315,7 +1431,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     });
   }
 
-  /// 参数 [handleLogic] 是手柄的逻辑位置（屏幕全局坐标），不是手指位置。
   void _updateSelectionFromDrag(Offset handleLogic) {
     final sel = _sel;
     if (sel == null) return;
@@ -1393,8 +1508,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Widget build(BuildContext context) {
     final settings = ref.watch(readerSettingsProvider);
 
-    // 选区刚变化时，post frame 再 setState 一次，
-    // 让 _buildUnitSelectionOverlay 能拿到新选区对应的 RenderParagraph。
     if (_sel != null && _selVersion != _lastOverlayVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -1475,7 +1588,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     return Stack(
       children: [
-        // ==================== 正文 ====================
         Positioned.fill(
           child: Listener(
             behavior: HitTestBehavior.opaque,
@@ -1493,15 +1605,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   for (var i = range.startUnit; i < range.endUnit; i++)
-                    _buildRenderUnit(
-                        i, result.renderUnits[i], settings),
+                    _buildRenderUnit(i, result.renderUnits[i], settings),
                 ],
               ),
             ),
           ),
         ),
-
-        // ==================== 顶部热区可视化 ====================
         if (previewHotZone)
           Positioned(
             top: 0,
@@ -1523,8 +1632,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
             ),
           ),
-
-        // ==================== 浮动按钮 ====================
         if (settings.showButtons) ...[
           _buildFloatButton(
             x: settings.topBtnX,
@@ -1541,11 +1648,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             settings: settings,
           ),
         ],
-
-        // ==================== 手柄 ====================
         ..._buildHandles(settings),
-
-        // ==================== 弹窗 ====================
         if (_hBarVisible && _sel != null) _buildHBar(settings, size),
       ],
     );
@@ -1559,9 +1662,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final String sub = e > s ? line.substring(s, e) : '';
 
     final spans = _buildUnitSpans(unit, sub, settings);
+    final highlights = _highlightsForLine(unit.lineIndex);
 
-    // 快速路径：本 unit 无渐变高亮。
-    if (!_hasGradientHighlight(unit, sub)) {
+    final hasGrad = _hasGradientIn(highlights, unit);
+
+    if (!hasGrad) {
       return SizedBox(
         width: double.infinity,
         child: Stack(
@@ -1577,7 +1682,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       );
     }
 
-    // 慢路径：有渐变高亮，底层画矩形。
     return SizedBox(
       width: double.infinity,
       child: LayoutBuilder(
@@ -1588,10 +1692,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             sub,
             settings,
             constraints.maxWidth,
+            highlights,
           );
           return Stack(
             children: [
-              // 1. 渐变背景层
               for (final g in gradRects)
                 Positioned(
                   left: g.rect.left,
@@ -1610,13 +1714,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     ),
                   ),
                 ),
-              // 2. 文字层
               Text.rich(
                 TextSpan(children: spans),
                 softWrap: true,
                 key: _unitKeys[unitIdx],
               ),
-              // 3. 选区层
               _buildUnitSelectionOverlay(unitIdx, unit),
             ],
           );
@@ -1625,10 +1727,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  /// 快速判断：本 unit 里有没有渐变高亮。
-  bool _hasGradientHighlight(RenderUnit unit, String sub) {
-    if (sub.isEmpty) return false;
-    final highlights = _highlightIndex.forLine(unit.lineIndex);
+  /// 检查 unit 里有没有渐变高亮。传入当前行的 highlights（避免重复查缓存）。
+  bool _hasGradientIn(List<HighlightSpan> highlights, RenderUnit unit) {
     for (final h in highlights) {
       if (h.entry.colors.length <= 1) continue;
       if (h.endInLine > unit.charStart && h.startInLine < unit.charEnd) {
@@ -1638,18 +1738,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return false;
   }
 
-  /// 用 TextPainter 精确测出每个渐变段的渲染矩形。
-  /// 带缓存：同字体、同宽度下重复调用直接命中。
   List<_GradRect> _measureGradientRects(
     int unitIdx,
     RenderUnit unit,
     String sub,
     ReaderSettings settings,
     double maxWidth,
+    List<HighlightSpan> highlights,
   ) {
     if (sub.isEmpty) return const [];
 
-    // 字体或宽度变了 → 整体失效。
     if (_gradCacheFontSize != settings.fontSize ||
         _gradCacheFontWeight != settings.fontWeight ||
         _gradCacheWidth != maxWidth) {
@@ -1663,7 +1761,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final hit = _gradRectCache[key];
     if (hit != null) return hit;
 
-    final highlights = _highlightIndex.forLine(unit.lineIndex);
     final gradientHighlights = <HighlightSpan>[];
     for (final h in highlights) {
       if (h.entry.colors.length > 1 &&
@@ -1677,7 +1774,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return const [];
     }
 
-    // style 必须和 _buildUnitSpans 里的 base 一致，否则矩形会错位。
     final style = _baseStyle(settings);
     final tp = TextPainter(
       text: TextSpan(text: sub, style: style),
@@ -1706,13 +1802,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
     }
 
-    // 缓存上限，防止撑爆。
     if (_gradRectCache.length > 256) _gradRectCache.clear();
     _gradRectCache[key] = rects;
     return rects;
   }
 
-  /// 生成一个 RenderUnit 的 spans（含高亮叠加，不含选区）。
   List<InlineSpan> _buildUnitSpans(
     RenderUnit unit,
     String sub,
@@ -1721,7 +1815,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final base = _baseStyle(settings);
     if (sub.isEmpty) return [TextSpan(text: ' ', style: base)];
 
-    final highlights = _highlightIndex.forLine(unit.lineIndex);
+    final highlights = _highlightsForLine(unit.lineIndex);
     if (highlights.isEmpty) return [TextSpan(text: sub, style: base)];
 
     final subStart = unit.charStart;
@@ -1742,13 +1836,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       final entry = h.entry;
       final hlText = sub.substring(hs, he);
       if (entry.colors.length > 1) {
-        // 渐变高亮：只改文字颜色。背景由 Stack 底层画。
         spans.add(TextSpan(
           text: hlText,
           style: base.copyWith(color: Color(entry.textColor)),
         ));
       } else {
-        // 纯色高亮：文字色 + 背景色。
         spans.add(TextSpan(
           text: hlText,
           style: base.copyWith(
@@ -1765,7 +1857,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return spans;
   }
 
-  /// 一个 RenderUnit 内的选区蓝底。
   Widget _buildUnitSelectionOverlay(int unitIdx, RenderUnit unit) {
     final sel = _sel;
     if (sel == null) return const SizedBox.shrink();
@@ -1868,7 +1959,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final pos = _handlePositions();
     if (pos == null) return const [];
 
-    final lineHeight = settings.fontSize * kReaderLineHeightFactor;
     const trapW = 22.0;
     const trapH = 32.0;
     final color = Theme.of(context).colorScheme.primary;
@@ -1930,9 +2020,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             if (_draggingHandle != which) return;
             final offset = _dragHandleOffset ?? Offset.zero;
             final handleLogic = d.globalPosition - offset;
-            setState(() {
-              _dragHandlePos = handleLogic;
-            });
+            setState(() => _dragHandlePos = handleLogic);
             _updateSelectionFromDrag(handleLogic);
           },
           onPanEnd: (_) {
@@ -1954,10 +2042,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       );
     }
 
-    return [
-      handle(leftPos, 1),
-      handle(rightPos, 2),
-    ];
+    return [handle(leftPos, 1), handle(rightPos, 2)];
   }
 
   // ==================== 弹窗渲染 ====================
@@ -2140,13 +2225,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final newHighlights =
         ref.read(readerHighlightsProvider)[fileKey] ?? const [];
     setState(() {
-      _highlightIndex = buildHighlightIndex(
-        lines: _lines,
-        highlights: newHighlights,
-      );
+      _highlights = newHighlights;
+      _highlightsRevision++;
+      _rebuildHighlightAc();
       _sel = null;
       _hBarVisible = false;
       _gradRectCache.clear();
+      _pageHighlightCache = {};
+      _pageHighlightCacheForPage = -1;
+      _pageHighlightCacheForRevision = -1;
     });
   }
 }
