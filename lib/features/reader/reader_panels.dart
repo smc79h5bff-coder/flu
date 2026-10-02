@@ -604,9 +604,6 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
 }
 
 // ==================== 预览图 ====================
-//
-// 一张图里同时画：正文示例、两个悬浮按钮、菜单热区。
-// 热区永远显示（关闭时用淡灰虚线示意位置），方便用户调参。
 
 Widget _miniPreview(
   BuildContext context,
@@ -642,7 +639,6 @@ Widget _miniPreview(
 
           return Stack(
             children: [
-              // ---------- 正文 ----------
               Positioned.fill(
                 child: Padding(
                   padding: EdgeInsets.symmetric(
@@ -662,7 +658,6 @@ Widget _miniPreview(
                 ),
               ),
 
-              // ---------- 热区 ----------
               Positioned.fill(
                 child: IgnorePointer(
                   child: CustomPaint(
@@ -677,14 +672,12 @@ Widget _miniPreview(
                           ? s.hotZoneBorderWidth * scale
                           : 0,
                       fill: s.hotZoneStyle == 0,
-                      // 关了显示开关 → 用淡灰虚线示意
                       previewOnly: !s.hotZoneVisible,
                     ),
                   ),
                 ),
               ),
 
-              // ---------- 悬浮按钮 ----------
               if (s.showButtons) ...[
                 _previewButton(
                   scale: scale,
@@ -740,7 +733,6 @@ Widget _previewButton({
   required double ringWidth,
   required IconData icon,
 }) {
-  // 尺寸：至少 8px 才看得清
   final size = btnSize < 8 ? 8.0 : btnSize;
   final left = centerX - size / 2;
   final top = centerY - size / 2;
@@ -793,9 +785,9 @@ class _HotZonePainter extends CustomPainter {
     this.previewOnly = false,
   });
 
-  final double x; // 0-1 中心
+  final double x;
   final double y;
-  final double w; // 0-1 宽高
+  final double w;
   final double h;
   final Color color;
   final double opacity;
@@ -821,20 +813,17 @@ class _HotZonePainter extends CustomPainter {
       return;
     }
 
-    // 边框模式（或预览虚线）
     final paint = Paint()
       ..color = effectiveColor
       ..strokeWidth = borderWidth > 0 ? borderWidth : 1.0
       ..style = PaintingStyle.stroke;
 
-    // 贴边判断（容差 1px）
     final touchLeft = left <= 1;
     final touchTop = top <= 1;
     final touchRight = right >= size.width - 1;
     final touchBottom = bottom >= size.height - 1;
 
     if (previewOnly) {
-      // 预览：用虚线画全部四条边（不管贴不贴边），方便用户看清范围
       _drawDashedLine(canvas, Offset(left, top), Offset(right, top), paint);
       _drawDashedLine(canvas, Offset(right, top), Offset(right, bottom), paint);
       _drawDashedLine(canvas, Offset(right, bottom), Offset(left, bottom), paint);
@@ -1122,11 +1111,14 @@ class PaletteEditScreen extends ConsumerStatefulWidget {
 class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
   late String _name;
   late bool _isGradient;
-  late Color _color1;
-  late Color _color2;
+  late List<Color> _colors;
+  late List<double> _stops;
   late Color _textColor;
   String? _defaultGroupId;
   bool _loaded = false;
+
+  /// 用于强制 `_GradientEditor` 在"重置"后重建。
+  int _editorKey = 0;
 
   @override
   void initState() {
@@ -1134,10 +1126,16 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     final p =
         ref.read(readerPaletteProvider.notifier).byIndex(widget.paletteIndex);
     _name = p.name;
-    _isGradient = p.isGradient;
-    _color1 = Color(p.colors.first);
-    _color2 =
-        p.colors.length > 1 ? Color(p.colors[1]) : Color(p.colors.first);
+    _isGradient = p.colors.length > 1;
+    _colors = p.colors.map((c) => Color(c)).toList();
+    if (_colors.isEmpty) _colors = [const Color(0xFFFFEB3B)];
+    _stops = List<double>.from(p.stops);
+    if (_stops.length != _colors.length) {
+      _stops = [
+        for (var i = 0; i < _colors.length; i++)
+          _colors.length == 1 ? 0.0 : i / (_colors.length - 1),
+      ];
+    }
     _textColor = Color(p.textColor);
     _defaultGroupId = p.defaultGroupId;
     _loaded = true;
@@ -1145,9 +1143,9 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
 
   void _save() {
     final colors = _isGradient
-        ? <int>[_color1.toARGB32(), _color2.toARGB32()]
-        : <int>[_color1.toARGB32()];
-    final stops = _isGradient ? <double>[0.0, 1.0] : <double>[0.0];
+        ? _colors.map((c) => c.toARGB32()).toList()
+        : <int>[_colors.first.toARGB32()];
+    final stops = _isGradient ? List<double>.from(_stops) : <double>[0.0];
     final updated = HighlightPalette(
       index: widget.paletteIndex,
       name: _name.trim().isEmpty ? '色块 ${widget.paletteIndex + 1}' : _name,
@@ -1167,10 +1165,11 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     setState(() {
       _name = d.name;
       _isGradient = false;
-      _color1 = Color(d.colors.first);
-      _color2 = Color(d.colors.first);
+      _colors = [Color(d.colors.first)];
+      _stops = const [0.0];
       _textColor = Color(d.textColor);
       _defaultGroupId = null;
+      _editorKey++;
     });
   }
 
@@ -1208,23 +1207,50 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
               ChoiceChip(
                 label: const Text('纯色'),
                 selected: !_isGradient,
-                onSelected: (_) => setState(() => _isGradient = false),
+                onSelected: (_) => setState(() {
+                  _isGradient = false;
+                  if (_colors.length > 1) {
+                    _colors = [_colors.first];
+                    _stops = const [0.0];
+                  }
+                }),
               ),
               const SizedBox(width: 8),
               ChoiceChip(
                 label: const Text('上下渐变'),
                 selected: _isGradient,
-                onSelected: (_) => setState(() => _isGradient = true),
+                onSelected: (_) => setState(() {
+                  _isGradient = true;
+                  if (_colors.length < 2) {
+                    final c1 = _colors.first;
+                    final hsl = HSLColor.fromColor(c1);
+                    final c2 = hsl
+                        .withLightness(
+                            (hsl.lightness - 0.2).clamp(0.0, 1.0))
+                        .toColor();
+                    _colors = [c1, c2];
+                    _stops = const [0.0, 1.0];
+                  }
+                }),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          _colorRow('背景色', _color1, (c) => setState(() => _color1 = c)),
-          if (_isGradient) ...[
-            const SizedBox(height: 8),
-            _colorRow(
-                '背景色 2', _color2, (c) => setState(() => _color2 = c)),
-          ],
+          if (!_isGradient)
+            _colorRow('背景色', _colors.first,
+                (c) => setState(() => _colors = [c]))
+          else
+            _GradientEditor(
+              key: ValueKey(_editorKey),
+              colors: _colors,
+              stops: _stops,
+              onChanged: (colors, stops) {
+                setState(() {
+                  _colors = colors;
+                  _stops = stops;
+                });
+              },
+            ),
           const SizedBox(height: 8),
           _colorRow(
               '文字颜色', _textColor, (c) => setState(() => _textColor = c)),
@@ -1276,12 +1302,15 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
                   WidgetSpan(
                     child: Container(
                       decoration: BoxDecoration(
-                        color: _isGradient ? null : _color1,
+                        color: _isGradient ? null : _colors.first,
                         gradient: _isGradient
                             ? LinearGradient(
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
-                                colors: [_color1, _color2],
+                                colors: _colors,
+                                stops: _stops.length == _colors.length
+                                    ? _stops
+                                    : null,
                               )
                             : null,
                       ),
@@ -1471,6 +1500,334 @@ class _SimpleColorPickerState extends State<_SimpleColorPicker> {
   }
 }
 
+// ==================== 渐变色编辑器 ====================
+
+class _GradientEditor extends StatefulWidget {
+  const _GradientEditor({
+    super.key,
+    required this.colors,
+    required this.stops,
+    required this.onChanged,
+    this.maxColors = 5,
+    this.minColors = 2,
+  });
+
+  final List<Color> colors;
+  final List<double> stops;
+  final void Function(List<Color> colors, List<double> stops) onChanged;
+  final int maxColors;
+  final int minColors;
+
+  @override
+  State<_GradientEditor> createState() => _GradientEditorState();
+}
+
+class _GradientEditorState extends State<_GradientEditor> {
+  late List<Color> _colors;
+  late List<double> _stops;
+
+  int? _draggingIndex;
+
+  // 布局常量
+  static const double _barWidth = 60;
+  static const double _barHeight = 240;
+  static const double _dotSize = 26;
+  static const double _minGap = 0.02;
+
+  @override
+  void initState() {
+    super.initState();
+    _colors = List<Color>.from(widget.colors);
+    _stops = List<double>.from(widget.stops);
+    _normalize();
+  }
+
+  void _normalize() {
+    if (_colors.length < 2) {
+      while (_colors.length < 2) {
+        _colors.add(_colors.isEmpty ? Colors.red : _colors.last);
+      }
+    }
+    if (_stops.length != _colors.length) {
+      _stops = [
+        for (var i = 0; i < _colors.length; i++)
+          i / (_colors.length - 1),
+      ];
+    }
+    // 保证 stops 严格递增
+    for (var i = 1; i < _stops.length; i++) {
+      if (_stops[i] <= _stops[i - 1]) {
+        _stops[i] = _stops[i - 1] + _minGap;
+      }
+    }
+    if (_stops.last > 1.0) {
+      // 极端情况压缩
+      final n = _stops.length;
+      for (var i = 0; i < n; i++) {
+        _stops[i] = i / (n - 1);
+      }
+    }
+  }
+
+  void _emit() {
+    widget.onChanged(
+      List<Color>.from(_colors),
+      List<double>.from(_stops),
+    );
+  }
+
+  double _dotTop(int i) => _stops[i] * (_barHeight - _dotSize);
+  double _dotCenterY(int i) => _dotTop(i) + _dotSize / 2;
+
+  int _nearestDot(double localY) {
+    var bestI = 0;
+    var bestDist = double.infinity;
+    for (var i = 0; i < _colors.length; i++) {
+      final d = (localY - _dotCenterY(i)).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        bestI = i;
+      }
+    }
+    return bestI;
+  }
+
+  // ---------- 拖动 ----------
+
+  void _onPanStart(DragStartDetails d) {
+    final i = _nearestDot(d.localPosition.dy);
+    setState(() => _draggingIndex = i);
+  }
+
+  void _onPanUpdate(DragUpdateDetails d) {
+    final i = _draggingIndex;
+    if (i == null) return;
+    final localY = d.localPosition.dy;
+    // 转成 stop：圆点中心位置
+    var stop = (localY - _dotSize / 2) / (_barHeight - _dotSize);
+    // clamp 到相邻点之间
+    final lower = i == 0 ? 0.0 : _stops[i - 1] + _minGap;
+    final upper =
+        i == _colors.length - 1 ? 1.0 : _stops[i + 1] - _minGap;
+    if (upper < lower) {
+      stop = lower;
+    } else {
+      stop = stop.clamp(lower, upper);
+    }
+    setState(() => _stops[i] = stop);
+    _emit();
+  }
+
+  void _onPanEnd(DragEndDetails d) {
+    setState(() => _draggingIndex = null);
+  }
+
+  void _onTapUp(TapUpDetails d) {
+    final i = _nearestDot(d.localPosition.dy);
+    final dist = (d.localPosition.dy - _dotCenterY(i)).abs();
+    if (dist < _dotSize) {
+      _pickColor(i);
+    }
+  }
+
+  // ---------- 操作 ----------
+
+  Future<void> _pickColor(int i) async {
+    final picked = await showDialog<Color>(
+      context: context,
+      builder: (_) => _SimpleColorPicker(initial: _colors[i]),
+    );
+    if (picked == null) return;
+    setState(() => _colors[i] = picked);
+    _emit();
+  }
+
+  void _addColor() {
+    if (_colors.length >= widget.maxColors) return;
+    // 找最大间隔
+    var bestI = 0;
+    var bestGap = 0.0;
+    for (var i = 0; i < _stops.length - 1; i++) {
+      final gap = _stops[i + 1] - _stops[i];
+      if (gap > bestGap) {
+        bestGap = gap;
+        bestI = i;
+      }
+    }
+    if (bestGap < _minGap * 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('间隔太小，无法插入新颜色')),
+      );
+      return;
+    }
+    final newStop = (_stops[bestI] + _stops[bestI + 1]) / 2;
+    final newColor =
+        Color.lerp(_colors[bestI], _colors[bestI + 1], 0.5) ?? _colors[bestI];
+    setState(() {
+      _stops.insert(bestI + 1, newStop);
+      _colors.insert(bestI + 1, newColor);
+    });
+    _emit();
+  }
+
+  void _removeColor(int i) {
+    if (_colors.length <= widget.minColors) return;
+    setState(() {
+      _colors.removeAt(i);
+      _stops.removeAt(i);
+    });
+    _emit();
+  }
+
+  // ---------- 渲染 ----------
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 左：竖向渐变条 + 可拖圆点
+            SizedBox(
+              width: _barWidth,
+              height: _barHeight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: _onPanStart,
+                onPanUpdate: _onPanUpdate,
+                onPanEnd: _onPanEnd,
+                onTapUp: _onTapUp,
+                child: Stack(
+                  children: [
+                    // 色条本体
+                    Positioned(
+                      left: 0,
+                      top: _dotSize / 2,
+                      width: _barWidth,
+                      height: _barHeight - _dotSize,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: _colors,
+                            stops: _stops,
+                          ),
+                          border: Border.all(color: Colors.black26),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                    ),
+                    // 圆点
+                    for (var i = 0; i < _colors.length; i++)
+                      Positioned(
+                        left: _barWidth / 2 - _dotSize / 2,
+                        top: _dotTop(i),
+                        child: IgnorePointer(
+                          child: Container(
+                            width: _dotSize,
+                            height: _dotSize,
+                            decoration: BoxDecoration(
+                              color: _colors[i],
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _draggingIndex == i
+                                    ? Colors.blue
+                                    : Colors.white,
+                                width: _draggingIndex == i ? 3 : 2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.25),
+                                  blurRadius: 3,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 16),
+
+            // 右：颜色列表
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < _colors.length; i++) _colorEntry(i),
+                  const SizedBox(height: 8),
+                  if (_colors.length < widget.maxColors)
+                    TextButton.icon(
+                      onPressed: _addColor,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('加一色'),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '拖动色条上的圆点改位置，点圆点改颜色，点右侧 [×] 删除。'
+          '（顶部 = 高亮的上边缘）',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+      ],
+    );
+  }
+
+  Widget _colorEntry(int i) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 20,
+            child: Text(
+              '${i + 1}',
+              style: const TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
+          InkWell(
+            onTap: () => _pickColor(i),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: _colors[i],
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.black26),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '位置 ${(_stops[i] * 100).toStringAsFixed(0)}%',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+          if (_colors.length > widget.minColors)
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              tooltip: '删除此色',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _removeColor(i),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 // ==================== 书签 / 高亮 管理页 ====================
 
 Future<int?> openBookmarkHighlightManager(
@@ -1510,14 +1867,10 @@ class _BookmarkHighlightManagerState
   final Set<String> _selectedBookmarks = {};
   final Set<String> _selectedHighlights = {};
 
-  /// 是否处于选中模式。任一 Tab 有效。
   bool _selectionMode = false;
 
-  /// 区间选择的锚点（最近一次长按的项）。null 表示还没有锚点。
   String? _anchorId;
 
-  /// 当前勾选"显示"的分组 id（null 表示"未分组"）。
-  /// 空集 = 全部显示。
   Set<String?> _visibleGroupIds = <String?>{};
 
   @override
@@ -1538,11 +1891,7 @@ class _BookmarkHighlightManagerState
     super.dispose();
   }
 
-  /// 当前 Tab 是不是"书签"。
   bool get _isBookmarkTab => _tab.index == 0;
-
-  /// 当前 Tab 全部项（按显示顺序）。
-  List<({String id, Widget tileBuilder})> get _currentItems => const [];
 
   void _exitSelection() {
     setState(() {
@@ -1561,7 +1910,6 @@ class _BookmarkHighlightManagerState
         ref.watch(readerHighlightsProvider)[widget.fileKey] ?? const [];
     final groups = ref.watch(readerHighlightGroupsProvider);
 
-    // 过滤高亮
     final highlights = _visibleGroupIds.isEmpty
         ? allHighlights
         : allHighlights
@@ -1597,12 +1945,9 @@ class _BookmarkHighlightManagerState
               : null,
           actions: _selectionMode
               ? [
-                  // 全选 / 全不选
                   IconButton(
                     icon: Icon(
-                      allSelected
-                          ? Icons.deselect
-                          : Icons.select_all,
+                      allSelected ? Icons.deselect : Icons.select_all,
                     ),
                     tooltip: allSelected ? '全不选' : '全选',
                     onPressed: () {
@@ -1627,7 +1972,6 @@ class _BookmarkHighlightManagerState
                       });
                     },
                   ),
-                  // 移入分组（只有高亮 Tab 有）
                   if (!_isBookmarkTab)
                     IconButton(
                       icon: const Icon(Icons.folder_outlined),
@@ -1636,7 +1980,6 @@ class _BookmarkHighlightManagerState
                           ? null
                           : () => _moveToGroup(),
                     ),
-                  // 删除
                   IconButton(
                     icon: const Icon(Icons.delete_outline),
                     tooltip: '删除所选',
@@ -1736,7 +2079,6 @@ class _BookmarkHighlightManagerState
     if (_selectedHighlights.isEmpty) return;
     final groups = ref.read(readerHighlightGroupsProvider);
 
-    // 用特殊值区分：null = 取消；'' = 未分组；其它 = groupId；'__new__' = 新建
     final picked = await showDialog<String>(
       context: context,
       builder: (c) => SimpleDialog(
@@ -1844,8 +2186,6 @@ class _BookmarkHighlightManagerState
     );
   }
 
-  // ==================== 书签列表 ====================
-
   Widget _buildBookmarks(List<ReaderBookmark> bookmarks) {
     if (bookmarks.isEmpty) {
       return const Center(child: Text('还没有书签'));
@@ -1897,9 +2237,7 @@ class _BookmarkHighlightManagerState
     );
   }
 
-  void _onLongPressBookmark(
-      String id, List<ReaderBookmark> all) {
-    // 如果不在选中模式 → 进入选中模式 + 选中该项 + 记录锚点
+  void _onLongPressBookmark(String id, List<ReaderBookmark> all) {
     if (!_selectionMode) {
       setState(() {
         _selectionMode = true;
@@ -1908,7 +2246,6 @@ class _BookmarkHighlightManagerState
       });
       return;
     }
-    // 已在选中模式 + 有锚点 → 从锚点到该项全部选中
     if (_anchorId != null) {
       final ids = all.map((b) => b.id).toList();
       final from = ids.indexOf(_anchorId!);
@@ -1925,7 +2262,6 @@ class _BookmarkHighlightManagerState
         return;
       }
     }
-    // 兜底：只切换这一项，更新锚点
     setState(() {
       _selectedBookmarks.add(id);
       _anchorId = id;
@@ -1946,8 +2282,6 @@ class _BookmarkHighlightManagerState
       }
     });
   }
-
-  // ==================== 高亮列表 ====================
 
   Widget _buildHighlights(List<HighlightEntry> highlights) {
     if (highlights.isEmpty) {
@@ -2002,8 +2336,7 @@ class _BookmarkHighlightManagerState
     );
   }
 
-  void _onLongPressHighlight(
-      String id, List<HighlightEntry> all) {
+  void _onLongPressHighlight(String id, List<HighlightEntry> all) {
     if (!_selectionMode) {
       setState(() {
         _selectionMode = true;
@@ -2049,9 +2382,6 @@ class _BookmarkHighlightManagerState
     });
   }
 
-  // ==================== 通用：选中外观 ====================
-
-  /// 选中时用背景色 + 边框（参考文件浏览器），不显示勾选框。
   Widget _selectionTile({
     required bool selected,
     required Widget child,
@@ -2067,8 +2397,6 @@ class _BookmarkHighlightManagerState
     );
   }
 
-  /// 选中时把 leading 换成"已选中"高亮标记（不是勾选框）。
-  /// 用一个小实心圆点 + 强调色，表示"当前项被选中"。
   Widget _selectionIndicator({
     required bool selected,
     required Widget leading,
@@ -2081,9 +2409,10 @@ class _BookmarkHighlightManagerState
     );
   }
 
-  /// 高亮色块：支持纯色和渐变。
+  /// 高亮色块：支持纯色 / 渐变（含自定义 stops）。
   Widget _highlightSwatch(HighlightEntry h) {
     final colors = h.colors.map((c) => Color(c)).toList();
+    final stops = h.stops.length == colors.length ? h.stops : null;
     return Container(
       width: 28,
       height: 28,
@@ -2094,7 +2423,7 @@ class _BookmarkHighlightManagerState
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: colors,
-                stops: h.stops.length == colors.length ? h.stops : null,
+                stops: stops,
               )
             : null,
         borderRadius: BorderRadius.circular(4),
@@ -2473,11 +2802,13 @@ class _HighlightEditScreenState
     extends ConsumerState<_HighlightEditScreen> {
   late TextEditingController _nameCtrl;
   late TextEditingController _kwCtrl;
-  late Color _color1;
-  late Color _color2;
   late bool _isGradient;
+  late List<Color> _colors;
+  late List<double> _stops;
   late Color _textColor;
   String? _groupId;
+
+  int _editorKey = 0;
 
   @override
   void initState() {
@@ -2486,9 +2817,15 @@ class _HighlightEditScreenState
     _nameCtrl = TextEditingController(text: e.displayName);
     _kwCtrl = TextEditingController(text: e.keyword);
     _isGradient = e.colors.length > 1;
-    _color1 = Color(e.colors.first);
-    _color2 =
-        e.colors.length > 1 ? Color(e.colors[1]) : Color(e.colors.first);
+    _colors = e.colors.map((c) => Color(c)).toList();
+    if (_colors.isEmpty) _colors = [const Color(0xFFFFEB3B)];
+    _stops = List<double>.from(e.stops);
+    if (_stops.length != _colors.length) {
+      _stops = [
+        for (var i = 0; i < _colors.length; i++)
+          _colors.length == 1 ? 0.0 : i / (_colors.length - 1),
+      ];
+    }
     _textColor = Color(e.textColor);
     _groupId = e.groupId;
   }
@@ -2504,9 +2841,9 @@ class _HighlightEditScreenState
     final kw = _kwCtrl.text.trim();
     if (kw.isEmpty) return;
     final colors = _isGradient
-        ? <int>[_color1.toARGB32(), _color2.toARGB32()]
-        : <int>[_color1.toARGB32()];
-    final stops = _isGradient ? <double>[0.0, 1.0] : <double>[0.0];
+        ? _colors.map((c) => c.toARGB32()).toList()
+        : <int>[_colors.first.toARGB32()];
+    final stops = _isGradient ? List<double>.from(_stops) : <double>[0.0];
 
     final updated = widget.entry.copyWith(
       keyword: kw,
@@ -2563,23 +2900,50 @@ class _HighlightEditScreenState
               ChoiceChip(
                 label: const Text('纯色'),
                 selected: !_isGradient,
-                onSelected: (_) => setState(() => _isGradient = false),
+                onSelected: (_) => setState(() {
+                  _isGradient = false;
+                  if (_colors.length > 1) {
+                    _colors = [_colors.first];
+                    _stops = const [0.0];
+                  }
+                }),
               ),
               const SizedBox(width: 8),
               ChoiceChip(
                 label: const Text('渐变'),
                 selected: _isGradient,
-                onSelected: (_) => setState(() => _isGradient = true),
+                onSelected: (_) => setState(() {
+                  _isGradient = true;
+                  if (_colors.length < 2) {
+                    final c1 = _colors.first;
+                    final hsl = HSLColor.fromColor(c1);
+                    final c2 = hsl
+                        .withLightness(
+                            (hsl.lightness - 0.2).clamp(0.0, 1.0))
+                        .toColor();
+                    _colors = [c1, c2];
+                    _stops = const [0.0, 1.0];
+                  }
+                }),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          _colorRow('背景色', _color1, (c) => setState(() => _color1 = c)),
-          if (_isGradient) ...[
-            const SizedBox(height: 8),
-            _colorRow(
-                '背景色 2', _color2, (c) => setState(() => _color2 = c)),
-          ],
+          if (!_isGradient)
+            _colorRow('背景色', _colors.first,
+                (c) => setState(() => _colors = [c]))
+          else
+            _GradientEditor(
+              key: ValueKey(_editorKey),
+              colors: _colors,
+              stops: _stops,
+              onChanged: (colors, stops) {
+                setState(() {
+                  _colors = colors;
+                  _stops = stops;
+                });
+              },
+            ),
           const SizedBox(height: 8),
           _colorRow(
               '文字颜色', _textColor, (c) => setState(() => _textColor = c)),
