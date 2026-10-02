@@ -1809,12 +1809,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         ),
 
         // ---------- 菜单热区（用户开关打开时才画） ----------
-        if (settings.hotZoneVisible)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: _buildHotZone(settings, size),
-            ),
-          ),
+        // ---------- 菜单热区（用户开关打开时才画） ----------
+if (settings.hotZoneVisible) _buildHotZone(settings, size),
 
         // ---------- 悬浮按钮 ----------
         if (settings.showButtons) ...[
@@ -1875,56 +1871,58 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   // ==================== 菜单热区绘制 ====================
 
   Widget _buildHotZone(ReaderSettings settings, Size size) {
-    final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
-    final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
-    final width = settings.hotZoneW * size.width;
-    final height = settings.hotZoneH * size.height;
+  final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
+  final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
+  final width = settings.hotZoneW * size.width;
+  final height = settings.hotZoneH * size.height;
 
-    final color = Color(settings.hotZoneColor)
-        .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
+  final color = Color(settings.hotZoneColor)
+      .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
 
-    final touchLeft = left <= 1;
-    final touchTop = top <= 1;
-    final touchRight = left + width >= size.width - 1;
-    final touchBottom = top + height >= size.height - 1;
+  final touchLeft = left <= 1;
+  final touchTop = top <= 1;
+  final touchRight = left + width >= size.width - 1;
+  final touchBottom = top + height >= size.height - 1;
 
-    if (settings.hotZoneStyle == 0) {
-      return Positioned(
-        left: left,
-        top: top,
-        width: width,
-        height: height,
-        child: Container(color: color),
-      );
-    }
-
+  Widget inner;
+  if (settings.hotZoneStyle == 0) {
+    // 整块填色
+    inner = Container(color: color);
+  } else {
+    // 分界线：贴屏幕的边不画
     final bw = settings.hotZoneBorderWidth;
-    return Positioned(
-      left: left,
-      top: top,
-      width: width,
-      height: height,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            left: touchLeft
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
-            top: touchTop
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
-            right: touchRight
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
-            bottom: touchBottom
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
-          ),
+    inner = Container(
+      decoration: BoxDecoration(
+        border: Border(
+          left: touchLeft
+              ? BorderSide.none
+              : BorderSide(color: color, width: bw),
+          top: touchTop
+              ? BorderSide.none
+              : BorderSide(color: color, width: bw),
+          right: touchRight
+              ? BorderSide.none
+              : BorderSide(color: color, width: bw),
+          bottom: touchBottom
+              ? BorderSide.none
+              : BorderSide(color: color, width: bw),
         ),
       ),
     );
   }
 
+  // 注意：Positioned 必须是 Stack 的直接子节点，所以整个方法返回 Positioned，
+  // 调用方不要再包 Positioned.fill / IgnorePointer。
+  // 点击穿透用 IgnorePointer 包在 Positioned 内部，保证 Listener 能收到点击。
+  return Positioned(
+    left: left,
+    top: top,
+    width: width,
+    height: height,
+    child: IgnorePointer(child: inner),
+  );
+}
+  
   // ==================== 选区覆盖层 ====================
 
   Widget _buildSelectionOverlay(_SelectionRange? sel) {
