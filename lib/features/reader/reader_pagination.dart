@@ -15,17 +15,17 @@ const double kReaderParaSpacing = 4.0;
 
 // ==================== 分页调度器 ====================
 
-/// 分页调度器：先秒开，再后台精修。
+/// 分页调度器：先秒开，再后台全量精修。
 ///
 /// 三阶段：
 ///   1. [start] 同步跑一次**估算分页** → 立即有 [result] 可用
-///   2. 后台分帧用 TextPainter **精确测量**当前可视窗口内的行高
-///   3. 窗口精修完成 → 用精确高度**重跑分页**，替换 [result]
+///   2. 后台分帧用 TextPainter **精确测量每一行**
+///   3. 全部测完 → 用精确高度**重跑分页**，替换 [result]
 ///
-/// **省电策略**：
-///   · 只精修"当前页 ± N 行"的窗口，远处的行保持估算
-///   · 每帧只跑 2ms（原来是 8ms），降低 CPU 峰值
-///   · 交互时暂停、锁屏时暂停
+/// **省电措施**（不牺牲精确性）：
+///   · 每帧只跑 2ms（原来是 8ms），CPU 峰值从 50% 降到 12%
+///   · 用户交互时暂停
+///   · App 后台/锁屏时暂停
 ///
 /// 用户位置保持：精修前后用"页首字符偏移"锚定。
 class ReaderPaginator extends ChangeNotifier {
@@ -54,32 +54,17 @@ class ReaderPaginator extends ChangeNotifier {
   bool _paused = false;
   bool _chunkScheduled = false;
 
-  // ---- 精修窗口 ----
-  /// 当前精修的窗口起点（含）。
-  int _windowStart = 0;
-  /// 当前精修的窗口终点（不含）。
-  int _windowEnd = 0;
-  /// 窗口内下一个要精修的行。
-  int _windowCursor = 0;
-  /// 当前窗口是否已精修完成。
-  bool _windowDone = false;
+  /// 精修游标：下一个要精修的行。
+  int _precisionCursor = 0;
 
-  /// 窗口缓冲：当前页 ± 多少行。500 行 ≈ 20 页 ≈ 用户翻 10 次的量。
-  static const int _windowBufferLines = 500;
-
-  /// 初始窗口大小。用户还没翻页时，先精修前 1000 行。
-  static const int _initialWindowLines = 1000;
-
-  // ---- TextPainter 单例 ----
-  /// 复用的 TextPainter，避免每帧 new 一个对象。
+  /// TextPainter 单例，避免每帧 new 一个。
   static final TextPainter _precisionTP = TextPainter(
     textDirection: ui.TextDirection.ltr,
   );
 
-  /// 当前生效的分页结果。
   PaginationResult? get result => _result;
 
-  /// 用户位置锚点。精修时用来保持位置。
+  /// 用户位置锚点。
   int? anchorCharOffset;
 
   // ==================== 启动 ====================
@@ -98,17 +83,12 @@ class ReaderPaginator extends ChangeNotifier {
           _estimateLineHeight(_lines[i], fontSize, usableWidth);
     }
 
-    // 初始化精修窗口：只精修前 N 行。
-    _windowStart = 0;
-    _windowEnd = math.min(_lines.length, _initialWindowLines);
-    _windowCursor = 0;
-    _windowDone = false;
-
     // 立即给一个估算 result。
     _result = _buildResult();
     notifyListeners();
 
-    // 启动精修。
+    // 启动全量精修。
+    _precisionCursor = 0;
     _scheduleNextChunk();
   }
 
@@ -120,62 +100,32 @@ class ReaderPaginator extends ChangeNotifier {
 
   // ==================== 暂停 / 恢复 ====================
 
-  /// 暂停精修。用户按下屏幕时调用。
   void pause() {
     _paused = true;
   }
 
-  /// 恢复精修。用户停手后调用。
   void resume() {
     if (!_paused) return;
     _paused = false;
-    if (_windowCursor < _windowEnd) {
+    if (_precisionCursor < _lines.length) {
       _scheduleNextChunk();
     }
   }
 
-  // ==================== 可视页通知（省电核心） ====================
-
-  /// 用户翻页时调用。告诉 paginator 当前页，让精修窗口跟着滑。
-  ///
-  /// **不调用也能正常工作**：窗口保持初始值 [0, 1000]，
-  /// 只精修前 1000 行，其余保持估算。
+  /// 兼容 reader_screen 的调用。当前实现是全量精修，不使用窗口。
   void notifyVisiblePage(int pageIndex) {
-    if (_disposed) return;
-    final p = _result;
-    if (p == null) return;
-
-    final range = pageUnitRange(p, pageIndex);
-    if (range.startUnit >= range.endUnit) return;
-
-    final startLine = p.renderUnits[range.startUnit].lineIndex;
-    final endLine = p.renderUnits[range.endUnit - 1].lineIndex;
-
-    final newStart = math.max(0, startLine - _windowBufferLines);
-    final newEnd =
-        math.min(_lines.length, endLine + _windowBufferLines + 1);
-
-    // 新窗口完全被当前窗口覆盖 → 什么都不做。
-    if (newStart >= _windowStart && newEnd <= _windowEnd) return;
-
-    // 滑动窗口。
-    _windowStart = newStart;
-    _windowEnd = newEnd;
-    _windowCursor = newStart;
-    _windowDone = false;
-    _scheduleNextChunk();
+    // no-op
   }
 
   // ==================== 精修（分帧） ====================
 
   /// 每帧精修的时间预算（毫秒）。
-  /// 从 8ms 降到 2ms：CPU 峰值占用从 50% 降到 12%，
-  /// 大核可降频到小核，显著省电。精修总时间变长但用户不感知。
+  /// 2ms 让 CPU 峰值从 50% 降到 12%，大核可降频到小核。
   static const int _chunkBudgetMs = 2;
 
   void _scheduleNextChunk() {
     if (_disposed || _paused) return;
-    if (_chunkScheduled) return; // 防止重复调度
+    if (_chunkScheduled) return;
     _chunkScheduled = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _chunkScheduled = false;
@@ -186,13 +136,7 @@ class ReaderPaginator extends ChangeNotifier {
 
   void _precisionChunk() {
     if (_disposed || _paused) return;
-    if (_windowCursor >= _windowEnd) {
-      if (!_windowDone) {
-        _windowDone = true;
-        _applyPrecision();
-      }
-      return;
-    }
+    if (_precisionCursor >= _lines.length) return;
 
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
@@ -202,13 +146,12 @@ class ReaderPaginator extends ChangeNotifier {
       height: kReaderLineHeightFactor,
       color: const Color(0xFF222222),
     );
-    // 复用单例。
     final tp = _precisionTP;
 
     final sw = Stopwatch()..start();
-    while (_windowCursor < _windowEnd &&
+    while (_precisionCursor < _lines.length &&
         sw.elapsedMilliseconds < _chunkBudgetMs) {
-      final i = _windowCursor;
+      final i = _precisionCursor;
       if (_preciseHeights[i] == null) {
         final line = _lines[i];
         if (line.isEmpty) {
@@ -219,14 +162,12 @@ class ReaderPaginator extends ChangeNotifier {
           _preciseHeights[i] = tp.height;
         }
       }
-      _windowCursor++;
+      _precisionCursor++;
     }
 
-    if (_windowCursor >= _windowEnd) {
-      if (!_windowDone) {
-        _windowDone = true;
-        _applyPrecision();
-      }
+    if (_precisionCursor >= _lines.length) {
+      // 全部精修完成，重跑分页。
+      _applyPrecision();
       return;
     }
 
@@ -273,10 +214,8 @@ class ReaderPaginator extends ChangeNotifier {
 
     for (var i = 0; i < n; i++) {
       final line = _lines[i];
-      // 精修过的行用精确高度，否则用估算。
       final h = _preciseHeights[i] ?? _estimatedHeights[i];
 
-      // 一屏放得下 → 单个 unit。
       if (h <= usableHeight) {
         place(RenderUnit(
           lineIndex: i,
@@ -287,8 +226,6 @@ class ReaderPaginator extends ChangeNotifier {
         continue;
       }
 
-      // 超长行 → 拆分成多个 unit。
-      // 精修过就用精确拆分，否则用估算拆分。
       final isPrecise = _preciseHeights[i] != null;
       final units = isPrecise
           ? _splitLongLinePrecise(
@@ -323,7 +260,6 @@ class ReaderPaginator extends ChangeNotifier {
 
 // ==================== 长行拆分 ====================
 
-/// 精确拆分：用 TextPainter 的 computeLineMetrics，拿到每个显示行的字符范围。
 List<RenderUnit> _splitLongLinePrecise({
   required int lineIndex,
   required String content,
@@ -347,7 +283,6 @@ List<RenderUnit> _splitLongLinePrecise({
     ];
   }
 
-  // 每个显示行对应的字符范围。
   final ranges = <({int start, int end, double height})>[];
   for (var i = 0; i < metrics.length; i++) {
     final m = metrics[i];
@@ -362,7 +297,6 @@ List<RenderUnit> _splitLongLinePrecise({
     ranges.add((start: s, end: e, height: m.height));
   }
 
-  // 修正边界：连续覆盖整行。
   ranges[0] = (start: 0, end: ranges[0].end, height: ranges[0].height);
   for (var i = 1; i < ranges.length; i++) {
     final prevEnd = ranges[i - 1].end;
@@ -380,7 +314,6 @@ List<RenderUnit> _splitLongLinePrecise({
     height: ranges[last].height,
   );
 
-  // 按 maxHeight 分组。
   final units = <RenderUnit>[];
   var chunkStart = 0;
   var chunkHeight = 0.0;
@@ -410,7 +343,6 @@ List<RenderUnit> _splitLongLinePrecise({
   return units;
 }
 
-/// 估算拆分：按"每屏能放多少字符"切。精度差但够用。
 List<RenderUnit> _splitLongLineEstimated({
   required int lineIndex,
   required String content,
@@ -461,7 +393,6 @@ double _estimateLineHeight(String line, double fontSize, double usableWidth) {
   return displayLines * baseLineHeight;
 }
 
-/// 估算一行文字的显示宽度（像素）。
 double _estimateLineWidth(String line, double fontSize) {
   if (line.isEmpty) return 0;
   var w = 0.0;
@@ -510,7 +441,6 @@ FontWeight _toFontWeight(int v) {
 
 // ==================== 页 / 偏移 转换 ====================
 
-/// 给定页号，返回该页包含的 RenderUnit 索引范围 [startUnit, endUnit)。
 ({int startUnit, int endUnit}) pageUnitRange(
     PaginationResult r, int pageIdx) {
   if (pageIdx < 0 || pageIdx >= r.pageStarts.length) {
@@ -523,7 +453,6 @@ FontWeight _toFontWeight(int v) {
   return (startUnit: start, endUnit: end);
 }
 
-/// 给定页号，返回该页第一字符在全文的起始偏移。
 int pageStartOffset(PaginationResult r, int pageIdx) {
   if (pageIdx < 0 || pageIdx >= r.pageStarts.length) return 0;
   final unitIdx = r.pageStarts[pageIdx];
@@ -532,7 +461,6 @@ int pageStartOffset(PaginationResult r, int pageIdx) {
   return r.lineStarts[u.lineIndex] + u.charStart;
 }
 
-/// 给定字符偏移，找它在第几页。
 int findPageForOffset(PaginationResult r, int charOffset) {
   if (r.renderUnits.isEmpty) return 0;
   var lo = 0;
