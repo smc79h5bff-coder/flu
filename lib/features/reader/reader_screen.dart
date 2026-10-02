@@ -2075,15 +2075,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       leftPos = _dragHandlePos!;
     } else if (_draggingHandle == 2 && _dragHandlePos != null) {
       rightPos = _dragHandlePos!;
-    } else {
-      final dx = (rightPos.dx - leftPos.dx).abs();
-      if (dx < 10 && (rightPos.dy - leftPos.dy).abs() < 2) {
-        final mid = (leftPos.dx + rightPos.dx) / 2;
-        leftPos = Offset(mid - 10, leftPos.dy);
-        rightPos = Offset(mid + 10, rightPos.dy);
-      }
-    }
 
+
+      
+    } else {
+  // 两个手柄在同一行且水平距离过近时，向两侧推开，
+  // 保证两个梯形不重叠、能被分别点中。
+  // 推开量取"刚好错开"的最小值，避免小字号时手柄离正文太远。
+  final dx = rightPos.dx - leftPos.dx;
+  const minGap = 6.0;
+  if (dx.abs() < minGap && (rightPos.dy - leftPos.dy).abs() < 2) {
+    final mid = (leftPos.dx + rightPos.dx) / 2;
+    const half = minGap / 2;
+    leftPos = Offset(mid - half, leftPos.dy);
+    rightPos = Offset(mid + half, rightPos.dy);
+  }
+}
+
+
+
+
+    
     final safeTop = MediaQuery.of(context).padding.top;
     final screenH = MediaQuery.of(context).size.height;
 
