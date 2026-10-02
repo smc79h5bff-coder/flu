@@ -225,8 +225,10 @@ class ReaderPaginator extends ChangeNotifier {
       final h = _preciseHeights[i] ?? _estimatedHeight(line, usableWidth);
       final rows = math.max(1, (h / _singleLineHeight).round());
 
-      // 短行（一页放得下）。
-      if (rows <= rowsPerPage) {
+      // 短行（一页放得下）。// 只有"1 个显示行"的逻辑行才作为整体。
+// 更长的都拆，保证每个 unit 高度 ≤ 1 行，分页精确。
+if (rows <= 1) {
+  
         place(
           RenderUnit(
             lineIndex: i,
