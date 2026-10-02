@@ -348,19 +348,48 @@ class HighlightEntry {
 }
 
 /// ==================== 全局阅读设置 ====================
+///
+/// 悬浮按钮：上下两个，样式 / 颜色 / 透明度 / 大小 / 位置各自独立。
+/// 菜单热区：任意位置的矩形，可显示/隐藏样式。
 class ReaderSettings {
   const ReaderSettings({
     required this.fontSize,
     required this.fontWeight,
     required this.bgColor,
-    required this.buttonOpacity,
-    required this.buttonScale,
     required this.showButtons,
+
+    // ====== 上一文件按钮 ======
+    required this.topBtnStyle,
+    required this.topBtnBgColor,
+    required this.topBtnFgColor,
+    required this.topBtnRingColor,
+    required this.topBtnRingWidth,
+    required this.topBtnOpacity,
+    required this.topBtnScale,
     required this.topBtnX,
     required this.topBtnY,
+
+    // ====== 下一文件按钮 ======
+    required this.bottomBtnStyle,
+    required this.bottomBtnBgColor,
+    required this.bottomBtnFgColor,
+    required this.bottomBtnRingColor,
+    required this.bottomBtnRingWidth,
+    required this.bottomBtnOpacity,
+    required this.bottomBtnScale,
     required this.bottomBtnX,
     required this.bottomBtnY,
-    required this.topHotZoneHeight,
+
+    // ====== 菜单热区 ======
+    required this.hotZoneVisible,
+    required this.hotZoneStyle,
+    required this.hotZoneColor,
+    required this.hotZoneOpacity,
+    required this.hotZoneBorderWidth,
+    required this.hotZoneX,
+    required this.hotZoneY,
+    required this.hotZoneW,
+    required this.hotZoneH,
   });
 
   /// 4.0 - 60.0
@@ -372,29 +401,54 @@ class ReaderSettings {
   /// 背景色 ARGB
   final int bgColor;
 
-  /// 浮动按钮透明度 0.1 - 1.0
-  final double buttonOpacity;
-
-  /// 浮动按钮整体缩放 0.3 - 5.0（最大约屏幕宽 60%）
-  final double buttonScale;
-
-  /// 浮动按钮是否显示
+  /// 浮动按钮总开关。关了之后按钮彻底不显示、不可点，
+  /// 点击原位置会走正常逻辑（顶部菜单 / 翻页）。
   final bool showButtons;
 
-  /// 上按钮 X 位置（0.0-1.0 相对屏幕宽）
-  final double topBtnX;
+  // ==================== 上一文件按钮 ====================
 
-  /// 上按钮 Y 位置（0.0-1.0 相对屏幕高）
-  final double topBtnY;
+  /// 样式：0 = 纯色圆（有箭头），1 = 圆环（无箭头、无填充）。
+  final int topBtnStyle;
+  final int topBtnBgColor;    // 纯色圆背景色
+  final int topBtnFgColor;    // 纯色圆箭头色
+  final int topBtnRingColor;  // 圆环颜色
+  final double topBtnRingWidth;
+  final double topBtnOpacity;
+  final double topBtnScale;
+  final double topBtnX;       // 0.0-1.0 相对屏幕宽
+  final double topBtnY;       // 0.0-1.0 相对屏幕高
 
-  /// 下按钮 X 位置
+  // ==================== 下一文件按钮 ====================
+
+  final int bottomBtnStyle;
+  final int bottomBtnBgColor;
+  final int bottomBtnFgColor;
+  final int bottomBtnRingColor;
+  final double bottomBtnRingWidth;
+  final double bottomBtnOpacity;
+  final double bottomBtnScale;
   final double bottomBtnX;
-
-  /// 下按钮 Y 位置
   final double bottomBtnY;
 
-  /// 顶部菜单热区高度（像素，20-200）
-  final double topHotZoneHeight;
+  // ==================== 菜单热区 ====================
+  //
+  // 热区是一个矩形，中心在 (hotZoneX, hotZoneY)（0-1 相对屏幕内容区），
+  // 宽高分别是 hotZoneW、hotZoneH（0-1 相对屏幕内容区）。
+  //
+  // 点击热区 → 打开顶部菜单；其它区域 → 翻下一页（或按悬浮按钮逻辑）。
+
+  /// 是否在阅读页里把热区样式画出来。关掉后依旧可以点，只是看不见。
+  final bool hotZoneVisible;
+
+  /// 样式：0 = 整块填色，1 = 分界线（四周一圈线，贴屏幕的边不画）。
+  final int hotZoneStyle;
+  final int hotZoneColor;
+  final double hotZoneOpacity;
+  final double hotZoneBorderWidth; // 分界线样式的线粗
+  final double hotZoneX;
+  final double hotZoneY;
+  final double hotZoneW;
+  final double hotZoneH;
 
   static const int bgCream = 0xFFFAF7EC;
   static const int bgWhite = 0xFFFFFFFF;
@@ -404,69 +458,184 @@ class ReaderSettings {
     fontSize: 17.0,
     fontWeight: 400,
     bgColor: bgCream,
-    buttonOpacity: 0.7,
-    buttonScale: 1.0,
     showButtons: true,
+
+    topBtnStyle: 0,
+    topBtnBgColor: 0x59000000, // 黑 35%，接近原来的样子
+    topBtnFgColor: 0xFFFFFFFF,
+    topBtnRingColor: 0xFF3D7CFF,
+    topBtnRingWidth: 2.0,
+    topBtnOpacity: 0.7,
+    topBtnScale: 1.0,
     topBtnX: 0.90,
     topBtnY: 0.15,
+
+    bottomBtnStyle: 0,
+    bottomBtnBgColor: 0x59000000,
+    bottomBtnFgColor: 0xFFFFFFFF,
+    bottomBtnRingColor: 0xFF3D7CFF,
+    bottomBtnRingWidth: 2.0,
+    bottomBtnOpacity: 0.7,
+    bottomBtnScale: 1.0,
     bottomBtnX: 0.90,
     bottomBtnY: 0.85,
-    topHotZoneHeight: 40.0,
+
+    hotZoneVisible: false,
+    hotZoneStyle: 1,
+    hotZoneColor: 0xFFFF0000,
+    hotZoneOpacity: 0.6,
+    hotZoneBorderWidth: 1.5,
+    hotZoneX: 0.5,
+    hotZoneY: 0.03,
+    hotZoneW: 1.0,
+    hotZoneH: 0.06,
   );
 
   Map<String, dynamic> toJson() => {
         'fs': fontSize,
         'fw': fontWeight,
         'bg': bgColor,
-        'op': buttonOpacity,
-        'sc': buttonScale,
         'sb': showButtons,
+
+        'tbs': topBtnStyle,
+        'tbb': topBtnBgColor,
+        'tbf': topBtnFgColor,
+        'tbr': topBtnRingColor,
+        'tbrw': topBtnRingWidth,
+        'tbo': topBtnOpacity,
+        'tbscl': topBtnScale,
         'tx': topBtnX,
         'ty': topBtnY,
+
+        'bbs': bottomBtnStyle,
+        'bbb': bottomBtnBgColor,
+        'bbf': bottomBtnFgColor,
+        'bbr': bottomBtnRingColor,
+        'bbrw': bottomBtnRingWidth,
+        'bbo': bottomBtnOpacity,
+        'bbscl': bottomBtnScale,
         'bx': bottomBtnX,
         'by': bottomBtnY,
-        'th': topHotZoneHeight,
+
+        'hv': hotZoneVisible,
+        'hs': hotZoneStyle,
+        'hc': hotZoneColor,
+        'ho': hotZoneOpacity,
+        'hbw': hotZoneBorderWidth,
+        'hx': hotZoneX,
+        'hy': hotZoneY,
+        'hw': hotZoneW,
+        'hh': hotZoneH,
       };
 
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
         fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
         fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
         bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
-        buttonOpacity: (j['op'] as num?)?.toDouble() ?? 0.7,
-        buttonScale: (j['sc'] as num?)?.toDouble() ?? 1.0,
         showButtons: j['sb'] as bool? ?? true,
+
+        topBtnStyle: (j['tbs'] as num?)?.toInt() ?? 0,
+        topBtnBgColor: (j['tbb'] as num?)?.toInt() ?? 0x59000000,
+        topBtnFgColor: (j['tbf'] as num?)?.toInt() ?? 0xFFFFFFFF,
+        topBtnRingColor: (j['tbr'] as num?)?.toInt() ?? 0xFF3D7CFF,
+        topBtnRingWidth: (j['tbrw'] as num?)?.toDouble() ?? 2.0,
+        topBtnOpacity: (j['tbo'] as num?)?.toDouble() ?? 0.7,
+        topBtnScale: (j['tbscl'] as num?)?.toDouble() ?? 1.0,
         topBtnX: (j['tx'] as num?)?.toDouble() ?? 0.90,
         topBtnY: (j['ty'] as num?)?.toDouble() ?? 0.15,
+
+        bottomBtnStyle: (j['bbs'] as num?)?.toInt() ?? 0,
+        bottomBtnBgColor: (j['bbb'] as num?)?.toInt() ?? 0x59000000,
+        bottomBtnFgColor: (j['bbf'] as num?)?.toInt() ?? 0xFFFFFFFF,
+        bottomBtnRingColor: (j['bbr'] as num?)?.toInt() ?? 0xFF3D7CFF,
+        bottomBtnRingWidth: (j['bbrw'] as num?)?.toDouble() ?? 2.0,
+        bottomBtnOpacity: (j['bbo'] as num?)?.toDouble() ?? 0.7,
+        bottomBtnScale: (j['bbscl'] as num?)?.toDouble() ?? 1.0,
         bottomBtnX: (j['bx'] as num?)?.toDouble() ?? 0.90,
         bottomBtnY: (j['by'] as num?)?.toDouble() ?? 0.85,
-        topHotZoneHeight: (j['th'] as num?)?.toDouble() ?? 40.0,
+
+        hotZoneVisible: j['hv'] as bool? ?? false,
+        hotZoneStyle: (j['hs'] as num?)?.toInt() ?? 1,
+        hotZoneColor: (j['hc'] as num?)?.toInt() ?? 0xFFFF0000,
+        hotZoneOpacity: (j['ho'] as num?)?.toDouble() ?? 0.6,
+        hotZoneBorderWidth: (j['hbw'] as num?)?.toDouble() ?? 1.5,
+        hotZoneX: (j['hx'] as num?)?.toDouble() ?? 0.5,
+        hotZoneY: (j['hy'] as num?)?.toDouble() ?? 0.03,
+        hotZoneW: (j['hw'] as num?)?.toDouble() ?? 1.0,
+        hotZoneH: (j['hh'] as num?)?.toDouble() ?? 0.06,
       );
 
   ReaderSettings copyWith({
     double? fontSize,
     int? fontWeight,
     int? bgColor,
-    double? buttonOpacity,
-    double? buttonScale,
     bool? showButtons,
+
+    int? topBtnStyle,
+    int? topBtnBgColor,
+    int? topBtnFgColor,
+    int? topBtnRingColor,
+    double? topBtnRingWidth,
+    double? topBtnOpacity,
+    double? topBtnScale,
     double? topBtnX,
     double? topBtnY,
+
+    int? bottomBtnStyle,
+    int? bottomBtnBgColor,
+    int? bottomBtnFgColor,
+    int? bottomBtnRingColor,
+    double? bottomBtnRingWidth,
+    double? bottomBtnOpacity,
+    double? bottomBtnScale,
     double? bottomBtnX,
     double? bottomBtnY,
-    double? topHotZoneHeight,
+
+    bool? hotZoneVisible,
+    int? hotZoneStyle,
+    int? hotZoneColor,
+    double? hotZoneOpacity,
+    double? hotZoneBorderWidth,
+    double? hotZoneX,
+    double? hotZoneY,
+    double? hotZoneW,
+    double? hotZoneH,
   }) =>
       ReaderSettings(
         fontSize: fontSize ?? this.fontSize,
         fontWeight: fontWeight ?? this.fontWeight,
         bgColor: bgColor ?? this.bgColor,
-        buttonOpacity: buttonOpacity ?? this.buttonOpacity,
-        buttonScale: buttonScale ?? this.buttonScale,
         showButtons: showButtons ?? this.showButtons,
+
+        topBtnStyle: topBtnStyle ?? this.topBtnStyle,
+        topBtnBgColor: topBtnBgColor ?? this.topBtnBgColor,
+        topBtnFgColor: topBtnFgColor ?? this.topBtnFgColor,
+        topBtnRingColor: topBtnRingColor ?? this.topBtnRingColor,
+        topBtnRingWidth: topBtnRingWidth ?? this.topBtnRingWidth,
+        topBtnOpacity: topBtnOpacity ?? this.topBtnOpacity,
+        topBtnScale: topBtnScale ?? this.topBtnScale,
         topBtnX: topBtnX ?? this.topBtnX,
         topBtnY: topBtnY ?? this.topBtnY,
+
+        bottomBtnStyle: bottomBtnStyle ?? this.bottomBtnStyle,
+        bottomBtnBgColor: bottomBtnBgColor ?? this.bottomBtnBgColor,
+        bottomBtnFgColor: bottomBtnFgColor ?? this.bottomBtnFgColor,
+        bottomBtnRingColor: bottomBtnRingColor ?? this.bottomBtnRingColor,
+        bottomBtnRingWidth: bottomBtnRingWidth ?? this.bottomBtnRingWidth,
+        bottomBtnOpacity: bottomBtnOpacity ?? this.bottomBtnOpacity,
+        bottomBtnScale: bottomBtnScale ?? this.bottomBtnScale,
         bottomBtnX: bottomBtnX ?? this.bottomBtnX,
         bottomBtnY: bottomBtnY ?? this.bottomBtnY,
-        topHotZoneHeight: topHotZoneHeight ?? this.topHotZoneHeight,
+
+        hotZoneVisible: hotZoneVisible ?? this.hotZoneVisible,
+        hotZoneStyle: hotZoneStyle ?? this.hotZoneStyle,
+        hotZoneColor: hotZoneColor ?? this.hotZoneColor,
+        hotZoneOpacity: hotZoneOpacity ?? this.hotZoneOpacity,
+        hotZoneBorderWidth: hotZoneBorderWidth ?? this.hotZoneBorderWidth,
+        hotZoneX: hotZoneX ?? this.hotZoneX,
+        hotZoneY: hotZoneY ?? this.hotZoneY,
+        hotZoneW: hotZoneW ?? this.hotZoneW,
+        hotZoneH: hotZoneH ?? this.hotZoneH,
       );
 
   String encode() => jsonEncode(toJson());
