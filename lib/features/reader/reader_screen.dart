@@ -139,9 +139,10 @@ class _TrapezoidPainter extends CustomPainter {
 // ==================== 渐变矩形 ====================
 
 class _GradRect {
-  const _GradRect(this.rect, this.colors);
+  const _GradRect(this.rect, this.colors, this.stops);
   final Rect rect;
   final List<Color> colors;
+  final List<double> stops;
 }
 
 // ==================== 编码选择 ====================
@@ -1564,8 +1565,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
 
     // ---------- 2. 菜单热区（矩形） ----------
-    // 热区是一个以 (hotZoneX, hotZoneY) 为中心、宽 hotZoneW、高 hotZoneH 的
-    // 矩形（比例坐标 0-1，相对内容区）。
     final hzLeft = (settings.hotZoneX - settings.hotZoneW / 2) * w;
     final hzTop = (settings.hotZoneY - settings.hotZoneH / 2) * h;
     final hzRight = (settings.hotZoneX + settings.hotZoneW / 2) * w;
@@ -1762,7 +1761,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final result = p!.result!;
     final range = pageUnitRange(result, _currentPage);
 
-    // 更快点 2：unitKeys 增量更新。
     if (range.startUnit != _lastUnitStart || range.endUnit != _lastUnitEnd) {
       _unitKeys.removeWhere(
           (k, _) => k < range.startUnit || k >= range.endUnit);
@@ -1819,7 +1817,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           ),
 
         // ---------- 悬浮按钮 ----------
-        // 关了之后彻底不画、不可点，点击原位置会穿透到热区/翻页逻辑。
         if (settings.showButtons) ...[
           _buildFloatButton(
             style: settings.topBtnStyle,
@@ -1876,10 +1873,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   // ==================== 菜单热区绘制 ====================
-  //
-  // 矩形，比例坐标。贴屏幕的边不画（只画不贴的）。
-  // 填色样式：整块填色。
-  // 分界线样式：画一圈边框，贴屏幕的边不画。
 
   Widget _buildHotZone(ReaderSettings settings, Size size) {
     final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
@@ -1890,14 +1883,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final color = Color(settings.hotZoneColor)
         .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
 
-    // 贴边判断（容差 1px）
     final touchLeft = left <= 1;
     final touchTop = top <= 1;
     final touchRight = left + width >= size.width - 1;
     final touchBottom = top + height >= size.height - 1;
 
     if (settings.hotZoneStyle == 0) {
-      // 整块填色
       return Positioned(
         left: left,
         top: top,
@@ -1907,7 +1898,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       );
     }
 
-    // 分界线：每边独立判断，贴屏幕的边不画
     final bw = settings.hotZoneBorderWidth;
     return Positioned(
       left: left,
@@ -1935,7 +1925,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
-  // ==================== 选区覆盖层（独立渲染） ====================
+  // ==================== 选区覆盖层 ====================
 
   Widget _buildSelectionOverlay(_SelectionRange? sel) {
     if (sel == null) return const SizedBox.shrink();
@@ -2069,6 +2059,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: g.colors,
+                          stops: g.stops.length == g.colors.length
+                              ? g.stops
+                              : null,
                         ),
                       ),
                     ),
@@ -2099,95 +2092,111 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   List<_GradRect> _measureGradientRects(
-  int unitIdx,
-  RenderUnit unit,
-  String sub,
-  ReaderSettings settings,
-  double maxWidth,
-  List<HighlightSpan> highlights,
-) {
-  if (sub.isEmpty) return const [];
+    int unitIdx,
+    RenderUnit unit,
+    String sub,
+    ReaderSettings settings,
+    double maxWidth,
+    List<HighlightSpan> highlights,
+  ) {
+    if (sub.isEmpty) return const [];
 
-  if (_gradCacheFontSize != settings.fontSize ||
-      _gradCacheFontWeight != settings.fontWeight ||
-      _gradCacheWidth != maxWidth) {
-    _gradRectCache.clear();
-    _gradCacheFontSize = settings.fontSize;
-    _gradCacheFontWeight = settings.fontWeight;
-    _gradCacheWidth = maxWidth;
-  }
-
-  final key = '$unitIdx|${maxWidth.round()}';
-  final hit = _gradRectCache[key];
-  if (hit != null) return hit;
-
-  final gradientHighlights = <HighlightSpan>[];
-  for (final h in highlights) {
-    if (h.entry.colors.length > 1 &&
-        h.endInLine > unit.charStart &&
-        h.startInLine < unit.charEnd) {
-      gradientHighlights.add(h);
+    if (_gradCacheFontSize != settings.fontSize ||
+        _gradCacheFontWeight != settings.fontWeight ||
+        _gradCacheWidth != maxWidth) {
+      _gradRectCache.clear();
+      _gradCacheFontSize = settings.fontSize;
+      _gradCacheFontWeight = settings.fontWeight;
+      _gradCacheWidth = maxWidth;
     }
-  }
-  if (gradientHighlights.isEmpty) {
-    _gradRectCache[key] = const [];
-    return const [];
-  }
 
-  final style = _baseStyle(settings);
-  final tp = _gradTP;
-  tp.text = TextSpan(text: sub, style: style);
-  tp.layout(maxWidth: maxWidth);
+    final key = '$unitIdx|${maxWidth.round()}';
+    final hit = _gradRectCache[key];
+    if (hit != null) return hit;
 
-  final rects = <_GradRect>[];
-  final subStart = unit.charStart;
-
-  for (final h in gradientHighlights) {
-    final hs = (h.startInLine - subStart).clamp(0, sub.length);
-    final he = (h.endInLine - subStart).clamp(0, sub.length);
-    if (hs >= he) continue;
-
-    final boxes = tp.getBoxesForSelection(
-      TextSelection(baseOffset: hs, extentOffset: he),
-    );
-    final colors =
-        h.entry.colors.map((c) => Color(c)).toList(growable: false);
-
-    // ★ 修正：
-    // getBoxesForSelection 对多行 selection 的"最后一个 box"，
-    // 会把它的 right 拉到"这一行整行宽"（含行尾空白），
-    // 导致渐变背景一直涂到屏幕右边。
-    // 用 getOffsetForCaret 拿到 selection 右端的精确 x 坐标来替代。
-    // 只在"确实比原 box.right 小"时才替换，避免异常时反而画大。
-    final caretAtEnd = tp.getOffsetForCaret(
-      TextPosition(offset: he),
-      Rect.zero,
-    );
-    final caretEndDx = caretAtEnd.dx;
-
-    for (var bi = 0; bi < boxes.length; bi++) {
-      final box = boxes[bi];
-      var right = box.right;
-      if (bi == boxes.length - 1 && caretEndDx < right) {
-        right = caretEndDx;
+    final gradientHighlights = <HighlightSpan>[];
+    for (final h in highlights) {
+      if (h.entry.colors.length > 1 &&
+          h.endInLine > unit.charStart &&
+          h.startInLine < unit.charEnd) {
+        gradientHighlights.add(h);
       }
-      rects.add(_GradRect(
-        Rect.fromLTRB(box.left, box.top, right, box.bottom),
-        colors,
-      ));
     }
+    if (gradientHighlights.isEmpty) {
+      _gradRectCache[key] = const [];
+      return const [];
+    }
+
+    final style = _baseStyle(settings);
+    final tp = _gradTP;
+    tp.text = TextSpan(text: sub, style: style);
+    tp.layout(maxWidth: maxWidth);
+
+    final rects = <_GradRect>[];
+    final subStart = unit.charStart;
+
+    for (final h in gradientHighlights) {
+      final hs = (h.startInLine - subStart).clamp(0, sub.length);
+      final he = (h.endInLine - subStart).clamp(0, sub.length);
+      if (hs >= he) continue;
+
+      final boxes = tp.getBoxesForSelection(
+        TextSelection(baseOffset: hs, extentOffset: he),
+      );
+      final colors =
+          h.entry.colors.map((c) => Color(c)).toList(growable: false);
+
+      // 计算 stops：要求长度与 colors 一致、单调递增。不合法则均分兜底。
+      List<double> stops;
+      if (h.entry.stops.length == h.entry.colors.length &&
+          h.entry.stops.length > 1) {
+        stops = List<double>.from(h.entry.stops);
+        var ok = true;
+        for (var i = 1; i < stops.length; i++) {
+          if (stops[i] <= stops[i - 1]) {
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) {
+          stops = [
+            for (var i = 0; i < colors.length; i++)
+              i / (colors.length - 1),
+          ];
+        }
+      } else {
+        stops = [
+          for (var i = 0; i < colors.length; i++)
+            i / ((colors.length - 1) < 1 ? 1 : (colors.length - 1)),
+        ];
+      }
+
+      // 修正多行 selection 最后一个 box 的右边界：
+      // Flutter 会把它拉到整行宽，用 caret 精确位置替代。
+      final caretAtEnd = tp.getOffsetForCaret(
+        TextPosition(offset: he),
+        Rect.zero,
+      );
+      final caretEndDx = caretAtEnd.dx;
+
+      for (var bi = 0; bi < boxes.length; bi++) {
+        final box = boxes[bi];
+        var right = box.right;
+        if (bi == boxes.length - 1 && caretEndDx < right) {
+          right = caretEndDx;
+        }
+        rects.add(_GradRect(
+          Rect.fromLTRB(box.left, box.top, right, box.bottom),
+          colors,
+          stops,
+        ));
+      }
+    }
+
+    if (_gradRectCache.length > 256) _gradRectCache.clear();
+    _gradRectCache[key] = rects;
+    return rects;
   }
-
-  if (_gradRectCache.length > 256) _gradRectCache.clear();
-  _gradRectCache[key] = rects;
-  return rects;
-}
-
-
-
-
-
-  
 
   List<InlineSpan> _buildUnitSpans(
     int unitIdx,
@@ -2255,9 +2264,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   // ==================== 悬浮按钮 ====================
-  //
-  // 样式 0：纯色圆 + 箭头
-  // 样式 1：圆环（无填充、无箭头）
 
   Widget _buildFloatButton({
     required int style,
@@ -2635,6 +2641,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                           colors: p.colors
                               .map((c) => Color(c))
                               .toList(growable: false),
+                          stops: p.stops.length == p.colors.length
+                              ? p.stops
+                              : null,
                         )
                       : null,
                   border: Border.all(color: Colors.black12),
