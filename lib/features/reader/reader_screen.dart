@@ -1742,6 +1742,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           children: [
             Text.rich(
               TextSpan(children: spans),
+              style: _baseStyle(settings),
               softWrap: true,
               key: _unitKeys[unitIdx],
             ),
@@ -1785,6 +1786,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 ),
               Text.rich(
                 TextSpan(children: spans),
+                style: _baseStyle(settings),
                 softWrap: true,
                 key: _unitKeys[unitIdx],
               ),
