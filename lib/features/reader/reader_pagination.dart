@@ -335,7 +335,12 @@ List<RenderUnit> _splitLongLinePrecise({
   final last = ranges.length - 1;
   ranges[last] = (start: ranges[last].start, end: content.length);
 
-  final maxRows = math.max(1, (maxHeight / singleLineHeight).floor());
+ // 从"一页行数"改成小值，让分页粒度更细，避免大留白。
+// 3 表示每个 unit 最多 3 行高。
+const int _maxRowsPerUnit = 3;
+final maxRows = _maxRowsPerUnit;
+  
+  
   final units = <RenderUnit>[];
   var chunkStart = 0;
 
@@ -371,10 +376,16 @@ List<RenderUnit> _splitLongLineEstimated({
   required int rowsPerPage,
   required double singleLineHeight,
 }) {
-  final charWidth = singleLineHeight / kReaderLineHeightFactor;
-  final charsPerLine = math.max(1, (usableWidth / charWidth).floor());
-  final charsPerChunk = charsPerLine * rowsPerPage;
 
+
+  
+final charWidth = singleLineHeight / kReaderLineHeightFactor;
+final charsPerLine = math.max(1, (usableWidth / charWidth).floor());
+// 从 rowsPerPage 改成小值，让分页粒度更细。
+final charsPerChunk = charsPerLine * 3;
+
+
+  
   final units = <RenderUnit>[];
   var start = 0;
   while (start < content.length) {
@@ -385,7 +396,9 @@ List<RenderUnit> _splitLongLineEstimated({
       lineIndex: lineIndex,
       charStart: start,
       charEnd: end,
-      height: math.min(displayLines, rowsPerPage) * singleLineHeight,
+
+      height: math.min(displayLines, 3) * singleLineHeight,
+      
     ));
     start = end;
   }
