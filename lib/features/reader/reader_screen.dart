@@ -2429,7 +2429,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // ==================== 放大镜 ====================
 
-  Widget _buildLoupe(
+ Widget _buildLoupe(
   ReaderSettings settings,
   Size size,
   _DragInfo drag,
@@ -2529,6 +2529,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     ),
   );
 }
+  
   
 
   // ==================== 弹窗渲染 ====================
