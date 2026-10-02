@@ -41,7 +41,7 @@ dependencies:
   path: ^1.8.3
   collection: ^1.18.0
   url_launcher: ^6.2.1
-  share_plus: ^10.1.4        # ← 新增，改回 dependencies 内并锁版本
+  share_plus: ^13.0.0  # ← 新增，改回 dependencies 内并锁版本
   gbk_codec: ^0.4.0
   enough_convert: ^1.6.0
   charset: ^2.0.1
