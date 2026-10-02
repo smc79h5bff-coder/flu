@@ -767,7 +767,6 @@ Future<void> _showFullPreview(
     barrierColor: Colors.black.withValues(alpha: 0.75),
     builder: (ctx) {
       final screenSize = MediaQuery.of(ctx).size;
-      // 大预览宽：屏幕宽 72%
       final w = screenSize.width * 0.72;
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -1605,7 +1604,6 @@ class _GradientEditorState extends State<_GradientEditor> {
 
   int? _draggingIndex;
 
-  // 布局常量
   static const double _barWidth = 60;
   static const double _barHeight = 240;
   static const double _dotSize = 26;
@@ -1938,6 +1936,7 @@ class _BookmarkHighlightManagerState
   @override
   void initState() {
     super.initState();
+    // Tab 顺序：0 = 高亮（默认显示），1 = 书签
     _tab = TabController(length: 2, vsync: this);
     _tab.addListener(() => setState(() {
           _selectionMode = false;
@@ -1953,7 +1952,8 @@ class _BookmarkHighlightManagerState
     super.dispose();
   }
 
-  bool get _isBookmarkTab => _tab.index == 0;
+  bool get _isHighlightTab => _tab.index == 0;
+  bool get _isBookmarkTab => _tab.index == 1;
 
   void _exitSelection() {
     setState(() {
@@ -1993,11 +1993,6 @@ class _BookmarkHighlightManagerState
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(
-            '书签与高亮 · ${widget.fileName}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
           leading: _selectionMode
               ? IconButton(
                   icon: const Icon(Icons.close),
@@ -2005,6 +2000,15 @@ class _BookmarkHighlightManagerState
                   onPressed: _exitSelection,
                 )
               : null,
+          titleSpacing: 0,
+          title: TabBar(
+            controller: _tab,
+            dividerColor: Colors.transparent,
+            tabs: [
+              Tab(text: '高亮 (${highlights.length})'),
+              Tab(text: '书签 (${bookmarks.length})'),
+            ],
+          ),
           actions: _selectionMode
               ? [
                   IconButton(
@@ -2034,7 +2038,7 @@ class _BookmarkHighlightManagerState
                       });
                     },
                   ),
-                  if (!_isBookmarkTab)
+                  if (_isHighlightTab)
                     IconButton(
                       icon: const Icon(Icons.folder_outlined),
                       tooltip: '移入分组',
@@ -2061,19 +2065,12 @@ class _BookmarkHighlightManagerState
                         setState(() => _selectionMode = true),
                   ),
                 ],
-          bottom: TabBar(
-            controller: _tab,
-            tabs: [
-              Tab(text: '书签 (${bookmarks.length})'),
-              Tab(text: '高亮 (${highlights.length})'),
-            ],
-          ),
         ),
         body: TabBarView(
           controller: _tab,
           children: [
-            _buildBookmarks(bookmarks),
             _buildHighlights(highlights),
+            _buildBookmarks(bookmarks),
           ],
         ),
       ),
@@ -2114,7 +2111,7 @@ class _BookmarkHighlightManagerState
   }
 
   void _deleteSelected() {
-    if (_tab.index == 0) {
+    if (_isBookmarkTab) {
       if (_selectedBookmarks.isEmpty) return;
       ref
           .read(readerBookmarksProvider.notifier)
@@ -2248,6 +2245,8 @@ class _BookmarkHighlightManagerState
     );
   }
 
+  // ==================== 书签列表 ====================
+
   Widget _buildBookmarks(List<ReaderBookmark> bookmarks) {
     if (bookmarks.isEmpty) {
       return const Center(child: Text('还没有书签'));
@@ -2342,54 +2341,75 @@ class _BookmarkHighlightManagerState
     });
   }
 
+  // ==================== 高亮网格 ====================
+
   Widget _buildHighlights(List<HighlightEntry> highlights) {
     if (highlights.isEmpty) {
       return const Center(child: Text('还没有高亮'));
     }
-    return ListView.builder(
+    return GridView.builder(
+      padding: const EdgeInsets.all(4),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 2,
+        crossAxisSpacing: 2,
+        childAspectRatio: 1.8,
+      ),
       itemCount: highlights.length,
       itemBuilder: (_, i) {
         final h = highlights[i];
         final selected = _selectedHighlights.contains(h.id);
-
-        return _selectionTile(
+        return _HighlightCard(
+          entry: h,
           selected: selected,
-          child: ListTile(
-            leading: _highlightSwatch(h),
-            title: Text(h.displayName),
-            subtitle: Text(
-              '关键词：${h.keyword}',
-              style: const TextStyle(fontSize: 11),
-            ),
-            onTap: _selectionMode
-                ? () => _toggleHighlight(h.id)
-                : () async {
-                    final r = await openHighlightEdit(context, h);
-                    if (r != null && mounted) {
-                      if (r.action == 'delete') {
-                        ref
-                            .read(readerHighlightsProvider.notifier)
-                            .remove(widget.fileKey, h.id);
-                      } else if (r.action == 'save' && r.entry != null) {
-                        ref
-                            .read(readerHighlightsProvider.notifier)
-                            .updateOne(widget.fileKey, r.entry!);
-                      }
+          selectionMode: _selectionMode,
+          onTap: _selectionMode
+              ? () => _toggleHighlight(h.id)
+              : () async {
+                  final r = await openHighlightEdit(context, h);
+                  if (r != null && mounted) {
+                    if (r.action == 'delete') {
+                      ref
+                          .read(readerHighlightsProvider.notifier)
+                          .remove(widget.fileKey, h.id);
+                    } else if (r.action == 'save' && r.entry != null) {
+                      ref
+                          .read(readerHighlightsProvider.notifier)
+                          .updateOne(widget.fileKey, r.entry!);
                     }
-                  },
-            onLongPress: () => _onLongPressHighlight(h.id, highlights),
-            trailing: _selectionMode
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    onPressed: () => ref
-                        .read(readerHighlightsProvider.notifier)
-                        .remove(widget.fileKey, h.id),
-                  ),
-          ),
+                  }
+                },
+          onLongPress: () => _onLongPressHighlight(h.id, highlights),
+          onDelete: () => _confirmDeleteHighlight(h),
         );
       },
     );
+  }
+
+  Future<void> _confirmDeleteHighlight(HighlightEntry h) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('删除这条高亮？'),
+        content: Text('关键词：${h.keyword}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      ref
+          .read(readerHighlightsProvider.notifier)
+          .remove(widget.fileKey, h.id);
+    }
   }
 
   void _onLongPressHighlight(String id, List<HighlightEntry> all) {
@@ -2452,16 +2472,109 @@ class _BookmarkHighlightManagerState
       child: child,
     );
   }
+}
 
-  Widget _highlightSwatch(HighlightEntry h) {
-    final colors = h.colors.map((c) => Color(c)).toList();
-    final stops = h.stops.length == colors.length ? h.stops : null;
+/// 网格里一个高亮卡片。
+/// 上块：名字 + 删除按钮（选中模式下换成右上角的对勾，删除按钮隐藏）。
+/// 下块：高亮样式的预览（背景用高亮颜色/渐变，文字用高亮文字色）。
+class _HighlightCard extends StatelessWidget {
+  const _HighlightCard({
+    required this.entry,
+    required this.selected,
+    required this.selectionMode,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onDelete,
+  });
+
+  final HighlightEntry entry;
+  final bool selected;
+  final bool selectionMode;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Container(
+        decoration: BoxDecoration(
+          color: selected ? s.primary.withValues(alpha: 0.15) : null,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.black12, width: 0.5),
+        ),
+        padding: const EdgeInsets.fromLTRB(6, 3, 4, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 上块：名字 + 删除/对勾
+            SizedBox(
+              height: 22,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      entry.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (selectionMode)
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: selected
+                          ? Icon(
+                              Icons.check_circle,
+                              size: 18,
+                              color: s.primary,
+                            )
+                          : null,
+                    )
+                  else
+                    InkWell(
+                      onTap: onDelete,
+                      borderRadius: BorderRadius.circular(11),
+                      child: const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: Icon(
+                          Icons.close,
+                          size: 14,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 2),
+            // 下块：预览
+            Expanded(child: _preview()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _preview() {
+    final colors = entry.colors.map((c) => Color(c)).toList();
+    final stops =
+        entry.stops.length == colors.length ? entry.stops : null;
+    final isGradient = colors.length > 1;
+
     return Container(
-      width: 28,
-      height: 28,
       decoration: BoxDecoration(
-        color: colors.length == 1 ? colors.first : null,
-        gradient: colors.length > 1
+        color: isGradient ? null : colors.first,
+        gradient: isGradient
             ? LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -2469,8 +2582,20 @@ class _BookmarkHighlightManagerState
                 stops: stops,
               )
             : null,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.black26),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Text(
+        entry.keyword,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Color(entry.textColor),
+          fontSize: 11,
+          height: 1.15,
+        ),
       ),
     );
   }
