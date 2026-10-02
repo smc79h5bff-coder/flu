@@ -42,7 +42,9 @@ dependencies:
   path: ^1.8.3
   collection: ^1.18.0
   url_launcher: ^6.2.1
-    # ← 新增，具体版本以 flutter pub add 为准
+  
+share_plus: any
+# ← 新增，具体版本以 flutter pub add 为准
   gbk_codec: ^0.4.0
   enough_convert: ^1.6.0
   charset: ^2.0.1
