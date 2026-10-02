@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 
-/// 选区放大镜。只渲染纯文本 + caret 竖线，不掺任何高亮/遮罩。
+/// 选区放大镜。只渲染纯文本 + caret 竖线 + 选区背景，不掺其他高亮/遮罩。
 class ReaderLoupe extends StatelessWidget {
   const ReaderLoupe({
     super.key,
     required this.lineText,
-    required this.caretOffset, // caret 在 lineText 里的字符偏移
-    required this.style,       // 正文字体样式（只取字号/字重/字距）
-    required this.bgColor,     // 放大镜背景（用阅读器同款底色）
-    required this.fgColor,     // 文字色
-    required this.caretColor,  // 中间竖线色
+    required this.caretOffset,
+    required this.style,
+    required this.bgColor,
+    required this.fgColor,
+    required this.caretColor,
+    this.selectionStart,
+    this.selectionEnd,
+    this.selectionBg = const Color(0x773D7CFF),
     this.scale = 1.8,
     this.diameter = 140.0,
-    this.windowChars = 40,     // 只截 caret 前后共 40 字符
+    this.windowChars = 40,
   });
 
   final String lineText;
@@ -21,11 +24,20 @@ class ReaderLoupe extends StatelessWidget {
   final Color bgColor;
   final Color fgColor;
   final Color caretColor;
+
+  /// 选区在当前行内的起始字符偏移（相对整行 lineText）。
+  /// 和 [selectionEnd] 一起决定窗口内哪段文字带选中背景。
+  /// 都传 null 或相同值 → 不画选中背景。
+  final int? selectionStart;
+  final int? selectionEnd;
+
+  /// 选中背景色。默认跟阅读页选区一致。
+  final Color selectionBg;
+
   final double scale;
   final double diameter;
   final int windowChars;
 
-  /// 测量用单例，跟 reader_screen 里 _gradTP 一个套路。
   static final TextPainter _tp = TextPainter(
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.left,
@@ -42,7 +54,20 @@ class ReaderLoupe extends StatelessWidget {
     final window = lineText.substring(left, right);
     final windowCaret = caretOffset - left;
 
+    // 选区在 window 内的相对位置（如果和 window 有重叠）
+    int? selA;
+    int? selB;
+    if (selectionStart != null && selectionEnd != null) {
+      final sFull = selectionStart!.clamp(left, right);
+      final eFull = selectionEnd!.clamp(left, right);
+      if (eFull > sFull) {
+        selA = sFull - left;
+        selB = eFull - left;
+      }
+    }
+
     // ---- 2. 测量 caret x（带 LRU 缓存）----
+    // 测量时用纯 style，不含选区背景色，保证 caret x 精确。
     final key = '${window.hashCode}|$windowCaret|'
         '${style.fontSize}|${style.fontWeight?.index}|'
         '${style.letterSpacing}|${style.wordSpacing}';
@@ -69,6 +94,28 @@ class ReaderLoupe extends StatelessWidget {
     final r = diameter / 2;
     final textStyle = style.copyWith(color: fgColor);
 
+    // 构建文本（如有选区，用 TextSpan 分段加背景）
+    final InlineSpan span;
+    if (selA != null && selB != null) {
+      final before = window.substring(0, selA);
+      final mid = window.substring(selA, selB);
+      final after = window.substring(selB);
+      span = TextSpan(
+        style: textStyle,
+        children: [
+          if (before.isNotEmpty) TextSpan(text: before),
+          if (mid.isNotEmpty)
+            TextSpan(
+              text: mid,
+              style: TextStyle(backgroundColor: selectionBg),
+            ),
+          if (after.isNotEmpty) TextSpan(text: after),
+        ],
+      );
+    } else {
+      span = TextSpan(text: window, style: textStyle);
+    }
+
     return SizedBox(
       width: diameter,
       height: diameter,
@@ -78,23 +125,20 @@ class ReaderLoupe extends StatelessWidget {
           child: Stack(
             clipBehavior: Clip.hardEdge,
             children: [
-              // 文本整体放大后平移，让 caret 精确落在圆心
               Positioned(
                 left: r - caretX * scale,
                 top: r - lineH * scale / 2,
                 child: Transform.scale(
                   scale: scale,
                   alignment: Alignment.topLeft,
-                  child: Text(
-                    window,
-                    style: textStyle,
+                  child: Text.rich(
+                    span,
                     maxLines: 1,
                     softWrap: false,
                     textWidthBasis: TextWidthBasis.longestLine,
                   ),
                 ),
               ),
-              // caret 竖线（落在圆心，上下留白）
               Positioned(
                 left: r - 0.5,
                 top: diameter * 0.15,
@@ -109,8 +153,6 @@ class ReaderLoupe extends StatelessWidget {
     );
   }
 }
-
-// ==================== 测量缓存 ====================
 
 class _Measure {
   const _Measure(this.caretX, this.lineH);
