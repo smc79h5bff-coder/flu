@@ -18,8 +18,9 @@ const double kReaderParaSpacing = 4.0;
 
 /// 分页调度器：先秒开，再后台全量精修。
 ///
-/// **核心思路**：所有行高都统一成 [_singleLineHeight] 的整数倍，
-/// 这样每页容纳的行数绝对固定，不会出现"这页 27 行、那页 32 行"。
+/// **核心思路**：所有行高都统一成 [_singleLineHeight] 的整数倍。
+/// 分页时以"1 个显示行"为最小单位塞，塞不下就换页，
+/// 所以每页底部最多留 1 行空白（通常是 0 行）。
 ///
 /// 三阶段：
 ///   1. [start] 同步估算分页 → 秒开
@@ -195,7 +196,7 @@ class ReaderPaginator extends ChangeNotifier {
     final usableHeight =
         math.max(10.0, viewportHeight - kReaderVerticalPadding * 2);
 
-    // 每页固定显示行数。
+    // 每页固定显示行数（以"1 个显示行"为单位）。
     final rowsPerPage = math.max(1, (usableHeight / _singleLineHeight).floor());
 
     final n = _lines.length;
@@ -225,10 +226,9 @@ class ReaderPaginator extends ChangeNotifier {
       final h = _preciseHeights[i] ?? _estimatedHeight(line, usableWidth);
       final rows = math.max(1, (h / _singleLineHeight).round());
 
-      // 短行（一页放得下）。// 只有"1 个显示行"的逻辑行才作为整体。
-// 更长的都拆，保证每个 unit 高度 ≤ 1 行，分页精确。
-if (rows <= 1) {
-  
+      // 只有 1 个显示行的逻辑行才作为整体塞。
+      // 更长的都拆，保证每个 unit 高度 ≤ 1 行，分页零留白。
+      if (rows <= 1) {
         place(
           RenderUnit(
             lineIndex: i,
@@ -241,7 +241,7 @@ if (rows <= 1) {
         continue;
       }
 
-      // 超长行：拆成多个 unit，每个 ≤ 一页。
+      // 多显示行的逻辑行：拆成多个 unit，每个 1 行高。
       final isPrecise = _preciseHeights[i] != null;
       final units = isPrecise
           ? _splitLongLinePrecise(
@@ -337,12 +337,8 @@ List<RenderUnit> _splitLongLinePrecise({
   final last = ranges.length - 1;
   ranges[last] = (start: ranges[last].start, end: content.length);
 
- // 从"一页行数"改成小值，让分页粒度更细，避免大留白。
-// 3 表示每个 unit 最多 3 行高。
-const int _maxRowsPerUnit = 3;
-final maxRows = _maxRowsPerUnit;
-  
-  
+  // 每个 unit 最多 1 行高，分页零留白。
+  const int maxRows = 1;
   final units = <RenderUnit>[];
   var chunkStart = 0;
 
@@ -378,16 +374,11 @@ List<RenderUnit> _splitLongLineEstimated({
   required int rowsPerPage,
   required double singleLineHeight,
 }) {
+  final charWidth = singleLineHeight / kReaderLineHeightFactor;
+  final charsPerLine = math.max(1, (usableWidth / charWidth).floor());
+  // 每块 1 行。
+  final charsPerChunk = charsPerLine;
 
-
-  
-final charWidth = singleLineHeight / kReaderLineHeightFactor;
-final charsPerLine = math.max(1, (usableWidth / charWidth).floor());
-// 从 rowsPerPage 改成小值，让分页粒度更细。
-final charsPerChunk = charsPerLine * 3;
-
-
-  
   final units = <RenderUnit>[];
   var start = 0;
   while (start < content.length) {
@@ -398,9 +389,7 @@ final charsPerChunk = charsPerLine * 3;
       lineIndex: lineIndex,
       charStart: start,
       charEnd: end,
-
-      height: math.min(displayLines, 3) * singleLineHeight,
-      
+      height: math.min(displayLines, 1) * singleLineHeight,
     ));
     start = end;
   }
