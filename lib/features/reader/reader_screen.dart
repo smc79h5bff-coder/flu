@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../preprocessing/application/aho_corasick.dart';
 import '../preprocessing/application/encoding_detector.dart';
 import '../preprocessing/domain/encoding_type.dart';
+import 'reader_loupe.dart';
 import 'reader_models.dart';
 import 'reader_pagination.dart';
 import 'reader_panels.dart';
@@ -51,6 +52,24 @@ class _CharPos {
   const _CharPos({required this.line, required this.offset});
   final int line;
   final int offset;
+}
+
+/// 拖动状态（手柄 + 放大镜用）。null 表示不在拖动。
+class _DragInfo {
+  const _DragInfo({
+    required this.handle,
+    required this.handlePos,
+    this.handleOffset,
+  });
+
+  /// 1 = 左手柄，2 = 右手柄。
+  final int handle;
+
+  /// 手柄的逻辑位置（global 坐标）。
+  final Offset handlePos;
+
+  /// 手指跟手柄逻辑位置的偏移（拖动开始时定下，之后固定）。
+  final Offset? handleOffset;
 }
 
 // ==================== 手柄绘制 ====================
@@ -304,15 +323,54 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     locale: const Locale('zh', 'CN'),
   );
 
-  _SelectionRange? _sel;
+  // ---- 选区状态：走 ValueNotifier，拖动时不动主内容 ----
+
+  /// 当前选区。null = 无选区。
+  final ValueNotifier<_SelectionRange?> _selNotifier =
+      ValueNotifier<_SelectionRange?>(null);
+
+  /// 当前拖动状态（手柄 + 放大镜）。null = 不在拖动。
+  final ValueNotifier<_DragInfo?> _dragNotifier =
+      ValueNotifier<_DragInfo?>(null);
+
+  _SelectionRange? get _sel => _selNotifier.value;
+  set _sel(_SelectionRange? v) => _selNotifier.value = v;
+
+  int get _draggingHandle => _dragNotifier.value?.handle ?? 0;
+  Offset? get _dragHandlePos => _dragNotifier.value?.handlePos;
+  Offset? get _dragHandleOffset => _dragNotifier.value?.handleOffset;
+
+  void _setDragState({
+    required int handle,
+    required Offset? handlePos,
+    Offset? handleOffset,
+  }) {
+    if (handle == 0 || handlePos == null) {
+      _dragNotifier.value = null;
+    } else {
+      _dragNotifier.value = _DragInfo(
+        handle: handle,
+        handlePos: handlePos,
+        handleOffset: handleOffset,
+      );
+    }
+  }
+
+  void _updateDragPos(Offset pos) {
+    final cur = _dragNotifier.value;
+    if (cur == null) return;
+    _dragNotifier.value = _DragInfo(
+      handle: cur.handle,
+      handlePos: pos,
+      handleOffset: cur.handleOffset,
+    );
+  }
+
   bool _hBarVisible = false;
 
   int _selVersion = 0;
   int _lastOverlayVersion = 0;
 
-  int _draggingHandle = 0;
-  Offset? _dragHandlePos;
-  Offset? _dragHandleOffset;
   Offset? _lastLongPressPos;
 
   Timer? _longPressTimer;
@@ -351,6 +409,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _saveProgressNow();
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
+    _selNotifier.dispose();
+    _dragNotifier.dispose();
     super.dispose();
   }
 
@@ -1006,16 +1066,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _longPressFired = false;
     _movedBeyondThreshold = false;
     _pressDown = false;
-    _draggingHandle = 0;
-    _dragHandlePos = null;
-    _dragHandleOffset = null;
+    _setDragState(handle: 0, handlePos: null);
     _lastLongPressPos = null;
     _horizontalDrag = false;
-    if (_sel != null || _hBarVisible) {
-      setState(() {
-        _sel = null;
-        _hBarVisible = false;
-      });
+    final needRepaint = _sel != null || _hBarVisible;
+    _sel = null;
+    if (needRepaint) {
+      setState(() => _hBarVisible = false);
     }
   }
 
@@ -1227,16 +1284,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final code = line.codeUnitAt(offset);
 
     if (code >= 0x4E00 && code <= 0x9FFF) {
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: pos.line,
-          startOffset: offset,
-          endLine: pos.line,
-          endOffset: offset + 1,
-        );
-        _hBarVisible = false;
-        _selVersion++;
-      });
+      _sel = _SelectionRange(
+        startLine: pos.line,
+        startOffset: offset,
+        endLine: pos.line,
+        endOffset: offset + 1,
+      );
+      _hBarVisible = false;
+      _selVersion++;
+      setState(() {});
       return;
     }
 
@@ -1249,29 +1305,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       while (e < line.length && _isWordChar(line.codeUnitAt(e))) {
         e++;
       }
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: pos.line,
-          startOffset: s,
-          endLine: pos.line,
-          endOffset: e,
-        );
-        _hBarVisible = false;
-        _selVersion++;
-      });
-      return;
-    }
-
-    setState(() {
       _sel = _SelectionRange(
         startLine: pos.line,
-        startOffset: offset,
+        startOffset: s,
         endLine: pos.line,
-        endOffset: offset + 1,
+        endOffset: e,
       );
       _hBarVisible = false;
       _selVersion++;
-    });
+      setState(() {});
+      return;
+    }
+
+    _sel = _SelectionRange(
+      startLine: pos.line,
+      startOffset: offset,
+      endLine: pos.line,
+      endOffset: offset + 1,
+    );
+    _hBarVisible = false;
+    _selVersion++;
+    setState(() {});
   }
 
   bool _isWordChar(int code) =>
@@ -1317,15 +1371,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _lastLongPressPos = e.position;
       final hit = _hitTest(e.position);
       if (hit == null) return;
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: sel.startLine,
-          startOffset: sel.startOffset,
-          endLine: hit.line,
-          endOffset: hit.offset,
-        );
-        _selVersion++;
-      });
+      _sel = _SelectionRange(
+        startLine: sel.startLine,
+        startOffset: sel.startOffset,
+        endLine: hit.line,
+        endOffset: hit.offset,
+      );
+      _selVersion++;
       return;
     }
 
@@ -1357,11 +1409,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _scheduleResumePrecision();
 
     if (_draggingHandle != 0) {
-      setState(() {
-        _draggingHandle = 0;
-        _dragHandlePos = null;
-        _hBarVisible = true;
-      });
+      _setDragState(handle: 0, handlePos: null);
+      setState(() => _hBarVisible = true);
       _pressDown = false;
       return;
     }
@@ -1374,15 +1423,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         final line = _lines[sel.startLine];
         if (line.isNotEmpty) {
           final off = sel.startOffset.clamp(0, line.length - 1);
-          setState(() {
-            _sel = _SelectionRange(
-              startLine: sel.startLine,
-              startOffset: off,
-              endLine: sel.startLine,
-              endOffset: off + 1,
-            );
-            _hBarVisible = true;
-          });
+          _sel = _SelectionRange(
+            startLine: sel.startLine,
+            startOffset: off,
+            endLine: sel.startLine,
+            endOffset: off + 1,
+          );
+          setState(() => _hBarVisible = true);
           _pressDown = false;
           return;
         }
@@ -1423,7 +1470,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _scheduleResumePrecision();
     _longPressTimer?.cancel();
     _pressDown = false;
-    _draggingHandle = 0;
+    _setDragState(handle: 0, handlePos: null);
   }
 
   void _handleLongPress() {
@@ -1476,26 +1523,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final sel = _sel;
     if (sel == null) return;
     final handleLogic = _posOfCharLeft(sel.startLine, sel.startOffset);
-    setState(() {
-      _draggingHandle = 1;
-      _dragHandlePos = handleLogic ?? fingerPos;
-      _dragHandleOffset =
-          handleLogic == null ? Offset.zero : fingerPos - handleLogic;
-      _hBarVisible = false;
-    });
+    _setDragState(
+      handle: 1,
+      handlePos: handleLogic ?? fingerPos,
+      handleOffset:
+          handleLogic == null ? Offset.zero : fingerPos - handleLogic,
+    );
+    if (_hBarVisible) setState(() => _hBarVisible = false);
   }
 
   void _startDragRight(Offset fingerPos) {
     final sel = _sel;
     if (sel == null) return;
     final handleLogic = _posOfCharRight(sel.endLine, sel.endOffset);
-    setState(() {
-      _draggingHandle = 2;
-      _dragHandlePos = handleLogic ?? fingerPos;
-      _dragHandleOffset =
-          handleLogic == null ? Offset.zero : fingerPos - handleLogic;
-      _hBarVisible = false;
-    });
+    _setDragState(
+      handle: 2,
+      handlePos: handleLogic ?? fingerPos,
+      handleOffset:
+          handleLogic == null ? Offset.zero : fingerPos - handleLogic,
+    );
+    if (_hBarVisible) setState(() => _hBarVisible = false);
   }
 
   void _updateSelectionFromDrag(Offset handleLogic) {
@@ -1506,25 +1553,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (hit == null) return;
 
     if (_draggingHandle == 1) {
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: hit.line,
-          startOffset: hit.offset,
-          endLine: sel.endLine,
-          endOffset: sel.endOffset,
-        );
-        _selVersion++;
-      });
+      _sel = _SelectionRange(
+        startLine: hit.line,
+        startOffset: hit.offset,
+        endLine: sel.endLine,
+        endOffset: sel.endOffset,
+      );
+      _selVersion++;
     } else if (_draggingHandle == 2) {
-      setState(() {
-        _sel = _SelectionRange(
-          startLine: sel.startLine,
-          startOffset: sel.startOffset,
-          endLine: hit.line,
-          endOffset: hit.offset,
-        );
-        _selVersion++;
-      });
+      _sel = _SelectionRange(
+        startLine: sel.startLine,
+        startOffset: sel.startOffset,
+        endLine: hit.line,
+        endOffset: hit.offset,
+      );
+      _selVersion++;
     }
   }
 
@@ -1695,6 +1738,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             ),
           ),
         ),
+
+        // ==================== 选区覆盖层（独立监听 _selNotifier） ====================
+        // 拖动 / 长按改变选区时，只重建这一层，正文 Column 不受影响。
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ValueListenableBuilder<_SelectionRange?>(
+              valueListenable: _selNotifier,
+              builder: (_, sel, __) => _buildSelectionOverlay(sel),
+            ),
+          ),
+        ),
+
         if (previewHotZone)
           Positioned(
             top: 0,
@@ -1716,6 +1771,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               ),
             ),
           ),
+
         if (settings.showButtons) ...[
           _buildFloatButton(
             x: settings.topBtnX,
@@ -1732,8 +1788,114 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             settings: settings,
           ),
         ],
-        ..._buildHandles(settings),
+
+        // ==================== 手柄 + 放大镜（独立监听 _dragNotifier / _selNotifier） ====================
+        // 拖动时只重建这一层，正文 Column 完全不动，性能拉满。
+        Positioned.fill(
+          child: ValueListenableBuilder<_DragInfo?>(
+            valueListenable: _dragNotifier,
+            builder: (_, drag, __) {
+              return ValueListenableBuilder<_SelectionRange?>(
+                valueListenable: _selNotifier,
+                builder: (_, sel, __) {
+                  return Stack(
+                    children: [
+                      ..._buildHandles(settings),
+                      if (drag != null && sel != null)
+                        _buildLoupe(settings, size, drag, sel),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ),
+
         if (_hBarVisible && _sel != null) _buildHBar(settings, size),
+      ],
+    );
+  }
+
+  // ==================== 选区覆盖层（独立渲染） ====================
+
+  /// 用当前 [sel] 在正文区之上画出蓝色选区块。
+  /// 依赖每个 unit 的 RenderParagraph，通过 localToGlobal 换算全局坐标。
+  Widget _buildSelectionOverlay(_SelectionRange? sel) {
+    if (sel == null) return const SizedBox.shrink();
+
+    final p = _paginator;
+    if (p?.result == null) return const SizedBox.shrink();
+    final result = p!.result!;
+    final range = pageUnitRange(result, _currentPage);
+    final n = sel.normalized();
+
+    final contentCtx = _contentKey.currentContext;
+    if (contentCtx == null) return const SizedBox.shrink();
+    final contentBox = contentCtx.findRenderObject() as RenderBox?;
+    if (contentBox == null) return const SizedBox.shrink();
+    final contentOrigin = contentBox.localToGlobal(Offset.zero);
+
+    final rects = <Rect>[];
+    for (var unitIdx = range.startUnit; unitIdx < range.endUnit; unitIdx++) {
+      final u = result.renderUnits[unitIdx];
+      if (u.lineIndex < n.startLine || u.lineIndex > n.endLine) continue;
+
+      final line = _lines[u.lineIndex];
+      final subStart = u.charStart;
+      final subEnd = u.charEnd;
+
+      int selStart;
+      int selEnd;
+      if (n.startLine == n.endLine) {
+        selStart = n.startOffset;
+        selEnd = n.endOffset;
+      } else if (u.lineIndex == n.startLine) {
+        selStart = n.startOffset;
+        selEnd = line.length;
+      } else if (u.lineIndex == n.endLine) {
+        selStart = 0;
+        selEnd = n.endOffset;
+      } else {
+        selStart = 0;
+        selEnd = line.length;
+      }
+      final ovStart = selStart > subStart ? selStart : subStart;
+      final ovEnd = selEnd < subEnd ? selEnd : subEnd;
+      if (ovStart >= ovEnd) continue;
+
+      final ctx = _unitKeys[unitIdx]?.currentContext;
+      if (ctx == null) continue;
+      final rp = ctx.findRenderObject();
+      if (rp is! RenderParagraph) continue;
+
+      final uStart = ovStart - subStart;
+      final uEnd = ovEnd - subStart;
+      final boxes = rp.getBoxesForSelection(
+        TextSelection(baseOffset: uStart, extentOffset: uEnd),
+      );
+      if (boxes.isEmpty) continue;
+      final unitOrigin = rp.localToGlobal(Offset.zero) - contentOrigin;
+      for (final box in boxes) {
+        rects.add(Rect.fromLTWH(
+          unitOrigin.dx + box.left,
+          unitOrigin.dy + box.top,
+          box.right - box.left,
+          box.bottom - box.top,
+        ));
+      }
+    }
+    if (rects.isEmpty) return const SizedBox.shrink();
+
+    return Stack(
+      children: [
+        for (final r in rects)
+          Positioned(
+            left: r.left,
+            top: r.top,
+            width: r.width,
+            height: r.height,
+            child: const ColoredBox(color: _selectionBg),
+          ),
       ],
     );
   }
@@ -1753,17 +1915,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (!hasGrad) {
       return SizedBox(
         width: double.infinity,
-        child: Stack(
-          children: [
-            Text.rich(
-              TextSpan(children: spans),
-              style: _baseStyle(settings),
-              textAlign: TextAlign.left,
-              softWrap: true,
-              key: _unitKeys[unitIdx],
-            ),
-            _buildUnitSelectionOverlay(unitIdx, unit),
-          ],
+        child: Text.rich(
+          TextSpan(children: spans),
+          style: _baseStyle(settings),
+          textAlign: TextAlign.left,
+          softWrap: true,
+          key: _unitKeys[unitIdx],
         ),
       );
     }
@@ -1807,7 +1964,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 softWrap: true,
                 key: _unitKeys[unitIdx],
               ),
-              _buildUnitSelectionOverlay(unitIdx, unit),
             ],
           );
         },
@@ -1881,8 +2037,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final colors =
           h.entry.colors.map((c) => Color(c)).toList(growable: false);
       for (final box in boxes) {
-        // 若个别机型上仍存在 subpixel 级别的左偏，可把左右各 +0.5 补偿：
-        // Rect.fromLTRB(box.left + 0.5, box.top, box.right + 0.5, box.bottom)
         rects.add(_GradRect(
           Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
           colors,
@@ -1961,66 +2115,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return spans;
   }
 
-  Widget _buildUnitSelectionOverlay(int unitIdx, RenderUnit unit) {
-    final sel = _sel;
-    if (sel == null) return const SizedBox.shrink();
-    final n = sel.normalized();
-    if (unit.lineIndex < n.startLine || unit.lineIndex > n.endLine) {
-      return const SizedBox.shrink();
-    }
-    final line = _lines[unit.lineIndex];
-    final subStart = unit.charStart;
-    final subEnd = unit.charEnd;
-
-    int selStart;
-    int selEnd;
-    if (n.startLine == n.endLine) {
-      selStart = n.startOffset;
-      selEnd = n.endOffset;
-    } else if (unit.lineIndex == n.startLine) {
-      selStart = n.startOffset;
-      selEnd = line.length;
-    } else if (unit.lineIndex == n.endLine) {
-      selStart = 0;
-      selEnd = n.endOffset;
-    } else {
-      selStart = 0;
-      selEnd = line.length;
-    }
-    final ovStart = selStart > subStart ? selStart : subStart;
-    final ovEnd = selEnd < subEnd ? selEnd : subEnd;
-    if (ovStart >= ovEnd) return const SizedBox.shrink();
-
-    final ctx = _unitKeys[unitIdx]?.currentContext;
-    if (ctx == null) return const SizedBox.shrink();
-    final rp = ctx.findRenderObject();
-    if (rp is! RenderParagraph) return const SizedBox.shrink();
-
-    final uStart = ovStart - subStart;
-    final uEnd = ovEnd - subStart;
-    final boxes = rp.getBoxesForSelection(
-      TextSelection(baseOffset: uStart, extentOffset: uEnd),
-    );
-    if (boxes.isEmpty) return const SizedBox.shrink();
-
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Stack(
-          children: [
-            for (final box in boxes)
-              Positioned(
-                left: box.left,
-                top: box.top,
-                width: box.right - box.left,
-                height: box.bottom - box.top,
-                child: Container(color: _selectionBg),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildFloatButton({
     required double x,
     required double y,
@@ -2066,36 +2160,32 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     const trapW = 22.0;
     const trapH = 32.0;
     final baseColor = Theme.of(context).colorScheme.primary;
-    final color = baseColor.withValues(alpha: 0.75); // 0.0~1.0 自己调
+    final color = baseColor.withValues(alpha: 0.75);
+
+    final drag = _dragNotifier.value;
+    final dragging = drag?.handle ?? 0;
+    final dragPos = drag?.handlePos;
 
     var leftPos = pos.left;
     var rightPos = pos.right;
 
-    if (_draggingHandle == 1 && _dragHandlePos != null) {
-      leftPos = _dragHandlePos!;
-    } else if (_draggingHandle == 2 && _dragHandlePos != null) {
-      rightPos = _dragHandlePos!;
-
-
-      
+    if (dragging == 1 && dragPos != null) {
+      leftPos = dragPos;
+    } else if (dragging == 2 && dragPos != null) {
+      rightPos = dragPos;
     } else {
-  // 两个手柄在同一行且水平距离过近时，向两侧推开，
-  // 保证两个梯形不重叠、能被分别点中。
-  // 推开量取"刚好错开"的最小值，避免小字号时手柄离正文太远。
-  final dx = rightPos.dx - leftPos.dx;
-  const minGap = 6.0;
-  if (dx.abs() < minGap && (rightPos.dy - leftPos.dy).abs() < 2) {
-    final mid = (leftPos.dx + rightPos.dx) / 2;
-    const half = minGap / 2;
-    leftPos = Offset(mid - half, leftPos.dy);
-    rightPos = Offset(mid + half, rightPos.dy);
-  }
-}
+      // 两个手柄在同一行且水平距离过近时，向两侧推开，
+      // 保证两个梯形不重叠、能被分别点中。
+      final dx = rightPos.dx - leftPos.dx;
+      const minGap = 6.0;
+      if (dx.abs() < minGap && (rightPos.dy - leftPos.dy).abs() < 2) {
+        final mid = (leftPos.dx + rightPos.dx) / 2;
+        const half = minGap / 2;
+        leftPos = Offset(mid - half, leftPos.dy);
+        rightPos = Offset(mid + half, rightPos.dy);
+      }
+    }
 
-
-
-
-    
     final safeTop = MediaQuery.of(context).padding.top;
     final screenH = MediaQuery.of(context).size.height;
 
@@ -2133,47 +2223,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               _startDragRight(d.globalPosition);
             }
           },
-
-
-
-
-          
           onPanUpdate: (d) {
-  if (_draggingHandle != which) return;
-  final offset = _dragHandleOffset ?? Offset.zero;
-  final handleLogic = d.globalPosition - offset;
-  setState(() => _dragHandlePos = handleLogic);
+            if (_draggingHandle != which) return;
+            final offset = _dragHandleOffset ?? Offset.zero;
+            final handleLogic = d.globalPosition - offset;
+            _updateDragPos(handleLogic);
 
-  // 判定点 = 紧贴字符下角的那个角（也就是字符底），
-  // 不要用梯形右侧中点：它在字符底下方 trapH/2 ≈ 16px，
-  // 小字号时已经踩到下一行，手指轻微抖动就会误判到下一行。
-  // 翻转时（贴近屏幕底部）改用字符顶。
-  
-  
-  final lineHeight = settings.fontSize * kReaderLineHeightFactor;
-final charBottom = handleLogic.dy + settings.fontSize;
-final judge = Offset(
-  handleLogic.dx,
-  charBottom - lineHeight / 3,
-);
-  
-  
-  
-  _updateSelectionFromDrag(judge);
-},
+            // 判定点 = 紧贴字符下角的那个角（也就是字符底），
+            // 不要用梯形右侧中点：它在字符底下方 trapH/2 ≈ 16px，
+            // 小字号时已经踩到下一行，手指轻微抖动就会误判到下一行。
+            final lineHeight = settings.fontSize * kReaderLineHeightFactor;
+            final charBottom = handleLogic.dy + settings.fontSize;
+            final judge = Offset(
+              handleLogic.dx,
+              charBottom - lineHeight / 3,
+            );
 
-
-
-
-
-          
+            _updateSelectionFromDrag(judge);
+          },
           onPanEnd: (_) {
-            setState(() {
-              _draggingHandle = 0;
-              _dragHandlePos = null;
-              _dragHandleOffset = null;
-              _hBarVisible = true;
-            });
+            _setDragState(handle: 0, handlePos: null);
+            setState(() => _hBarVisible = true);
           },
           child: CustomPaint(
             painter: _TrapezoidPainter(
@@ -2187,6 +2257,90 @@ final judge = Offset(
     }
 
     return [handle(leftPos, 1), handle(rightPos, 2)];
+  }
+
+  // ==================== 放大镜 ====================
+
+  /// 拖动选区手柄时显示在手指上方的放大镜。
+  /// 只渲染 caret 附近窗口的纯文本，性能恒定。
+  Widget _buildLoupe(
+    ReaderSettings settings,
+    Size size,
+    _DragInfo drag,
+    _SelectionRange sel,
+  ) {
+    // 拖左手柄 → 看左端点；拖右手柄 → 看右端点
+    final int line;
+    final int offset;
+    if (drag.handle == 1) {
+      line = sel.startLine;
+      offset = sel.startOffset;
+    } else {
+      line = sel.endLine;
+      offset = sel.endOffset;
+    }
+    if (line < 0 || line >= _lines.length) return const SizedBox.shrink();
+
+    const double diameter = 140;
+    const double scale = 1.8;
+    const double gap = 26; // 手指到放大镜边缘的留白
+    const double margin = 8;
+
+    final h = drag.handlePos;
+
+    // 默认放上方；上方不够就放下方
+    final aboveCenter = Offset(h.dx, h.dy - gap - diameter / 2);
+    final belowCenter = Offset(h.dx, h.dy + gap + diameter / 2);
+    var center = aboveCenter;
+    if (aboveCenter.dy - diameter / 2 < margin) {
+      center = belowCenter;
+    }
+    // 水平 clamp 到屏内
+    center = Offset(
+      center.dx.clamp(
+          margin + diameter / 2, size.width - margin - diameter / 2),
+      center.dy.clamp(
+          margin + diameter / 2, size.height - margin - diameter / 2),
+    );
+
+    final base = _baseStyle(settings);
+    // 放大镜里不显示渐变高亮，用纯色版本
+    final loupeStyle = base.copyWith(color: null);
+
+    return Positioned(
+      left: center.dx - diameter / 2,
+      top: center.dy - diameter / 2,
+      child: IgnorePointer(
+        child: RepaintBoundary(
+          child: PhysicalModel(
+            color: Colors.transparent,
+            elevation: 8,
+            shadowColor: Colors.black.withValues(alpha: 0.35),
+            shape: BoxShape.circle,
+            clipBehavior: Clip.antiAlias,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.black.withValues(alpha: 0.10),
+                  width: 0.5,
+                ),
+              ),
+              child: ReaderLoupe(
+                lineText: _lines[line],
+                caretOffset: offset,
+                style: loupeStyle,
+                bgColor: Color(settings.bgColor),
+                fgColor: const Color(0xFF222222),
+                caretColor: Theme.of(context).colorScheme.primary,
+                scale: scale,
+                diameter: diameter,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // ==================== 弹窗渲染 ====================
