@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2674,25 +2674,44 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.copy, size: 18),
-                    tooltip: '复制',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () {
-                      final t = _selectedText();
-                      if (t.isEmpty) return;
-                      Clipboard.setData(ClipboardData(text: t));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('已复制'),
-                          duration: Duration(seconds: 1),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 4),
+
+
+
+Row(
+  children: [
+    IconButton(
+      icon: const Icon(Icons.copy, size: 18),
+      tooltip: '复制',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final t = _selectedText();
+        if (t.isEmpty) return;
+        Clipboard.setData(ClipboardData(text: t));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已复制'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      },
+    ),
+    IconButton(
+      icon: const Icon(Icons.share, size: 18),
+      tooltip: '分享',
+      visualDensity: VisualDensity.compact,
+      onPressed: () {
+        final t = _selectedText();
+        if (t.isEmpty) return;
+        Share.share(t);
+      },
+    ),
+    const SizedBox(width: 4),
+
+
+
+
+
+                  
                   Expanded(
                     child: Text(
                       _selectedText(),
