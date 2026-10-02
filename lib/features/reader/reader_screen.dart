@@ -505,7 +505,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       });
 
       _rebuildHighlightAc();
-      // 通知分页器当前页，让它滑动精修窗口。
       paginator.notifyVisiblePage(startPage);
       _syncPagePreview();
     } catch (e) {
@@ -543,7 +542,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
     setState(() {
       if (newPage != null) _currentPage = newPage;
-      // 精修后 result 变了，spans 和 unit key 都要失效。
       _spansCache.clear();
       _unitKeys.clear();
       _lastUnitStart = -1;
@@ -777,15 +775,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _syncPagePreview();
   }
 
-  /// 翻页时清掉页面级缓存。不要把 `_gradRectCache` 也清了——它是按 unit 的，
-  /// 同字号下跨页可以复用；只有 unitIdx 会重复，但 key 里带了 width，
-  /// 不同页的 unitIdx 可能撞车。保险起见还是清一下（渐变行不多，代价小）。
   void _invalidatePageCaches() {
     _spansCache.clear();
     _gradRectCache.clear();
     _lastHighlightQueryLine = -1;
     _lastHighlightQueryResult = const [];
-    // _unitKeys 不清，交给 _syncUnitKeys 做增量。
   }
 
   // ==================== 切文件 ====================
@@ -806,6 +800,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _manualEncoding = null;
     setState(() => _fileIndex++);
     await _ensureLoaded();
+  }
+
+  /// 关闭当前文件：退出整个阅读器。跟按返回键效果一样，但入口在菜单里。
+  void _closeFile() {
+    _saveProgressNow();
+    _clearSelection();
+    Navigator.of(context).pop();
   }
 
   // ==================== 顶部菜单 ====================
@@ -831,6 +832,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final pct = p == null
         ? '-'
         : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
+
+    final path = widget.filePaths.isEmpty ? '' : widget.filePaths[_fileIndex];
+    final fileName = path.split('/').last;
+
     return SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -844,7 +849,37 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+
+          // ---------- 文件名（长按复制完整路径） ----------
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: Text(
+              fileName.isEmpty ? '（未命名）' : fileName,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14),
+            ),
+            subtitle: Text(
+              path,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11),
+            ),
+            onLongPress: () {
+              if (path.isEmpty) return;
+              Clipboard.setData(ClipboardData(text: path));
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(
+                  content: Text('路径已复制'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+            },
+          ),
+          const Divider(height: 1),
+
+          // ---------- 进度 ----------
           ListTile(
             leading: const Icon(Icons.tune),
             title: Text(pct, style: const TextStyle(fontSize: 18)),
@@ -855,6 +890,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             },
           ),
           const Divider(height: 1),
+
           ListTile(
             leading: const Icon(Icons.search),
             title: const Text('查找'),
@@ -903,6 +939,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             onTap: () {
               Navigator.pop(ctx);
               showReaderSettingsSheet(context);
+            },
+          ),
+
+          const Divider(height: 1),
+
+          // ---------- 关闭当前文件 ----------
+          ListTile(
+            leading: const Icon(Icons.close, color: Colors.red),
+            title: const Text(
+              '关闭当前文件',
+              style: TextStyle(color: Colors.red),
+            ),
+            onTap: () {
+              Navigator.pop(ctx);
+              _closeFile();
             },
           ),
           const SizedBox(height: 8),
@@ -1031,7 +1082,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final page = findPageForOffset(_paginator!.result!, result);
       _jumpToPage(page);
     }
-    // 用户可能在管理页删/改了高亮，重新读一次。
     final updated =
         ref.read(readerHighlightsProvider)[fileKey] ?? const [];
     if (mounted) {
@@ -1479,6 +1529,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _selectWordAt(pos);
   }
 
+  /// 点击处理：悬浮按钮 > 菜单热区 > 其它区域翻页。
   void _handleTap(Offset globalPos) {
     final settings = ref.read(readerSettingsProvider);
 
@@ -1492,28 +1543,43 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final w = contentBox.size.width;
     final h = contentBox.size.height;
 
+    // ---------- 1. 悬浮按钮 ----------
+    // 只有开关打开时，按钮才存在、才能被点。
+    // 关了之后，点击原位置会穿透到下面的热区/翻页逻辑。
     if (settings.showButtons) {
-      final topBtnSize = 50.0 * settings.buttonScale;
+      final topBtnSize = 50.0 * settings.topBtnScale;
       final topCenter =
           origin + Offset(settings.topBtnX * w, settings.topBtnY * h);
       if ((globalPos - topCenter).distance <= topBtnSize / 2 + 8) {
         _prevFile();
         return;
       }
+      final bottomBtnSize = 50.0 * settings.bottomBtnScale;
       final bottomCenter =
           origin + Offset(settings.bottomBtnX * w, settings.bottomBtnY * h);
-      if ((globalPos - bottomCenter).distance <= topBtnSize / 2 + 8) {
+      if ((globalPos - bottomCenter).distance <= bottomBtnSize / 2 + 8) {
         _nextFile();
         return;
       }
     }
 
-    final safeTop = MediaQuery.of(context).padding.top;
-    if (globalPos.dy < safeTop + settings.topHotZoneHeight) {
+    // ---------- 2. 菜单热区（矩形） ----------
+    // 热区是一个以 (hotZoneX, hotZoneY) 为中心、宽 hotZoneW、高 hotZoneH 的
+    // 矩形（比例坐标 0-1，相对内容区）。
+    final hzLeft = (settings.hotZoneX - settings.hotZoneW / 2) * w;
+    final hzTop = (settings.hotZoneY - settings.hotZoneH / 2) * h;
+    final hzRight = (settings.hotZoneX + settings.hotZoneW / 2) * w;
+    final hzBottom = (settings.hotZoneY + settings.hotZoneH / 2) * h;
+    final local = globalPos - origin;
+    if (local.dx >= hzLeft &&
+        local.dx <= hzRight &&
+        local.dy >= hzTop &&
+        local.dy <= hzBottom) {
       _showTopMenu();
       return;
     }
 
+    // ---------- 3. 其它 → 翻下一页 ----------
     _nextPage();
   }
 
@@ -1582,9 +1648,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // ==================== 渲染 ====================
 
-  /// 注意：这里显式设 `letterSpacing: 0` 和 `wordSpacing: 0`，
-  /// 防止系统主题 / App 主题通过 DefaultTextStyle 把字符间距渗透进来，
-  /// 导致 Text.rich 渲染宽度与 _gradTP 测量宽度不一致（渐变背景左偏）。
   TextStyle _baseStyle(ReaderSettings settings) => TextStyle(
         fontSize: settings.fontSize,
         fontWeight: _toFontWeight(settings.fontWeight),
@@ -1631,8 +1694,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       });
     }
 
-    // 禁用 textScaler：让渲染和 TextPainter 测量使用完全相同的字号。
-    // 阅读器有自己的字号设置，不需要叠加系统字号。
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(
         textScaler: TextScaler.noScaling,
@@ -1700,7 +1761,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (p?.result == null) return const SizedBox.shrink();
     final result = p!.result!;
     final range = pageUnitRange(result, _currentPage);
-    final previewHotZone = ref.watch(readerHotZonePreviewProvider);
 
     // 更快点 2：unitKeys 增量更新。
     if (range.startUnit != _lastUnitStart || range.endUnit != _lastUnitEnd) {
@@ -1715,6 +1775,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     return Stack(
       children: [
+        // ---------- 正文 ----------
         Positioned.fill(
           child: Listener(
             behavior: HitTestBehavior.opaque,
@@ -1739,8 +1800,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           ),
         ),
 
-        // ==================== 选区覆盖层（独立监听 _selNotifier） ====================
-        // 拖动 / 长按改变选区时，只重建这一层，正文 Column 不受影响。
+        // ---------- 选区覆盖层（独立监听 _selNotifier） ----------
         Positioned.fill(
           child: IgnorePointer(
             child: ValueListenableBuilder<_SelectionRange?>(
@@ -1750,47 +1810,46 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           ),
         ),
 
-        if (previewHotZone)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: settings.topHotZoneHeight,
+        // ---------- 菜单热区（用户开关打开时才画） ----------
+        if (settings.hotZoneVisible)
+          Positioned.fill(
             child: IgnorePointer(
-              child: Container(
-                color: Colors.red.withValues(alpha: 0.25),
-                alignment: Alignment.center,
-                child: Text(
-                  '菜单热区 · ${settings.topHotZoneHeight.toStringAsFixed(0)}px',
-                  style: const TextStyle(
-                    color: Colors.red,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+              child: _buildHotZone(settings, size),
             ),
           ),
 
+        // ---------- 悬浮按钮 ----------
+        // 关了之后彻底不画、不可点，点击原位置会穿透到热区/翻页逻辑。
         if (settings.showButtons) ...[
           _buildFloatButton(
+            style: settings.topBtnStyle,
+            bgColor: Color(settings.topBtnBgColor),
+            fgColor: Color(settings.topBtnFgColor),
+            ringColor: Color(settings.topBtnRingColor),
+            ringWidth: settings.topBtnRingWidth,
             x: settings.topBtnX,
             y: settings.topBtnY,
+            scale: settings.topBtnScale,
+            opacity: settings.topBtnOpacity,
             icon: Icons.keyboard_arrow_up,
             size: size,
-            settings: settings,
           ),
           _buildFloatButton(
+            style: settings.bottomBtnStyle,
+            bgColor: Color(settings.bottomBtnBgColor),
+            fgColor: Color(settings.bottomBtnFgColor),
+            ringColor: Color(settings.bottomBtnRingColor),
+            ringWidth: settings.bottomBtnRingWidth,
             x: settings.bottomBtnX,
             y: settings.bottomBtnY,
+            scale: settings.bottomBtnScale,
+            opacity: settings.bottomBtnOpacity,
             icon: Icons.keyboard_arrow_down,
             size: size,
-            settings: settings,
           ),
         ],
 
-        // ==================== 手柄 + 放大镜（独立监听 _dragNotifier / _selNotifier） ====================
-        // 拖动时只重建这一层，正文 Column 完全不动，性能拉满。
+        // ---------- 手柄 + 放大镜 ----------
         Positioned.fill(
           child: ValueListenableBuilder<_DragInfo?>(
             valueListenable: _dragNotifier,
@@ -1816,10 +1875,68 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
+  // ==================== 菜单热区绘制 ====================
+  //
+  // 矩形，比例坐标。贴屏幕的边不画（只画不贴的）。
+  // 填色样式：整块填色。
+  // 分界线样式：画一圈边框，贴屏幕的边不画。
+
+  Widget _buildHotZone(ReaderSettings settings, Size size) {
+    final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
+    final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
+    final width = settings.hotZoneW * size.width;
+    final height = settings.hotZoneH * size.height;
+
+    final color = Color(settings.hotZoneColor)
+        .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
+
+    // 贴边判断（容差 1px）
+    final touchLeft = left <= 1;
+    final touchTop = top <= 1;
+    final touchRight = left + width >= size.width - 1;
+    final touchBottom = top + height >= size.height - 1;
+
+    if (settings.hotZoneStyle == 0) {
+      // 整块填色
+      return Positioned(
+        left: left,
+        top: top,
+        width: width,
+        height: height,
+        child: Container(color: color),
+      );
+    }
+
+    // 分界线：每边独立判断，贴屏幕的边不画
+    final bw = settings.hotZoneBorderWidth;
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            left: touchLeft
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+            top: touchTop
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+            right: touchRight
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+            bottom: touchBottom
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+          ),
+        ),
+      ),
+    );
+  }
+
   // ==================== 选区覆盖层（独立渲染） ====================
 
-  /// 用当前 [sel] 在正文区之上画出蓝色选区块。
-  /// 依赖每个 unit 的 RenderParagraph，通过 localToGlobal 换算全局坐标。
   Widget _buildSelectionOverlay(_SelectionRange? sel) {
     if (sel == null) return const SizedBox.shrink();
 
@@ -2017,7 +2134,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return const [];
     }
 
-    // 更快点 3：用单例 TextPainter。
     final style = _baseStyle(settings);
     final tp = _gradTP;
     tp.text = TextSpan(text: sub, style: style);
@@ -2049,7 +2165,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return rects;
   }
 
-  /// 耗电 4 / 更快点 1：spans 缓存。
   List<InlineSpan> _buildUnitSpans(
     int unitIdx,
     RenderUnit unit,
@@ -2115,36 +2230,64 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return spans;
   }
 
+  // ==================== 悬浮按钮 ====================
+  //
+  // 样式 0：纯色圆 + 箭头
+  // 样式 1：圆环（无填充、无箭头）
+
   Widget _buildFloatButton({
+    required int style,
+    required Color bgColor,
+    required Color fgColor,
+    required Color ringColor,
+    required double ringWidth,
     required double x,
     required double y,
+    required double scale,
+    required double opacity,
     required IconData icon,
     required Size size,
-    required ReaderSettings settings,
   }) {
-    final btnSize = 50.0 * settings.buttonScale;
+    final btnSize = 50.0 * scale;
     final left = x * size.width - btnSize / 2;
     final top = y * size.height - btnSize / 2;
+
+    Widget body;
+    if (style == 0) {
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          color: bgColor,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          color: fgColor,
+          size: btnSize * 0.6,
+        ),
+      );
+    } else {
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: ringColor,
+            width: ringWidth,
+          ),
+        ),
+      );
+    }
 
     return Positioned(
       left: left,
       top: top,
       child: IgnorePointer(
         child: Opacity(
-          opacity: settings.buttonOpacity,
-          child: Container(
-            width: btnSize,
-            height: btnSize,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.35),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              icon,
-              color: Colors.white,
-              size: btnSize * 0.6,
-            ),
-          ),
+          opacity: opacity.clamp(0.0, 1.0),
+          child: body,
         ),
       ),
     );
@@ -2174,8 +2317,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     } else if (dragging == 2 && dragPos != null) {
       rightPos = dragPos;
     } else {
-      // 两个手柄在同一行且水平距离过近时，向两侧推开，
-      // 保证两个梯形不重叠、能被分别点中。
       final dx = rightPos.dx - leftPos.dx;
       const minGap = 6.0;
       if (dx.abs() < minGap && (rightPos.dy - leftPos.dy).abs() < 2) {
@@ -2229,9 +2370,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             final handleLogic = d.globalPosition - offset;
             _updateDragPos(handleLogic);
 
-            // 判定点 = 紧贴字符下角的那个角（也就是字符底），
-            // 不要用梯形右侧中点：它在字符底下方 trapH/2 ≈ 16px，
-            // 小字号时已经踩到下一行，手指轻微抖动就会误判到下一行。
             final lineHeight = settings.fontSize * kReaderLineHeightFactor;
             final charBottom = handleLogic.dy + settings.fontSize;
             final judge = Offset(
@@ -2261,15 +2399,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // ==================== 放大镜 ====================
 
-  /// 拖动选区手柄时显示在手指上方的放大镜。
-  /// 只渲染 caret 附近窗口的纯文本，性能恒定。
   Widget _buildLoupe(
     ReaderSettings settings,
     Size size,
     _DragInfo drag,
     _SelectionRange sel,
   ) {
-    // 拖左手柄 → 看左端点；拖右手柄 → 看右端点
     final int line;
     final int offset;
     if (drag.handle == 1) {
@@ -2283,19 +2418,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     const double diameter = 140;
     const double scale = 1.8;
-    const double gap = 26; // 手指到放大镜边缘的留白
+    const double gap = 26;
     const double margin = 8;
 
     final h = drag.handlePos;
 
-    // 默认放上方；上方不够就放下方
     final aboveCenter = Offset(h.dx, h.dy - gap - diameter / 2);
     final belowCenter = Offset(h.dx, h.dy + gap + diameter / 2);
     var center = aboveCenter;
     if (aboveCenter.dy - diameter / 2 < margin) {
       center = belowCenter;
     }
-    // 水平 clamp 到屏内
     center = Offset(
       center.dx.clamp(
           margin + diameter / 2, size.width - margin - diameter / 2),
@@ -2304,7 +2437,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
 
     final base = _baseStyle(settings);
-    // 放大镜里不显示渐变高亮，用纯色版本
     final loupeStyle = base.copyWith(color: null);
 
     return Positioned(
