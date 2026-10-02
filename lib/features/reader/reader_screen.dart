@@ -1768,18 +1768,34 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final settings = ref.watch(readerSettingsProvider);
+Widget build(BuildContext context) {
+  final settings = ref.watch(readerSettingsProvider);
 
-    if (_sel != null && _selVersion != _lastOverlayVersion) {
+  if (_sel != null && _selVersion != _lastOverlayVersion) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _lastOverlayVersion = _selVersion;
+      setState(() {});
+    });
+  }
+
+  // 设置一变（字号 / 字重 / 手动编码）→ 重建分页器。
+  // 不重建的话，_paginator 还按旧字号算"每页几行"，
+  // 正文却按新字号渲染 → 下方留白或溢出。
+  if (!_loading &&
+      !widget.filePaths.isEmpty &&
+      _fileIndex >= 0 &&
+      _fileIndex < widget.filePaths.length) {
+    final path = widget.filePaths[_fileIndex];
+    final currentKey = _loadKeyFor(path);
+    if (_lastLoadedKey != currentKey) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _lastOverlayVersion = _selVersion;
-        setState(() {});
+        if (mounted) _ensureLoaded();
       });
     }
+  }
 
-    return MediaQuery(
+  return MediaQuery(
       data: MediaQuery.of(context).copyWith(
         textScaler: TextScaler.noScaling,
       ),
