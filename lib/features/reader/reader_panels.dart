@@ -13,21 +13,15 @@ import 'reader_screen.dart';
 // ==================== 设置面板 ====================
 
 Future<void> showReaderSettingsSheet(BuildContext context) async {
-  final container = ProviderScope.containerOf(context);
-  container.read(readerHotZonePreviewProvider.notifier).state = true;
-  try {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => const _ReaderSettingsSheet(),
-    );
-  } finally {
-    container.read(readerHotZonePreviewProvider.notifier).state = false;
-  }
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.white,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) => const _ReaderSettingsSheet(),
+  );
 }
 
 class _ReaderSettingsSheet extends ConsumerStatefulWidget {
@@ -38,17 +32,9 @@ class _ReaderSettingsSheet extends ConsumerStatefulWidget {
       _ReaderSettingsSheetState();
 }
 
-
-
-
-
-
 class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
   @override
   Widget build(BuildContext context) {
-
-
-    
     final s = ref.watch(readerSettingsProvider);
     final n = ref.read(readerSettingsProvider.notifier);
 
@@ -56,7 +42,7 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.75,
+          height: MediaQuery.of(context).size.height * 0.85,
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,6 +62,8 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     style: TextStyle(
                         fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
+
+                // ==================== 字号 / 字重 / 背景色 ====================
                 _sliderHeader('字号', s.fontSize.toStringAsFixed(0)),
                 Row(
                   children: [
@@ -99,6 +87,7 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                   },
                 ),
                 const SizedBox(height: 12),
+
                 _sliderHeader('字重', s.fontWeight.toString()),
                 Row(
                   children: [
@@ -116,6 +105,7 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                   ],
                 ),
                 const SizedBox(height: 12),
+
                 _sliderHeader('背景颜色', ''),
                 const SizedBox(height: 6),
                 Row(
@@ -145,21 +135,28 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                 const SizedBox(height: 20),
                 const Divider(),
                 const SizedBox(height: 8),
-                _sliderHeader(
-                    '顶部菜单热区',
-                    '${s.topHotZoneHeight.toStringAsFixed(0)} px'),
-                Slider(
-                  min: 20,
-                  max: 200,
-                  value: s.topHotZoneHeight.clamp(20, 200),
-                  onChanged: n.setTopHotZone,
+
+                // ==================== 预览 ====================
+                const Text('实时预览',
+                    style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text(
+                  '下面所有参数改动会实时反映到这张图上。',
+                  style: TextStyle(
+                      fontSize: 11, color: Colors.grey.shade600),
                 ),
-                const Text(
-                  '点屏幕顶部这一条（透明）打开菜单。数值越小越难点到，'
-                  '越大越容易误触。',
-                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                const SizedBox(height: 8),
+                _miniPreview(
+                  context,
+                  s,
+                  ref.watch(readerPagePreviewProvider),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
+                const Divider(),
+                const SizedBox(height: 8),
+
+                // ==================== 悬浮按钮总开关 ====================
                 Row(
                   children: [
                     const Text('浮动按钮',
@@ -172,51 +169,76 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     ),
                   ],
                 ),
-
-
+                if (!s.showButtons)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 8),
+                    child: Text(
+                      '已关闭。点击原按钮位置会走正常翻页 / 打开菜单逻辑。',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                  ),
 
                 if (s.showButtons) ...[
-  const SizedBox(height: 8),
-  const Text('按钮位置预览',
-      style: TextStyle(
-          fontSize: 13, fontWeight: FontWeight.w600)),
-  const SizedBox(height: 8),
-  _miniPreview(context, s, ref.watch(readerPagePreviewProvider)),
-
-
-
-
-                  
-                  const SizedBox(height: 12),
+                  // ==================== 上一文件按钮 ====================
+                  _sectionTitle('上一文件按钮'),
+                  _buttonStyleChooser(
+                    style: s.topBtnStyle,
+                    onChanged: n.setTopBtnStyle,
+                  ),
+                  if (s.topBtnStyle == 0) ...[
+                    _colorRow(
+                      context: context,
+                      label: '背景色',
+                      color: Color(s.topBtnBgColor),
+                      onPick: n.setTopBtnBgColor,
+                    ),
+                    _colorRow(
+                      context: context,
+                      label: '箭头色',
+                      color: Color(s.topBtnFgColor),
+                      onPick: n.setTopBtnFgColor,
+                    ),
+                  ] else ...[
+                    _colorRow(
+                      context: context,
+                      label: '圆环颜色',
+                      color: Color(s.topBtnRingColor),
+                      onPick: n.setTopBtnRingColor,
+                    ),
+                    _sliderHeader('圆环粗细',
+                        '${s.topBtnRingWidth.toStringAsFixed(1)} px'),
+                    Slider(
+                      min: 0.5,
+                      max: 20,
+                      value: s.topBtnRingWidth.clamp(0.5, 20),
+                      onChanged: n.setTopBtnRingWidth,
+                    ),
+                  ],
                   _sliderHeader(
-                      '按钮透明度',
-                      '${(s.buttonOpacity * 100).toStringAsFixed(0)}%'),
+                      '透明度',
+                      '${(s.topBtnOpacity * 100).toStringAsFixed(0)}%'),
                   Slider(
-                    min: 0.1,
+                    min: 0.05,
                     max: 1.0,
-                    value: s.buttonOpacity.clamp(0.1, 1.0),
-                    onChanged: n.setButtonOpacity,
+                    value: s.topBtnOpacity.clamp(0.05, 1.0),
+                    onChanged: n.setTopBtnOpacity,
                   ),
                   _sliderHeader(
-                      '按钮大小', '${s.buttonScale.toStringAsFixed(1)}×'),
+                      '大小', '${s.topBtnScale.toStringAsFixed(1)}×'),
                   Slider(
                     min: 0.2,
                     max: 10.0,
-                    value: s.buttonScale.clamp(0.2, 10.0),
-                    onChanged: n.setButtonScale,
+                    value: s.topBtnScale.clamp(0.2, 10.0),
+                    onChanged: n.setTopBtnScale,
                   ),
-                  const SizedBox(height: 8),
-                  const Text('上按钮位置',
-                      style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600)),
                   _sliderHeader(
                       '横向 X', '${(s.topBtnX * 100).toStringAsFixed(0)}%'),
                   Slider(
                     min: 0.0,
                     max: 1.0,
                     value: s.topBtnX.clamp(0.0, 1.0),
-                    onChanged: (v) => n.update(
-                        ref.read(readerSettingsProvider).copyWith(topBtnX: v)),
+                    onChanged: n.setTopBtnX,
                   ),
                   _sliderHeader(
                       '纵向 Y', '${(s.topBtnY * 100).toStringAsFixed(0)}%'),
@@ -224,22 +246,69 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     min: 0.0,
                     max: 1.0,
                     value: s.topBtnY.clamp(0.0, 1.0),
-                    onChanged: (v) => n.update(
-                        ref.read(readerSettingsProvider).copyWith(topBtnY: v)),
+                    onChanged: n.setTopBtnY,
                   ),
-                  const SizedBox(height: 8),
-                  const Text('下按钮位置',
-                      style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+
+                  // ==================== 下一文件按钮 ====================
+                  _sectionTitle('下一文件按钮'),
+                  _buttonStyleChooser(
+                    style: s.bottomBtnStyle,
+                    onChanged: n.setBottomBtnStyle,
+                  ),
+                  if (s.bottomBtnStyle == 0) ...[
+                    _colorRow(
+                      context: context,
+                      label: '背景色',
+                      color: Color(s.bottomBtnBgColor),
+                      onPick: n.setBottomBtnBgColor,
+                    ),
+                    _colorRow(
+                      context: context,
+                      label: '箭头色',
+                      color: Color(s.bottomBtnFgColor),
+                      onPick: n.setBottomBtnFgColor,
+                    ),
+                  ] else ...[
+                    _colorRow(
+                      context: context,
+                      label: '圆环颜色',
+                      color: Color(s.bottomBtnRingColor),
+                      onPick: n.setBottomBtnRingColor,
+                    ),
+                    _sliderHeader('圆环粗细',
+                        '${s.bottomBtnRingWidth.toStringAsFixed(1)} px'),
+                    Slider(
+                      min: 0.5,
+                      max: 20,
+                      value: s.bottomBtnRingWidth.clamp(0.5, 20),
+                      onChanged: n.setBottomBtnRingWidth,
+                    ),
+                  ],
+                  _sliderHeader(
+                      '透明度',
+                      '${(s.bottomBtnOpacity * 100).toStringAsFixed(0)}%'),
+                  Slider(
+                    min: 0.05,
+                    max: 1.0,
+                    value: s.bottomBtnOpacity.clamp(0.05, 1.0),
+                    onChanged: n.setBottomBtnOpacity,
+                  ),
+                  _sliderHeader(
+                      '大小', '${s.bottomBtnScale.toStringAsFixed(1)}×'),
+                  Slider(
+                    min: 0.2,
+                    max: 10.0,
+                    value: s.bottomBtnScale.clamp(0.2, 10.0),
+                    onChanged: n.setBottomBtnScale,
+                  ),
                   _sliderHeader(
                       '横向 X', '${(s.bottomBtnX * 100).toStringAsFixed(0)}%'),
                   Slider(
                     min: 0.0,
                     max: 1.0,
                     value: s.bottomBtnX.clamp(0.0, 1.0),
-                    onChanged: (v) => n.update(ref
-                        .read(readerSettingsProvider)
-                        .copyWith(bottomBtnX: v)),
+                    onChanged: n.setBottomBtnX,
                   ),
                   _sliderHeader(
                       '纵向 Y', '${(s.bottomBtnY * 100).toStringAsFixed(0)}%'),
@@ -247,12 +316,133 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     min: 0.0,
                     max: 1.0,
                     value: s.bottomBtnY.clamp(0.0, 1.0),
-                    onChanged: (v) => n.update(ref
-                        .read(readerSettingsProvider)
-                        .copyWith(bottomBtnY: v)),
+                    onChanged: n.setBottomBtnY,
                   ),
                 ],
+
                 const SizedBox(height: 20),
+                const Divider(),
+                const SizedBox(height: 8),
+
+                // ==================== 菜单热区 ====================
+                _sectionTitle('菜单热区'),
+                Text(
+                  '点击此区域 → 打开顶部菜单；点击其它区域 → 翻下一页。',
+                  style: TextStyle(
+                      fontSize: 11, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 8),
+
+                Row(
+                  children: [
+                    const Text('在阅读页显示热区',
+                        style: TextStyle(fontSize: 13)),
+                    const Spacer(),
+                    Switch(
+                      value: s.hotZoneVisible,
+                      onChanged: n.setHotZoneVisible,
+                    ),
+                  ],
+                ),
+                Text(
+                  '关掉后依旧能点，只是不画出来。',
+                  style: TextStyle(
+                      fontSize: 11, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 8),
+
+                const Text('显示样式',
+                    style: TextStyle(fontSize: 13)),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text('整块填色'),
+                      selected: s.hotZoneStyle == 0,
+                      onSelected: (_) => n.setHotZoneStyle(0),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('分界线'),
+                      selected: s.hotZoneStyle == 1,
+                      onSelected: (_) => n.setHotZoneStyle(1),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                _colorRow(
+                  context: context,
+                  label: s.hotZoneStyle == 0 ? '填充颜色' : '边框颜色',
+                  color: Color(s.hotZoneColor),
+                  onPick: n.setHotZoneColor,
+                ),
+
+                if (s.hotZoneStyle == 1) ...[
+                  _sliderHeader('边框粗细',
+                      '${s.hotZoneBorderWidth.toStringAsFixed(1)} px'),
+                  Slider(
+                    min: 0.5,
+                    max: 20,
+                    value: s.hotZoneBorderWidth.clamp(0.5, 20),
+                    onChanged: n.setHotZoneBorderWidth,
+                  ),
+                ],
+
+                _sliderHeader(
+                    '透明度',
+                    '${(s.hotZoneOpacity * 100).toStringAsFixed(0)}%'),
+                Slider(
+                  min: 0.0,
+                  max: 1.0,
+                  value: s.hotZoneOpacity.clamp(0.0, 1.0),
+                  onChanged: n.setHotZoneOpacity,
+                ),
+
+                if (s.hotZoneStyle == 1)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 8),
+                    child: Text(
+                      'ⓘ 贴屏幕边的边框不显示，比如热区贴顶时只画下边那条线。',
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                  ),
+
+                _sliderHeader(
+                    '横向 X', '${(s.hotZoneX * 100).toStringAsFixed(0)}%'),
+                Slider(
+                  min: 0.0,
+                  max: 1.0,
+                  value: s.hotZoneX.clamp(0.0, 1.0),
+                  onChanged: n.setHotZoneX,
+                ),
+                _sliderHeader(
+                    '纵向 Y', '${(s.hotZoneY * 100).toStringAsFixed(0)}%'),
+                Slider(
+                  min: 0.0,
+                  max: 1.0,
+                  value: s.hotZoneY.clamp(0.0, 1.0),
+                  onChanged: n.setHotZoneY,
+                ),
+                _sliderHeader(
+                    '宽度', '${(s.hotZoneW * 100).toStringAsFixed(0)}%'),
+                Slider(
+                  min: 0.02,
+                  max: 1.0,
+                  value: s.hotZoneW.clamp(0.02, 1.0),
+                  onChanged: n.setHotZoneW,
+                ),
+                _sliderHeader(
+                    '高度', '${(s.hotZoneH * 100).toStringAsFixed(0)}%'),
+                Slider(
+                  min: 0.02,
+                  max: 1.0,
+                  value: s.hotZoneH.clamp(0.02, 1.0),
+                  onChanged: n.setHotZoneH,
+                ),
+
+                const SizedBox(height: 24),
                 Center(
                   child: OutlinedButton(
                     onPressed: () => Navigator.pop(context),
@@ -263,6 +453,82 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String text) => Padding(
+        padding: const EdgeInsets.only(top: 12, bottom: 6),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+
+  Widget _buttonStyleChooser({
+    required int style,
+    required ValueChanged<int> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          const Text('样式', style: TextStyle(fontSize: 13)),
+          const SizedBox(width: 12),
+          ChoiceChip(
+            label: const Text('纯色圆'),
+            selected: style == 0,
+            onSelected: (_) => onChanged(0),
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: const Text('圆环'),
+            selected: style == 1,
+            onSelected: (_) => onChanged(1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _colorRow({
+    required BuildContext context,
+    required String label,
+    required Color color,
+    required ValueChanged<int> onPick,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+          Text(
+            '#${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase().substring(2)}',
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: () async {
+              final picked = await showDialog<Color>(
+                context: context,
+                builder: (_) => _SimpleColorPicker(initial: color),
+              );
+              if (picked != null) onPick(picked.toARGB32());
+            },
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: color,
+                border: Border.all(color: Colors.black26),
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -337,9 +603,10 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
   }
 }
 
-
-
-
+// ==================== 预览图 ====================
+//
+// 一张图里同时画：正文示例、两个悬浮按钮、菜单热区。
+// 热区永远显示（关闭时用淡灰虚线示意位置），方便用户调参。
 
 Widget _miniPreview(
   BuildContext context,
@@ -347,7 +614,7 @@ Widget _miniPreview(
   String pageText,
 ) {
   final screenSize = MediaQuery.of(context).size;
-  const previewWidth = 180.0;
+  const previewWidth = 200.0;
   final previewHeight = previewWidth * screenSize.height / screenSize.width;
 
   return Center(
@@ -365,59 +632,91 @@ Widget _miniPreview(
           final w = constraints.maxWidth;
           final h = constraints.maxHeight;
           final scale = w / screenSize.width;
-          final btnSize = 50.0 * s.buttonScale * scale;
-          final topLeft = Offset(
-            s.topBtnX * w - btnSize / 2,
-            s.topBtnY * h - btnSize / 2,
-          );
-          final botLeft = Offset(
-            s.bottomBtnX * w - btnSize / 2,
-            s.bottomBtnY * h - btnSize / 2,
-          );
 
-          Widget dot(Offset pos, IconData icon) {
-            return Positioned(
-              left: pos.dx,
-              top: pos.dy,
-              child: Opacity(
-                opacity: s.buttonOpacity,
-                child: Container(
-                  width: btnSize,
-                  height: btnSize,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon,
-                      color: Colors.white, size: btnSize * 0.6),
-                ),
-              ),
-            );
-          }
+          final sampleText = pageText.isNotEmpty
+              ? pageText
+              : '正文示例。正文示例。正文示例。\n'
+                  '正文示例。正文示例。\n'
+                  '正文示例。正文示例。正文示例。\n'
+                  '正文示例。';
 
           return Stack(
             children: [
-              if (pageText.isNotEmpty)
-                Positioned.fill(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 12 * scale + 2,
-                      vertical: 8 * scale + 2,
+              // ---------- 正文 ----------
+              Positioned.fill(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 12 * scale + 2,
+                    vertical: 8 * scale + 2,
+                  ),
+                  child: Text(
+                    sampleText,
+                    style: TextStyle(
+                      fontSize: s.fontSize * scale * 1.6,
+                      height: 1.4,
+                      color: const Color(0xFF222222),
                     ),
-                    child: Text(
-                      pageText,
-                      style: TextStyle(
-                        fontSize: s.fontSize * scale,
-                        height: 1.4,
-                        color: const Color(0xFF222222),
-                      ),
-                      softWrap: true,
-                      overflow: TextOverflow.clip,
+                    softWrap: true,
+                    overflow: TextOverflow.clip,
+                  ),
+                ),
+              ),
+
+              // ---------- 热区 ----------
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _HotZonePainter(
+                      x: s.hotZoneX,
+                      y: s.hotZoneY,
+                      w: s.hotZoneW,
+                      h: s.hotZoneH,
+                      color: Color(s.hotZoneColor),
+                      opacity: s.hotZoneVisible ? s.hotZoneOpacity : 0.5,
+                      borderWidth: s.hotZoneStyle == 1
+                          ? s.hotZoneBorderWidth * scale
+                          : 0,
+                      fill: s.hotZoneStyle == 0,
+                      // 关了显示开关 → 用淡灰虚线示意
+                      previewOnly: !s.hotZoneVisible,
                     ),
                   ),
                 ),
-              dot(topLeft, Icons.keyboard_arrow_up),
-              dot(botLeft, Icons.keyboard_arrow_down),
+              ),
+
+              // ---------- 悬浮按钮 ----------
+              if (s.showButtons) ...[
+                _previewButton(
+                  scale: scale,
+                  screenW: screenSize.width,
+                  screenH: screenSize.height,
+                  centerX: s.topBtnX * w,
+                  centerY: s.topBtnY * h,
+                  btnSize: 50.0 * s.topBtnScale * scale,
+                  opacity: s.topBtnOpacity,
+                  style: s.topBtnStyle,
+                  bg: Color(s.topBtnBgColor),
+                  fg: Color(s.topBtnFgColor),
+                  ringColor: Color(s.topBtnRingColor),
+                  ringWidth: s.topBtnRingWidth * scale,
+                  icon: Icons.keyboard_arrow_up,
+                ),
+                _previewButton(
+                  scale: scale,
+                  screenW: screenSize.width,
+                  screenH: screenSize.height,
+                  centerX: s.bottomBtnX * w,
+                  centerY: s.bottomBtnY * h,
+                  btnSize: 50.0 * s.bottomBtnScale * scale,
+                  opacity: s.bottomBtnOpacity,
+                  style: s.bottomBtnStyle,
+                  bg: Color(s.bottomBtnBgColor),
+                  fg: Color(s.bottomBtnFgColor),
+                  ringColor: Color(s.bottomBtnRingColor),
+                  ringWidth: s.bottomBtnRingWidth * scale,
+                  icon: Icons.keyboard_arrow_down,
+                ),
+              ],
             ],
           );
         },
@@ -426,13 +725,169 @@ Widget _miniPreview(
   );
 }
 
+Widget _previewButton({
+  required double scale,
+  required double screenW,
+  required double screenH,
+  required double centerX,
+  required double centerY,
+  required double btnSize,
+  required double opacity,
+  required int style,
+  required Color bg,
+  required Color fg,
+  required Color ringColor,
+  required double ringWidth,
+  required IconData icon,
+}) {
+  // 尺寸：至少 8px 才看得清
+  final size = btnSize < 8 ? 8.0 : btnSize;
+  final left = centerX - size / 2;
+  final top = centerY - size / 2;
 
-          
-          
+  Widget body;
+  if (style == 0) {
+    body = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: bg,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, color: fg, size: size * 0.6),
+    );
+  } else {
+    body = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: ringColor,
+          width: ringWidth < 0.5 ? 0.5 : ringWidth,
+        ),
+      ),
+    );
+  }
 
+  return Positioned(
+    left: left,
+    top: top,
+    child: IgnorePointer(
+      child: Opacity(opacity: opacity.clamp(0.0, 1.0), child: body),
+    ),
+  );
+}
 
+/// 画菜单热区。贴屏幕的边不画。预览模式下画淡灰虚线。
+class _HotZonePainter extends CustomPainter {
+  _HotZonePainter({
+    required this.x,
+    required this.y,
+    required this.w,
+    required this.h,
+    required this.color,
+    required this.opacity,
+    required this.borderWidth,
+    required this.fill,
+    this.previewOnly = false,
+  });
 
+  final double x; // 0-1 中心
+  final double y;
+  final double w; // 0-1 宽高
+  final double h;
+  final Color color;
+  final double opacity;
+  final double borderWidth;
+  final bool fill;
+  final bool previewOnly;
 
+  @override
+  void paint(Canvas canvas, Size size) {
+    final left = (x - w / 2) * size.width;
+    final top = (y - h / 2) * size.height;
+    final right = (x + w / 2) * size.width;
+    final bottom = (y + h / 2) * size.height;
+
+    final rect = Rect.fromLTRB(left, top, right, bottom);
+
+    final effectiveColor = previewOnly
+        ? Colors.grey.withValues(alpha: opacity.clamp(0.0, 1.0) * 0.6)
+        : color.withValues(alpha: opacity.clamp(0.0, 1.0));
+
+    if (fill && !previewOnly) {
+      canvas.drawRect(rect, Paint()..color = effectiveColor);
+      return;
+    }
+
+    // 边框模式（或预览虚线）
+    final paint = Paint()
+      ..color = effectiveColor
+      ..strokeWidth = borderWidth > 0 ? borderWidth : 1.0
+      ..style = PaintingStyle.stroke;
+
+    // 贴边判断（容差 1px）
+    final touchLeft = left <= 1;
+    final touchTop = top <= 1;
+    final touchRight = right >= size.width - 1;
+    final touchBottom = bottom >= size.height - 1;
+
+    if (previewOnly) {
+      // 预览：用虚线画全部四条边（不管贴不贴边），方便用户看清范围
+      _drawDashedLine(canvas, Offset(left, top), Offset(right, top), paint);
+      _drawDashedLine(canvas, Offset(right, top), Offset(right, bottom), paint);
+      _drawDashedLine(canvas, Offset(right, bottom), Offset(left, bottom), paint);
+      _drawDashedLine(canvas, Offset(left, bottom), Offset(left, top), paint);
+      return;
+    }
+
+    if (!touchLeft) {
+      canvas.drawLine(Offset(left, top), Offset(left, bottom), paint);
+    }
+    if (!touchTop) {
+      canvas.drawLine(Offset(left, top), Offset(right, top), paint);
+    }
+    if (!touchRight) {
+      canvas.drawLine(Offset(right, top), Offset(right, bottom), paint);
+    }
+    if (!touchBottom) {
+      canvas.drawLine(Offset(left, bottom), Offset(right, bottom), paint);
+    }
+  }
+
+  void _drawDashedLine(Canvas canvas, Offset p1, Offset p2, Paint paint) {
+    const dashWidth = 4.0;
+    const dashSpace = 3.0;
+    final totalDistance = (p2 - p1).distance;
+    if (totalDistance <= 0) return;
+    final direction = (p2 - p1) / totalDistance;
+    var distance = 0.0;
+    while (distance < totalDistance) {
+      final end = distance + dashWidth > totalDistance
+          ? totalDistance
+          : distance + dashWidth;
+      canvas.drawLine(
+        p1 + direction * distance,
+        p1 + direction * end,
+        paint,
+      );
+      distance = end + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HotZonePainter old) =>
+      old.x != x ||
+      old.y != y ||
+      old.w != w ||
+      old.h != h ||
+      old.color != color ||
+      old.opacity != opacity ||
+      old.borderWidth != borderWidth ||
+      old.fill != fill ||
+      old.previewOnly != previewOnly;
+}
 
 // ==================== 查找栏 ====================
 
@@ -1054,10 +1509,15 @@ class _BookmarkHighlightManagerState
   late TabController _tab;
   final Set<String> _selectedBookmarks = {};
   final Set<String> _selectedHighlights = {};
+
+  /// 是否处于选中模式。任一 Tab 有效。
   bool _selectionMode = false;
 
+  /// 区间选择的锚点（最近一次长按的项）。null 表示还没有锚点。
+  String? _anchorId;
+
   /// 当前勾选"显示"的分组 id（null 表示"未分组"）。
-  /// 空集 = 全部显示。默认全选。
+  /// 空集 = 全部显示。
   Set<String?> _visibleGroupIds = <String?>{};
 
   @override
@@ -1068,6 +1528,7 @@ class _BookmarkHighlightManagerState
           _selectionMode = false;
           _selectedBookmarks.clear();
           _selectedHighlights.clear();
+          _anchorId = null;
         }));
   }
 
@@ -1075,6 +1536,21 @@ class _BookmarkHighlightManagerState
   void dispose() {
     _tab.dispose();
     super.dispose();
+  }
+
+  /// 当前 Tab 是不是"书签"。
+  bool get _isBookmarkTab => _tab.index == 0;
+
+  /// 当前 Tab 全部项（按显示顺序）。
+  List<({String id, Widget tileBuilder})> get _currentItems => const [];
+
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedBookmarks.clear();
+      _selectedHighlights.clear();
+      _anchorId = null;
+    });
   }
 
   @override
@@ -1092,59 +1568,114 @@ class _BookmarkHighlightManagerState
             .where((h) => _visibleGroupIds.contains(h.groupId))
             .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('书签与高亮 · ${widget.fileName}'),
-        leading: _selectionMode
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => setState(() {
-                  _selectionMode = false;
-                  _selectedBookmarks.clear();
-                  _selectedHighlights.clear();
-                }),
-              )
-            : null,
-        actions: [
-          if (_selectionMode)
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: '删除所选',
-              onPressed: _deleteSelected,
-            )
-          else ...[
-            IconButton(
-              icon: const Icon(Icons.filter_list),
-              tooltip: '按分组过滤',
-              onPressed: () => _showFilterSheet(groups),
-            ),
-            IconButton(
-              icon: const Icon(Icons.checklist),
-              tooltip: '批量选择',
-              onPressed: () => setState(() => _selectionMode = true),
-            ),
-          ],
-        ],
-        bottom: TabBar(
+    final selectedCount = _isBookmarkTab
+        ? _selectedBookmarks.length
+        : _selectedHighlights.length;
+
+    final allCount = _isBookmarkTab ? bookmarks.length : highlights.length;
+    final allSelected = allCount > 0 && selectedCount == allCount;
+
+    return PopScope(
+      canPop: !_selectionMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_selectionMode) _exitSelection();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            '书签与高亮 · ${widget.fileName}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          leading: _selectionMode
+              ? IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: '取消选择',
+                  onPressed: _exitSelection,
+                )
+              : null,
+          actions: _selectionMode
+              ? [
+                  // 全选 / 全不选
+                  IconButton(
+                    icon: Icon(
+                      allSelected
+                          ? Icons.deselect
+                          : Icons.select_all,
+                    ),
+                    tooltip: allSelected ? '全不选' : '全选',
+                    onPressed: () {
+                      setState(() {
+                        if (_isBookmarkTab) {
+                          if (allSelected) {
+                            _selectedBookmarks.clear();
+                          } else {
+                            _selectedBookmarks
+                              ..clear()
+                              ..addAll(bookmarks.map((b) => b.id));
+                          }
+                        } else {
+                          if (allSelected) {
+                            _selectedHighlights.clear();
+                          } else {
+                            _selectedHighlights
+                              ..clear()
+                              ..addAll(highlights.map((h) => h.id));
+                          }
+                        }
+                      });
+                    },
+                  ),
+                  // 移入分组（只有高亮 Tab 有）
+                  if (!_isBookmarkTab)
+                    IconButton(
+                      icon: const Icon(Icons.folder_outlined),
+                      tooltip: '移入分组',
+                      onPressed: selectedCount == 0
+                          ? null
+                          : () => _moveToGroup(),
+                    ),
+                  // 删除
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    tooltip: '删除所选',
+                    onPressed: selectedCount == 0 ? null : _deleteSelected,
+                  ),
+                ]
+              : [
+                  IconButton(
+                    icon: const Icon(Icons.filter_list),
+                    tooltip: '按分组过滤',
+                    onPressed: () => _showFilterSheet(groups),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.checklist),
+                    tooltip: '批量选择',
+                    onPressed: () =>
+                        setState(() => _selectionMode = true),
+                  ),
+                ],
+          bottom: TabBar(
+            controller: _tab,
+            tabs: [
+              Tab(text: '书签 (${bookmarks.length})'),
+              Tab(text: '高亮 (${highlights.length})'),
+            ],
+          ),
+        ),
+        body: TabBarView(
           controller: _tab,
-          tabs: [
-            Tab(text: '书签 (${bookmarks.length})'),
-            Tab(text: '高亮 (${highlights.length})'),
+          children: [
+            _buildBookmarks(bookmarks),
+            _buildHighlights(highlights),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tab,
-        children: [
-          _buildBookmarks(bookmarks),
-          _buildHighlights(highlights),
-        ],
       ),
     );
   }
 
   Future<void> _showFilterSheet(List<HighlightGroup> groups) async {
-    // 收集当前文件里出现过的 groupId（含 null）
     final all =
         ref.read(readerHighlightsProvider)[widget.fileKey] ?? const [];
     final usedIds = <String?>{};
@@ -1170,21 +1701,11 @@ class _BookmarkHighlightManagerState
     );
 
     if (result == null) return;
-
-    // 全部勾选 = 不过滤
     if (result.length == usedIds.length) {
       setState(() => _visibleGroupIds = <String?>{});
     } else {
       setState(() => _visibleGroupIds = result);
     }
-  }
-
-  Future<void> _openGroupManager() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const GroupManagerScreen(),
-      ),
-    );
   }
 
   void _deleteSelected() {
@@ -1196,6 +1717,7 @@ class _BookmarkHighlightManagerState
       setState(() {
         _selectedBookmarks.clear();
         _selectionMode = false;
+        _anchorId = null;
       });
     } else {
       if (_selectedHighlights.isEmpty) return;
@@ -1205,9 +1727,124 @@ class _BookmarkHighlightManagerState
       setState(() {
         _selectedHighlights.clear();
         _selectionMode = false;
+        _anchorId = null;
       });
     }
   }
+
+  Future<void> _moveToGroup() async {
+    if (_selectedHighlights.isEmpty) return;
+    final groups = ref.read(readerHighlightGroupsProvider);
+
+    // 用特殊值区分：null = 取消；'' = 未分组；其它 = groupId；'__new__' = 新建
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('移入分组'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, ''),
+            child: const Row(
+              children: [
+                Icon(Icons.folder_off_outlined, size: 20),
+                SizedBox(width: 10),
+                Text('未分组'),
+              ],
+            ),
+          ),
+          for (final g in groups)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(c, g.id),
+              child: Row(
+                children: [
+                  const Icon(Icons.folder_outlined, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      g.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const Divider(),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, '__new__'),
+            child: const Row(
+              children: [
+                Icon(Icons.create_new_folder_outlined, size: 20),
+                SizedBox(width: 10),
+                Text('新建分组…'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+
+    if (picked == null || !mounted) return;
+
+    String? groupId;
+    if (picked == '__new__') {
+      final ctrl = TextEditingController();
+      final name = await showDialog<String>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('新建分组'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: '分组名',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            onSubmitted: (v) => Navigator.pop(c, v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, ctrl.text),
+              child: const Text('创建'),
+            ),
+          ],
+        ),
+      );
+      ctrl.dispose();
+      if (name == null || name.trim().isEmpty) return;
+      groupId =
+          ref.read(readerHighlightGroupsProvider.notifier).create(name);
+    } else if (picked == '') {
+      groupId = null;
+    } else {
+      groupId = picked;
+    }
+
+    ref.read(readerHighlightsProvider.notifier).setGroupMany(
+          widget.fileKey,
+          Set<String>.from(_selectedHighlights),
+          groupId,
+        );
+    if (!mounted) return;
+    setState(() {
+      _selectedHighlights.clear();
+      _selectionMode = false;
+      _anchorId = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(groupId == null ? '已移出分组' : '已移入分组'),
+      ),
+    );
+  }
+
+  // ==================== 书签列表 ====================
 
   Widget _buildBookmarks(List<ReaderBookmark> bookmarks) {
     if (bookmarks.isEmpty) {
@@ -1218,63 +1855,99 @@ class _BookmarkHighlightManagerState
       itemBuilder: (_, i) {
         final b = bookmarks[i];
         final selected = _selectedBookmarks.contains(b.id);
-        return ListTile(
-          leading: _selectionMode
-              ? Checkbox(
-                  value: selected,
-                  onChanged: (_) => _toggleBookmark(b.id),
-                )
-              : const Icon(Icons.bookmark),
-          title: Text(
-            b.displayName.isEmpty ? '(空)' : b.displayName,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            '位置 ${b.charOffset}',
-            style: const TextStyle(fontSize: 11),
-          ),
-          onTap: _selectionMode
-              ? () => _toggleBookmark(b.id)
-              : () async {
-                  final r = await openBookmarkEdit(context, b);
-                  if (r != null && mounted) {
-                    if (r.action == 'delete') {
-                      ref
-                          .read(readerBookmarksProvider.notifier)
-                          .remove(widget.fileKey, b.id);
-                    } else if (r.action == 'save' && r.bookmark != null) {
-                      ref
-                          .read(readerBookmarksProvider.notifier)
-                          .updateOne(widget.fileKey, r.bookmark!);
-                    } else if (r.action == 'jump') {
-                      Navigator.pop(context, b.charOffset);
+
+        return _selectionTile(
+          selected: selected,
+          child: ListTile(
+            leading: _selectionIndicator(
+              selected: selected,
+              leading: const Icon(Icons.bookmark),
+            ),
+            title: Text(
+              b.displayName.isEmpty ? '(空)' : b.displayName,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              '位置 ${b.charOffset}',
+              style: const TextStyle(fontSize: 11),
+            ),
+            onTap: _selectionMode
+                ? () => _toggleBookmark(b.id)
+                : () async {
+                    final r = await openBookmarkEdit(context, b);
+                    if (r != null && mounted) {
+                      if (r.action == 'delete') {
+                        ref
+                            .read(readerBookmarksProvider.notifier)
+                            .remove(widget.fileKey, b.id);
+                      } else if (r.action == 'save' && r.bookmark != null) {
+                        ref
+                            .read(readerBookmarksProvider.notifier)
+                            .updateOne(widget.fileKey, r.bookmark!);
+                      } else if (r.action == 'jump') {
+                        Navigator.pop(context, b.charOffset);
+                      }
                     }
-                  }
-                },
-          onLongPress:
-              _selectionMode ? null : () => _enterBookmarkSelection(b.id),
+                  },
+            onLongPress: () => _onLongPressBookmark(b.id, bookmarks),
+          ),
         );
       },
     );
+  }
+
+  void _onLongPressBookmark(
+      String id, List<ReaderBookmark> all) {
+    // 如果不在选中模式 → 进入选中模式 + 选中该项 + 记录锚点
+    if (!_selectionMode) {
+      setState(() {
+        _selectionMode = true;
+        _selectedBookmarks.add(id);
+        _anchorId = id;
+      });
+      return;
+    }
+    // 已在选中模式 + 有锚点 → 从锚点到该项全部选中
+    if (_anchorId != null) {
+      final ids = all.map((b) => b.id).toList();
+      final from = ids.indexOf(_anchorId!);
+      final to = ids.indexOf(id);
+      if (from >= 0 && to >= 0) {
+        final lo = from < to ? from : to;
+        final hi = from < to ? to : from;
+        setState(() {
+          for (var i = lo; i <= hi; i++) {
+            _selectedBookmarks.add(ids[i]);
+          }
+          _anchorId = id;
+        });
+        return;
+      }
+    }
+    // 兜底：只切换这一项，更新锚点
+    setState(() {
+      _selectedBookmarks.add(id);
+      _anchorId = id;
+    });
   }
 
   void _toggleBookmark(String id) {
     setState(() {
       if (_selectedBookmarks.contains(id)) {
         _selectedBookmarks.remove(id);
+        if (_selectedBookmarks.isEmpty) {
+          _selectionMode = false;
+          _anchorId = null;
+        }
       } else {
         _selectedBookmarks.add(id);
+        _anchorId = id;
       }
     });
   }
 
-  void _enterBookmarkSelection(String id) {
-    setState(() {
-      _selectionMode = true;
-      _selectedBookmarks.add(id);
-    });
-  }
+  // ==================== 高亮列表 ====================
 
   Widget _buildHighlights(List<HighlightEntry> highlights) {
     if (highlights.isEmpty) {
@@ -1285,74 +1958,149 @@ class _BookmarkHighlightManagerState
       itemBuilder: (_, i) {
         final h = highlights[i];
         final selected = _selectedHighlights.contains(h.id);
-        final bg = Color(h.colors.first);
-        return ListTile(
-          leading: _selectionMode
-              ? Checkbox(
-                  value: selected,
-                  onChanged: (_) => _toggleHighlight(h.id),
-                )
-              : Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: bg,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.black26),
-                  ),
-                ),
-          title: Text(h.displayName),
-          subtitle: Text(
-            '关键词：${h.keyword}',
-            style: const TextStyle(fontSize: 11),
-          ),
-          onTap: _selectionMode
-              ? () => _toggleHighlight(h.id)
-              : () async {
-                  final r = await openHighlightEdit(context, h);
-                  if (r != null && mounted) {
-                    if (r.action == 'delete') {
-                      ref
-                          .read(readerHighlightsProvider.notifier)
-                          .remove(widget.fileKey, h.id);
-                    } else if (r.action == 'save' && r.entry != null) {
-                      ref
-                          .read(readerHighlightsProvider.notifier)
-                          .updateOne(widget.fileKey, r.entry!);
+
+        return _selectionTile(
+          selected: selected,
+          child: ListTile(
+            leading: _selectionIndicator(
+              selected: selected,
+              leading: _highlightSwatch(h),
+            ),
+            title: Text(h.displayName),
+            subtitle: Text(
+              '关键词：${h.keyword}',
+              style: const TextStyle(fontSize: 11),
+            ),
+            onTap: _selectionMode
+                ? () => _toggleHighlight(h.id)
+                : () async {
+                    final r = await openHighlightEdit(context, h);
+                    if (r != null && mounted) {
+                      if (r.action == 'delete') {
+                        ref
+                            .read(readerHighlightsProvider.notifier)
+                            .remove(widget.fileKey, h.id);
+                      } else if (r.action == 'save' && r.entry != null) {
+                        ref
+                            .read(readerHighlightsProvider.notifier)
+                            .updateOne(widget.fileKey, r.entry!);
+                      }
                     }
-                  }
-                },
-          onLongPress: _selectionMode
-              ? null
-              : () => _enterHighlightSelection(h.id),
-          trailing: _selectionMode
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  onPressed: () => ref
-                      .read(readerHighlightsProvider.notifier)
-                      .remove(widget.fileKey, h.id),
-                ),
+                  },
+            onLongPress: () => _onLongPressHighlight(h.id, highlights),
+            trailing: _selectionMode
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    onPressed: () => ref
+                        .read(readerHighlightsProvider.notifier)
+                        .remove(widget.fileKey, h.id),
+                  ),
+          ),
         );
       },
     );
+  }
+
+  void _onLongPressHighlight(
+      String id, List<HighlightEntry> all) {
+    if (!_selectionMode) {
+      setState(() {
+        _selectionMode = true;
+        _selectedHighlights.add(id);
+        _anchorId = id;
+      });
+      return;
+    }
+    if (_anchorId != null) {
+      final ids = all.map((h) => h.id).toList();
+      final from = ids.indexOf(_anchorId!);
+      final to = ids.indexOf(id);
+      if (from >= 0 && to >= 0) {
+        final lo = from < to ? from : to;
+        final hi = from < to ? to : from;
+        setState(() {
+          for (var i = lo; i <= hi; i++) {
+            _selectedHighlights.add(ids[i]);
+          }
+          _anchorId = id;
+        });
+        return;
+      }
+    }
+    setState(() {
+      _selectedHighlights.add(id);
+      _anchorId = id;
+    });
   }
 
   void _toggleHighlight(String id) {
     setState(() {
       if (_selectedHighlights.contains(id)) {
         _selectedHighlights.remove(id);
+        if (_selectedHighlights.isEmpty) {
+          _selectionMode = false;
+          _anchorId = null;
+        }
       } else {
         _selectedHighlights.add(id);
+        _anchorId = id;
       }
     });
   }
 
-  void _enterHighlightSelection(String id) {
-    setState(() {
-      _selectionMode = true;
-      _selectedHighlights.add(id);
-    });
+  // ==================== 通用：选中外观 ====================
+
+  /// 选中时用背景色 + 边框（参考文件浏览器），不显示勾选框。
+  Widget _selectionTile({
+    required bool selected,
+    required Widget child,
+  }) {
+    if (!selected) return child;
+    final s = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: s.primary.withValues(alpha: 0.08),
+        border: Border.all(color: s.primary, width: 2),
+      ),
+      child: child,
+    );
+  }
+
+  /// 选中时把 leading 换成"已选中"高亮标记（不是勾选框）。
+  /// 用一个小实心圆点 + 强调色，表示"当前项被选中"。
+  Widget _selectionIndicator({
+    required bool selected,
+    required Widget leading,
+  }) {
+    if (!selected) return leading;
+    final s = Theme.of(context).colorScheme;
+    return Icon(
+      Icons.check_circle,
+      color: s.primary,
+    );
+  }
+
+  /// 高亮色块：支持纯色和渐变。
+  Widget _highlightSwatch(HighlightEntry h) {
+    final colors = h.colors.map((c) => Color(c)).toList();
+    return Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: colors.length == 1 ? colors.first : null,
+        gradient: colors.length > 1
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: colors,
+                stops: h.stops.length == colors.length ? h.stops : null,
+              )
+            : null,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.black26),
+      ),
+    );
   }
 }
 
@@ -1384,7 +2132,6 @@ class _GroupFilterSheetState extends State<_GroupFilterSheet> {
 
   @override
   Widget build(BuildContext context) {
-    // 构造可见的选项：未分组 + 所有出现过的分组
     final entries = <({String? id, String name, int count})>[];
     if (widget.usedIds.contains(null)) {
       entries.add((id: null, name: '未分组', count: 0));
@@ -1570,7 +2317,6 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
   }
 
   Future<void> _deleteGroup(HighlightGroup g) async {
-    // 统计该分组下的高亮数
     final all = ref.read(readerHighlightsProvider);
     var count = 0;
     for (final list in all.values) {
@@ -1606,7 +2352,6 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
     );
     if (choice == null) return;
 
-    // 清掉色块里指向这个分组的 defaultGroupId
     final palette = ref.read(readerPaletteProvider);
     final paletteNotifier = ref.read(readerPaletteProvider.notifier);
     for (final p in palette) {
