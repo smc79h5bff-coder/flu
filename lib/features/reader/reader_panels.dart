@@ -2199,10 +2199,9 @@ class _BookmarkHighlightManagerState
         return _selectionTile(
           selected: selected,
           child: ListTile(
-            leading: _selectionIndicator(
-              selected: selected,
-              leading: const Icon(Icons.bookmark),
-            ),
+
+
+            leading: const Icon(Icons.bookmark),
             title: Text(
               b.displayName.isEmpty ? '(空)' : b.displayName,
               maxLines: 2,
@@ -2296,10 +2295,11 @@ class _BookmarkHighlightManagerState
         return _selectionTile(
           selected: selected,
           child: ListTile(
-            leading: _selectionIndicator(
-              selected: selected,
-              leading: _highlightSwatch(h),
-            ),
+
+
+            leading: _highlightSwatch(h),
+
+            
             title: Text(h.displayName),
             subtitle: Text(
               '关键词：${h.keyword}',
@@ -2397,17 +2397,7 @@ class _BookmarkHighlightManagerState
     );
   }
 
-  Widget _selectionIndicator({
-    required bool selected,
-    required Widget leading,
-  }) {
-    if (!selected) return leading;
-    final s = Theme.of(context).colorScheme;
-    return Icon(
-      Icons.check_circle,
-      color: s.primary,
-    );
-  }
+  
 
   /// 高亮色块：支持纯色 / 渐变（含自定义 stops）。
   Widget _highlightSwatch(HighlightEntry h) {
