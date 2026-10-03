@@ -492,43 +492,177 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
 
   /// 点击文件的统一入口。
   /// 进阅读器时拿到返回的"当前文件路径"，返回后自动滚到那一项。
-  Future<void> _openFile(String path, String name, int? size) async {
-    final isText = _textExts.contains(_extOf(name));
+  /// 点击文件的统一入口。
+///
+/// 非文本文件 → 预览页。
+/// 文本文件 → 按 [fileOpenModeProvider] 分流到 阅读器 / 旧编辑器 / 行编辑器 / 询问。
+Future<void> _openFile(String path, String name, int? size) async {
+  final isText = _textExts.contains(_extOf(name));
 
-    // 非文本文件：走预览页，不需要返回定位。
-    if (!isText) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => TextPreviewScreen(
-            filePath: path,
-            fileName: name,
-          ),
-        ),
-      );
-      return;
-    }
-
-    // 文本文件：进阅读器
-    final textPaths = _collectTextFilePaths();
-    var index = textPaths.indexOf(path);
-    if (index < 0) {
-      // 兜底：当前文件不在列表里（比如搜索模式下点历史文件）
-      textPaths.insert(0, path);
-      index = 0;
-    }
-
-    final result = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => ReaderScreen(
-          filePaths: textPaths,
-          initialIndex: index,
+  // 非文本文件：走预览页，不需要返回定位。
+  if (!isText) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TextPreviewScreen(
+          filePath: path,
+          fileName: name,
         ),
       ),
     );
-
-    if (!mounted || result == null) return;
-    _scrollToPath(result);
+    return;
   }
+
+  // 文本文件：先确定用哪种方式。
+  final configured = ref.read(fileOpenModeProvider);
+  FileOpenMode resolved;
+  if (configured == FileOpenMode.ask) {
+    final picked = await _askOpenMode(name);
+    if (picked == null) return;
+    resolved = picked;
+  } else {
+    resolved = configured;
+  }
+
+  switch (resolved) {
+    case FileOpenMode.reader:
+      await _openInReader(path, name);
+    case FileOpenMode.editor:
+      await _openInEditor(path, name);
+    case FileOpenMode.lineEditor:
+      await _openInLineEditor(path, name);
+    case FileOpenMode.ask:
+      // 不会到这里（上面已消化）
+      break;
+  }
+}
+
+/// 阅读器打开。返回后自动滚到"刚才看的那一项"。
+Future<void> _openInReader(String path, String name) async {
+  final textPaths = _collectTextFilePaths();
+  var index = textPaths.indexOf(path);
+  if (index < 0) {
+    textPaths.insert(0, path);
+    index = 0;
+  }
+
+  final result = await Navigator.of(context).push<String>(
+    MaterialPageRoute<String>(
+      builder: (_) => ReaderScreen(
+        filePaths: textPaths,
+        initialIndex: index,
+      ),
+    ),
+  );
+
+  if (!mounted || result == null) return;
+  _scrollToPath(result);
+}
+
+/// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
+Future<void> _openInEditor(String path, String name) async {
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => SingleFileEditorScreen(
+        filePath: path,
+        fileName: name,
+      ),
+    ),
+  );
+  if (!mounted) return;
+  _load();
+}
+
+/// 行编辑器打开。返回后刷新列表。
+Future<void> _openInLineEditor(String path, String name) async {
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => LineEditorScreen(
+        filePath: path,
+        fileName: name,
+      ),
+    ),
+  );
+  if (!mounted) return;
+  _load();
+}
+
+/// "每次询问"模式：弹底部 sheet 让用户选，可以勾"记住"。
+Future<FileOpenMode?> _askOpenMode(String fileName) async {
+  final remember = ValueNotifier<bool>(false);
+  final picked = await showModalBottomSheet<FileOpenMode>(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (c) => SafeArea(
+      child: StatefulBuilder(
+        builder: (c, setS) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.open_in_new, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '用哪种方式打开「$fileName」？',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.menu_book),
+              title: const Text('阅读器'),
+              subtitle: const Text('分页翻页，看小说用'),
+              onTap: () => Navigator.pop(c, FileOpenMode.reader),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note),
+              title: const Text('旧编辑器'),
+              subtitle: const Text('功能全，大文件卡'),
+              onTap: () => Navigator.pop(c, FileOpenMode.editor),
+            ),
+            ListTile(
+              leading: const Icon(Icons.view_list),
+              title: const Text('行编辑器'),
+              subtitle: const Text('虚拟化，大文件流畅'),
+              onTap: () => Navigator.pop(c, FileOpenMode.lineEditor),
+            ),
+            const Divider(height: 1),
+            CheckboxListTile(
+              value: remember.value,
+              onChanged: (v) => setS(() => remember.value = v ?? false),
+              title: const Text('记住我的选择'),
+              subtitle: const Text(
+                '下次不再询问，直接按选中的方式打开。\n'
+                '想改回询问：右上角设置 → 打开方式 → 每次询问',
+                style: TextStyle(fontSize: 11),
+              ),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  if (picked != null && remember.value) {
+    ref.read(fileOpenModeProvider.notifier).update(picked);
+  }
+  return picked;
+}
 
   /// 把列表滚到指定路径那一项。
   /// 路径不在当前列表里就什么都不做（比如搜索词改了、目录变了）。
