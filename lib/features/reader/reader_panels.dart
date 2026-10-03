@@ -2087,83 +2087,91 @@ class _BookmarkHighlightManagerState
               Tab(text: '书签 (${bookmarks.length})'),
             ],
           ),
-          actions: _selectionMode
-              ? [
-                  IconButton(
-                    icon: Icon(
-                      allSelected ? Icons.deselect : Icons.select_all,
-                    ),
-                    tooltip: allSelected ? '全不选' : '全选',
-                    onPressed: () {
-                      setState(() {
-                        if (_isBookmarkTab) {
-                          if (allSelected) {
-                            _selectedBookmarks.clear();
-                          } else {
-                            _selectedBookmarks
-                              ..clear()
-                              ..addAll(bookmarks.map((b) => b.id));
-                          }
-                        } else {
-                          if (allSelected) {
-                            _selectedHighlights.clear();
-                          } else {
-                            _selectedHighlights
-                              ..clear()
-                              ..addAll(highlights
-                                  .map((h) => (h.fileKey, h.entry.id)));
-                          }
-                        }
-                      });
-                    },
-                  ),
-                  if (_isHighlightTab)
-                    IconButton(
-                      icon: const Icon(Icons.folder_outlined),
-                      tooltip: '移入分组',
-                      onPressed: selectedCount == 0
-                          ? null
-                          : () => _moveToGroup(),
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: '删除所选',
-                    onPressed: selectedCount == 0 ? null : _deleteSelected,
-                  ),
-                ]
-              : [
-                  // 筛选：只有高亮 Tab 才有意义（按分组筛 / 按范围筛）
-                  if (_isHighlightTab)
-                    IconButton(
-                      icon: const Icon(Icons.filter_list),
-                      tooltip: '筛选（分组 / 范围）',
-                      onPressed: () => _showFilterSheet(groups),
-                    ),
-                 
-                
-                
-                
-                
-                // 批量选择：长按在高亮 Tab 打开显示设置
-// （不用 IconButton，因为它的 tooltip 会截获长按）
-InkWell(
-  onTap: () => setState(() => _selectionMode = true),
-  onLongPress: _isHighlightTab
-      ? _showHighlightViewSettings
-      : null,
-  child: const SizedBox(
-    width: 48,
-    height: kToolbarHeight,
-    child: Icon(Icons.checklist),
-  ),
-),
 
-// 占位：让正常模式下 actions 的宽度和选中模式一致，
-    // 这样切进/切出选中模式时 TabBar 不会左右跳。
-    if (_isHighlightTab) const SizedBox(width: 48),
-if (_isBookmarkTab) const SizedBox(width: 48),
-                
-                ],
+
+
+
+
+
+
+
+          
+          actions: [
+  // 固定 3 个槽位，每个 52px，总宽 156px。
+  // 无论切 tab 或进出选中模式，actions 宽度恒定，TabBar 位置不动。
+  //
+  // 槽 1：选中 + 高亮 → 移入分组；其它情况空
+  // 槽 2：非选中 + 高亮 → 筛选；选中 → 全选；其它情况空
+  // 槽 3：非选中 → 批量选择；选中 → 删除
+  SizedBox(
+    width: 52,
+    height: kToolbarHeight,
+    child: _selectionMode && _isHighlightTab
+        ? IconButton(
+            icon: const Icon(Icons.folder_outlined),
+            tooltip: '移入分组',
+            onPressed: selectedCount == 0 ? null : _moveToGroup,
+          )
+        : null,
+  ),
+  SizedBox(
+    width: 52,
+    height: kToolbarHeight,
+    child: _selectionMode
+        ? IconButton(
+            icon: Icon(
+              allSelected ? Icons.deselect : Icons.select_all,
+            ),
+            tooltip: allSelected ? '全不选' : '全选',
+            onPressed: () {
+              setState(() {
+                if (_isBookmarkTab) {
+                  if (allSelected) {
+                    _selectedBookmarks.clear();
+                  } else {
+                    _selectedBookmarks
+                      ..clear()
+                      ..addAll(bookmarks.map((b) => b.id));
+                  }
+                } else {
+                  if (allSelected) {
+                    _selectedHighlights.clear();
+                  } else {
+                    _selectedHighlights
+                      ..clear()
+                      ..addAll(highlights
+                          .map((h) => (h.fileKey, h.entry.id)));
+                  }
+                }
+              });
+            },
+          )
+        : (_isHighlightTab
+            ? IconButton(
+                icon: const Icon(Icons.filter_list),
+                tooltip: '筛选（分组 / 范围）',
+                onPressed: () => _showFilterSheet(groups),
+              )
+            : null),
+  ),
+  SizedBox(
+    width: 52,
+    height: kToolbarHeight,
+    child: _selectionMode
+        ? IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: '删除所选',
+            onPressed: selectedCount == 0 ? null : _deleteSelected,
+          )
+        : InkWell(
+            onTap: () => setState(() => _selectionMode = true),
+            onLongPress: _isHighlightTab
+                ? _showHighlightViewSettings
+                : null,
+            child: const Icon(Icons.checklist),
+          ),
+  ),
+],
         ),
         body: TabBarView(
           controller: _tab,
