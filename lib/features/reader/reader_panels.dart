@@ -2088,6 +2088,8 @@ class _GradientEditorState extends State<_GradientEditor> {
   }
 }
 
+// 上面到 _GradientEditor 结束（这部分和原文件一致）。
+
 // ==================== 高亮管理页 ====================
 
 /// 一条高亮 + 它所属的文件路径。
@@ -3998,4 +4000,559 @@ Future<void> openEditorAndReturn(
     ),
   );
   onReturn();
+}
+
+// ==================== 新建高亮弹窗 ====================
+
+/// 弹出"新建高亮"表单。返回用户创建的 HighlightEntry，取消返回 null。
+///
+/// [presetColor] 可选。从"色块编辑页"进来时传当前色块的主色，
+/// 表单会预选这个色块作为起点色。其他入口传 null，默认用第一个色块。
+Future<HighlightEntry?> showNewHighlightDialog({
+  required BuildContext context,
+  required List<HighlightPalette> palettes,
+  required List<HighlightGroup> groups,
+  int? presetColor,
+}) {
+  return showDialog<HighlightEntry>(
+    context: context,
+    builder: (_) => _NewHighlightDialog(
+      palettes: palettes,
+      groups: groups,
+      presetColor: presetColor,
+    ),
+  );
+}
+
+class _NewHighlightDialog extends StatefulWidget {
+  const _NewHighlightDialog({
+    required this.palettes,
+    required this.groups,
+    this.presetColor,
+  });
+
+  final List<HighlightPalette> palettes;
+  final List<HighlightGroup> groups;
+  final int? presetColor;
+
+  @override
+  State<_NewHighlightDialog> createState() => _NewHighlightDialogState();
+}
+
+class _NewHighlightDialogState extends State<_NewHighlightDialog> {
+  final _nameCtrl = TextEditingController();
+  final _kwCtrl = TextEditingController();
+  bool _isRegex = false;
+  int _groupIndex = 0;
+  String? _groupId;
+  String? _regexError;
+
+  // ---- 颜色状态（和编辑高亮页结构一致）----
+  bool _isGradient = false;
+  List<Color> _colors = const [Color(0xFFFFEB3B)];
+  List<double> _stops = const [0.0];
+  Color _textColor = const Color(0xFF000000);
+
+  /// 换风格 / 换模板时用它强制重建 _GradientEditor。
+  int _editorKey = 0;
+
+  /// 当前选中的模板下标（-1 = 用户已手动改过颜色）。
+  int _selectedTemplateIdx = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.palettes.isEmpty) return;
+    var idx = 0;
+    if (widget.presetColor != null) {
+      for (var i = 0; i < widget.palettes.length; i++) {
+        final p = widget.palettes[i];
+        if (p.colors.isNotEmpty &&
+            p.colors.first == widget.presetColor) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    _applyTemplate(idx);
+    _selectedTemplateIdx = idx;
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _kwCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 把一个模板色块的颜色 / 文字色套到当前颜色状态上。
+  void _applyTemplate(int idx) {
+    if (idx < 0 || idx >= widget.palettes.length) return;
+    final p = widget.palettes[idx];
+    if (p.colors.isEmpty) return;
+    _isGradient = p.colors.length > 1;
+    _colors = p.colors.map((c) => Color(c)).toList(growable: false);
+    if (p.stops.length == _colors.length) {
+      _stops = List<double>.from(p.stops);
+    } else {
+      _stops = [
+        for (var i = 0; i < _colors.length; i++)
+          _colors.length == 1 ? 0.0 : i / (_colors.length - 1),
+      ];
+    }
+    _textColor = Color(p.textColor);
+    _editorKey++;
+  }
+
+  void _validateRegex() {
+    final kw = _kwCtrl.text.trim();
+    if (!_isRegex || kw.isEmpty) {
+      if (_regexError != null) setState(() => _regexError = null);
+      return;
+    }
+    try {
+      RegExp(kw);
+      if (_regexError != null) setState(() => _regexError = null);
+    } catch (e) {
+      setState(() => _regexError = '正则无效：$e');
+    }
+  }
+
+  void _save() {
+    final kw = _kwCtrl.text.trim();
+    final name = _nameCtrl.text.trim();
+    if (kw.isEmpty) {
+      _toast('关键词 / 正则不能为空');
+      return;
+    }
+    if (_isRegex) {
+      try {
+        RegExp(kw);
+      } catch (e) {
+        setState(() => _regexError = '正则无效：$e');
+        _toast('正则无效，请检查');
+        return;
+      }
+    }
+
+    final colors = _isGradient
+        ? _colors.map((c) => c.toARGB32()).toList()
+        : <int>[_colors.first.toARGB32()];
+    final stops =
+        _isGradient ? List<double>.from(_stops) : <double>[0.0];
+
+    final entry = HighlightEntry(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      keyword: kw,
+      colors: colors,
+      stops: stops,
+      angle: 0.0,
+      textColor: _textColor.toARGB32(),
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+      name: name,
+      groupId: _groupId,
+      isRegex: _isRegex,
+      groupIndex: _isRegex ? _groupIndex : 0,
+    );
+    Navigator.pop(context, entry);
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      title: const Text('新建高亮'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.8,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ---------- 名称 ----------
+              const Text('名称'),
+              TextField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  hintText: '给这条高亮起个名（可留空）',
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ---------- 关键词 / 正则 ----------
+              Text(_isRegex ? '正则表达式' : '关键词 / 正则'),
+              TextField(
+                controller: _kwCtrl,
+                onChanged: (_) => _validateRegex(),
+                style: _isRegex
+                    ? const TextStyle(fontFamily: 'monospace')
+                    : null,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  hintText: _isRegex
+                      ? r'例如：(?<=「)[^」]+(?=」)'
+                      : '要匹配的内容',
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // ---------- 使用正则开关 ----------
+              Row(
+                children: [
+                  const Text('使用正则', style: TextStyle(fontSize: 13)),
+                  const SizedBox(width: 4),
+                  const Tooltip(
+                    message: '开：上方内容按正则解析\n'
+                        '关：按字面匹配',
+                    child: Icon(Icons.info_outline, size: 14),
+                  ),
+                  const Spacer(),
+                  Switch(
+                    value: _isRegex,
+                    onChanged: (v) {
+                      setState(() => _isRegex = v);
+                      _validateRegex();
+                    },
+                  ),
+                ],
+              ),
+              if (_regexError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    _regexError!,
+                    style:
+                        const TextStyle(color: Colors.red, fontSize: 12),
+                  ),
+                ),
+
+              // ---------- 捕获组索引（正则模式） ----------
+              if (_isRegex) ...[
+                const SizedBox(height: 12),
+                const Text('高亮第几个捕获组'),
+                TextFormField(
+                  key: ValueKey('new_group_$_groupIndex'),
+                  initialValue: _groupIndex.toString(),
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    hintText: '0 = 整个匹配；1 = 第 1 对括号；2 = 第 2 对括号',
+                  ),
+                  onFieldSubmitted: (v) {
+                    final n = int.tryParse(v.trim());
+                    setState(() => _groupIndex = n ?? 0);
+                  },
+                  onChanged: (v) {
+                    final n = int.tryParse(v.trim());
+                    if (n != null && n >= 0) _groupIndex = n;
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '例：正则 "([^"]+)" 填 1，只高亮引号里的字。\n'
+                    '   正则 (?<=「)[^」]+(?=」) 填 0，一样效果。',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+
+              // ---------- 快捷模板（只作为起点） ----------
+              Row(
+                children: [
+                  const Text('快捷模板',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 6),
+                  Text(
+                    '（点一下套用，之后还能改）',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 56,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: widget.palettes.length,
+                  itemBuilder: (ctx, i) {
+                    final p = widget.palettes[i];
+                    final selected = i == _selectedTemplateIdx;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: GestureDetector(
+                        onTap: () => setState(() {
+                          _selectedTemplateIdx = i;
+                          _applyTemplate(i);
+                        }),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: p.isGradient
+                                ? null
+                                : Color(p.colors.first),
+                            gradient: p.isGradient
+                                ? LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: p.colors
+                                        .map((c) => Color(c))
+                                        .toList(growable: false),
+                                    stops: p.stops.length == p.colors.length
+                                        ? p.stops
+                                        : null,
+                                  )
+                                : null,
+                            border: Border.all(
+                              color: selected
+                                  ? Colors.blue
+                                  : Colors.black12,
+                              width: selected ? 3 : 1,
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            p.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Color(p.textColor),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+
+              // ---------- 样式 + 颜色 ----------
+              Row(
+                children: [
+                  const Text('样式：'),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('纯色'),
+                    selected: !_isGradient,
+                    onSelected: (_) => setState(() {
+                      _isGradient = false;
+                      _selectedTemplateIdx = -1;
+                      if (_colors.length > 1) {
+                        _colors = [_colors.first];
+                        _stops = const [0.0];
+                      }
+                    }),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('渐变'),
+                    selected: _isGradient,
+                    onSelected: (_) => setState(() {
+                      _isGradient = true;
+                      _selectedTemplateIdx = -1;
+                      if (_colors.length < 2) {
+                        final c1 = _colors.first;
+                        final hsl = HSLColor.fromColor(c1);
+                        final c2 = hsl
+                            .withLightness(
+                                (hsl.lightness - 0.2).clamp(0.0, 1.0))
+                            .toColor();
+                        _colors = [c1, c2];
+                        _stops = const [0.0, 1.0];
+                      }
+                    }),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (!_isGradient)
+                _colorRow(
+                  '背景色',
+                  _colors.first,
+                  (c) => setState(() {
+                    _colors = [c];
+                    _selectedTemplateIdx = -1;
+                  }),
+                )
+              else
+                _GradientEditor(
+                  key: ValueKey(_editorKey),
+                  colors: _colors,
+                  stops: _stops,
+                  onChanged: (colors, stops) {
+                    setState(() {
+                      _colors = colors;
+                      _stops = stops;
+                      _selectedTemplateIdx = -1;
+                    });
+                  },
+                ),
+              const SizedBox(height: 8),
+              _colorRow(
+                '文字颜色',
+                _textColor,
+                (c) => setState(() {
+                  _textColor = c;
+                  _selectedTemplateIdx = -1;
+                }),
+              ),
+
+              const SizedBox(height: 16),
+              const Text('预览'),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(
+                        fontSize: 16, color: Colors.black),
+                    children: [
+                      const TextSpan(text: '这是 '),
+                      WidgetSpan(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: _isGradient ? null : _colors.first,
+                            gradient: _isGradient
+                                ? LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: _colors,
+                                    stops:
+                                        _stops.length == _colors.length
+                                            ? _stops
+                                            : null,
+                                  )
+                                : null,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 2),
+                          child: Text(
+                            _kwCtrl.text.isEmpty
+                                ? '关键词'
+                                : _kwCtrl.text,
+                            style: TextStyle(color: _textColor),
+                          ),
+                        ),
+                      ),
+                      const TextSpan(text: ' 的示例。'),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+
+              // ---------- 分组 ----------
+              const Text('分组',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String?>(
+                value: _groupId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('未分组'),
+                  ),
+                  for (final g in widget.groups)
+                    DropdownMenuItem<String?>(
+                      value: g.id,
+                      child: Text(g.name),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _groupId = v),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  /// 一行：标签 + hex + 色块。点色块调取色器。
+  Widget _colorRow(
+    String label,
+    Color color,
+    ValueChanged<Color> onPick,
+  ) {
+    return Row(
+      children: [
+        Expanded(child: Text(label)),
+        Text(
+          '#${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase().substring(2)}',
+          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        ),
+        const SizedBox(width: 8),
+        InkWell(
+          onTap: () async {
+            final picked = await showDialog<Color>(
+              context: context,
+              builder: (_) => _SimpleColorPicker(initial: color),
+            );
+            if (picked != null) onPick(picked);
+          },
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color,
+              border: Border.all(color: Colors.black26),
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
