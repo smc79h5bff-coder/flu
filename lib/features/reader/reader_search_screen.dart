@@ -216,16 +216,34 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
     final s = Theme.of(context).colorScheme;
 
     return Scaffold(
+
+
       appBar: AppBar(
-        title: const Text('搜索'),
-        actions: [
-          IconButton(
-            tooltip: '历史',
-            icon: const Icon(Icons.history),
-            onPressed: _showHistory,
-          ),
-        ],
-      ),
+  leading: IconButton(
+    icon: const Icon(Icons.arrow_back),
+    tooltip: '关闭搜索',
+    onPressed: () {
+      // 点返回按钮 = 关闭搜索：
+      // 清掉当前文件的搜索状态，这样回到阅读器后半开条不显示。
+      // 如果用户是想"跳转到某条结果"，应该点具体的结果行，
+      // 而不是点返回按钮。
+      ref.read(readerSearchProvider.notifier).clear();
+      Navigator.of(context).pop();  // 不带 result，不跳转
+    },
+  ),
+  title: const Text('搜索'),
+  actions: [
+    IconButton(
+      tooltip: '历史',
+      icon: const Icon(Icons.history),
+      onPressed: _showHistory,
+    ),
+  ],
+),
+
+
+
+      
       body: Column(
         children: [
           Padding(
