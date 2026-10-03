@@ -629,7 +629,7 @@ class ReaderScrollViewState extends State<ReaderScrollView> {
     final baseStyle = TextStyle(
       fontSize: s.fontSize,
       fontWeight: _toFontWeight(s.fontWeight),
-      height: 1.4,
+      height: 1.1,
     );
 
     return Positioned(
