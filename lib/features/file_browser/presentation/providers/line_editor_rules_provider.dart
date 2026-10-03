@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../../core/storage/pref_keys.dart';
 import '../../../../../core/storage/persistent_notifier.dart';
-import '../../../../preprocessing/domain/preprocessing_rule.dart';
+import '../../../preprocessing/domain/preprocessing_rule.dart';
 
 /// 行编辑器顶部按钮栏里的规则。
 ///
