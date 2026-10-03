@@ -2215,9 +2215,16 @@ Future<void> _openLineEditor() async {
         data: MediaQuery.of(context).copyWith(
           textScaler: TextScaler.noScaling,
         ),
+
+
         child: Scaffold(
-          backgroundColor: Color(settings.bgColor),
-          body: SafeArea(
+  backgroundColor: Color(settings.bgColor),
+  // 阅读器不需要键盘顶起内容。开着它会导致：
+  // 进搜索页 → 弹键盘 → body 高度变 → viewportSize 变；
+  // 返回 → 收键盘 → body 高度又变 → 又触发 _ensureLoaded，
+  // 于是"卡一会"重新读文件 + 重新分页。
+  resizeToAvoidBottomInset: false,
+  body: SafeArea(
             child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final size = Size(constraints.maxWidth, constraints.maxHeight);
