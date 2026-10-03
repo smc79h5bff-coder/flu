@@ -11,7 +11,7 @@ import '../../preprocessing/application/encoding_detector.dart';
 import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/encoding_type.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
-import '../../viewer/presentation/providers/toolbar_rules_provider.dart';
+import 'providers/line_editor_rules_provider.dart';
 import 'comparison_settings_screen.dart'
     show RuleEditorDialog, ruleSubtitle;
 
@@ -438,7 +438,7 @@ class _SingleFileEditorScreenState
   // ==================== 按钮栏 ====================
 
   Widget _buildToolbar() {
-    final rules = ref.watch(toolbarRulesOrderedProvider);
+    final rules = ref.watch(lineEditorRulesOrderedProvider);
     final s = Theme.of(context).colorScheme;
 
     return Container(
@@ -549,7 +549,7 @@ class _SingleFileEditorScreenState
           const RuleEditorDialog(showCopyToPreprocess: false),
     );
     if (rule == null || !mounted) return;
-    ref.read(toolbarRulesProvider.notifier).add(rule);
+    ref.read(lineEditorRulesProvider.notifier).add(rule);
     _toast('已添加按钮「${rule.name}」');
   }
 
@@ -565,11 +565,11 @@ class _SingleFileEditorScreenState
       ),
     );
     if (updated == null || !mounted) return;
-    ref.read(toolbarRulesProvider.notifier).updateRule(updated);
+    ref.read(lineEditorRulesProvider.notifier).updateRule(updated);
   }
 
   Future<void> _showToolbarOrderDialog() async {
-    final rules = ref.read(toolbarRulesOrderedProvider);
+    final rules = ref.read(lineEditorRulesOrderedProvider);
     if (rules.isEmpty) {
       _toast('还没有按钮');
       return;
@@ -1201,9 +1201,9 @@ class _ToolbarOrderDialogState extends ConsumerState<_ToolbarOrderDialog> {
 
   void _save() {
     ref
-        .read(toolbarOrderProvider.notifier)
+        .read(lineEditorOrderProvider.notifier)
         .setAll(_rules.map((r) => r.id).toList());
-    ref.read(toolbarRulesProvider.notifier).setAll(_rules);
+    ref.read(lineEditorRulesProvider.notifier).setAll(_rules);
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已保存')),
