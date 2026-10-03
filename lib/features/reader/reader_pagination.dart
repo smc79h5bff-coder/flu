@@ -193,7 +193,7 @@ class ReaderPaginator extends ChangeNotifier {
   PaginationResult _buildResult() {
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
-    final usableHeight =
+    
 final usableHeight =
     math.max(10.0, viewportHeight - kReaderVerticalPadding * 2 - 10);
     
