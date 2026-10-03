@@ -3389,6 +3389,9 @@ class _HighlightEditScreenState
               border: OutlineInputBorder(),
               isDense: true,
             ),
+
+onChanged: (_) => setState(() {}),
+            
           ),
           const SizedBox(height: 16),
           Row(
@@ -3446,6 +3449,50 @@ class _HighlightEditScreenState
           _colorRow(
               '文字颜色', _textColor, (c) => setState(() => _textColor = c)),
           const SizedBox(height: 16),
+
+const SizedBox(height: 16),
+const Text('预览'),
+const SizedBox(height: 6),
+Container(
+  padding: const EdgeInsets.all(12),
+  decoration: BoxDecoration(
+    color: Colors.grey.shade100,
+    borderRadius: BorderRadius.circular(6),
+  ),
+  child: RichText(
+    text: TextSpan(
+      style: const TextStyle(fontSize: 16, color: Colors.black),
+      children: [
+        const TextSpan(text: '这是 '),
+        WidgetSpan(
+          child: Container(
+            decoration: BoxDecoration(
+              color: _isGradient ? null : _colors.first,
+              gradient: _isGradient
+                  ? LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: _colors,
+                      stops: _stops.length == _colors.length
+                          ? _stops
+                          : null,
+                    )
+                  : null,
+            ),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 4, vertical: 2),
+            child: Text(
+              _kwCtrl.text.isEmpty ? '关键词' : _kwCtrl.text,
+              style: TextStyle(color: _textColor),
+            ),
+          ),
+        ),
+        const TextSpan(text: ' 的示例。'),
+      ],
+    ),
+  ),
+),
+          
           const Text('分组'),
           const SizedBox(height: 4),
           DropdownButtonFormField<String?>(
