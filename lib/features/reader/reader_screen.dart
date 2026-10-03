@@ -307,6 +307,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   int _lastHighlightQueryLine = -1;
   List<HighlightSpan> _lastHighlightQueryResult = const [];
 
+  int _lastSearchPosForHighlight = -1;
+  int _lastSeenSearchPos = -1;
+
+  /// "当前搜索命中"的临时高亮条目（粉色）。
+  static final HighlightEntry _searchHitEntry = HighlightEntry(
+    id: '__search_hit__',
+    keyword: '',
+    colors: const [0xFFFF4081],
+    stops: const [0.0],
+    angle: 0.0,
+    textColor: 0xFFFFFFFF,
+    createdAt: 0,
+  );
+
   // ==================== 手势 / 选区 ====================
 
   final GlobalKey _contentKey = GlobalKey();
@@ -704,16 +718,54 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _lastHighlightQueryResult = const [];
   }
 
-  /// 更快点 4：加 memo 的查询。
+  /// 更快点 4：加 memo 的查询。会并入"当前搜索命中"作为临时粉色高亮。
   List<HighlightSpan> _highlightsForLine(int lineIdx) {
-    if (_lastHighlightQueryLine == lineIdx) {
+    final state = ref.read(readerSearchProvider);
+    final searchPos = state.currentPos;
+
+    if (_lastHighlightQueryLine == lineIdx &&
+        _lastSearchPosForHighlight == searchPos) {
       return _lastHighlightQueryResult;
     }
+
     _ensurePageHighlightCache();
-    final r = _pageHighlightCache[lineIdx] ?? const <HighlightSpan>[];
+    final userHl = _pageHighlightCache[lineIdx] ?? const <HighlightSpan>[];
+    final merged = _mergeWithSearchHit(lineIdx, userHl, state);
+
     _lastHighlightQueryLine = lineIdx;
-    _lastHighlightQueryResult = r;
-    return r;
+    _lastSearchPosForHighlight = searchPos;
+    _lastHighlightQueryResult = merged;
+    return merged;
+  }
+
+  /// 把"当前搜索命中"作为临时粉色高亮插进去；用户高亮中与之重叠的被去掉。
+  List<HighlightSpan> _mergeWithSearchHit(
+    int lineIdx,
+    List<HighlightSpan> userHl,
+    ReaderSearchState state,
+  ) {
+    if (state.currentPos < 0 || state.currentPos >= state.hits.length) {
+      return userHl;
+    }
+    final hit = state.hits[state.currentPos];
+    if (hit.lineIndex != lineIdx) return userHl;
+
+    final ss = hit.startInLine;
+    final se = hit.endInLine;
+
+    final filtered = <HighlightSpan>[];
+    for (final h in userHl) {
+      if (h.endInLine <= ss || h.startInLine >= se) {
+        filtered.add(h);
+      }
+    }
+    filtered.add(HighlightSpan(
+      startInLine: ss,
+      endInLine: se,
+      entry: _searchHitEntry,
+    ));
+    filtered.sort((a, b) => a.startInLine.compareTo(b.startInLine));
+    return filtered;
   }
 
   // ==================== 精度暂停/恢复 ====================
@@ -852,7 +904,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _showTopMenu() {
     _clearSelection();
-    setState(() => _menuOpen = true);
+    // _menuOpen 只被 _nextPage 用来判断"菜单打开时点屏 = 关菜单"，
+    // 不需要重建 UI，所以不 setState —— 避免触发 LayoutBuilder 重算分页。
+    _menuOpen = true;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
@@ -862,7 +916,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       ),
       builder: (ctx) => _buildTopMenuSheet(ctx),
     ).then((_) {
-      if (mounted) setState(() => _menuOpen = false);
+      _menuOpen = false;
     });
   }
 
@@ -1796,6 +1850,13 @@ Future<void> _openLineEditor() async {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(readerSettingsProvider);
+    final searchState = ref.watch(readerSearchProvider);
+
+    // 搜索位置变了 → spans 缓存必须失效（否则当前命中不重绘）。
+    if (_lastSeenSearchPos != searchState.currentPos) {
+      _lastSeenSearchPos = searchState.currentPos;
+      _spansCache.clear();
+    }
 
     // 检测翻页方式切换。
     if (_lastSeenMode != settings.readerMode) {
@@ -1864,13 +1925,23 @@ Future<void> _openLineEditor() async {
             child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final size = Size(constraints.maxWidth, constraints.maxHeight);
-                if (size.width > 10 &&
-                    size.height > 10 &&
-                    _viewportSize != size) {
-                  _viewportSize = size;
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _ensureLoaded();
-                  });
+
+                // 只在当前路由是活跃路由时处理尺寸变化，
+                // 避免搜索页/其它页 push-pop 动画期间反复重建分页器。
+                final route = ModalRoute.of(context);
+                final routeIsCurrent = route == null || route.isCurrent;
+
+                if (routeIsCurrent &&
+                    size.width > 10 &&
+                    size.height > 10) {
+                  final diff = (_viewportSize.width - size.width).abs() +
+                      (_viewportSize.height - size.height).abs();
+                  if (diff > 1.0) {
+                    _viewportSize = size;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _ensureLoaded();
+                    });
+                  }
                 }
 
                 if (widget.filePaths.isEmpty) {
