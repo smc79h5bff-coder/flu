@@ -433,6 +433,19 @@ required this.pageBottomSafePx,
   /// 阅读模式：0 = 分页，1 = 滚动。
   final int readerMode;
 
+  /// 分页模式：底部安全边距（像素）。
+///
+/// 分页器算"一页能放几行"时，从可用高度里预留这么多像素。
+/// 只对"底部余量本来就小于该值"的页面生效——那些页会少一行，
+/// 避免最后一行因字体渲染差异被裁切。
+/// 底部余量大于该值的页完全不受影响。
+///
+/// 0（默认）：不预留，屏幕利用率最高。
+/// 5~8：一般足够覆盖不同设备的字体渲染差异。
+///
+/// 影响范围：仅分页模式。
+final int pageBottomSafePx;
+  
   // ==================== 上一文件按钮 ====================
 
   /// 样式：0 = 纯色圆（有箭头），1 = 圆环（无箭头、无填充）。
@@ -504,7 +517,8 @@ required this.pageBottomSafePx,
     bgColor: bgCream,
     showButtons: true,
     readerMode: 0,
-
+pageBottomSafePx: 0,
+    
     topBtnStyle: 0,
     topBtnBgColor: 0x59000000, // 黑 35%，接近原来的样子
     topBtnFgColor: 0xFFFFFFFF,
@@ -548,13 +562,16 @@ required this.pageBottomSafePx,
   );
 
   Map<String, dynamic> toJson() => {
-        'fs': fontSize,
-        'fw': fontWeight,
-        'bg': bgColor,
-        'sb': showButtons,
-        'rm': readerMode,
+      'fs': fontSize,
+      'fw': fontWeight,
+      'bg': bgColor,
+      'sb': showButtons,
+      'rm': readerMode,
+      'pbsp': pageBottomSafePx,
 
-        'tbs': topBtnStyle,
+      'tbs': topBtnStyle,
+
+    
         'tbb': topBtnBgColor,
         'tbf': topBtnFgColor,
         'tbr': topBtnRingColor,
@@ -595,15 +612,18 @@ required this.pageBottomSafePx,
         'hh': hotZoneH,
       };
 
-  factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
-        fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
-        fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
-        bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
-        showButtons: j['sb'] as bool? ?? true,
-        readerMode: (j['rm'] as num?)?.toInt() ?? 0,
+factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
+      fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
+      fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
+      bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
+      showButtons: j['sb'] as bool? ?? true,
+      readerMode: (j['rm'] as num?)?.toInt() ?? 0,
+      pageBottomSafePx: (j['pbsp'] as num?)?.toInt() ?? 0,
 
-        topBtnStyle: (j['tbs'] as num?)?.toInt() ?? 0,
-        topBtnBgColor: (j['tbb'] as num?)?.toInt() ?? 0x59000000,
+      topBtnStyle: (j['tbs'] as num?)?.toInt() ?? 0,
+
+    
+    topBtnBgColor: (j['tbb'] as num?)?.toInt() ?? 0x59000000,
         topBtnFgColor: (j['tbf'] as num?)?.toInt() ?? 0xFFFFFFFF,
         topBtnRingColor: (j['tbr'] as num?)?.toInt() ?? 0xFF3D7CFF,
         topBtnRingWidth: (j['tbrw'] as num?)?.toDouble() ?? 2.0,
@@ -643,14 +663,16 @@ required this.pageBottomSafePx,
         hotZoneH: (j['hh'] as num?)?.toDouble() ?? 0.06,
       );
 
-  ReaderSettings copyWith({
-    double? fontSize,
-    int? fontWeight,
-    int? bgColor,
-    bool? showButtons,
-    int? readerMode,
+ReaderSettings copyWith({
+  double? fontSize,
+  int? fontWeight,
+  int? bgColor,
+  bool? showButtons,
+  int? readerMode,
+  int? pageBottomSafePx,
 
-    int? topBtnStyle,
+  int? topBtnStyle,
+    
     int? topBtnBgColor,
     int? topBtnFgColor,
     int? topBtnRingColor,
@@ -690,15 +712,22 @@ required this.pageBottomSafePx,
     double? hotZoneW,
     double? hotZoneH,
   }) =>
-      ReaderSettings(
-        fontSize: fontSize ?? this.fontSize,
-        fontWeight: fontWeight ?? this.fontWeight,
-        bgColor: bgColor ?? this.bgColor,
-        showButtons: showButtons ?? this.showButtons,
-        readerMode: readerMode ?? this.readerMode,
 
-        topBtnStyle: topBtnStyle ?? this.topBtnStyle,
-        topBtnBgColor: topBtnBgColor ?? this.topBtnBgColor,
+
+  
+ReaderSettings(
+  fontSize: fontSize ?? this.fontSize,
+  fontWeight: fontWeight ?? this.fontWeight,
+  bgColor: bgColor ?? this.bgColor,
+  showButtons: showButtons ?? this.showButtons,
+  readerMode: readerMode ?? this.readerMode,
+  pageBottomSafePx: pageBottomSafePx ?? this.pageBottomSafePx,
+
+  topBtnStyle: topBtnStyle ?? this.topBtnStyle,
+  
+  
+  
+  topBtnBgColor: topBtnBgColor ?? this.topBtnBgColor,
         topBtnFgColor: topBtnFgColor ?? this.topBtnFgColor,
         topBtnRingColor: topBtnRingColor ?? this.topBtnRingColor,
         topBtnRingWidth: topBtnRingWidth ?? this.topBtnRingWidth,
