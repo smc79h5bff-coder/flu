@@ -87,6 +87,26 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
   void setBottomBtnY(double v) =>
       update(state.copyWith(bottomBtnY: v.clamp(0.0, 1.0)));
 
+  // ---- 删除文件按钮 ----
+
+  void setDelBtnStyle(int v) => update(state.copyWith(delBtnStyle: v));
+  void setDelBtnBgColor(int v) =>
+      update(state.copyWith(delBtnBgColor: v));
+  void setDelBtnFgColor(int v) =>
+      update(state.copyWith(delBtnFgColor: v));
+  void setDelBtnRingColor(int v) =>
+      update(state.copyWith(delBtnRingColor: v));
+  void setDelBtnRingWidth(double v) =>
+      update(state.copyWith(delBtnRingWidth: v.clamp(0.5, 20.0)));
+  void setDelBtnOpacity(double v) =>
+      update(state.copyWith(delBtnOpacity: v.clamp(0.05, 1.0)));
+  void setDelBtnScale(double v) =>
+      update(state.copyWith(delBtnScale: v.clamp(0.2, 10.0)));
+  void setDelBtnX(double v) =>
+      update(state.copyWith(delBtnX: v.clamp(0.0, 1.0)));
+  void setDelBtnY(double v) =>
+      update(state.copyWith(delBtnY: v.clamp(0.0, 1.0)));
+
   // ---- 菜单热区 ----
 
   void setHotZoneVisible(bool v) =>
