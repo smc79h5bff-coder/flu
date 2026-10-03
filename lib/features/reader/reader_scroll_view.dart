@@ -41,6 +41,7 @@ class ReaderScrollView extends ConsumerStatefulWidget {
     required this.onProgressChanged,
     required this.onHighlightAdded,
     required this.onPaletteEdit,
+    this.onSelectionActiveChanged,
   });
 
   final String text;
@@ -54,6 +55,10 @@ class ReaderScrollView extends ConsumerStatefulWidget {
   final void Function(int charOffset) onProgressChanged;
   final void Function(String word, HighlightPalette palette) onHighlightAdded;
   final void Function(int paletteIndex) onPaletteEdit;
+
+  /// 选区状态变化回调。用于通知父级"滚动模式现在有/没有选中文字"，
+  /// 父级据此禁用/淡出悬浮按钮，避免按钮盖住底部操作栏。
+  final ValueChanged<bool>? onSelectionActiveChanged;
 
   @override
   ConsumerState<ReaderScrollView> createState() => ReaderScrollViewState();
@@ -75,6 +80,10 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
   final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
 
+  /// 整个滚动视图的 Stack。用于把行 / 手指的全局坐标转成 Stack 内局部
+  /// 坐标，让手柄 / 放大镜的 Positioned 定位正确。
+  final GlobalKey _stackKey = GlobalKey();
+
   // ---- 长按 / 边缘滚 ----
   bool _longPressActive = false;
   Offset? _longPressPos;
@@ -90,6 +99,12 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
   // ---- 进度上报 ----
   int _lastReportedOffset = -1;
+
+  // ---- 选区激活状态（用于通知父级）----
+  bool _lastReportedSelectionActive = false;
+
+  /// 选区统一色（手柄下方那条蓝，放大镜里也是它）。
+  static const Color _selectionBg = Color(0x553D7CFF);
 
   @override
   void initState() {
@@ -107,6 +122,11 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   void dispose() {
     _edgeScrollTimer?.cancel();
     _positions.itemPositions.removeListener(_onPositionsChanged);
+    // 通知父级：选区没了。用 microtask 避开当前帧正在 dispose 的时机。
+    final cb = widget.onSelectionActiveChanged;
+    if (cb != null && _lastReportedSelectionActive) {
+      Future.microtask(() => cb(false));
+    }
     super.dispose();
   }
 
@@ -169,6 +189,16 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     return list.reduce((a, b) => a.index > b.index ? a : b).index;
   }
 
+  // ==================== 选区状态通知 ====================
+
+  void _notifySelectionActive() {
+    final active = _selStartLine != null || _selEndLine != null;
+    if (active != _lastReportedSelectionActive) {
+      _lastReportedSelectionActive = active;
+      widget.onSelectionActiveChanged?.call(active);
+    }
+  }
+
   // ==================== 手势：点击 / 右滑 ====================
 
   void _handleTap() {
@@ -212,6 +242,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     });
 
     _startEdgeScrollTimer();
+    _notifySelectionActive();
   }
 
   /// 返回 [line] 内 offset 处的"词"范围 [from, to)。
@@ -293,6 +324,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
     // 有选中 → 显示操作栏
     setState(() => _hBarVisible = true);
+    _notifySelectionActive();
   }
 
   // ==================== 边缘自动滚 ====================
@@ -385,6 +417,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _hBarVisible = false;
     _draggingHandle = 0;
     _dragHandlePos = null;
+    _notifySelectionActive();
   }
 
   String _selectedText() {
@@ -439,6 +472,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _longPressActive = true;
     _longPressPos = pos;
     _startEdgeScrollTimer();
+    _notifySelectionActive();
   }
 
   void _handleDragUpdate(Offset pos) {
@@ -471,6 +505,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _loupePos = null;
     _edgeScrollTimer?.cancel();
     setState(() => _hBarVisible = true);
+    _notifySelectionActive();
   }
 
   // ==================== 渲染 ====================
@@ -489,6 +524,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     return ColoredBox(
       color: bgColor,
       child: Stack(
+        key: _stackKey,
         children: [
           Positioned.fill(
             child: GestureDetector(
@@ -516,7 +552,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
                           ? searchState.hits[searchState.currentPos]
                           : null;
                   return _ScrollLineRow(
-                    key: key,
+                    lineKey: key,
                     lineIndex: i,
                     text: widget.lines[i],
                     style: baseStyle,
@@ -566,17 +602,27 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       return const [];
     }
 
+    // 拿 Stack 的 RenderBox，把全局坐标转成 Stack 内局部坐标。
+    // localToGlobal 给出的是全局坐标（含状态栏偏移），Positioned 要的是
+    // Stack 内局部坐标，所以必须再 globalToLocal 转一次。
+    final stackBox =
+        _stackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null) return const [];
+
     final widgets = <Widget>[];
 
-    final startCtx = _lineKeys[_selStartLine!]?.currentContext;
+    // 左手柄：放在起点行的左上角外侧。
+    final startKey = _lineKeys[_selStartLine!];
+    final startCtx = startKey?.currentContext;
     if (startCtx != null) {
       final box = startCtx.findRenderObject() as RenderBox?;
       if (box != null) {
-        final topLeft = box.localToGlobal(Offset.zero);
+        final localTopLeft =
+            stackBox.globalToLocal(box.localToGlobal(Offset.zero));
         widgets.add(
           Positioned(
-            left: math.max(0, topLeft.dx - 20),
-            top: topLeft.dy,
+            left: math.max(0, localTopLeft.dx - 20),
+            top: localTopLeft.dy,
             child: _DragHandle(
               isLeft: true,
               onDragStart: (pos) => _handleDragStart(1, pos),
@@ -588,16 +634,19 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       }
     }
 
-    final endCtx = _lineKeys[_selEndLine!]?.currentContext;
+    // 右手柄：放在终点行的右下角外侧。
+    final endKey = _lineKeys[_selEndLine!];
+    final endCtx = endKey?.currentContext;
     if (endCtx != null) {
       final box = endCtx.findRenderObject() as RenderBox?;
       if (box != null) {
-        final topLeft = box.localToGlobal(Offset.zero);
+        final localTopLeft =
+            stackBox.globalToLocal(box.localToGlobal(Offset.zero));
         final size = box.size;
         widgets.add(
           Positioned(
-            left: topLeft.dx + size.width,
-            top: topLeft.dy + size.height - 28,
+            left: localTopLeft.dx + size.width,
+            top: localTopLeft.dy + size.height - 28,
             child: _DragHandle(
               isLeft: false,
               onDragStart: (pos) => _handleDragStart(2, pos),
@@ -623,19 +672,44 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       return const SizedBox.shrink();
     }
 
+    final lineText = widget.lines[line];
+
+    // 计算选区在本行的起止，传给 ReaderLoupe 画选区背景。
+    int? selStartInLine;
+    int? selEndInLine;
+    if (line == _selStartLine && line == _selEndLine) {
+      // 单行选区
+      selStartInLine = _selStartOffset;
+      selEndInLine = _selEndOffset;
+    } else if (line == _selStartLine) {
+      // 起点行（跨行）
+      selStartInLine = _selStartOffset;
+      selEndInLine = lineText.length;
+    } else if (line == _selEndLine) {
+      // 终点行（跨行）
+      selStartInLine = 0;
+      selEndInLine = _selEndOffset;
+    }
+
     const double w = 160;
     const double h = 56;
     const double gap = 18;
 
-    final screenSize = MediaQuery.of(context).size;
-    final above = Offset(fingerPos.dx, fingerPos.dy - gap - h / 2);
+    // 放大镜位置也用 Stack 局部坐标，避免 SafeArea 偏差。
+    final stackBox =
+        _stackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null) return const SizedBox.shrink();
+    final localFinger = stackBox.globalToLocal(fingerPos);
+    final stackSize = stackBox.size;
+
+    final above = Offset(localFinger.dx, localFinger.dy - gap - h / 2);
     var center = above;
     if (above.dy - h / 2 < 8) {
-      center = Offset(fingerPos.dx, fingerPos.dy + gap + h / 2);
+      center = Offset(localFinger.dx, localFinger.dy + gap + h / 2);
     }
     center = Offset(
-      center.dx.clamp(w / 2 + 8, screenSize.width - w / 2 - 8),
-      center.dy.clamp(h / 2 + 8, screenSize.height - h / 2 - 8),
+      center.dx.clamp(w / 2 + 8, stackSize.width - w / 2 - 8),
+      center.dy.clamp(h / 2 + 8, stackSize.height - h / 2 - 8),
     );
 
     final baseStyle = TextStyle(
@@ -652,12 +726,16 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
           elevation: 6,
           borderRadius: BorderRadius.circular(4),
           child: ReaderLoupe(
-            lineText: widget.lines[line],
+            lineText: lineText,
             caretOffset: offset,
             style: baseStyle,
             bgColor: Color(s.bgColor),
             fgColor: const Color(0xFF222222),
             caretColor: Theme.of(context).colorScheme.primary,
+            // 传选区，放大镜里画上蓝色背景
+            selectionStart: selStartInLine,
+            selectionEnd: selEndInLine,
+            selectionBg: _selectionBg,
             scale: 1.4,
             width: w,
             height: h,
@@ -823,7 +901,7 @@ FontWeight _toFontWeight(int v) {
 
 class _ScrollLineRow extends StatelessWidget {
   const _ScrollLineRow({
-    super.key,
+    required this.lineKey,
     required this.lineIndex,
     required this.text,
     required this.style,
@@ -835,6 +913,10 @@ class _ScrollLineRow extends StatelessWidget {
     required this.selEndOffset,
     required this.searchHit,
   });
+
+  /// 挂在最内层 Text.rich 上的 key。
+  /// _hitTest 和 _buildHandles 都靠它拿到 RenderParagraph。
+  final GlobalKey lineKey;
 
   final int lineIndex;
   final String text;
@@ -851,14 +933,67 @@ class _ScrollLineRow extends StatelessWidget {
   /// 当前搜索命中（如果命中在本行）。start/end 是行内偏移。
   final ({int start, int end})? searchHit;
 
+  static const Color _selectionBg = Color(0x553D7CFF);
+
   @override
   Widget build(BuildContext context) {
     final spans = _buildSpansWithSelection();
-    return Text.rich(
-      TextSpan(children: spans),
-      style: style,
-      softWrap: true,
-    );
+
+    // 有没有渐变高亮需要垫色块。
+    final gradientEntries = <HighlightEntry>[];
+    for (final h in highlights) {
+      if (h.keyword.isEmpty) continue;
+      if (h.colors.length <= 1) continue;
+      gradientEntries.add(h);
+    }
+
+    if (gradientEntries.isEmpty || text.isEmpty) {
+      return Text.rich(
+        TextSpan(children: spans),
+        style: style,
+        softWrap: true,
+        key: lineKey,
+      );
+    }
+
+    return LayoutBuilder(builder: (ctx, constraints) {
+      final gradRects = _measureGradientRects(
+        text: text,
+        style: style,
+        maxWidth: constraints.maxWidth,
+        entries: gradientEntries,
+      );
+
+      return Stack(
+        children: [
+          for (final g in gradRects)
+            Positioned(
+              left: g.rect.left,
+              top: g.rect.top,
+              width: g.rect.width,
+              height: g.rect.height,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: g.colors,
+                      stops: g.stops,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Text.rich(
+            TextSpan(children: spans),
+            style: style,
+            softWrap: true,
+            key: lineKey,
+          ),
+        ],
+      );
+    });
   }
 
   /// 在 `_buildSpans` 基础上再叠加字符级选区染色。
@@ -898,7 +1033,6 @@ class _ScrollLineRow extends StatelessWidget {
     int sFrom,
     int sTo,
   ) {
-    const selBg = Color(0x553D7CFF);
     final out = <InlineSpan>[];
     var cursor = 0;
     for (final span in baseSpans) {
@@ -933,7 +1067,7 @@ class _ScrollLineRow extends StatelessWidget {
       // 中段（选区内）
       out.add(TextSpan(
         text: t.substring(lo - spanStart, hi - spanStart),
-        style: (span.style ?? style).copyWith(backgroundColor: selBg),
+        style: (span.style ?? style).copyWith(backgroundColor: _selectionBg),
       ));
       // 后段（选区外）
       if (hi < spanEnd) {
@@ -947,6 +1081,9 @@ class _ScrollLineRow extends StatelessWidget {
   }
 
   /// 构造"用户高亮 + 当前搜索命中"的 span。搜索命中覆盖用户高亮。
+  ///
+  /// 渐变高亮（colors.length > 1）不在 span 里设背景色，
+  /// 由 build() 的渐变绘制层统一垫色块。
   List<InlineSpan> _buildSpans() {
     if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
 
@@ -963,13 +1100,16 @@ class _ScrollLineRow extends StatelessWidget {
         regexEntries.add(h);
         continue;
       }
+      final isGradient = h.colors.length > 1;
       var from = 0;
       while (from <= text.length - h.keyword.length) {
         final idx = text.indexOf(h.keyword, from);
         if (idx < 0) break;
         final end = idx + h.keyword.length;
         for (var j = idx; j < end && j < n; j++) {
-          bgColors[j] = Color(h.colors.first);
+          if (!isGradient) {
+            bgColors[j] = Color(h.colors.first);
+          }
           fgColors[j] = Color(h.textColor);
         }
         from = end;
@@ -984,9 +1124,12 @@ class _ScrollLineRow extends StatelessWidget {
       );
       for (final s in regexSpans) {
         final entry = s.entry;
+        final isGradient = entry.colors.length > 1;
         final end = s.endInLine < n ? s.endInLine : n;
         for (var j = s.startInLine; j < end; j++) {
-          bgColors[j] = Color(entry.colors.first);
+          if (!isGradient) {
+            bgColors[j] = Color(entry.colors.first);
+          }
           fgColors[j] = Color(entry.textColor);
         }
       }
@@ -1028,6 +1171,95 @@ class _ScrollLineRow extends StatelessWidget {
     }
     return spans;
   }
+}
+
+// ==================== 渐变 rect 测量 ====================
+
+class _GradRect {
+  const _GradRect({required this.rect, required this.colors, this.stops});
+  final Rect rect;
+  final List<Color> colors;
+  final List<double>? stops;
+}
+
+final Map<String, List<_GradRect>> _gradRectCache = {};
+const int _gradRectCacheCap = 256;
+
+/// 测量本行内所有渐变高亮占的字符范围 → 屏幕坐标 rect。
+List<_GradRect> _measureGradientRects({
+  required String text,
+  required TextStyle style,
+  required double maxWidth,
+  required List<HighlightEntry> entries,
+}) {
+  if (text.isEmpty || maxWidth <= 0 || entries.isEmpty) return const [];
+
+  final key = '${text.length}:$text\u0000'
+      '${style.fontSize}\u0000${style.fontWeight?.index}\u0000'
+      '${maxWidth.round()}\u0000'
+      '${entries.map((e) => '${e.keyword}:${e.colors.join(",")}').join("|")}';
+
+  final hit = _gradRectCache[key];
+  if (hit != null) return hit;
+
+  final tp = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    textAlign: TextAlign.left,
+    locale: const Locale('zh', 'CN'),
+  )..layout(maxWidth: maxWidth);
+
+  final rects = <_GradRect>[];
+  for (final h in entries) {
+    var from = 0;
+    while (from <= text.length - h.keyword.length) {
+      final idx = text.indexOf(h.keyword, from);
+      if (idx < 0) break;
+      final end = idx + h.keyword.length;
+
+      final boxes = tp.getBoxesForSelection(
+        TextSelection(baseOffset: idx, extentOffset: end),
+      );
+
+      List<double>? stops;
+      if (h.stops.length == h.colors.length && h.stops.length > 1) {
+        var ok = true;
+        for (var i = 1; i < h.stops.length; i++) {
+          if (h.stops[i] <= h.stops[i - 1]) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) stops = List<double>.from(h.stops);
+      }
+
+      final caretAtEnd = tp.getOffsetForCaret(
+        TextPosition(offset: end),
+        Rect.zero,
+      );
+
+      for (var bi = 0; bi < boxes.length; bi++) {
+        final box = boxes[bi];
+        var right = box.right;
+        if (bi == boxes.length - 1 && caretAtEnd.dx < right) {
+          right = caretAtEnd.dx;
+        }
+        rects.add(_GradRect(
+          rect: Rect.fromLTRB(box.left, box.top, right, box.bottom),
+          colors: h.colors.map((c) => Color(c)).toList(),
+          stops: stops,
+        ));
+      }
+
+      from = end;
+    }
+  }
+
+  if (_gradRectCache.length >= _gradRectCacheCap) {
+    _gradRectCache.clear();
+  }
+  _gradRectCache[key] = rects;
+  return rects;
 }
 
 // ==================== 拖动手柄 ====================
