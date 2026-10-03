@@ -47,6 +47,8 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
 
+  void setReaderMode(int v) => update(state.copyWith(readerMode: v));
+
   // ---- 上一文件按钮 ----
 
   void setTopBtnStyle(int v) => update(state.copyWith(topBtnStyle: v));
