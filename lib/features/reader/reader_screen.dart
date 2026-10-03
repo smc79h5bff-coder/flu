@@ -559,12 +559,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   // ==================== 加载 ====================
 
   String _loadKeyFor(String path) {
-    final s = ref.read(readerSettingsProvider);
-    return '$path|'
-        '${_viewportSize.width}x${_viewportSize.height}|'
-        '${s.fontSize}|${s.fontWeight}|'
-        '${_manualEncoding?.name ?? "auto"}';
-  }
+  final s = ref.read(readerSettingsProvider);
+  return '$path|'
+      '${_viewportSize.width}x${_viewportSize.height}|'
+      '${s.fontSize}|${s.fontWeight}|'
+      '${s.pageBottomSafePx}|'
+      '${_manualEncoding?.name ?? "auto"}';
+}
 
   Future<void> _ensureLoaded() async {
     if (_filePaths.isEmpty) return;
