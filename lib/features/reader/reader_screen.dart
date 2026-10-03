@@ -287,6 +287,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   EncodingType? _currentEncoding;
 
   bool _menuOpen = false;
+  final GlobalKey<ReaderScrollViewState> _scrollViewKey = GlobalKey();
 
   /// 上一次看到的阅读模式。用于检测用户切模式。
   late int _lastSeenMode;
@@ -1687,55 +1688,9 @@ Future<void> _openLineEditor() async {
     _selectWordAt(pos);
   }
 
-  /// 点击处理：悬浮按钮 > 菜单热区 > 其它区域翻页。
   void _handleTap(Offset globalPos) {
-    final settings = ref.read(readerSettingsProvider);
-
-    final contentBox =
-        _contentKey.currentContext?.findRenderObject() as RenderBox?;
-    if (contentBox == null) {
-      _nextPage();
-      return;
-    }
-    final origin = contentBox.localToGlobal(Offset.zero);
-    final w = contentBox.size.width;
-    final h = contentBox.size.height;
-
-    // ---------- 1. 悬浮按钮 ----------
-    // 只有开关打开时，按钮才存在、才能被点。
-    // 关了之后，点击原位置会穿透到下面的热区/翻页逻辑。
-    if (settings.showButtons) {
-      final topBtnSize = 50.0 * settings.topBtnScale;
-      final topCenter =
-          origin + Offset(settings.topBtnX * w, settings.topBtnY * h);
-      if ((globalPos - topCenter).distance <= topBtnSize / 2 + 8) {
-        _prevFile();
-        return;
-      }
-      final bottomBtnSize = 50.0 * settings.bottomBtnScale;
-      final bottomCenter =
-          origin + Offset(settings.bottomBtnX * w, settings.bottomBtnY * h);
-      if ((globalPos - bottomCenter).distance <= bottomBtnSize / 2 + 8) {
-        _nextFile();
-        return;
-      }
-    }
-
-    // ---------- 2. 菜单热区（矩形） ----------
-    final hzLeft = (settings.hotZoneX - settings.hotZoneW / 2) * w;
-    final hzTop = (settings.hotZoneY - settings.hotZoneH / 2) * h;
-    final hzRight = (settings.hotZoneX + settings.hotZoneW / 2) * w;
-    final hzBottom = (settings.hotZoneY + settings.hotZoneH / 2) * h;
-    final local = globalPos - origin;
-    if (local.dx >= hzLeft &&
-        local.dx <= hzRight &&
-        local.dy >= hzTop &&
-        local.dy <= hzBottom) {
-      _showTopMenu();
-      return;
-    }
-
-    // ---------- 3. 其它 → 翻下一页 ----------
+    // 热区和悬浮按钮已经被各自的 GestureDetector 接管，
+    // 这里只剩"点空白 = 翻下一页"。
     _nextPage();
   }
 
@@ -1926,15 +1881,18 @@ Future<void> _openLineEditor() async {
                 }
                 if (_error != null) return _buildError();
 
-                if (settings.readerMode == 1) {
-                  return _buildScrollReader(settings);
-                }
+                final content = settings.readerMode == 1
+                    ? _buildScrollReader(settings)
+                    : (_paginator?.result == null
+                        ? const SizedBox.shrink()
+                        : _buildReader(settings, size));
 
-                if (_paginator?.result == null) {
-                  return const SizedBox.shrink();
-                }
-
-                return _buildReader(settings, size);
+                return Stack(
+                  children: [
+                    Positioned.fill(child: content),
+                    ..._buildShellOverlays(settings, size),
+                  ],
+                );
               },
             ),
           ),
@@ -2020,40 +1978,6 @@ Future<void> _openLineEditor() async {
           ),
         ),
 
-        // ---------- 菜单热区（用户开关打开时才画） ----------
-        // ---------- 菜单热区（用户开关打开时才画） ----------
-if (settings.hotZoneVisible) _buildHotZone(settings, size),
-
-        // ---------- 悬浮按钮 ----------
-        if (settings.showButtons) ...[
-          _buildFloatButton(
-            style: settings.topBtnStyle,
-            bgColor: Color(settings.topBtnBgColor),
-            fgColor: Color(settings.topBtnFgColor),
-            ringColor: Color(settings.topBtnRingColor),
-            ringWidth: settings.topBtnRingWidth,
-            x: settings.topBtnX,
-            y: settings.topBtnY,
-            scale: settings.topBtnScale,
-            opacity: settings.topBtnOpacity,
-            icon: Icons.keyboard_arrow_up,
-            size: size,
-          ),
-          _buildFloatButton(
-            style: settings.bottomBtnStyle,
-            bgColor: Color(settings.bottomBtnBgColor),
-            fgColor: Color(settings.bottomBtnFgColor),
-            ringColor: Color(settings.bottomBtnRingColor),
-            ringWidth: settings.bottomBtnRingWidth,
-            x: settings.bottomBtnX,
-            y: settings.bottomBtnY,
-            scale: settings.bottomBtnScale,
-            opacity: settings.bottomBtnOpacity,
-            icon: Icons.keyboard_arrow_down,
-            size: size,
-          ),
-        ],
-
         // ---------- 手柄 + 放大镜 ----------
         Positioned.fill(
           child: ValueListenableBuilder<_DragInfo?>(
@@ -2105,6 +2029,43 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
     );
   }
 
+  /// 两种模式共用的"外壳"：菜单热区 + 上下文件悬浮按钮。
+  List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
+    return [
+      if (settings.hotZoneVisible) _buildHotZone(settings, size),
+      if (settings.showButtons) ...[
+        _buildFloatButton(
+          style: settings.topBtnStyle,
+          bgColor: Color(settings.topBtnBgColor),
+          fgColor: Color(settings.topBtnFgColor),
+          ringColor: Color(settings.topBtnRingColor),
+          ringWidth: settings.topBtnRingWidth,
+          x: settings.topBtnX,
+          y: settings.topBtnY,
+          scale: settings.topBtnScale,
+          opacity: settings.topBtnOpacity,
+          icon: Icons.keyboard_arrow_up,
+          size: size,
+          onTap: _prevFile,
+        ),
+        _buildFloatButton(
+          style: settings.bottomBtnStyle,
+          bgColor: Color(settings.bottomBtnBgColor),
+          fgColor: Color(settings.bottomBtnFgColor),
+          ringColor: Color(settings.bottomBtnRingColor),
+          ringWidth: settings.bottomBtnRingWidth,
+          x: settings.bottomBtnX,
+          y: settings.bottomBtnY,
+          scale: settings.bottomBtnScale,
+          opacity: settings.bottomBtnOpacity,
+          icon: Icons.keyboard_arrow_down,
+          size: size,
+          onTap: _nextFile,
+        ),
+      ],
+    ];
+  }
+
 
 
 
@@ -2120,12 +2081,8 @@ Widget _buildScrollReader(ReaderSettings settings) {
   final progress = ref.read(readerProgressProvider)[fileKey];
   final initialOffset = progress?.charOffset ?? 0;
 
-  final viewKey = ValueKey<String>(
-    'scroll|$fileKey|${settings.fontSize}|${settings.fontWeight}',
-  );
-
   return ReaderScrollView(
-    key: viewKey,
+    key: _scrollViewKey,
     text: _text!,
     lines: _lines,
     lineStarts: _lineStarts,
@@ -2202,7 +2159,11 @@ Widget _buildScrollReader(ReaderSettings settings) {
     top: top,
     width: width,
     height: height,
-    child: IgnorePointer(child: inner),
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _showTopMenu,
+      child: inner,
+    ),
   );
 }
   
@@ -2558,6 +2519,7 @@ Widget _buildScrollReader(ReaderSettings settings) {
     required double opacity,
     required IconData icon,
     required Size size,
+    required VoidCallback onTap,
   }) {
     final btnSize = 50.0 * scale;
     final left = x * size.width - btnSize / 2;
@@ -2595,7 +2557,9 @@ Widget _buildScrollReader(ReaderSettings settings) {
     return Positioned(
       left: left,
       top: top,
-      child: IgnorePointer(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
         child: Opacity(
           opacity: opacity.clamp(0.0, 1.0),
           child: body,
