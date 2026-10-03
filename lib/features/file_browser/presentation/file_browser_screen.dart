@@ -727,22 +727,28 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   /// 把列表滚到指定路径那一项。
   /// 路径不在当前列表里就什么都不做（比如搜索词改了、目录变了）。
   void _scrollToPath(String path) {
-    int index = -1;
-    if (_searchActive) {
-      index = _searchResults.indexWhere((h) => h.path == path);
-    } else {
-      index = (_entries ?? const <_EntryInfo>[])
-          .indexWhere((e) => e.entity.path == path);
-    }
-    if (index < 0) return;
-    if (!_itemScrollController.isAttached) return;
-
-    _itemScrollController.scrollTo(
-      index: index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
+  int index = -1;
+  if (_searchActive) {
+    index = _searchResults.indexWhere((h) => h.path == path);
+  } else {
+    index = (_entries ?? const <_EntryInfo>[])
+        .indexWhere((e) => e.entity.path == path);
   }
+  if (index < 0) return;
+
+  // 延后一帧再跳，确保列表已经完成布局（从其他页面刚返回时，
+  // 本页可能还在重建中，直接 jumpTo 会落在错位置）。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    if (!_itemScrollController.isAttached) return;
+    _itemScrollController.jumpTo(index: index);
+  });
+}
+
+
+
+
+  
 
   /// 收集"当前视图里所有文本文件的路径"。
   ///
