@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 class AppColors {
   const AppColors._();
 
-  static const Color brandGreen = Color(0xFFFFF5F6);
+  static const Color brandGreen = Color(0xFFFEF7FF);
 
   // Diff highlights — light mode
   static const Color addedLight = Color(0xFF2ECC71);
