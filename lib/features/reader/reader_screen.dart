@@ -1212,7 +1212,27 @@ Row(
       _ensureLoaded();
     });
   }
+Future<void> _openLineEditor() async {
+  if (widget.filePaths.isEmpty) return;
+  final path = widget.filePaths[_fileIndex];
+  final fileName = path.split('/').last;
+  _saveProgressNow();
+  _clearSelection();
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => LineEditorScreen(
+        filePath: path,
+        fileName: fileName,
+      ),
+    ),
+  );
+  if (!mounted) return;
+  // 回来重新加载（文件可能被改过）
+  _lastLoadedKey = null;
+  _ensureLoaded();
+}
 
+  
   // ==================== 选区 ====================
 
   void _clearSelection() {
