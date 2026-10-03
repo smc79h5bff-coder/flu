@@ -375,6 +375,78 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                         value: s.bottomBtnY.clamp(0.0, 1.0),
                         onChanged: n.setBottomBtnY,
                       ),
+                      const SizedBox(height: 12),
+
+                      // ---------- 删除文件按钮 ----------
+                      _sectionTitle('删除文件按钮'),
+                      _buttonStyleChooser(
+                        style: s.delBtnStyle,
+                        onChanged: n.setDelBtnStyle,
+                      ),
+                      if (s.delBtnStyle == 0) ...[
+                        _colorRow(
+                          context: context,
+                          label: '背景色',
+                          color: Color(s.delBtnBgColor),
+                          onPick: n.setDelBtnBgColor,
+                        ),
+                        _colorRow(
+                          context: context,
+                          label: '图标色',
+                          color: Color(s.delBtnFgColor),
+                          onPick: n.setDelBtnFgColor,
+                        ),
+                      ] else ...[
+                        _colorRow(
+                          context: context,
+                          label: '圆环颜色',
+                          color: Color(s.delBtnRingColor),
+                          onPick: n.setDelBtnRingColor,
+                        ),
+                        _sliderHeader('圆环粗细',
+                            '${s.delBtnRingWidth.toStringAsFixed(1)} px'),
+                        Slider(
+                          min: 0.5,
+                          max: 20,
+                          value: s.delBtnRingWidth.clamp(0.5, 20),
+                          onChanged: n.setDelBtnRingWidth,
+                        ),
+                      ],
+                      _sliderHeader(
+                          '透明度',
+                          '${(s.delBtnOpacity * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.05,
+                        max: 1.0,
+                        value: s.delBtnOpacity.clamp(0.05, 1.0),
+                        onChanged: n.setDelBtnOpacity,
+                      ),
+                      _sliderHeader(
+                          '大小', '${s.delBtnScale.toStringAsFixed(1)}×'),
+                      Slider(
+                        min: 0.2,
+                        max: 10.0,
+                        value: s.delBtnScale.clamp(0.2, 10.0),
+                        onChanged: n.setDelBtnScale,
+                      ),
+                      _sliderHeader(
+                          '横向 X',
+                          '${(s.delBtnX * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.0,
+                        max: 1.0,
+                        value: s.delBtnX.clamp(0.0, 1.0),
+                        onChanged: n.setDelBtnX,
+                      ),
+                      _sliderHeader(
+                          '纵向 Y',
+                          '${(s.delBtnY * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.0,
+                        max: 1.0,
+                        value: s.delBtnY.clamp(0.0, 1.0),
+                        onChanged: n.setDelBtnY,
+                      ),
                     ],
 
                     const SizedBox(height: 20),
@@ -768,6 +840,22 @@ Widget _miniPreview(
                 ringColor: Color(s.bottomBtnRingColor),
                 ringWidth: s.bottomBtnRingWidth * scale,
                 icon: Icons.keyboard_arrow_down,
+              ),
+              // 删除按钮预览
+              _previewButton(
+                scale: scale,
+                screenW: screenSize.width,
+                screenH: screenSize.height,
+                centerX: s.delBtnX * w,
+                centerY: s.delBtnY * h,
+                btnSize: 50.0 * s.delBtnScale * scale,
+                opacity: s.delBtnOpacity,
+                style: s.delBtnStyle,
+                bg: Color(s.delBtnBgColor),
+                fg: Color(s.delBtnFgColor),
+                ringColor: Color(s.delBtnRingColor),
+                ringWidth: s.delBtnRingWidth * scale,
+                icon: Icons.delete_outline,
               ),
             ],
           ],
