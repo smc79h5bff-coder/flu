@@ -27,6 +27,41 @@ void invalidateRegexCache() {
   _regexCache.clear();
 }
 
+// ==================== 捕获组位置计算 ====================
+
+/// 从 [m] 里取出第 [gi] 个捕获组在原文本中的起止位置。
+///
+/// Dart 的 `Match` 只有 `start` / `end`（整个匹配）和 `group(i)`（文本），
+/// 没有 `start(i)` / `end(i)`。所以只能拿捕获组文本，在完整匹配里从左往右
+/// 反查位置。
+///
+/// [gi] = 0 → 返回整个匹配的位置。
+/// 返回 null 表示这个捕获组不存在（越界 / 未参与匹配 / 空文本）。
+({int start, int end})? _captureRange(Match m, int gi) {
+  if (gi <= 0) {
+    return (start: m.start, end: m.end);
+  }
+  if (gi > m.groupCount) return null;
+
+  final fullText = m.group(0) ?? '';
+  final groupText = m.group(gi) ?? '';
+  if (fullText.isEmpty || groupText.isEmpty) return null;
+
+  // 从左往右扫描，跳过前面 gi-1 个捕获组。
+  var scanFrom = 0;
+  for (var i = 1; i <= gi; i++) {
+    final t = m.group(i);
+    if (t == null || t.isEmpty) continue;
+    final rel = fullText.indexOf(t, scanFrom);
+    if (rel < 0) return null;
+    if (i == gi) {
+      return (start: m.start + rel, end: m.start + rel + t.length);
+    }
+    scanFrom = rel + t.length;
+  }
+  return null;
+}
+
 // ==================== 页级匹配 ====================
 
 /// 对整页文本跑所有正则高亮。
@@ -57,17 +92,10 @@ Map<int, List<HighlightSpan>> matchRegexOnPage({
       // 空匹配跳过（防 a* 之类死循环）
       if (m.start == m.end) continue;
 
-      // 用捕获组还是整个匹配
-      final gi = entry.groupIndex;
-      final int start;
-      final int end;
-      if (gi > 0 && gi <= m.groupCount) {
-        start = m.start(gi);
-        end = m.end(gi);
-      } else {
-        start = m.start;
-        end = m.end;
-      }
+      final range = _captureRange(m, entry.groupIndex);
+      if (range == null) continue;
+      final start = range.start;
+      final end = range.end;
       if (start < 0 || end <= start || end > pageLen) continue;
 
       // 二分定位 start 所在行
@@ -119,22 +147,20 @@ List<HighlightSpan> matchRegexOnLine({
 }) {
   if (regexEntries.isEmpty || lineText.isEmpty) return const [];
   final out = <HighlightSpan>[];
+  final lineLen = lineText.length;
+
   for (final entry in regexEntries) {
     final re = getCompiledRegex(entry.keyword);
     if (re == null) continue;
     for (final m in re.allMatches(lineText)) {
       if (m.start == m.end) continue;
-      final gi = entry.groupIndex;
-      final int start;
-      final int end;
-      if (gi > 0 && gi <= m.groupCount) {
-        start = m.start(gi);
-        end = m.end(gi);
-      } else {
-        start = m.start;
-        end = m.end;
-      }
-      if (start < 0 || end <= start) continue;
+
+      final range = _captureRange(m, entry.groupIndex);
+      if (range == null) continue;
+      final start = range.start;
+      final end = range.end;
+      if (start < 0 || end <= start || end > lineLen) continue;
+
       out.add(HighlightSpan(
         startInLine: start,
         endInLine: end,
@@ -185,7 +211,6 @@ class _NewHighlightDialog extends StatefulWidget {
 class _NewHighlightDialogState extends State<_NewHighlightDialog> {
   final _nameCtrl = TextEditingController();
   final _kwCtrl = TextEditingController();
-  final _groupCtrl = TextEditingController();
   bool _isRegex = false;
   int _groupIndex = 0;
   int _colorIndex = 0;
@@ -209,19 +234,22 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _kwCtrl.dispose();
-    _groupCtrl.dispose();
     super.dispose();
   }
 
   void _validateRegex() {
     final kw = _kwCtrl.text.trim();
     if (!_isRegex || kw.isEmpty) {
-      setState(() => _regexError = null);
+      if (_regexError != null) {
+        setState(() => _regexError = null);
+      }
       return;
     }
     try {
       RegExp(kw);
-      setState(() => _regexError = null);
+      if (_regexError != null) {
+        setState(() => _regexError = null);
+      }
     } catch (e) {
       setState(() => _regexError = '正则无效：$e');
     }
@@ -236,11 +264,16 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
       );
       return;
     }
-    if (_isRegex && _regexError != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('正则无效，请检查')),
-      );
-      return;
+    if (_isRegex) {
+      try {
+        RegExp(kw);
+      } catch (e) {
+        setState(() => _regexError = '正则无效：$e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('正则无效，请检查')),
+        );
+        return;
+      }
     }
     final palette = widget.palettes[_colorIndex];
     final entry = HighlightEntry(
@@ -285,15 +318,19 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const SizedBox(height: 12),
 
               // 关键词 / 正则
-              const Text('关键词 / 正则'),
+              Text(_isRegex ? '正则表达式' : '关键词 / 正则'),
               TextField(
                 controller: _kwCtrl,
                 onChanged: (_) => _validateRegex(),
-                style: const TextStyle(fontFamily: 'monospace'),
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
+                style: _isRegex
+                    ? const TextStyle(fontFamily: 'monospace')
+                    : null,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
                   isDense: true,
-                  hintText: '要匹配的内容',
+                  hintText: _isRegex
+                      ? r'例如：(?<=「)[^」]+(?=」)'
+                      : '要匹配的内容',
                 ),
               ),
               const SizedBox(height: 8),
@@ -331,18 +368,25 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               if (_isRegex) ...[
                 const SizedBox(height: 12),
                 const Text('高亮第几个捕获组'),
-                TextField(
-                  controller: _groupCtrl,
+                TextFormField(
+                  key: ValueKey('new_group_$_groupIndex'),
+                  initialValue: _groupIndex.toString(),
                   keyboardType: TextInputType.number,
-                  onChanged: (v) {
-                    final n = int.tryParse(v.trim());
-                    setState(() => _groupIndex = n ?? 0);
-                  },
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     isDense: true,
                     hintText: '0 = 整个匹配；1 = 第 1 对括号；2 = 第 2 对括号',
                   ),
+                  onFieldSubmitted: (v) {
+                    final n = int.tryParse(v.trim());
+                    setState(() => _groupIndex = n ?? 0);
+                  },
+                  onChanged: (v) {
+                    final n = int.tryParse(v.trim());
+                    if (n != null && n >= 0) {
+                      _groupIndex = n;
+                    }
+                  },
                 ),
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -362,7 +406,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const SizedBox(height: 8),
 
               // 颜色选择
-              const Text('颜色', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text('颜色',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               SizedBox(
                 height: 56,
@@ -380,7 +425,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                           width: 48,
                           height: 48,
                           decoration: BoxDecoration(
-                            color: p.isGradient ? null : Color(p.colors.first),
+                            color:
+                                p.isGradient ? null : Color(p.colors.first),
                             gradient: p.isGradient
                                 ? LinearGradient(
                                     begin: Alignment.topCenter,
@@ -423,7 +469,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const SizedBox(height: 8),
 
               // 分组
-              const Text('分组', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text('分组',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               DropdownButtonFormField<String?>(
                 value: _groupId,
