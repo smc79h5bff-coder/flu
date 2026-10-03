@@ -603,13 +603,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       if (_lastLoadedKey != key) return;
 
       final settings = ref.read(readerSettingsProvider);
-      final paginator = ReaderPaginator(
-        text: text,
-        viewportWidth: _viewportSize.width,
-        viewportHeight: _viewportSize.height,
-        fontSize: settings.fontSize,
-        fontWeight: settings.fontWeight,
-      );
+
+
+      
+     final paginator = ReaderPaginator(
+  text: text,
+  viewportWidth: _viewportSize.width,
+  viewportHeight: _viewportSize.height,
+  fontSize: settings.fontSize,
+  fontWeight: settings.fontWeight,
+  pageBottomSafePx: settings.pageBottomSafePx,
+);
+
+
+      
       paginator.addListener(_onPaginatorChanged);
       paginator.start();
 
