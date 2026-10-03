@@ -150,15 +150,50 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   }
 
   /// 滚一屏。dir > 0 往下，dir < 0 往上。
+  ///
+  /// 下翻时，新顶部 = "当前屏幕底部所在的那一行"。
+  /// 如果底部那一行只显示了一部分，它会在下一页顶部完整显示；
+  /// 如果底部那一行已经完全可见，则从它的下一行开始。
+  ///
+  /// 上翻时，新顶部 = "当前屏幕顶部所在行 - 一屏可见行数"，
+  /// 保证回翻时上一屏内容完整再现。
   void jumpByScreen(int dir) {
     if (!_scrollCtrl.isAttached) return;
-    final first = _firstVisibleLine();
-    final last = _lastVisibleLine();
-    if (first == null || last == null) return;
+    final positions = _positions.itemPositions.value;
+    if (positions.isEmpty) return;
+
+    final sorted = positions.toList()
+      ..sort((a, b) => a.index.compareTo(b.index));
+    if (sorted.isEmpty) return;
+
+    if (dir > 0) {
+      // 找最后一个 itemLeadingEdge < 1 的 item —— 它的顶部还在视口内，
+      // 意味着它要么完全可见，要么底部被裁。
+      int? bottomRow;
+      double bottomTrailing = 0;
+      for (final p in sorted) {
+        if (p.itemLeadingEdge < 1.0) {
+          bottomRow = p.index;
+          bottomTrailing = p.itemTrailingEdge;
+        }
+      }
+      if (bottomRow == null) return;
+
+      // trailing <= 1.0（含浮点容差）→ 完全可见 → 从下一行开始。
+      // trailing >  1.0            → 部分可见 → 从它自身开始，
+      //                             保证这半行会在下一页完整显示。
+      final fullyVisible = bottomTrailing <= 1.0 + 1e-3;
+      final target = fullyVisible ? bottomRow + 1 : bottomRow;
+      final clamped = target.clamp(0, widget.lines.length - 1);
+      _scrollCtrl.jumpTo(index: clamped);
+      return;
+    }
+
+    // 上翻一屏：用第一个可见行往上退一屏。
+    final first = sorted.first.index;
+    final last = sorted.last.index;
     final visibleCount = last - first + 1;
-    final target = dir > 0
-        ? (first + visibleCount).clamp(0, widget.lines.length - 1)
-        : (first - visibleCount).clamp(0, widget.lines.length - 1);
+    final target = (first - visibleCount).clamp(0, widget.lines.length - 1);
     _scrollCtrl.jumpTo(index: target);
   }
 
