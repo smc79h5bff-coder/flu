@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -7,12 +8,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../preprocessing/application/encoding_detector.dart';
-import '../../preprocessing/application/preprocessing_service.dart';
-import '../../preprocessing/domain/encoding_type.dart';
-import '../../preprocessing/domain/preprocessing_rule.dart';
-import '../../viewer/presentation/providers/toolbar_rules_provider.dart';
+import '../../../preprocessing/application/encoding_detector.dart';
+import '../../../preprocessing/application/preprocessing_service.dart';
+import '../../../preprocessing/domain/encoding_type.dart';
+import '../../../preprocessing/domain/preprocessing_rule.dart';
+import '../../../viewer/presentation/viewer_widgets.dart'
+    show pickColorDialog;
 import 'comparison_settings_screen.dart' show RuleEditorDialog, ruleSubtitle;
+import 'providers/line_editor_rules_provider.dart';
 
 const int _lineEditorWarnSizeBytes = 5 * 1024 * 1024;
 const int _lineEditorRejectSizeBytes = 100 * 1024 * 1024;
@@ -25,18 +28,10 @@ enum _LineSaveEncoding {
   final String label;
 }
 
-/// 行编辑器。
+/// 行编辑器：用 `ListView.builder` + 每行一个独立小 TextField 做虚拟化，
+/// 一屏只渲染可见 ~20 行，敲字不触发全文 layout。
 ///
-/// 与 [SingleFileEditorScreen] 的差别：
-///   · 用 `ListView.builder` 虚拟化，一屏只渲染可见的 ~20 行
-///   · 每行一个独立的小 `TextField`，敲字只触发那一行的 layout
-///   · controller 按需创建、LRU 淘汰，超大文件内存不会爆
-///   · 跨行选择/复制粘贴跨行不精细——这是取舍
-///
-/// 与 [SingleFileEditorScreen] 的共同点：
-///   · 同样的编码检测/保存逻辑
-///   · 同样的按钮栏（调用 toolbarRulesProvider）
-///   · 同样的查找替换
+/// 与 [SingleFileEditorScreen]（旧编辑器）互不影响、共用同一文件。
 class LineEditorScreen extends ConsumerStatefulWidget {
   const LineEditorScreen({
     super.key,
@@ -52,13 +47,12 @@ class LineEditorScreen extends ConsumerStatefulWidget {
 }
 
 class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
-  // 缓存上限：可见行约 20~30 行，留 20 倍余量给快速滚动。
   static const int _controllerCacheCap = 600;
 
-  /// 事实来源：每行的文本。controller 只是这张表的镜像。
+  /// 事实来源：每行文本。controller 是这张表的镜像。
   List<String> _lines = const <String>[];
 
-  /// 按行号缓存 controller。超上限时按插入顺序清掉前一半。
+  /// 按行号缓存的 controller。
   final Map<int, _LineController> _controllers = {};
 
   bool _loading = true;
@@ -84,6 +78,9 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
   List<int> _findHits = const <int>[];
   int _findPos = -1;
 
+  /// 查找词刷新的 debounce。避免每敲一个字都遍历所有 controller。
+  Timer? _findDebounce;
+
   @override
   void initState() {
     super.initState();
@@ -92,6 +89,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
 
   @override
   void dispose() {
+    _findDebounce?.cancel();
     _scrollCtrl.dispose();
     _findCtrl.dispose();
     _replaceCtrl.dispose();
@@ -271,25 +269,24 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
   _LineController _controllerFor(int i) {
     var c = _controllers[i];
     if (c == null) {
-      c = _LineController(text: _lines[i]);
+      c = _LineController(text: _lines[i], findQuery: _findCtrl.text);
       final cc = c;
       c.addListener(() => _onLineChanged(i, cc.text));
       _controllers[i] = c;
       _maybeEvict();
     } else if (c.text != _lines[i]) {
-      // 行内容被外部改过（查找替换、按钮规则），回灌到旧 controller。
-      // setter 会同步通知 listener，_onLineChanged 检测到相等就直接返回。
+      // 行内容被外部改过（查找替换、按钮规则）→ 回灌。
+      // setter 会触发 listener，_onLineChanged 短路返回。
       c.text = _lines[i];
     }
-    c.findQuery = _findCtrl.text;
     return c;
   }
 
   void _maybeEvict() {
     if (_controllers.length <= _controllerCacheCap) return;
-    // Map 迭代按插入顺序 → 取前一半是最"老"的。
-    final keys =
-        _controllers.keys.take(_controllers.length ~/ 2).toList(growable: false);
+    final keys = _controllers.keys
+        .take(_controllers.length ~/ 2)
+        .toList(growable: false);
     for (final k in keys) {
       _controllers.remove(k)?.dispose();
     }
@@ -299,14 +296,8 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     if (i < 0 || i >= _lines.length) return;
     if (_lines[i] == text) return;
     _lines[i] = text;
-    // 只在第一次脏时 setState（让底部状态条刷新），之后敲字不再重绘。
-    if (!_dirty) {
-      setState(() => _dirty = true);
-    } else {
-      // 底部状态栏有字符数需要更新 → 每 5 次敲字刷一次也行，但这里保持
-      // 简单：仍然 setState，但代价很小（只有可见行重建）。
-      setState(() {});
-    }
+    // 底部状态栏有字符数，需要刷新。代价很小：只重建可见行。
+    setState(() => _dirty = true);
   }
 
   // ==================== 查找 / 替换 ====================
@@ -321,6 +312,22 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     } catch (_) {
       return RegExp(r'(?!)');
     }
+  }
+
+  /// 查找词输入变化 → 延时把可见行的 controller 里的 findQuery 刷一遍。
+  /// 直接改字段不会重绘，必须 notifyListeners。
+  void _onFindInputChanged(String _) {
+    _findDebounce?.cancel();
+    _findDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      final q = _findCtrl.text;
+      for (final c in _controllers.values) {
+        if (c.findQuery != q) {
+          c.findQuery = q;
+          c.notifyListeners();
+        }
+      }
+    });
   }
 
   void _recomputeHits() {
@@ -349,8 +356,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
       _recomputeHits();
       return;
     }
-    setState(
-        () => _findPos = (_findPos + 1) % _findHits.length);
+    setState(() => _findPos = (_findPos + 1) % _findHits.length);
     _scrollToLine(_findHits[_findPos]);
   }
 
@@ -369,11 +375,13 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     final lineNo = _findHits[_findPos];
     final line = _lines[lineNo];
     final p = _buildPattern();
-    final newLine =
-        line.replaceAllMapped(p, (_) => _replaceCtrl.text);
+    final newLine = line.replaceAllMapped(p, (_) => _replaceCtrl.text);
     if (newLine == line) return;
     _lines[lineNo] = newLine;
-    _controllers[lineNo]?.text = newLine;
+    final c = _controllers[lineNo];
+    if (c != null) {
+      c.text = newLine;
+    }
     setState(() => _dirty = true);
     _recomputeHits();
   }
@@ -390,7 +398,8 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
       final newLine = line.replaceAllMapped(p, (_) => _replaceCtrl.text);
       if (newLine != line) {
         _lines[i] = newLine;
-        _controllers[i]?.text = newLine;
+        final c = _controllers[i];
+        if (c != null) c.text = newLine;
         count++;
       }
     }
@@ -405,8 +414,8 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
 
   // ==================== 滚动 / 跳转 ====================
 
-  /// 估算滚动偏移。真正的行高由 Flutter 决定，这里只能估算——偏差通过
-  /// 之后的用户滚动修正。跳转够用就行。
+  /// 估算滚动偏移。行高由 Flutter 定，这里只能估算。
+  /// 偏差用户可以手动修正——目标行会先在视口附近，再滑一点就到。
   void _scrollToLine(int lineIdx) {
     if (!_scrollCtrl.hasClients) return;
     final est = lineIdx * (_fontSize * 1.4 + 18);
@@ -466,10 +475,11 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
   }
 
-  // ==================== 按钮栏 ====================
+  // ==================== 顶部按钮栏（独立于对比页） ====================
 
   Widget _buildToolbar() {
-    final rules = ref.watch(toolbarRulesOrderedProvider);
+    final rules = ref.watch(lineEditorRulesOrderedProvider);
+    final colors = ref.watch(lineEditorButtonColorsProvider);
     final s = Theme.of(context).colorScheme;
 
     return Container(
@@ -481,7 +491,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
             child: rules.isEmpty
                 ? Center(
                     child: Text(
-                      '点 + 添加常用按钮（长按按钮编辑）',
+                      '点 + 添加按钮（长按编辑）。这一栏和对比页按钮栏互不影响。',
                       style: TextStyle(
                         fontSize: 11,
                         color: s.onSurfaceVariant,
@@ -494,6 +504,10 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                     itemCount: rules.length,
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
+                      final c = colors[r.id];
+                      final bg = c?.bg ?? Colors.white;
+                      final fg = c?.fg ?? Colors.black;
+                      final border = c?.border ?? Colors.black.withOpacity(0.5);
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 3,
@@ -503,22 +517,21 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                           onTap: () => _applyToolbarRule(r),
                           onLongPress: () => _editToolbarRule(r),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 12),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: bg,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Colors.black.withOpacity(0.5),
-                              ),
+                              border: Border.all(color: border),
                             ),
                             alignment: Alignment.center,
                             child: Text(
                               r.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.black,
+                                color: fg,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -536,7 +549,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.sort, size: 20),
-            tooltip: '排序按钮',
+            tooltip: '排序 / 颜色',
             visualDensity: VisualDensity.compact,
             onPressed: _showToolbarOrderDialog,
           ),
@@ -558,7 +571,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
       final next = applyOneRule(joined, rule);
       final nextLines = next.split('\n');
 
-      // 行数可能变了，旧 controller 全部作废。
+      // 行数可能变了 → controller 全部作废。
       for (final c in _controllers.values) {
         c.dispose();
       }
@@ -587,7 +600,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
       builder: (_) => const RuleEditorDialog(showCopyToPreprocess: false),
     );
     if (rule == null || !mounted) return;
-    ref.read(toolbarRulesProvider.notifier).add(rule);
+    ref.read(lineEditorRulesProvider.notifier).add(rule);
     _toast('已添加按钮「${rule.name}」');
   }
 
@@ -600,18 +613,18 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
       ),
     );
     if (updated == null || !mounted) return;
-    ref.read(toolbarRulesProvider.notifier).updateRule(updated);
+    ref.read(lineEditorRulesProvider.notifier).updateRule(updated);
   }
 
   Future<void> _showToolbarOrderDialog() async {
-    final rules = ref.read(toolbarRulesOrderedProvider);
+    final rules = ref.read(lineEditorRulesOrderedProvider);
     if (rules.isEmpty) {
       _toast('还没有按钮');
       return;
     }
     await showDialog<void>(
       context: context,
-      builder: (c) => _LineToolbarOrderDialog(rules: rules),
+      builder: (c) => _LineEditorOrderDialog(rules: rules),
     );
   }
 
@@ -816,7 +829,10 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                     _findHits = const <int>[];
                     _findPos = -1;
                     for (final c in _controllers.values) {
-                      c.findQuery = '';
+                      if (c.findQuery.isNotEmpty) {
+                        c.findQuery = '';
+                        c.notifyListeners();
+                      }
                     }
                   }),
                 ),
@@ -829,6 +845,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                       isDense: true,
                       border: InputBorder.none,
                     ),
+                    onChanged: _onFindInputChanged,
                     onSubmitted: (_) => _findNext(),
                   ),
                 ),
@@ -1011,9 +1028,10 @@ class _LineRow extends StatelessWidget {
 // ==================== 带查找高亮的 controller ====================
 
 class _LineController extends TextEditingController {
-  _LineController({super.text});
+  _LineController({super.text, this.findQuery = ''});
 
-  String findQuery = '';
+  /// 当前查找词。空 = 不高亮。
+  String findQuery;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
 
@@ -1023,7 +1041,7 @@ class _LineController extends TextEditingController {
     TextStyle? style,
     required bool withComposing,
   }) {
-    // 有输入法组合时交给父类，避免遮掉组合下划线。
+    // 输入法组合输入时交给父类（组合下划线由系统画）。
     if (withComposing && value.composing.isValid) {
       return super.buildTextSpan(
         context: context,
@@ -1038,9 +1056,8 @@ class _LineController extends TextEditingController {
       return TextSpan(style: style, text: text.isEmpty ? ' ' : text);
     }
 
-    // 简单字面量匹配：把命中的位置涂黄。正则这里不做区分（正则命中的
-    // 子串不一定等于 q），所以查找栏开了正则时这里只做"整行含 q"的
-    // 标记——近似够用。
+    // 字面量高亮。查找开了正则时，这里仍是"整段 q 在行里出现"的高亮，
+    // 近似够用——精确高亮得先把正则的每个匹配位置都算出来，代价大。
     final spans = <InlineSpan>[];
     var start = 0;
     int idx;
@@ -1064,20 +1081,20 @@ class _LineController extends TextEditingController {
   }
 }
 
-// ==================== 按钮排序对话框 ====================
+// ==================== 按钮排序 + 颜色对话框 ====================
 
-class _LineToolbarOrderDialog extends ConsumerStatefulWidget {
-  const _LineToolbarOrderDialog({required this.rules});
+class _LineEditorOrderDialog extends ConsumerStatefulWidget {
+  const _LineEditorOrderDialog({required this.rules});
 
   final List<PreprocessingRule> rules;
 
   @override
-  ConsumerState<_LineToolbarOrderDialog> createState() =>
-      _LineToolbarOrderDialogState();
+  ConsumerState<_LineEditorOrderDialog> createState() =>
+      _LineEditorOrderDialogState();
 }
 
-class _LineToolbarOrderDialogState
-    extends ConsumerState<_LineToolbarOrderDialog> {
+class _LineEditorOrderDialogState
+    extends ConsumerState<_LineEditorOrderDialog> {
   late List<PreprocessingRule> _rules;
 
   @override
@@ -1093,7 +1110,7 @@ class _LineToolbarOrderDialogState
       titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-      title: const Text('按钮排序'),
+      title: const Text('按钮排序 / 颜色'),
       content: SizedBox(
         width: double.maxFinite,
         height: MediaQuery.of(context).size.height * 0.7,
@@ -1118,12 +1135,22 @@ class _LineToolbarOrderDialogState
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11),
               ),
-              trailing: IconButton(
-                tooltip: '删除',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () {
-                  setState(() => _rules.removeAt(i));
-                },
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: '设置颜色',
+                    icon: const Icon(Icons.palette),
+                    onPressed: () => _openColorPanel(r),
+                  ),
+                  IconButton(
+                    tooltip: '删除',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () {
+                      setState(() => _rules.removeAt(i));
+                    },
+                  ),
+                ],
               ),
             );
           },
@@ -1142,14 +1169,191 @@ class _LineToolbarOrderDialogState
     );
   }
 
+  void _openColorPanel(PreprocessingRule r) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _LineEditorColorDialog(
+        ruleId: r.id,
+        ruleName: r.name,
+      ),
+    );
+  }
+
   void _save() {
     ref
-        .read(toolbarOrderProvider.notifier)
+        .read(lineEditorOrderProvider.notifier)
         .setAll(_rules.map((r) => r.id).toList());
-    ref.read(toolbarRulesProvider.notifier).setAll(_rules);
+    ref.read(lineEditorRulesProvider.notifier).setAll(_rules);
+
+    // 清掉被删除按钮的颜色记录。
+    final newIds = _rules.map((r) => r.id).toSet();
+    final oldIds = widget.rules.map((r) => r.id).toSet();
+    for (final id in oldIds.difference(newIds)) {
+      ref.read(lineEditorButtonColorsProvider.notifier).remove(id);
+    }
+
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已保存')),
     );
+  }
+}
+
+class _LineEditorColorDialog extends ConsumerStatefulWidget {
+  const _LineEditorColorDialog({
+    required this.ruleId,
+    required this.ruleName,
+  });
+
+  final String ruleId;
+  final String ruleName;
+
+  @override
+  ConsumerState<_LineEditorColorDialog> createState() =>
+      _LineEditorColorDialogState();
+}
+
+class _LineEditorColorDialogState
+    extends ConsumerState<_LineEditorColorDialog> {
+  @override
+  Widget build(BuildContext context) {
+    final all = ref.watch(lineEditorButtonColorsProvider);
+    final c = all[widget.ruleId] ?? const LineEditorButtonColor();
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: Text(
+        '${widget.ruleName} · 按钮颜色',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _colorRow(
+              context: context,
+              label: '背景色',
+              isSet: c.bg != null,
+              color: c.bg ?? Colors.white,
+              onPick: (v) => _setBg(v),
+            ),
+            _colorRow(
+              context: context,
+              label: '文字色',
+              isSet: c.fg != null,
+              color: c.fg ?? Colors.black,
+              onPick: (v) => _setFg(v),
+            ),
+            _colorRow(
+              context: context,
+              label: '边框色',
+              isSet: c.border != null,
+              color: c.border ?? Colors.black.withOpacity(0.5),
+              onPick: (v) => _setBorder(v),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    );
+  }
+
+  void _setBg(Color? color) {
+    final all = ref.read(lineEditorButtonColorsProvider);
+    final cur = all[widget.ruleId] ?? const LineEditorButtonColor();
+    ref.read(lineEditorButtonColorsProvider.notifier).setOne(
+          widget.ruleId,
+          LineEditorButtonColor(bg: color, fg: cur.fg, border: cur.border),
+        );
+  }
+
+  void _setFg(Color? color) {
+    final all = ref.read(lineEditorButtonColorsProvider);
+    final cur = all[widget.ruleId] ?? const LineEditorButtonColor();
+    ref.read(lineEditorButtonColorsProvider.notifier).setOne(
+          widget.ruleId,
+          LineEditorButtonColor(bg: cur.bg, fg: color, border: cur.border),
+        );
+  }
+
+  void _setBorder(Color? color) {
+    final all = ref.read(lineEditorButtonColorsProvider);
+    final cur = all[widget.ruleId] ?? const LineEditorButtonColor();
+    ref.read(lineEditorButtonColorsProvider.notifier).setOne(
+          widget.ruleId,
+          LineEditorButtonColor(bg: cur.bg, fg: cur.fg, border: color),
+        );
+  }
+
+  Widget _colorRow({
+    required BuildContext context,
+    required String label,
+    required bool isSet,
+    required Color color,
+    required void Function(Color?) onPick,
+  }) {
+    final s = Theme.of(context).colorScheme;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: Text(label),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            isSet ? _hexOf(color) : '默认',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: isSet ? s.onSurface : s.outline,
+            ),
+          ),
+          const SizedBox(width: 4),
+          if (isSet)
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                tooltip: '清空（回到默认）',
+                icon: const Icon(Icons.close, size: 14),
+                onPressed: () => onPick(null),
+              ),
+            ),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: () async {
+              final picked = await pickColorDialog(context, color);
+              if (picked != null) onPick(picked);
+            },
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color,
+                border: Border.all(color: s.outline),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _hexOf(Color c) {
+    final v = c.toARGB32() & 0xFFFFFF;
+    return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
   }
 }
