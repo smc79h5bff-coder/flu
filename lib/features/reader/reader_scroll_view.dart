@@ -10,14 +10,16 @@ import 'package:share_plus/share_plus.dart';
 import 'reader_loupe.dart';
 import 'reader_models.dart';
 
-/// 滚动模式下的阅读视图。
+/// 滚动模式的阅读视图。
 ///
-/// 和分页模式的差别：
-///   · 内容不切页，一整个连续
-///   · 手指自由上下滑动（网页式）
-///   · 点击 = 往下滚一屏（无动画）
-///   · 右滑 = 往上滚一屏（无动画）
-///   · 长按选字，选区冻结滚动（同屏内选择，不做边缘自动滚）
+/// 交互：
+///   · 手指自由上下滑动（GestureDetector 用 translucent，不拦滚动）
+///   · 点击（不移动）→ 往下滚一屏
+///   · 右滑 → 往上滚一屏
+///   · 长按 → 开始选字。此时手势被 GestureDetector 抢走，滚动被锁
+///   · 长按后手指滑动 → 扩展选区
+///   · 手指停在屏幕上下边缘 → 内容自动滚（边缘自动滚）
+///   · 松手 → 显示底部操作栏（复制 / 分享 / 色块条）
 ///
 /// 独立于分页模式。父级 [ReaderScreen] 只需要在两种模式间切换即可。
 class ReaderScrollView extends StatefulWidget {
@@ -29,8 +31,10 @@ class ReaderScrollView extends StatefulWidget {
     required this.settings,
     required this.initialOffset,
     required this.highlights,
+    required this.palettes,
     required this.onProgressChanged,
     required this.onHighlightAdded,
+    required this.onPaletteEdit,
   });
 
   final String text;
@@ -39,12 +43,11 @@ class ReaderScrollView extends StatefulWidget {
   final ReaderSettings settings;
   final int initialOffset;
   final List<HighlightEntry> highlights;
+  final List<HighlightPalette> palettes;
 
-  /// 滚动位置变化时回调（字符偏移）。
   final void Function(int charOffset) onProgressChanged;
-
-  /// 用户长按色块加高亮时回调（word + palette）。
   final void Function(String word, HighlightPalette palette) onHighlightAdded;
+  final void Function(int paletteIndex) onPaletteEdit;
 
   @override
   State<ReaderScrollView> createState() => _ReaderScrollViewState();
@@ -60,20 +63,24 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
   int? _selEndLine;
   int? _selEndOffset;
 
-  /// 拖动哪个手柄：0=不在拖，1=左（起点），2=右（终点）。
+  /// 0=不在拖，1=左（起点），2=右（终点）。
   int _draggingHandle = 0;
   Offset? _dragHandlePos;
 
   final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
 
-  // ---- 手势 ----
-  Offset _downPos = Offset.zero;
-  int _downMs = 0;
-  bool _longPressFired = false;
-  bool _movedBeyond = false;
+  // ---- 长按 / 边缘滚 ----
+  bool _longPressActive = false;
+  Offset? _longPressPos;
+  Timer? _edgeScrollTimer;
+  static const double _edgeThreshold = 80.0;
+  static const int _edgeScrollIntervalMs = 80;
+
+  // ---- 放大镜 ----
+  Offset? _loupePos;
+
+  // ---- 选区操作栏 ----
   bool _hBarVisible = false;
-  Timer? _longPressTimer;
-  int _lastTapUpMs = 0;
 
   static const Color _selectionBg = Color(0x773D7CFF);
 
@@ -91,13 +98,15 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
 
   @override
   void dispose() {
-    _longPressTimer?.cancel();
+    _edgeScrollTimer?.cancel();
     _positions.itemPositions.removeListener(_onPositionsChanged);
     super.dispose();
   }
 
-  /// 滚动位置变化 → 上报进度。
+  // ==================== 进度上报 ====================
+
   int _lastReportedOffset = -1;
+
   void _onPositionsChanged() {
     final list = _positions.itemPositions.value;
     if (list.isEmpty) return;
@@ -111,11 +120,9 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     }
   }
 
-  /// 把字符偏移换算成行索引，然后跳过去。
   void _jumpToOffset(int charOffset) {
     if (!_scrollCtrl.isAttached) return;
     if (widget.lineStarts.isEmpty) return;
-    // 二分查找到包含这个偏移的行
     var lo = 0;
     var hi = widget.lineStarts.length - 1;
     while (lo < hi) {
@@ -129,142 +136,185 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     _scrollCtrl.jumpTo(index: lo);
   }
 
-  // ==================== 手势 ====================
+  // ==================== 顶部/底部可见行 ====================
 
-  void _onPointerDown(PointerDownEvent e) {
-    _longPressTimer?.cancel();
-    _downPos = e.position;
-    _downMs = DateTime.now().millisecondsSinceEpoch;
-    _longPressFired = false;
-    _movedBeyond = false;
-
-    if (_hBarVisible) {
-      setState(() => _hBarVisible = false);
-    }
-
-    _longPressTimer = Timer(const Duration(milliseconds: 400), () {
-      if (!mounted) return;
-      if (_movedBeyond) return;
-      _longPressFired = true;
-      _startSelectionAt(e.position);
-    });
+  int? _firstVisibleLine() {
+    final list = _positions.itemPositions.value;
+    if (list.isEmpty) return null;
+    return list.reduce((a, b) => a.index < b.index ? a : b).index;
   }
 
-  void _onPointerMove(PointerMoveEvent e) {
-    if (_draggingHandle != 0) {
-      // 手柄拖动
-      setState(() => _dragHandlePos = e.position);
-      _updateSelectionFromDrag(e.position);
-      return;
-    }
-    if (_longPressFired) {
-      // 长按后手指滑动 = 扩展选区
-      final hit = _hitTest(e.position);
-      if (hit == null) return;
-      setState(() {
-        _selEndLine = hit.line;
-        _selEndOffset = hit.offset;
-      });
-      return;
-    }
-    if (!_movedBeyond) {
-      final dx = (e.position.dx - _downPos.dx).abs();
-      final dy = (e.position.dy - _downPos.dy).abs();
-      if (dx > 10 || dy > 10) {
-        _movedBeyond = true;
-        _longPressTimer?.cancel();
-      }
-    }
+  int? _lastVisibleLine() {
+    final list = _positions.itemPositions.value;
+    if (list.isEmpty) return null;
+    return list.reduce((a, b) => a.index > b.index ? a : b).index;
   }
 
-  void _onPointerUp(PointerUpEvent e) {
-    _longPressTimer?.cancel();
+  // ==================== 手势：点击 / 右滑 ====================
 
-    if (_draggingHandle != 0) {
-      setState(() {
-        _draggingHandle = 0;
-        _dragHandlePos = null;
-        _hBarVisible = true;
-      });
-      return;
-    }
-
-    if (_longPressFired) {
-      _longPressFired = false;
-      setState(() => _hBarVisible = _selStartLine != null);
-      return;
-    }
-
-    if (_movedBeyond) return;
-
-    // 点击判定
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastTapUpMs < 100) return;
-    _lastTapUpMs = now;
-
-    // 右滑：在 down 到 up 之间 dx > 60 且时间短
-    final dx = e.position.dx - _downPos.dx;
-    final dt = now - _downMs;
-    if (dx > 60 && dt < 800) {
-      _scrollUpOneScreen();
-      return;
-    }
-    if (dx < -60 && dt < 800) {
-      // 左滑也当作下一屏，可选
-      _scrollDownOneScreen();
-      return;
-    }
-
-    // 普通点击：清选区或翻下一屏
-    if (_selStartLine != null || _hBarVisible) {
-      setState(() {
-        _clearSelection();
-      });
+  void _handleTap() {
+    if (_hBarVisible || _selStartLine != null) {
+      setState(_clearSelection);
       return;
     }
     _scrollDownOneScreen();
   }
 
-  void _onPointerCancel(PointerCancelEvent e) {
-    _longPressTimer?.cancel();
-    _longPressFired = false;
+  void _handleHorizontalDragEnd(DragEndDetails d) {
+    if (_hBarVisible || _selStartLine != null) return;
+    final v = d.primaryVelocity ?? 0;
+    // 右滑（正速度）→ 往上翻
+    if (v > 200) {
+      _scrollUpOneScreen();
+    } else if (v < -200) {
+      _scrollDownOneScreen();
+    }
   }
 
   void _scrollDownOneScreen() {
     if (!_scrollCtrl.isAttached) return;
-    final list = _positions.itemPositions.value;
-    if (list.isEmpty) return;
-    final first = list.reduce((a, b) => a.index < b.index ? a : b);
-    final viewportH = MediaQuery.of(context).size.height;
-    final rowH = _estimateRowHeight();
-    final rowsPerScreen = math.max(1, (viewportH / rowH).floor());
-    final target = (first.index + rowsPerScreen)
-        .clamp(0, widget.lines.length - 1);
+    final first = _firstVisibleLine();
+    final last = _lastVisibleLine();
+    if (first == null || last == null) return;
+    final visibleCount = last - first + 1;
+    final target =
+        (first + visibleCount).clamp(0, widget.lines.length - 1);
     _scrollCtrl.jumpTo(index: target);
   }
 
   void _scrollUpOneScreen() {
     if (!_scrollCtrl.isAttached) return;
-    final list = _positions.itemPositions.value;
-    if (list.isEmpty) return;
-    final first = list.reduce((a, b) => a.index < b.index ? a : b);
-    final viewportH = MediaQuery.of(context).size.height;
-    final rowH = _estimateRowHeight();
-    final rowsPerScreen = math.max(1, (viewportH / rowH).floor());
-    final target = (first.index - rowsPerScreen).clamp(0, widget.lines.length - 1);
+    final first = _firstVisibleLine();
+    final last = _lastVisibleLine();
+    if (first == null || last == null) return;
+    final visibleCount = last - first + 1;
+    final target =
+        (first - visibleCount).clamp(0, widget.lines.length - 1);
     _scrollCtrl.jumpTo(index: target);
   }
 
-  double _estimateRowHeight() {
-    return widget.settings.fontSize * 1.4 + 12;
+  // ==================== 手势：长按选字 ====================
+
+  void _handleLongPressStart(LongPressStartDetails d) {
+    final hit = _hitTest(d.globalPosition);
+    if (hit == null) return;
+    _longPressActive = true;
+    _longPressPos = d.globalPosition;
+    _loupePos = d.globalPosition;
+
+    setState(() {
+      _selStartLine = hit.line;
+      _selStartOffset = hit.offset;
+      _selEndLine = hit.line;
+      _selEndOffset = hit.offset;
+      _hBarVisible = false;
+    });
+
+    _startEdgeScrollTimer();
+  }
+
+  void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails d) {
+    if (!_longPressActive) return;
+    _longPressPos = d.globalPosition;
+    _loupePos = d.globalPosition;
+
+    final hit = _hitTest(d.globalPosition);
+    if (hit != null) {
+      setState(() {
+        _selEndLine = hit.line;
+        _selEndOffset = hit.offset;
+      });
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _handleLongPressEnd(LongPressEndDetails d) {
+    _longPressActive = false;
+    _longPressPos = null;
+    _loupePos = null;
+    _edgeScrollTimer?.cancel();
+
+    // 长按但没有选区（点到了空白）→ 视为普通点击
+    if (_selStartLine == null || _selEndLine == null) {
+      _handleTap();
+      return;
+    }
+
+    // 起点终点相同且没有扩展 → 也当作点击
+    if (_selStartLine == _selEndLine &&
+        _selStartOffset == _selEndOffset) {
+      setState(_clearSelection);
+      _handleTap();
+      return;
+    }
+
+    setState(() => _hBarVisible = true);
+  }
+
+  // ==================== 边缘自动滚 ====================
+
+  void _startEdgeScrollTimer() {
+    _edgeScrollTimer?.cancel();
+    _edgeScrollTimer = Timer.periodic(
+      const Duration(milliseconds: _edgeScrollIntervalMs),
+      (_) => _tickEdgeScroll(),
+    );
+  }
+
+  void _tickEdgeScroll() {
+    if (!_longPressActive) return;
+    final pos = _longPressPos;
+    if (pos == null) return;
+    if (!mounted) return;
+
+    final screenH = MediaQuery.of(context).size.height;
+    final dy = pos.dy;
+    if (dy < _edgeThreshold) {
+      _edgeScrollStep(-1);
+    } else if (dy > screenH - _edgeThreshold) {
+      _edgeScrollStep(1);
+    }
+  }
+
+  /// dir = -1 上滚（往顶部），dir = 1 下滚（往底部）。
+  void _edgeScrollStep(int dir) {
+    if (!_scrollCtrl.isAttached) return;
+    final first = _firstVisibleLine();
+    final last = _lastVisibleLine();
+    if (first == null || last == null) return;
+
+    final int target;
+    if (dir < 0) {
+      if (first <= 0) return;
+      target = first - 1;
+    } else {
+      if (last >= widget.lines.length - 1) return;
+      target = last + 1;
+    }
+    _scrollCtrl.jumpTo(index: target);
+
+    // 滚完后重算手指位置对应的行/字，更新选区终点。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_longPressActive) return;
+      final p = _longPressPos;
+      if (p == null) return;
+      final hit = _hitTest(p);
+      if (hit == null) return;
+      setState(() {
+        _selEndLine = hit.line;
+        _selEndOffset = hit.offset;
+      });
+    });
   }
 
   // ==================== 选区 ====================
 
   ({int line, int offset})? _hitTest(Offset globalPos) {
-    // 遍历可见行，找包含这个点的行
     final list = _positions.itemPositions.value;
-    for (final p in list) {
+    // 按 y 从大到小遍历（先命中下半屏，视觉上更符合预期）
+    final sorted = list.toList()..sort((a, b) => b.index.compareTo(a.index));
+    for (final p in sorted) {
       final key = _lineKeys[p.index];
       final ctx = key?.currentContext;
       if (ctx == null) continue;
@@ -287,38 +337,14 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     return null;
   }
 
-  void _startSelectionAt(Offset globalPos) {
-    final hit = _hitTest(globalPos);
-    if (hit == null) return;
-    setState(() {
-      _selStartLine = hit.line;
-      _selStartOffset = hit.offset;
-      _selEndLine = hit.line;
-      _selEndOffset = hit.offset;
-      _hBarVisible = false;
-    });
-  }
-
-  void _updateSelectionFromDrag(Offset globalPos) {
-    final hit = _hitTest(globalPos);
-    if (hit == null) return;
-    setState(() {
-      if (_draggingHandle == 1) {
-        _selStartLine = hit.line;
-        _selStartOffset = hit.offset;
-      } else if (_draggingHandle == 2) {
-        _selEndLine = hit.line;
-        _selEndOffset = hit.offset;
-      }
-    });
-  }
-
   void _clearSelection() {
     _selStartLine = null;
     _selStartOffset = null;
     _selEndLine = null;
     _selEndOffset = null;
     _hBarVisible = false;
+    _draggingHandle = 0;
+    _dragHandlePos = null;
   }
 
   String _selectedText() {
@@ -327,12 +353,16 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     final eL = _selEndLine;
     final eO = _selEndOffset;
     if (sL == null || sO == null || eL == null || eO == null) return '';
+
     var startL = sL, startO = sO, endL = eL, endO = eO;
     if (startL > endL || (startL == endL && startO > endO)) {
       final tL = startL, tO = startO;
-      startL = endL; startO = endO;
-      endL = tL; endO = tO;
+      startL = endL;
+      startO = endO;
+      endL = tL;
+      endO = tO;
     }
+
     if (startL == endL) {
       final line = widget.lines[startL];
       final s = startO.clamp(0, line.length);
@@ -356,6 +386,53 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     return sb.toString();
   }
 
+  // ==================== 手柄拖动 ====================
+
+  void _handleDragStart(int which, Offset pos) {
+    setState(() {
+      _draggingHandle = which;
+      _dragHandlePos = pos;
+      _loupePos = pos;
+      _hBarVisible = false;
+    });
+    _edgeScrollTimer?.cancel();
+    _longPressActive = true; // 复用边缘滚检测
+    _longPressPos = pos;
+    _startEdgeScrollTimer();
+  }
+
+  void _handleDragUpdate(Offset pos) {
+    if (_draggingHandle == 0) return;
+    _dragHandlePos = pos;
+    _longPressPos = pos;
+    _loupePos = pos;
+
+    final hit = _hitTest(pos);
+    if (hit != null) {
+      setState(() {
+        if (_draggingHandle == 1) {
+          _selStartLine = hit.line;
+          _selStartOffset = hit.offset;
+        } else if (_draggingHandle == 2) {
+          _selEndLine = hit.line;
+          _selEndOffset = hit.offset;
+        }
+      });
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _handleDragEnd() {
+    _draggingHandle = 0;
+    _dragHandlePos = null;
+    _longPressActive = false;
+    _longPressPos = null;
+    _loupePos = null;
+    _edgeScrollTimer?.cancel();
+    setState(() => _hBarVisible = true);
+  }
+
   // ==================== 渲染 ====================
 
   @override
@@ -373,19 +450,20 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
       color: bgColor,
       child: Stack(
         children: [
-          // ---------- 正文 ----------
+          // ---------- 正文 + 手势 ----------
           Positioned.fill(
-            child: Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: _onPointerDown,
-              onPointerMove: _onPointerMove,
-              onPointerUp: _onPointerUp,
-              onPointerCancel: _onPointerCancel,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _handleTap,
+              onHorizontalDragEnd: _handleHorizontalDragEnd,
+              onLongPressStart: _handleLongPressStart,
+              onLongPressMoveUpdate: _handleLongPressMoveUpdate,
+              onLongPressEnd: _handleLongPressEnd,
               child: ScrollablePositionedList.builder(
                 itemScrollController: _scrollCtrl,
                 itemPositionsListener: _positions,
                 itemCount: widget.lines.length,
-                padding: EdgeInsets.symmetric(
+                padding: const EdgeInsets.symmetric(
                   horizontal: 4,
                   vertical: 2,
                 ),
@@ -398,24 +476,18 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
                     style: baseStyle,
                     highlights: widget.highlights,
                     inSelection: _isLineInSelection(i),
-                    isSelStart: i == _selStartLine,
-                    isSelEnd: i == _selEndLine,
                   );
                 },
               ),
             ),
           ),
 
-          // ---------- 选区覆盖（简化：只画底色，不画精确框） ----------
-          // 由于 ScrollablePositionedList 会回收屏幕外的行，
-          // 精确的矩形选区比较复杂，这里用行级底色提示。
-
           // ---------- 手柄 ----------
           ..._buildHandles(),
 
           // ---------- 放大镜 ----------
-          if (_draggingHandle != 0 && _dragHandlePos != null)
-            _buildLoupe(s, _dragHandlePos!),
+          if (_loupePos != null && _selStartLine != null)
+            _buildLoupe(s, _loupePos!),
 
           // ---------- 底部操作栏 ----------
           if (_hBarVisible && _selStartLine != null && _selEndLine != null)
@@ -436,63 +508,68 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
 
   List<Widget> _buildHandles() {
     if (_selStartLine == null || _selEndLine == null) return const [];
-    if (_draggingHandle != 0) return const []; // 拖动时不额外显示静态手柄
+    if (_hBarVisible == false && _draggingHandle == 0 && !_longPressActive) {
+      return const [];
+    }
 
     final widgets = <Widget>[];
-    final startKey = _lineKeys[_selStartLine!];
-    final endKey = _lineKeys[_selEndLine!];
-    final startCtx = startKey?.currentContext;
-    final endCtx = endKey?.currentContext;
 
+    // 起点手柄
+    final startCtx = _lineKeys[_selStartLine!]?.currentContext;
     if (startCtx != null) {
       final box = startCtx.findRenderObject() as RenderBox?;
       if (box != null) {
         final topLeft = box.localToGlobal(Offset.zero);
-        widgets.add(Positioned(
-          left: topLeft.dx - 20,
-          top: topLeft.dy,
-          child: _DragHandle(
-            isLeft: true,
-            onDragStart: (pos) {
-              setState(() {
-                _draggingHandle = 1;
-                _dragHandlePos = pos;
-                _hBarVisible = false;
-              });
-            },
+        widgets.add(
+          Positioned(
+            left: math.max(0, topLeft.dx - 20),
+            top: topLeft.dy,
+            child: _DragHandle(
+              isLeft: true,
+              onDragStart: (pos) => _handleDragStart(1, pos),
+              onDragUpdate: _handleDragUpdate,
+              onDragEnd: _handleDragEnd,
+            ),
           ),
-        ));
+        );
       }
     }
+
+    // 终点手柄
+    final endCtx = _lineKeys[_selEndLine!]?.currentContext;
     if (endCtx != null) {
       final box = endCtx.findRenderObject() as RenderBox?;
       if (box != null) {
         final topLeft = box.localToGlobal(Offset.zero);
         final size = box.size;
-        widgets.add(Positioned(
-          left: topLeft.dx + size.width,
-          top: topLeft.dy + size.height - 28,
-          child: _DragHandle(
-            isLeft: false,
-            onDragStart: (pos) {
-              setState(() {
-                _draggingHandle = 2;
-                _dragHandlePos = pos;
-                _hBarVisible = false;
-              });
-            },
+        widgets.add(
+          Positioned(
+            left: topLeft.dx + size.width,
+            top: topLeft.dy + size.height - 28,
+            child: _DragHandle(
+              isLeft: false,
+              onDragStart: (pos) => _handleDragStart(2, pos),
+              onDragUpdate: _handleDragUpdate,
+              onDragEnd: _handleDragEnd,
+            ),
           ),
-        ));
+        );
       }
     }
     return widgets;
   }
 
   Widget _buildLoupe(ReaderSettings s, Offset fingerPos) {
-    final line = _draggingHandle == 1 ? _selStartLine : _selEndLine;
-    final offset = _draggingHandle == 1 ? _selStartOffset : _selEndOffset;
+    final line = _draggingHandle == 1
+        ? _selStartLine
+        : (_draggingHandle == 2 ? _selEndLine : _selEndLine);
+    final offset = _draggingHandle == 1
+        ? _selStartOffset
+        : (_draggingHandle == 2 ? _selEndOffset : _selEndOffset);
     if (line == null || offset == null) return const SizedBox.shrink();
-    if (line < 0 || line >= widget.lines.length) return const SizedBox.shrink();
+    if (line < 0 || line >= widget.lines.length) {
+      return const SizedBox.shrink();
+    }
 
     const double w = 160;
     const double h = 56;
@@ -539,6 +616,7 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
   }
 
   Widget _buildHBar(BuildContext context, ReaderSettings s) {
+    final selected = _selectedText();
     return Positioned(
       left: 8,
       right: 8,
@@ -560,9 +638,8 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
                     tooltip: '复制',
                     visualDensity: VisualDensity.compact,
                     onPressed: () {
-                      final t = _selectedText();
-                      if (t.isEmpty) return;
-                      Clipboard.setData(ClipboardData(text: t));
+                      if (selected.isEmpty) return;
+                      Clipboard.setData(ClipboardData(text: selected));
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text('已复制'),
@@ -576,15 +653,14 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
                     tooltip: '分享',
                     visualDensity: VisualDensity.compact,
                     onPressed: () {
-                      final t = _selectedText();
-                      if (t.isEmpty) return;
-                      Share.share(t);
+                      if (selected.isEmpty) return;
+                      Share.share(selected);
                     },
                   ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      _selectedText(),
+                      selected,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12),
@@ -594,9 +670,68 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
                     icon: const Icon(Icons.close, size: 18),
                     tooltip: '取消',
                     visualDensity: VisualDensity.compact,
-                    onPressed: () => setState(() => _clearSelection()),
+                    onPressed: () => setState(_clearSelection),
                   ),
                 ],
+              ),
+              const Divider(height: 6),
+              // ---- 色块条 ----
+              SizedBox(
+                height: 40,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: widget.palettes.length,
+                  itemBuilder: (ctx, i) {
+                    final p = widget.palettes[i];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: GestureDetector(
+                        onTap: () {
+                          if (selected.isEmpty) return;
+                          widget.onHighlightAdded(selected, p);
+                          setState(_clearSelection);
+                        },
+                        onLongPress: () {
+                          setState(_clearSelection);
+                          widget.onPaletteEdit(p.index);
+                        },
+                        child: Container(
+                          width: 36,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: p.isGradient ? null : Color(p.colors.first),
+                            gradient: p.isGradient
+                                ? LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: p.colors
+                                        .map((c) => Color(c))
+                                        .toList(growable: false),
+                                    stops: p.stops.length == p.colors.length
+                                        ? p.stops
+                                        : null,
+                                  )
+                                : null,
+                            border: Border.all(color: Colors.black12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            p.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Color(p.textColor),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -606,18 +741,30 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
   }
 }
 
+// ==================== 工具函数 ====================
+
 FontWeight _toFontWeight(int v) {
   switch (v) {
-    case 100: return FontWeight.w100;
-    case 200: return FontWeight.w200;
-    case 300: return FontWeight.w300;
-    case 400: return FontWeight.w400;
-    case 500: return FontWeight.w500;
-    case 600: return FontWeight.w600;
-    case 700: return FontWeight.w700;
-    case 800: return FontWeight.w800;
-    case 900: return FontWeight.w900;
-    default: return FontWeight.w400;
+    case 100:
+      return FontWeight.w100;
+    case 200:
+      return FontWeight.w200;
+    case 300:
+      return FontWeight.w300;
+    case 400:
+      return FontWeight.w400;
+    case 500:
+      return FontWeight.w500;
+    case 600:
+      return FontWeight.w600;
+    case 700:
+      return FontWeight.w700;
+    case 800:
+      return FontWeight.w800;
+    case 900:
+      return FontWeight.w900;
+    default:
+      return FontWeight.w400;
   }
 }
 
@@ -631,8 +778,6 @@ class _ScrollLineRow extends StatelessWidget {
     required this.style,
     required this.highlights,
     required this.inSelection,
-    required this.isSelStart,
-    required this.isSelEnd,
   });
 
   final int lineIndex;
@@ -640,8 +785,6 @@ class _ScrollLineRow extends StatelessWidget {
   final TextStyle style;
   final List<HighlightEntry> highlights;
   final bool inSelection;
-  final bool isSelStart;
-  final bool isSelEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -661,7 +804,6 @@ class _ScrollLineRow extends StatelessWidget {
     if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
     if (highlights.isEmpty) return [TextSpan(text: text, style: style)];
 
-    // 找出所有命中区间（关键词字面匹配；正则高亮这里不做）
     final ranges = <({int start, int end, HighlightEntry entry})>[];
     for (final h in highlights) {
       if (h.keyword.isEmpty) continue;
@@ -676,7 +818,6 @@ class _ScrollLineRow extends StatelessWidget {
     if (ranges.isEmpty) return [TextSpan(text: text, style: style)];
 
     ranges.sort((a, b) => a.start.compareTo(b.start));
-    // 去重叠
     final kept = <({int start, int end, HighlightEntry entry})>[];
     var lastEnd = -1;
     for (final r in ranges) {
@@ -689,7 +830,8 @@ class _ScrollLineRow extends StatelessWidget {
     var cursor = 0;
     for (final r in kept) {
       if (r.start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, r.start), style: style));
+        spans.add(
+            TextSpan(text: text.substring(cursor, r.start), style: style));
       }
       final entry = r.entry;
       final hlText = text.substring(r.start, r.end);
@@ -722,10 +864,14 @@ class _DragHandle extends StatelessWidget {
   const _DragHandle({
     required this.isLeft,
     required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
   });
 
   final bool isLeft;
   final void Function(Offset globalPos) onDragStart;
+  final void Function(Offset globalPos) onDragUpdate;
+  final VoidCallback onDragEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -733,6 +879,9 @@ class _DragHandle extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onPanStart: (d) => onDragStart(d.globalPosition),
+      onPanUpdate: (d) => onDragUpdate(d.globalPosition),
+      onPanEnd: (_) => onDragEnd(),
+      onPanCancel: onDragEnd,
       child: SizedBox(
         width: 24,
         height: 28,
@@ -749,6 +898,7 @@ class _DragHandle extends StatelessWidget {
 
 class _HandlePainter extends CustomPainter {
   _HandlePainter({required this.color, required this.isLeft});
+
   final Color color;
   final bool isLeft;
 
