@@ -139,6 +139,93 @@ class _TrapezoidPainter extends CustomPainter {
       old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
 
+// ==================== 垃圾桶图标（自定义绘制） ====================
+//
+// 来源 SVG（viewBox 24×24）：
+//   <path d="M3 5h18" stroke-width="4"/>                       桶盖
+//   <path d="M19 9v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9"/>      桶身
+//   <path d="M8 5V3a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>         把手
+//   <path d="M10 13l4 4M14 13l-4 4"/>                          叉号
+//
+// 用 canvas.scale(size.width / 24) 把 24×24 坐标系映射到实际大小，
+// strokeWidth 保持原始数值，缩放后自动按比例。
+
+class _TrashIconPainter extends CustomPainter {
+  _TrashIconPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 24.0;
+    canvas.save();
+    canvas.scale(scale, scale);
+
+    // ---- 普通笔画（stroke-width 2）----
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // ---- 桶盖（stroke-width 4，单独一个 paint）----
+    final thick = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.0
+      ..strokeCap = StrokeCap.round;
+
+    // 桶盖
+    canvas.drawLine(const Offset(3, 5), const Offset(21, 5), thick);
+
+    // 桶身：从右上角沿右侧向下 → 圆角 → 底边 → 圆角 → 左侧向上
+    final body = Path()
+      ..moveTo(19, 9)
+      ..lineTo(19, 20)
+      ..arcToPoint(
+        const Offset(17, 22),
+        radius: const Radius.circular(2),
+        clockwise: true,
+      )
+      ..lineTo(7, 22)
+      ..arcToPoint(
+        const Offset(5, 20),
+        radius: const Radius.circular(2),
+        clockwise: true,
+      )
+      ..lineTo(5, 9);
+    canvas.drawPath(body, stroke);
+
+    // 把手：从左侧往上 → 圆角 → 顶边 → 圆角 → 右侧往下
+    final handle = Path()
+      ..moveTo(8, 5)
+      ..lineTo(8, 3)
+      ..arcToPoint(
+        const Offset(10, 1),
+        radius: const Radius.circular(2),
+        clockwise: true,
+      )
+      ..lineTo(14, 1)
+      ..arcToPoint(
+        const Offset(16, 3),
+        radius: const Radius.circular(2),
+        clockwise: true,
+      )
+      ..lineTo(16, 5);
+    canvas.drawPath(handle, stroke);
+
+    // 叉号
+    canvas.drawLine(const Offset(10, 13), const Offset(14, 17), stroke);
+    canvas.drawLine(const Offset(14, 13), const Offset(10, 17), stroke);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_TrashIconPainter old) => old.color != color;
+}
+
 // ==================== 渐变矩形 ====================
 
 class _GradRect {
@@ -271,6 +358,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   Size _viewportSize = Size.zero;
 
   late int _fileIndex;
+
+  /// filePaths 的可变副本。删除文件后从这里移除。
+  late List<String> _filePaths;
+
   String? _text;
   String? _error;
   bool _loading = true;
@@ -291,6 +382,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   /// 上一次看到的阅读模式。用于检测用户切模式。
   late int _lastSeenMode;
+
+  /// 底部悬浮提示（跳文件 / 删除反馈）。同一时间只显示一条。
+  OverlayEntry? _toastEntry;
+  Timer? _toastTimer;
 
   // ==================== 高亮（页级 AC 匹配） ====================
 
@@ -418,7 +513,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   @override
   void initState() {
     super.initState();
-    _fileIndex = widget.initialIndex.clamp(0, widget.filePaths.length - 1);
+    _filePaths = List<String>.from(widget.filePaths);
+    _fileIndex = _filePaths.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, _filePaths.length - 1);
     WidgetsBinding.instance.addObserver(this);
     _lastSeenMode = ref.read(readerSettingsProvider).readerMode;
   }
@@ -429,6 +527,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _longPressTimer?.cancel();
     _resumePrecisionTimer?.cancel();
     _progressSaveTimer?.cancel();
+    _toastTimer?.cancel();
+    _toastEntry?.remove();
+    _toastEntry = null;
     _saveProgressNow();
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
@@ -459,10 +560,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   Future<void> _ensureLoaded() async {
-    if (widget.filePaths.isEmpty) return;
+    if (_filePaths.isEmpty) return;
     if (_viewportSize.width < 10 || _viewportSize.height < 10) return;
 
-    final path = widget.filePaths[_fileIndex];
+    final path = _filePaths[_fileIndex];
     final key = _loadKeyFor(path);
     if (_lastLoadedKey == key) return;
     _lastLoadedKey = key;
@@ -795,8 +896,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _saveProgressNow() {
     final p = _paginator;
-    if (p?.result == null || widget.filePaths.isEmpty) return;
-    final path = widget.filePaths[_fileIndex];
+    if (p?.result == null || _filePaths.isEmpty) return;
+    final path = _filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     final offset = pageStartOffset(p!.result!, _currentPage);
     ref.read(readerProgressProvider.notifier).set(fileKey, offset);
@@ -874,20 +975,34 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   // ==================== 切文件 ====================
 
   Future<void> _prevFile() async {
-    if (_fileIndex <= 0) return;
+    if (_fileIndex <= 0) {
+      _showToast('已经是第一个文件');
+      return;
+    }
     _saveProgressNow();
     _clearSelection();
     _manualEncoding = null;
     setState(() => _fileIndex--);
+    _showToast(
+      '第 ${_fileIndex + 1}/${_filePaths.length} 个 · '
+      '${_filePaths[_fileIndex].split('/').last}',
+    );
     await _ensureLoaded();
   }
 
   Future<void> _nextFile() async {
-    if (_fileIndex >= widget.filePaths.length - 1) return;
+    if (_fileIndex >= _filePaths.length - 1) {
+      _showToast('已经是最后一个文件');
+      return;
+    }
     _saveProgressNow();
     _clearSelection();
     _manualEncoding = null;
     setState(() => _fileIndex++);
+    _showToast(
+      '第 ${_fileIndex + 1}/${_filePaths.length} 个 · '
+      '${_filePaths[_fileIndex].split('/').last}',
+    );
     await _ensureLoaded();
   }
 
@@ -896,8 +1011,154 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _saveProgressNow();
     _clearSelection();
     final path =
-        widget.filePaths.isEmpty ? null : widget.filePaths[_fileIndex];
+        _filePaths.isEmpty ? null : _filePaths[_fileIndex];
     Navigator.of(context).pop(path);
+  }
+
+  /// 底部悬浮提示。同一时间只显示一条，快速点击实时替换。
+  void _showToast(String msg) {
+    if (!mounted) return;
+    _toastTimer?.cancel();
+    _toastEntry?.remove();
+    _toastEntry = null;
+
+    final overlay = Overlay.of(context);
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        left: 0,
+        right: 0,
+        bottom: 80,
+        child: IgnorePointer(
+          child: Center(
+            child: Material(
+              elevation: 8,
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.black.withValues(alpha: 0.82),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Text(
+                  msg,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    _toastEntry = entry;
+    _toastTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (identical(_toastEntry, entry)) {
+        entry.remove();
+        _toastEntry = null;
+      }
+    });
+  }
+
+  /// 删除当前正在阅读的文件。
+  Future<void> _deleteCurrentFile() async {
+    if (_filePaths.isEmpty) return;
+    final path = _filePaths[_fileIndex];
+    final fileName = path.split('/').last;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('删除文件？'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('将删除：'),
+            const SizedBox(height: 4),
+            Text(
+              fileName,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              path,
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '删除后无法恢复。',
+              style: TextStyle(color: Colors.red),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      await File(path).delete();
+    } catch (e) {
+      if (!mounted) return;
+      _showToast('删除失败：$e');
+      return;
+    }
+    if (!mounted) return;
+
+    setState(() {
+      _filePaths.removeAt(_fileIndex);
+    });
+
+    // 整个目录已删完
+    if (_filePaths.isEmpty) {
+      _showToast('目录里的文件已删完，返回文件浏览器');
+      await Future.delayed(const Duration(milliseconds: 900));
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      return;
+    }
+
+    // 删的是最后一个 → 索引越界，退到前一个
+    var nextIndex = _fileIndex;
+    var hitEnd = false;
+    if (nextIndex >= _filePaths.length) {
+      nextIndex = _filePaths.length - 1;
+      hitEnd = true;
+    }
+
+    _clearSelection();
+    _manualEncoding = null;
+    _lastLoadedKey = null;
+    setState(() {
+      _fileIndex = nextIndex;
+    });
+
+    final nextName = _filePaths[nextIndex].split('/').last;
+    _showToast(
+      hitEnd ? '已到最后，跳到：$nextName' : '已删除，跳到：$nextName',
+    );
+
+    await _ensureLoaded();
   }
 
   // ==================== 顶部菜单 ====================
@@ -926,7 +1187,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       ? '-'
       : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
 
-  final path = widget.filePaths.isEmpty ? '' : widget.filePaths[_fileIndex];
+  final path = _filePaths.isEmpty ? '' : _filePaths[_fileIndex];
   final fileName = path.split('/').last;
 
   // 当前编码简称（给"编码"按钮显示用）
@@ -1214,7 +1475,7 @@ Row(
     final start = math.max(0, offset - 10);
     final end = math.min(_text!.length, offset + 20);
     final preview = _text!.substring(start, end).replaceAll('\n', ' ').trim();
-    final path = widget.filePaths[_fileIndex];
+    final path = _filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     final bookmark = ReaderBookmark(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -1230,8 +1491,8 @@ Row(
   }
 
   Future<void> _openFind() async {
-    if (_text == null || widget.filePaths.isEmpty) return;
-    final path = widget.filePaths[_fileIndex];
+    if (_text == null || _filePaths.isEmpty) return;
+    final path = _filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     _clearSelection();
 
@@ -1263,9 +1524,9 @@ Row(
   }
 
   Future<void> _openManager() async {
-    if (widget.filePaths.isEmpty) return;
+    if (_filePaths.isEmpty) return;
     _clearSelection();
-    final path = widget.filePaths[_fileIndex];
+    final path = _filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     final fileName = path.split('/').last;
     final result =
@@ -1291,8 +1552,8 @@ Row(
   }
 
   Future<void> _openEditor() async {
-    if (widget.filePaths.isEmpty) return;
-    final path = widget.filePaths[_fileIndex];
+    if (_filePaths.isEmpty) return;
+    final path = _filePaths[_fileIndex];
     final fileName = path.split('/').last;
     _saveProgressNow();
     _clearSelection();
@@ -1302,8 +1563,8 @@ Row(
     });
   }
 Future<void> _openLineEditor() async {
-  if (widget.filePaths.isEmpty) return;
-  final path = widget.filePaths[_fileIndex];
+  if (_filePaths.isEmpty) return;
+  final path = _filePaths[_fileIndex];
   final fileName = path.split('/').last;
   _saveProgressNow();
   _clearSelection();
@@ -1865,7 +2126,7 @@ Future<void> _openLineEditor() async {
         if (!mounted) return;
         _saveProgressNow();
         if (settings.readerMode == 0 && _paginator?.result != null) {
-          final path = widget.filePaths[_fileIndex];
+          final path = _filePaths[_fileIndex];
           final fileKey = readerFileKey(path);
           final progress = ref.read(readerProgressProvider)[fileKey];
           if (progress != null) {
@@ -1893,10 +2154,10 @@ Future<void> _openLineEditor() async {
     // 不重建的话，_paginator 还按旧字号算"每页几行"，
     // 正文却按新字号渲染 → 下方留白或溢出。
     if (!_loading &&
-        !widget.filePaths.isEmpty &&
+        !_filePaths.isEmpty &&
         _fileIndex >= 0 &&
-        _fileIndex < widget.filePaths.length) {
-      final path = widget.filePaths[_fileIndex];
+        _fileIndex < _filePaths.length) {
+      final path = _filePaths[_fileIndex];
       final currentKey = _loadKeyFor(path);
       if (_lastLoadedKey != currentKey) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1912,7 +2173,7 @@ Future<void> _openLineEditor() async {
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         final path =
-            widget.filePaths.isEmpty ? null : widget.filePaths[_fileIndex];
+            _filePaths.isEmpty ? null : _filePaths[_fileIndex];
         Navigator.of(context).pop(path);
       },
       child: MediaQuery(
@@ -1944,7 +2205,7 @@ Future<void> _openLineEditor() async {
                   }
                 }
 
-                if (widget.filePaths.isEmpty) {
+                if (_filePaths.isEmpty) {
                   return const Center(child: Text('没有可读取的文件'));
                 }
                 if (_loading) {
@@ -2100,7 +2361,7 @@ Future<void> _openLineEditor() async {
     );
   }
 
-  /// 两种模式共用的"外壳"：菜单热区 + 上下文件悬浮按钮。
+  /// 两种模式共用的"外壳"：菜单热区 + 上下文件悬浮按钮 + 删除文件悬浮按钮。
   List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
     return [
       if (settings.hotZoneVisible) _buildHotZone(settings, size),
@@ -2133,6 +2394,7 @@ Future<void> _openLineEditor() async {
           size: size,
           onTap: _nextFile,
         ),
+        _buildDeleteButton(settings, size),
       ],
     ];
   }
@@ -2147,7 +2409,7 @@ Widget _buildScrollReader(ReaderSettings settings) {
   if (_text == null || _lines.isEmpty) {
     return const SizedBox.shrink();
   }
-  final path = widget.filePaths[_fileIndex];
+  final path = _filePaths[_fileIndex];
   final fileKey = readerFileKey(path);
   final progress = ref.read(readerProgressProvider)[fileKey];
   final initialOffset = progress?.charOffset ?? 0;
@@ -2639,6 +2901,66 @@ Widget _buildScrollReader(ReaderSettings settings) {
     );
   }
 
+  /// 删除文件悬浮按钮。样式 / 颜色 / 大小 / 位置完全可配，
+  /// 图标用自定义 SVG 形状（_TrashIconPainter）。
+  Widget _buildDeleteButton(ReaderSettings settings, Size size) {
+    final btnSize = 50.0 * settings.delBtnScale;
+    final left = settings.delBtnX * size.width - btnSize / 2;
+    final top = settings.delBtnY * size.height - btnSize / 2;
+
+    final iconColor = settings.delBtnStyle == 0
+        ? Color(settings.delBtnFgColor)
+        : Color(settings.delBtnRingColor);
+    final iconSize = btnSize * 0.6;
+
+    Widget body;
+    if (settings.delBtnStyle == 0) {
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          color: Color(settings.delBtnBgColor),
+          shape: BoxShape.circle,
+        ),
+        alignment: Alignment.center,
+        child: CustomPaint(
+          size: Size.square(iconSize),
+          painter: _TrashIconPainter(color: iconColor),
+        ),
+      );
+    } else {
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Color(settings.delBtnRingColor),
+            width: settings.delBtnRingWidth,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: CustomPaint(
+          size: Size.square(iconSize),
+          painter: _TrashIconPainter(color: iconColor),
+        ),
+      );
+    }
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _deleteCurrentFile,
+        child: Opacity(
+          opacity: settings.delBtnOpacity.clamp(0.0, 1.0),
+          child: body,
+        ),
+      ),
+    );
+  }
+
   // ==================== 手柄渲染 ====================
 
   List<Widget> _buildHandles(ReaderSettings settings) {
@@ -3024,7 +3346,7 @@ Row(
 
   void _applyHighlight(String word, HighlightPalette palette) {
     if (_text == null) return;
-    final path = widget.filePaths[_fileIndex];
+    final path = _filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     final entry = HighlightEntry(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
