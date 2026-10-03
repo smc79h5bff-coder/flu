@@ -357,6 +357,7 @@ class ReaderSettings {
     required this.fontWeight,
     required this.bgColor,
     required this.showButtons,
+    required this.readerMode,
 
     // ====== 上一文件按钮 ======
     required this.topBtnStyle,
@@ -404,6 +405,9 @@ class ReaderSettings {
   /// 浮动按钮总开关。关了之后按钮彻底不显示、不可点，
   /// 点击原位置会走正常逻辑（顶部菜单 / 翻页）。
   final bool showButtons;
+
+  /// 阅读模式：0 = 分页，1 = 滚动。
+  final int readerMode;
 
   // ==================== 上一文件按钮 ====================
 
@@ -459,6 +463,7 @@ class ReaderSettings {
     fontWeight: 400,
     bgColor: bgCream,
     showButtons: true,
+    readerMode: 0,
 
     topBtnStyle: 0,
     topBtnBgColor: 0x59000000, // 黑 35%，接近原来的样子
@@ -496,6 +501,7 @@ class ReaderSettings {
         'fw': fontWeight,
         'bg': bgColor,
         'sb': showButtons,
+        'rm': readerMode,
 
         'tbs': topBtnStyle,
         'tbb': topBtnBgColor,
@@ -533,6 +539,7 @@ class ReaderSettings {
         fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
         bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
         showButtons: j['sb'] as bool? ?? true,
+        readerMode: (j['rm'] as num?)?.toInt() ?? 0,
 
         topBtnStyle: (j['tbs'] as num?)?.toInt() ?? 0,
         topBtnBgColor: (j['tbb'] as num?)?.toInt() ?? 0x59000000,
@@ -570,6 +577,7 @@ class ReaderSettings {
     int? fontWeight,
     int? bgColor,
     bool? showButtons,
+    int? readerMode,
 
     int? topBtnStyle,
     int? topBtnBgColor,
@@ -606,6 +614,7 @@ class ReaderSettings {
         fontWeight: fontWeight ?? this.fontWeight,
         bgColor: bgColor ?? this.bgColor,
         showButtons: showButtons ?? this.showButtons,
+        readerMode: readerMode ?? this.readerMode,
 
         topBtnStyle: topBtnStyle ?? this.topBtnStyle,
         topBtnBgColor: topBtnBgColor ?? this.topBtnBgColor,
