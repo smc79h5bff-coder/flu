@@ -66,6 +66,22 @@ class ReaderPaginator extends ChangeNotifier {
   double get precisionRatio =>
       _lines.isEmpty ? 1.0 : _precisionCursor / _lines.length;
 
+  // ==================== 统一测量样式 ====================
+
+  /// 分页测量用的文本样式。
+  ///
+  /// **必须**和 reader_screen.dart 里 `_baseStyle` 完全一致，
+  /// 否则测量宽度 ≠ 渲染宽度 → 溢出换行（表现为莫名其妙的换行、
+  /// 一行被切成两行、或每行只剩几个字）。
+  TextStyle _readerStyle() => TextStyle(
+        fontSize: fontSize,
+        fontWeight: _toFontWeight(fontWeight),
+        height: kReaderLineHeightFactor,
+        color: const Color(0xFF222222),
+        letterSpacing: 0,
+        wordSpacing: 0,
+      );
+
   // ==================== 启动 ====================
 
   void start() {
@@ -74,12 +90,7 @@ class ReaderPaginator extends ChangeNotifier {
     _lineStarts = split.lineStarts;
     _preciseHeights = List<double?>.filled(_lines.length, null);
 
-    final style = TextStyle(
-      fontSize: fontSize,
-      fontWeight: _toFontWeight(fontWeight),
-      height: kReaderLineHeightFactor,
-      color: const Color(0xFF222222),
-    );
+    final style = _readerStyle();
 
     // 计算基准单行高度。
     // 用中英混合的参考串，取真实 layout 高度。
@@ -147,12 +158,7 @@ class ReaderPaginator extends ChangeNotifier {
 
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
-    final style = TextStyle(
-      fontSize: fontSize,
-      fontWeight: _toFontWeight(fontWeight),
-      height: kReaderLineHeightFactor,
-      color: const Color(0xFF222222),
-    );
+    final style = _readerStyle();
     final tp = _precisionTP;
 
     final sw = Stopwatch()..start();
@@ -193,10 +199,10 @@ class ReaderPaginator extends ChangeNotifier {
   PaginationResult _buildResult() {
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
-    
-final usableHeight =
-    math.max(10.0, viewportHeight - kReaderVerticalPadding * 2 - 10);
-    
+
+    final usableHeight =
+        math.max(10.0, viewportHeight - kReaderVerticalPadding * 2 - 10);
+
     // 每页固定显示行数（以"1 个显示行"为单位）。
     final rowsPerPage = math.max(1, (usableHeight / _singleLineHeight).floor());
 
@@ -205,12 +211,7 @@ final usableHeight =
     final pageStarts = <int>[]..add(0);
     var rowsInPage = 0;
 
-    final style = TextStyle(
-      fontSize: fontSize,
-      fontWeight: _toFontWeight(fontWeight),
-      height: kReaderLineHeightFactor,
-      color: const Color(0xFF222222),
-    );
+    final style = _readerStyle();
     final tp = _precisionTP;
 
     void place(RenderUnit unit, int rowCount) {
@@ -314,7 +315,10 @@ List<RenderUnit> _splitLongLinePrecise({
   final ranges = <({int start, int end})>[];
   for (var i = 0; i < metrics.length; i++) {
     final m = metrics[i];
-    final yMid = m.baseline + (m.ascent + m.descent) / 2;
+    // 行中心 = baseline + (descent - ascent) / 2。
+    // 写成 baseline + (ascent + descent) / 2 会偏高，落到上一行，
+    // 导致切分点全错、渲染出奇怪的短行和空行。
+    final yMid = m.baseline + (m.descent - m.ascent) / 2;
     final posStart = tp.getPositionForOffset(Offset(0, yMid));
     final posEnd = tp.getPositionForOffset(Offset(maxWidth - 0.5, yMid));
     var s = posStart.offset;
@@ -347,10 +351,15 @@ List<RenderUnit> _splitLongLinePrecise({
     final wouldBe = i - chunkStart + 1;
     if (wouldBe > maxRows && i > chunkStart) {
       final rowCount = i - chunkStart;
+      // charEnd 取"上一段的结尾"而不是"本段的开头"：
+      // TextPainter 在某些标点挤压/避让场景下会留出字符 gap，
+      // ranges[i].start 可能 > ranges[i-1].end。
+      // 用 ranges[i-1].end 更稳，不会把上一行末尾和下一行开头之间
+      // 的字符（可能是软换行点）拽进本 unit。
       units.add(RenderUnit(
         lineIndex: lineIndex,
         charStart: ranges[chunkStart].start,
-        charEnd: ranges[i].start,
+        charEnd: ranges[i - 1].end,
         height: rowCount * singleLineHeight,
       ));
       chunkStart = i;
