@@ -349,8 +349,15 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     });
 
     if (_selectionStart != null && _selectionEnd != null) {
-      _showRangeDialog();
-    }
+  // 延迟一下再弹，让用户先看到第二行的选中标记。
+  // 延迟期间用户如果改主意（点了别的行/取消了选区），就不弹。
+  Future<void>.delayed(const Duration(milliseconds: 120), () {
+    if (!mounted) return;
+    if (_selectionStart == null || _selectionEnd == null) return;
+    _showRangeDialog();
+  });
+}
+      
   }
 
   Future<void> _showRangeDialog() async {
