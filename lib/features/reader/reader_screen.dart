@@ -18,6 +18,8 @@ import 'reader_models.dart';
 import 'reader_pagination.dart';
 import 'reader_panels.dart';
 import 'reader_repository.dart';
+import 'reader_search_provider.dart';
+import 'reader_search_screen.dart';
 
 // ==================== 选区模型 ====================
 
@@ -505,6 +507,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         _sel = null;
         _hBarVisible = false;
       });
+
+      // 文件切换后，如果搜索状态属于旧文件，清掉它。
+      final searchState = ref.read(readerSearchProvider);
+      if (searchState.fileKey.isNotEmpty &&
+          searchState.fileKey != readerFileKey(path)) {
+        ref.read(readerSearchProvider.notifier).clear();
+      }
 
       _rebuildHighlightAc();
       paginator.notifyVisiblePage(startPage);
@@ -1160,17 +1169,37 @@ Row(
     );
   }
 
-  void _openFind() {
+  Future<void> _openFind() async {
     if (_text == null || widget.filePaths.isEmpty) return;
     final path = widget.filePaths[_fileIndex];
     final fileKey = readerFileKey(path);
     _clearSelection();
-    showReaderFindBar(context, fileKey, _text!, (offset) {
+
+    // 同一个文件，沿用之前的查询；换了文件就清空。
+    final state = ref.read(readerSearchProvider);
+    final sameFile = state.fileKey == fileKey;
+    if (!sameFile) {
+      ref.read(readerSearchProvider.notifier).clear();
+    }
+
+    final result = await Navigator.of(context).push<int>(
+      MaterialPageRoute<int>(
+        builder: (_) => ReaderSearchScreen(
+          text: _text!,
+          fileKey: fileKey,
+          initialQuery: sameFile ? state.query : '',
+          initialRegex: sameFile ? state.regex : false,
+          initialCaseSensitive: sameFile ? state.caseSensitive : false,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result != null) {
       final p = _paginator?.result;
       if (p == null) return;
-      final page = findPageForOffset(p, offset);
+      final page = findPageForOffset(p, result);
       _jumpToPage(page);
-    });
+    }
   }
 
   Future<void> _openManager() async {
@@ -2014,6 +2043,31 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
         ),
 
         if (_hBarVisible && _sel != null) _buildHBar(settings, size),
+
+        // ---------- 搜索半开条 ----------
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Consumer(
+            builder: (context, ref, _) {
+              final state = ref.watch(readerSearchProvider);
+              if (!state.hasSearch) return const SizedBox.shrink();
+              return ReaderSearchMinibar(
+                onJump: (offset) {
+                  final p = _paginator?.result;
+                  if (p == null) return;
+                  final page = findPageForOffset(p, offset);
+                  _jumpToPage(page);
+                },
+                onExpand: _openFind,
+                onClose: () {
+                  ref.read(readerSearchProvider.notifier).clear();
+                },
+              );
+            },
+          ),
+        ),
       ],
     );
   }
