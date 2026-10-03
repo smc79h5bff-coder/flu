@@ -177,6 +177,38 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     const Divider(),
                     const SizedBox(height: 8),
 
+                    // ---------- 翻页方式 ----------
+                    _sectionTitle('翻页方式'),
+                    Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('分页'),
+                          selected: s.readerMode == 0,
+                          onSelected: (_) => n.setReaderMode(0),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: const Text('滚动'),
+                          selected: s.readerMode == 1,
+                          onSelected: (_) => n.setReaderMode(1),
+                        ),
+                      ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 8),
+                      child: Text(
+                        '分页：点击 / 右滑翻页。\n'
+                        '滚动：上下自由滑动，点击往下滚一屏。',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 8),
+
                     // ---------- 悬浮按钮总开关 ----------
                     Row(
                       children: [
