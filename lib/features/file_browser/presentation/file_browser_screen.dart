@@ -2447,67 +2447,97 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.compare_arrows, size: 16),
-                    label: const Text('对比'),
-                    onPressed: canCompare ? _startCompare : null,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton.tonal(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                    ),
-                    onPressed: canProps ? _showProperties : null,
-                    child: const Text(
-                      '属性',
-                      style: TextStyle(fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 3),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton.tonal(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                    ),
-                    onPressed: canProps ? _copyPath : null,
-                    child: const Text(
-                      '复制路径',
-                      style: TextStyle(fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 3),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton.tonal(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                    ),
-                    onPressed: canProps ? _exportFolderListing : null,
-                    child: const Text(
-                      '导出清单',
-                      style: TextStyle(fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-              ],
-            ),
 
+
+
+
+
+
+              
+
+
+Row(
+  children: [
+    Expanded(
+      flex: 3,
+      child: FilledButton.icon(
+        icon: const Icon(Icons.compare_arrows, size: 16),
+        label: const Text('对比'),
+        onPressed: canCompare ? _startCompare : null,
+      ),
+    ),
+    const SizedBox(width: 4),
+    Expanded(
+      flex: 1,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.black,
+          side: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        onPressed: canProps ? _showProperties : null,
+        child: const Text(
+          '属性',
+          style: TextStyle(fontSize: 11),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    Expanded(
+      flex: 1,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.black,
+          side: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        onPressed: canProps ? _copyPath : null,
+        child: const Text(
+          '复制路径',
+          style: TextStyle(fontSize: 11),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    Expanded(
+      flex: 1,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.black,
+          side: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        onPressed: canProps ? _exportFolderListing : null,
+        child: const Text(
+          '导出清单',
+          style: TextStyle(fontSize: 11),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+  ],
+),
+
+
+
+
+
+
+              
             const SizedBox(height: 4),
             Row(
               children: [
