@@ -466,7 +466,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final bytes = await File(path).readAsBytes();
       final encoding = _manualEncoding ?? EncodingDetector.detect(bytes);
       _currentEncoding = encoding;
-      final text = EncodingDetector.decodeChunked(bytes, encoding);
+      final rawText = EncodingDetector.decodeChunked(bytes, encoding);
+      final text = _normalizeForReading(rawText);
       if (!mounted) return;
       if (_lastLoadedKey != key) return;
 
@@ -528,6 +529,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pageHighlightCacheForRevision = -1;
     _lastHighlightQueryLine = -1;
     _lastHighlightQueryResult = const [];
+  }
+
+  /// 阅读器默认的文本预处理。
+  ///
+  /// 1. 统一换行：\r\n 和 \r 都转成 \n
+  /// 2. 逐行处理：
+  ///    · 空行 / 纯空白行 → 删掉
+  ///    · 非空行 → 去掉原有的行首行尾空白，再统一加上两个全角空格缩进
+  ///
+  /// 效果：每行都是"　　正文内容"，行与行紧挨，中间没有空行。
+  static String _normalizeForReading(String text) {
+    final t = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final out = <String>[];
+    for (final line in t.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      // U+3000 全角空格，跟汉字等宽
+      out.add('\u3000\u3000$trimmed');
+    }
+    return out.join('\n');
   }
 
   void _onPaginatorChanged() {
