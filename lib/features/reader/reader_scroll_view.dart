@@ -4,11 +4,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'reader_loupe.dart';
 import 'reader_models.dart';
+import 'reader_search_provider.dart';
 
 /// 滚动模式的阅读视图（正文层）。
 ///
@@ -25,7 +27,7 @@ import 'reader_models.dart';
 /// 公开方法（供父级调用）：
 ///   · jumpToOffset(int charOffset)  跳到某个字符偏移
 ///   · jumpByScreen(int dir)         滚一屏（dir>0 往下，dir<0 往上）
-class ReaderScrollView extends StatefulWidget {
+class ReaderScrollView extends ConsumerStatefulWidget {
   const ReaderScrollView({
     super.key,
     required this.text,
@@ -53,10 +55,10 @@ class ReaderScrollView extends StatefulWidget {
   final void Function(int paletteIndex) onPaletteEdit;
 
   @override
-  State<ReaderScrollView> createState() => ReaderScrollViewState();
+  ConsumerState<ReaderScrollView> createState() => ReaderScrollViewState();
 }
 
-class ReaderScrollViewState extends State<ReaderScrollView> {
+class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   late final ItemScrollController _scrollCtrl;
   late final ItemPositionsListener _positions;
 
@@ -505,22 +507,31 @@ class ReaderScrollViewState extends State<ReaderScrollView> {
                 ),
                 itemBuilder: (ctx, i) {
                   final key = _lineKeys.putIfAbsent(i, () => GlobalKey());
-                  final sL = _selStartLine;
-                  final eL = _selEndLine;
-                  final sO = _selStartOffset ?? 0;
-                  final eO = _selEndOffset ?? 0;
-                  final inSel = _isLineInSelection(i);
+                  final searchState = ref.watch(readerSearchProvider);
+                  final searchHit =
+                      (searchState.currentPos >= 0 &&
+                              searchState.currentPos <
+                                  searchState.hits.length)
+                          ? searchState.hits[searchState.currentPos]
+                          : null;
                   return _ScrollLineRow(
                     key: key,
                     lineIndex: i,
                     text: widget.lines[i],
                     style: baseStyle,
                     highlights: widget.highlights,
-                    inSelection: inSel,
-                    isSelStartLine: i == sL,
-                    isSelEndLine: i == eL,
-                    selStartOffset: sO,
-                    selEndOffset: eO,
+                    inSelection: _isLineInSelection(i),
+                    isSelStartLine: i == _selStartLine,
+                    isSelEndLine: i == _selEndLine,
+                    selStartOffset: _selStartOffset ?? 0,
+                    selEndOffset: _selEndOffset ?? 0,
+                    searchHit: (searchHit != null &&
+                            searchHit.lineIndex == i)
+                        ? (
+                            start: searchHit.startInLine,
+                            end: searchHit.endInLine,
+                          )
+                        : null,
                   );
                 },
               ),
@@ -821,6 +832,7 @@ class _ScrollLineRow extends StatelessWidget {
     required this.isSelEndLine,
     required this.selStartOffset,
     required this.selEndOffset,
+    required this.searchHit,
   });
 
   final int lineIndex;
@@ -835,9 +847,12 @@ class _ScrollLineRow extends StatelessWidget {
   final int selStartOffset;       // 只在 isSelStartLine 时有效，选区在这一行内的起点
   final int selEndOffset;         // 只在 isSelEndLine 时有效，选区在这一行内的终点
 
+  /// 当前搜索命中（如果命中在本行）。start/end 是行内偏移。
+  final ({int start, int end})? searchHit;
+
   @override
   Widget build(BuildContext context) {
-    final spans = _buildSpans();
+    final spans = _buildSpansWithSelection();
     return Text.rich(
       TextSpan(children: spans),
       style: style,
@@ -845,48 +860,46 @@ class _ScrollLineRow extends StatelessWidget {
     );
   }
 
-  List<InlineSpan> _buildSpans() {
-    // 先构造基础 span 序列（含高亮），再在选区范围内加背景色。
-    // 简化实现：三段式拼接。
+  /// 在 `_buildSpans` 基础上再叠加字符级选区染色。
+  List<InlineSpan> _buildSpansWithSelection() {
     if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
 
-    // 1. 找出选区在本行内的字符范围 [selFrom, selTo)
-    int selFrom = -1;
-    int selTo = -1;
-    if (inSelection) {
-      if (isSelStartLine && isSelEndLine) {
-        selFrom = selStartOffset;
-        selTo = selEndOffset;
-      } else if (isSelStartLine) {
-        selFrom = selStartOffset;
-        selTo = text.length;
-      } else if (isSelEndLine) {
-        selFrom = 0;
-        selTo = selEndOffset;
-      } else {
-        selFrom = 0;
-        selTo = text.length;
-      }
-      if (selFrom < 0) selFrom = 0;
-      if (selTo > text.length) selTo = text.length;
-      if (selTo <= selFrom) {
-        selFrom = -1;
-        selTo = -1;
-      }
+    // 先得到"用户高亮 + 搜索命中"的上色
+    final baseSpans = _buildSpans();
+
+    if (!inSelection) return baseSpans;
+
+    // 计算本行选区范围
+    final n = text.length;
+    int sFrom;
+    int sTo;
+    if (isSelStartLine && isSelEndLine) {
+      sFrom = selStartOffset.clamp(0, n);
+      sTo = selEndOffset.clamp(0, n);
+    } else if (isSelStartLine) {
+      sFrom = selStartOffset.clamp(0, n);
+      sTo = n;
+    } else if (isSelEndLine) {
+      sFrom = 0;
+      sTo = selEndOffset.clamp(0, n);
+    } else {
+      sFrom = 0;
+      sTo = n;
     }
+    if (sTo <= sFrom) return baseSpans;
 
-    // 2. 构造基础 span（高亮逻辑）
-    final baseSpans = _buildHighlightSpans();
+    return _applySelectionToSpans(baseSpans, sFrom, sTo);
+  }
 
-    // 3. 如果没有选区，直接返回
-    if (selFrom < 0) return baseSpans;
-
-    // 4. 有选区：遍历 baseSpans，记录每个 span 的字符区间，
-    //    在选中范围内的部分加背景色。
+  /// 在 spans 上叠加选区染色。sFrom/sTo 是本行内的选区范围。
+  List<InlineSpan> _applySelectionToSpans(
+    List<InlineSpan> baseSpans,
+    int sFrom,
+    int sTo,
+  ) {
+    const selBg = Color(0x553D7CFF);
     final out = <InlineSpan>[];
     var cursor = 0;
-    const selBg = Color(0x553D7CFF); // 蓝色选区背景
-
     for (final span in baseSpans) {
       if (span is! TextSpan) {
         out.add(span);
@@ -901,31 +914,27 @@ class _ScrollLineRow extends StatelessWidget {
       final spanEnd = cursor + t.length;
       cursor = spanEnd;
 
-      // 与选区范围求交
-      final lo = spanStart > selFrom ? spanStart : selFrom;
-      final hi = spanEnd < selTo ? spanEnd : selTo;
+      final lo = spanStart > sFrom ? spanStart : sFrom;
+      final hi = spanEnd < sTo ? spanEnd : sTo;
 
       if (lo >= hi) {
-        // 完全不在选区内
         out.add(span);
         continue;
       }
 
-      // 拆三段：选区前 | 选区内 | 选区后
+      // 前段（选区外）
       if (lo > spanStart) {
         out.add(TextSpan(
           text: t.substring(0, lo - spanStart),
           style: span.style ?? style,
         ));
       }
-      // 选区内：保留原样式，附加背景色
-      final inStyle = (span.style ?? style).copyWith(
-        backgroundColor: selBg,
-      );
+      // 中段（选区内）
       out.add(TextSpan(
         text: t.substring(lo - spanStart, hi - spanStart),
-        style: inStyle,
+        style: (span.style ?? style).copyWith(backgroundColor: selBg),
       ));
+      // 后段（选区外）
       if (hi < spanEnd) {
         out.add(TextSpan(
           text: t.substring(hi - spanStart),
@@ -936,63 +945,64 @@ class _ScrollLineRow extends StatelessWidget {
     return out;
   }
 
-  /// 构造"只含高亮、不含选区"的 span。
-  /// 原来的高亮逻辑搬到这里。
-  List<InlineSpan> _buildHighlightSpans() {
+  /// 构造"用户高亮 + 当前搜索命中"的 span。搜索命中覆盖用户高亮。
+  List<InlineSpan> _buildSpans() {
     if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
-    if (highlights.isEmpty) return [TextSpan(text: text, style: style)];
 
-    final ranges = <({int start, int end, HighlightEntry entry})>[];
+    // 1. 用布尔数组标记每个字符的颜色：背景 + 前景
+    final n = text.length;
+    final bgColors = List<Color?>.filled(n, null);
+    final fgColors = List<Color?>.filled(n, null);
+
+    // 2. 用户高亮
     for (final h in highlights) {
       if (h.keyword.isEmpty) continue;
       var from = 0;
       while (from <= text.length - h.keyword.length) {
         final idx = text.indexOf(h.keyword, from);
         if (idx < 0) break;
-        ranges.add((start: idx, end: idx + h.keyword.length, entry: h));
-        from = idx + h.keyword.length;
+        final end = idx + h.keyword.length;
+        for (var j = idx; j < end && j < n; j++) {
+          bgColors[j] = Color(h.colors.first);
+          fgColors[j] = Color(h.textColor);
+        }
+        from = end;
       }
     }
-    if (ranges.isEmpty) return [TextSpan(text: text, style: style)];
 
-    ranges.sort((a, b) => a.start.compareTo(b.start));
-    final kept = <({int start, int end, HighlightEntry entry})>[];
-    var lastEnd = -1;
-    for (final r in ranges) {
-      if (r.start < lastEnd) continue;
-      kept.add(r);
-      lastEnd = r.end;
+    // 3. 当前搜索命中（覆盖用户高亮）
+    if (searchHit != null) {
+      final s = searchHit!.start.clamp(0, n);
+      final e = searchHit!.end.clamp(0, n);
+      for (var j = s; j < e; j++) {
+        bgColors[j] = const Color(0xFFFF4081);
+        fgColors[j] = const Color(0xFFFFFFFF);
+      }
     }
 
+    // 4. 合并连续相同颜色的字符
     final spans = <InlineSpan>[];
-    var cursor = 0;
-    for (final r in kept) {
-      if (r.start > cursor) {
-        spans.add(TextSpan(
-          text: text.substring(cursor, r.start),
-          style: style,
-        ));
+    var i = 0;
+    while (i < n) {
+      final bg = bgColors[i];
+      final fg = fgColors[i];
+      var j = i + 1;
+      while (j < n && bgColors[j] == bg && fgColors[j] == fg) {
+        j++;
       }
-      final entry = r.entry;
-      final hlText = text.substring(r.start, r.end);
-      if (entry.colors.length > 1) {
-        spans.add(TextSpan(
-          text: hlText,
-          style: style.copyWith(color: Color(entry.textColor)),
-        ));
+      final seg = text.substring(i, j);
+      if (bg == null && fg == null) {
+        spans.add(TextSpan(text: seg, style: style));
       } else {
         spans.add(TextSpan(
-          text: hlText,
+          text: seg,
           style: style.copyWith(
-            color: Color(entry.textColor),
-            backgroundColor: Color(entry.colors.first),
+            color: fg ?? style.color,
+            backgroundColor: bg,
           ),
         ));
       }
-      cursor = r.end;
-    }
-    if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor), style: style));
+      i = j;
     }
     return spans;
   }
