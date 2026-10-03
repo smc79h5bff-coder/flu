@@ -256,7 +256,8 @@ class HighlightGroup {
 /// 一个关键词在高亮后生成一条。
 /// 存的是"当时的颜色快照"——改色块配置不影响已有高亮。
 /// 未来加正则高亮，把 keyword 当正则解析。
-class HighlightEntry {
+
+  class HighlightEntry {
   const HighlightEntry({
     required this.id,
     required this.keyword,
@@ -268,6 +269,7 @@ class HighlightEntry {
     this.isRegex = false,
     this.name = '',
     this.groupId,
+    this.groupIndex = 0,
   });
 
   final String id;
@@ -288,6 +290,11 @@ class HighlightEntry {
   /// 所属分组 id。null = 未分组。
   final String? groupId;
 
+  /// 正则模式下：高亮第几个捕获组。
+  /// 0 = 整个匹配；1 = 第 1 对圆括号抓到的内容；2 = 第 2 对……
+  /// 非正则模式忽略此字段。
+  final int groupIndex;
+
   /// 显示用名字
   String get displayName => name.isEmpty ? keyword : name;
 
@@ -302,6 +309,7 @@ class HighlightEntry {
         if (isRegex) 'r': true,
         if (name.isNotEmpty) 'n': name,
         if (groupId != null) 'g': groupId,
+        if (groupIndex > 0) 'gi': groupIndex,
       };
 
   factory HighlightEntry.fromJson(Map<String, dynamic> j) {
@@ -319,6 +327,7 @@ class HighlightEntry {
       isRegex: j['r'] as bool? ?? false,
       name: j['n'] as String? ?? '',
       groupId: j['g'] as String?,
+      groupIndex: (j['gi'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -331,6 +340,7 @@ class HighlightEntry {
     bool? isRegex,
     String? name,
     String? groupId,
+    int? groupIndex,
     bool clearGroup = false,
   }) =>
       HighlightEntry(
@@ -344,6 +354,7 @@ class HighlightEntry {
         isRegex: isRegex ?? this.isRegex,
         name: name ?? this.name,
         groupId: clearGroup ? null : (groupId ?? this.groupId),
+        groupIndex: groupIndex ?? this.groupIndex,
       );
 }
 
