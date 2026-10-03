@@ -194,8 +194,9 @@ class ReaderPaginator extends ChangeNotifier {
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
     final usableHeight =
-        math.max(10.0, viewportHeight - kReaderVerticalPadding * 2);
-
+final usableHeight =
+    math.max(10.0, viewportHeight - kReaderVerticalPadding * 2 - 10);
+    
     // 每页固定显示行数（以"1 个显示行"为单位）。
     final rowsPerPage = math.max(1, (usableHeight / _singleLineHeight).floor());
 
