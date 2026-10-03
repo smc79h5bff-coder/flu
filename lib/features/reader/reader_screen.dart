@@ -2411,10 +2411,12 @@ Future<void> _openLineEditor() async {
   ///   1. 菜单热区
   ///   2. 悬浮按钮（滚动模式有选中时禁用 + 淡出）
   ///   3. 分页模式的选区操作栏
+
+
+  
   List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
     return [
-      if (settings.hotZoneVisible) _buildHotZone(settings, size),
-
+_buildHotZone(settings, size),
       // 悬浮按钮。滚动模式选中文字时：忽略点击 + 淡出，
       // 让点击穿透到下面的 hBar，视觉上也不打架。
       if (settings.showButtons)
