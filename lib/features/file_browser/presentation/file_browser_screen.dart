@@ -2646,11 +2646,10 @@ Row(
               dense: true,
               isThreeLine: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-              selected: selected,
-              selectedTileColor: Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withOpacity(0.08),
+         selected: selected,
+selectedTileColor: const Color(0xFFFFF3FB),
+
+                
               leading: _leading(
                 selectionMode: _selectionMode,
                 selected: selected,
