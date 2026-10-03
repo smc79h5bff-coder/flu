@@ -18,6 +18,7 @@ import 'reader_models.dart';
 import 'reader_pagination.dart';
 import 'reader_panels.dart';
 import 'reader_repository.dart';
+import 'reader_scroll_view.dart';
 import 'reader_search_provider.dart';
 import 'reader_search_screen.dart';
 
@@ -287,6 +288,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   bool _menuOpen = false;
 
+  /// 上一次看到的阅读模式。用于检测用户切模式。
+  late int _lastSeenMode;
+
   // ==================== 高亮（页级 AC 匹配） ====================
 
   List<HighlightEntry> _highlights = const [];
@@ -401,6 +405,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     super.initState();
     _fileIndex = widget.initialIndex.clamp(0, widget.filePaths.length - 1);
     WidgetsBinding.instance.addObserver(this);
+    _lastSeenMode = ref.read(readerSettingsProvider).readerMode;
   }
 
   @override
@@ -1837,6 +1842,29 @@ Future<void> _openLineEditor() async {
   Widget build(BuildContext context) {
     final settings = ref.watch(readerSettingsProvider);
 
+    // 检测翻页方式切换。
+    if (_lastSeenMode != settings.readerMode) {
+      _lastSeenMode = settings.readerMode;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _saveProgressNow();
+        if (settings.readerMode == 0 && _paginator?.result != null) {
+          final path = widget.filePaths[_fileIndex];
+          final fileKey = readerFileKey(path);
+          final progress = ref.read(readerProgressProvider)[fileKey];
+          if (progress != null) {
+            final targetPage = findPageForOffset(
+              _paginator!.result!,
+              progress.charOffset,
+            );
+            if (targetPage != _currentPage) {
+              setState(() => _currentPage = targetPage);
+            }
+          }
+        }
+      });
+    }
+
     if (_sel != null && _selVersion != _lastOverlayVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -1897,6 +1925,11 @@ Future<void> _openLineEditor() async {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (_error != null) return _buildError();
+
+                if (settings.readerMode == 1) {
+                  return _buildScrollReader(settings);
+                }
+
                 if (_paginator?.result == null) {
                   return const SizedBox.shrink();
                 }
@@ -2069,6 +2102,38 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
           ),
         ),
       ],
+    );
+  }
+
+  /// 滚动模式渲染。
+  Widget _buildScrollReader(ReaderSettings settings) {
+    if (_text == null || _lines.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final path = widget.filePaths[_fileIndex];
+    final fileKey = readerFileKey(path);
+    final progress = ref.read(readerProgressProvider)[fileKey];
+    final initialOffset = progress?.charOffset ?? 0;
+
+    // key 里带字号/字重，字号变了会重建滚动视图（因为行高变了）。
+    final viewKey = ValueKey<String>(
+      'scroll|$fileKey|${settings.fontSize}|${settings.fontWeight}',
+    );
+
+    return ReaderScrollView(
+      key: viewKey,
+      text: _text!,
+      lines: _lines,
+      lineStarts: _lineStarts,
+      settings: settings,
+      initialOffset: initialOffset,
+      highlights: _highlights,
+      onProgressChanged: (offset) {
+        ref.read(readerProgressProvider.notifier).set(fileKey, offset);
+      },
+      onHighlightAdded: (word, palette) {
+        _applyHighlight(word, palette);
+      },
     );
   }
 
