@@ -352,28 +352,57 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
     );
   }
 
+
+
+
+
+
+
   Widget _flag({
-    required String label,
-    required bool value,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
+  required String label,
+  required bool value,
+  required VoidCallback onTap,
+}) {
+  final s = Theme.of(context).colorScheme;
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+    child: InkWell(
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      borderRadius: BorderRadius.circular(6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: value ? s.primary.withValues(alpha: 0.14) : null,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: value
+                ? s.primary.withValues(alpha: 0.55)
+                : Colors.transparent,
+            width: 1,
+          ),
+        ),
         child: Text(
           label,
           style: TextStyle(
             fontSize: 12,
             fontWeight: value ? FontWeight.bold : FontWeight.normal,
-            color: value
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.onSurfaceVariant,
+            color: value ? s.primary : s.onSurfaceVariant,
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+
+
+
+
+
+
+
+  
 
   Future<void> _showHistory() async {
     final items = ref.read(readerFindHistoryProvider.notifier).sorted();
