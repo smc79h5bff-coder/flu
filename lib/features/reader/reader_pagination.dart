@@ -204,9 +204,18 @@ final int pageBottomSafePx;
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
 
-    final usableHeight =
-        math.max(10.0, viewportHeight - kReaderVerticalPadding * 2 - 10);
+// 从可用高度里预留"底部安全边距"像素。
+// floor() 的取整特性保证：只要除出来的商没跨过整数边界，
+// 每页行数就不变。所以底部余量本来较大的页面完全不受影响，
+// 只有底部余量 < pageBottomSafePx 的页面才会少一行——正是需要它的页面。
+final usableHeight = math.max(
+  10.0,
+  viewportHeight - kReaderVerticalPadding * 2 - 10 - pageBottomSafePx,
+);
 
+
+
+    
     // 每页固定显示行数（以"1 个显示行"为单位）。
     final rowsPerPage = math.max(1, (usableHeight / _singleLineHeight).floor());
 
