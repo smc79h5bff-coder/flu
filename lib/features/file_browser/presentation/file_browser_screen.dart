@@ -244,40 +244,93 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   final ItemPositionsListener _positionsListener =
       ItemPositionsListener.create();
 
-  bool _selectionMode = false;
-  final Set<String> _selectedPaths = <String>{};
 
-  /// 区间选择锚点。长按某项后记住，再长按另一项时从锚点到它整段选中。
-  String? _anchorPath;
 
-  // 搜索运行时状态（不持久化）
-  List<_SearchHit> _searchResults = <_SearchHit>[];
+
+bool _selectionMode = false;
+final Set<String> _selectedPaths = <String>{};
+
+/// 区间选择锚点。长按某项后记住，再长按另一项时从锚点到它整段选中。
+String? _anchorPath;
+
+/// 路由焦点管理：监听本页 ModalRoute 的"当前性"。
+/// 本页被别的页盖住（push 新页 / 弹对话框）时，自动释放 TextField 焦点、收键盘。
+/// 返回本页时不会主动请求焦点，所以键盘不会自动弹出。
+ModalRoute<dynamic>? _focusRoute;
+
+// 搜索运行时状态（不持久化）
+List<_SearchHit> _searchResults = <_SearchHit>[];
+
+
+
+
+  
   bool _searching = false;
   bool _searchActive = false;
   int _searchTaskId = 0;
   DateTime _lastUiRefresh = DateTime.now();
 
-  @override
-  void initState() {
-    super.initState();
-    final saved = ref.read(lastPathProvider);
-    _currentPath = _resolveInitialPath(saved);
-    _load();
-  }
 
-  /// 启动时决定的初始路径：无效/空/超范围 → 回到根目录。
-  String _resolveInitialPath(String saved) {
-    if (saved.isEmpty) return _rootPath;
-    if (!saved.startsWith(_rootPath)) return _rootPath;
-    if (!Directory(saved).existsSync()) return _rootPath;
-    return saved;
-  }
 
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
+
+
+
+
+
+@override
+void initState() {
+  super.initState();
+  final saved = ref.read(lastPathProvider);
+  _currentPath = _resolveInitialPath(saved);
+  _load();
+}
+
+/// 启动时决定的初始路径：无效/空/超范围 → 回到根目录。
+String _resolveInitialPath(String saved) {
+  if (saved.isEmpty) return _rootPath;
+  if (!saved.startsWith(_rootPath)) return _rootPath;
+  if (!Directory(saved).existsSync()) return _rootPath;
+  return saved;
+}
+
+// ==================== 路由焦点管理 ====================
+
+/// 每次依赖变化时，重新绑定"本页所属的 ModalRoute"。
+/// ModalRoute 在整页生命周期内通常稳定，但保险起见对比一下引用。
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  final newRoute = ModalRoute.of(context);
+  if (!identical(newRoute, _focusRoute)) {
+    _focusRoute?.removeListener(_onFocusRouteChanged);
+    _focusRoute = newRoute;
+    _focusRoute?.addListener(_onFocusRouteChanged);
   }
+}
+
+/// 本页从"当前路由"变成"非当前"时触发（被 push 盖住 / 被弹窗盖住）。
+/// 释放搜索框焦点 → 键盘收起。
+///
+/// 反向（从"非当前"变回"当前"，即返回本页）不会主动请求焦点，
+/// 所以返回后键盘不会自动弹出。
+void _onFocusRouteChanged() {
+  if (_focusRoute?.isCurrent == false) {
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
+}
+
+@override
+void dispose() {
+  _focusRoute?.removeListener(_onFocusRouteChanged);
+  _searchCtrl.dispose();
+  super.dispose();
+}
+
+
+
+
+
+  
 
   /// 加载当前目录。
   ///
