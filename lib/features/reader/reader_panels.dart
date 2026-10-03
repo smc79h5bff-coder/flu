@@ -9,6 +9,7 @@ import '../file_browser/presentation/single_file_editor_screen.dart';
 import 'reader_models.dart';
 import 'reader_pagination.dart';
 import 'reader_repository.dart';
+import 'regex_highlight.dart';
 import 'reader_screen.dart';
 
 // ==================== 设置面板 ====================
@@ -1366,6 +1367,23 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     });
   }
 
+  Future<void> _createRegexHighlight() async {
+    final entry = await showNewHighlightDialog(
+      context: context,
+      palettes: ref.read(readerPaletteProvider),
+      groups: ref.read(readerHighlightGroupsProvider),
+      presetColor: _colors.first.toARGB32(),
+    );
+    if (entry == null || !mounted) return;
+    // 色块页不知道用户正在读哪本书，只能提示去阅读器里用。
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已记录配置。请到阅读器里选中文字、点该色块，即可生效。'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const SizedBox.shrink();
@@ -1390,6 +1408,14 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               isDense: true,
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('新建正则高亮'),
+              onPressed: () => _createRegexHighlight(),
             ),
           ),
           const SizedBox(height: 16),
@@ -2233,7 +2259,13 @@ class _BookmarkHighlightManagerState
             tooltip: '移入分组',
             onPressed: selectedCount == 0 ? null : _moveToGroup,
           )
-        : null,
+        : (!_selectionMode && _isHighlightTab
+            ? IconButton(
+                icon: const Icon(Icons.add),
+                tooltip: '新建高亮',
+                onPressed: () => _newHighlight(context),
+              )
+            : null),
   ),
   SizedBox(
     width: 52,
@@ -2549,6 +2581,22 @@ class _BookmarkHighlightManagerState
       SnackBar(
         content: Text(groupId == null ? '已移出分组' : '已移入分组'),
       ),
+    );
+  }
+
+  Future<void> _newHighlight(BuildContext context) async {
+    final entry = await showNewHighlightDialog(
+      context: context,
+      palettes: ref.read(readerPaletteProvider),
+      groups: ref.read(readerHighlightGroupsProvider),
+    );
+    if (entry == null || !mounted) return;
+    ref
+        .read(readerHighlightsProvider.notifier)
+        .addOrReplace(widget.fileKey, entry);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已新建高亮')),
     );
   }
 
@@ -3427,6 +3475,28 @@ class _HighlightEditScreenState
     Navigator.pop(context, const HighlightEditResult(action: 'delete'));
   }
 
+  Future<void> _createRegexHighlightFromEdit() async {
+    final newEntry = await showNewHighlightDialog(
+      context: context,
+      palettes: ref.read(readerPaletteProvider),
+      groups: ref.read(readerHighlightGroupsProvider),
+    );
+    if (newEntry == null || !mounted) return;
+    // 直接加到当前文件
+    ref
+        .read(readerHighlightsProvider.notifier)
+        .addOrReplace(widget.fileKey, newEntry);
+    if (!mounted) return;
+    // 返回管理页并标记"内容有变化"
+    Navigator.pop(
+      context,
+      HighlightEditResult(action: 'save', entry: widget.entry),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已新建正则高亮')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final groups = ref.watch(readerHighlightGroupsProvider);
@@ -3502,7 +3572,14 @@ class _HighlightEditScreenState
               hintText: '默认与关键词相同',
             ),
           ),
-          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('新建正则高亮'),
+              onPressed: () => _createRegexHighlightFromEdit(),
+            ),
+          ),
           const Text('关键词'),
           TextField(
             controller: _kwCtrl,
