@@ -9,6 +9,35 @@ enum SortField { name, modified, size }
 /// 搜索范围。
 enum SearchScope { currentRecursive, custom }
 
+/// 点击文本文件时的打开方式。
+enum FileOpenMode {
+  /// 阅读器：分页翻页，看小说用。
+  reader,
+
+  /// 旧编辑器：单个大 TextField，功能全，大文件卡。
+  editor,
+
+  /// 行编辑器：ListView.builder 虚拟化，大文件流畅。
+  lineEditor,
+
+  /// 每次弹窗问一次。
+  ask,
+}
+
+final fileOpenModeProvider =
+    NotifierProvider<FileOpenModeNotifier, FileOpenMode>(
+  FileOpenModeNotifier.new,
+);
+
+class FileOpenModeNotifier extends EnumPrefNotifier<FileOpenMode> {
+  FileOpenModeNotifier()
+      : super(
+          key: PrefKeys.fileOpenMode,
+          values: FileOpenMode.values,
+          initial: FileOpenMode.reader,
+        );
+}
+
 /// 排序方式（持久化）。
 final sortFieldProvider =
     NotifierProvider<SortFieldNotifier, SortField>(SortFieldNotifier.new);
