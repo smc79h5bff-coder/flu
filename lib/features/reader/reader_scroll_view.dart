@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import 'reader_loupe.dart';
 import 'reader_models.dart';
+import 'regex_highlight.dart';
 import 'reader_search_provider.dart';
 
 /// 滚动模式的阅读视图（正文层）。
@@ -954,9 +955,14 @@ class _ScrollLineRow extends StatelessWidget {
     final bgColors = List<Color?>.filled(n, null);
     final fgColors = List<Color?>.filled(n, null);
 
-    // 2. 用户高亮
+    // 2. 普通关键词高亮 + 正则高亮分流
+    final regexEntries = <HighlightEntry>[];
     for (final h in highlights) {
       if (h.keyword.isEmpty) continue;
+      if (h.isRegex) {
+        regexEntries.add(h);
+        continue;
+      }
       var from = 0;
       while (from <= text.length - h.keyword.length) {
         final idx = text.indexOf(h.keyword, from);
@@ -967,6 +973,22 @@ class _ScrollLineRow extends StatelessWidget {
           fgColors[j] = Color(h.textColor);
         }
         from = end;
+      }
+    }
+
+    // 2.5 正则高亮
+    if (regexEntries.isNotEmpty) {
+      final regexSpans = matchRegexOnLine(
+        lineText: text,
+        regexEntries: regexEntries,
+      );
+      for (final s in regexSpans) {
+        final entry = s.entry;
+        final end = s.endInLine < n ? s.endInLine : n;
+        for (var j = s.startInLine; j < end; j++) {
+          bgColors[j] = Color(entry.colors.first);
+          fgColors[j] = Color(entry.textColor);
+        }
       }
     }
 
