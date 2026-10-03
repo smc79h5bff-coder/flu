@@ -28,18 +28,22 @@ const double kReaderParaSpacing = 4.0;
 ///   3. 全部测完 → 用显示行数 × 单行高 重跑分页
 class ReaderPaginator extends ChangeNotifier {
   ReaderPaginator({
-    required this.text,
-    required this.viewportWidth,
-    required this.viewportHeight,
-    required this.fontSize,
-    required this.fontWeight,
-  });
+  required this.text,
+  required this.viewportWidth,
+  required this.viewportHeight,
+  required this.fontSize,
+  required this.fontWeight,
+  required this.pageBottomSafePx,
+});
 
-  final String text;
-  final double viewportWidth;
-  final double viewportHeight;
-  final double fontSize;
-  final int fontWeight;
+final String text;
+final double viewportWidth;
+final double viewportHeight;
+final double fontSize;
+final int fontWeight;
+
+/// 分页底部安全边距（像素）。含义见 ReaderSettings.pageBottomSafePx。
+final int pageBottomSafePx;
 
   late final List<String> _lines;
   late final List<int> _lineStarts;
