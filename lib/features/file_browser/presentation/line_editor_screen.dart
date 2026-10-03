@@ -12,7 +12,7 @@ import '../../../preprocessing/application/encoding_detector.dart';
 import '../../../preprocessing/application/preprocessing_service.dart';
 import '../../../preprocessing/domain/encoding_type.dart';
 import '../../../preprocessing/domain/preprocessing_rule.dart';
-import '../../../viewer/presentation/viewer_widgets.dart'
+import '../../viewer/presentation/viewer_widgets.dart'
     show pickColorDialog;
 import 'comparison_settings_screen.dart' show RuleEditorDialog, ruleSubtitle;
 import 'providers/line_editor_rules_provider.dart';
