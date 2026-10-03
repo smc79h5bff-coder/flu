@@ -2521,45 +2521,49 @@ Widget _buildScrollReader(ReaderSettings settings) {
   
   // ==================== 菜单热区绘制 ====================
 
-  Widget _buildHotZone(ReaderSettings settings, Size size) {
+ Widget _buildHotZone(ReaderSettings settings, Size size) {
   final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
   final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
   final width = settings.hotZoneW * size.width;
   final height = settings.hotZoneH * size.height;
-
-  final color = Color(settings.hotZoneColor)
-      .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
 
   final touchLeft = left <= 1;
   final touchTop = top <= 1;
   final touchRight = left + width >= size.width - 1;
   final touchBottom = top + height >= size.height - 1;
 
-  Widget inner;
-  if (settings.hotZoneStyle == 0) {
-    // 整块填色
-    inner = Container(color: color);
+  final Widget inner;
+  if (!settings.hotZoneVisible) {
+    // 不可见时：纯透明点击层。不画任何东西，但保留点击区域。
+    inner = const SizedBox.expand();
   } else {
-    // 分界线：贴屏幕的边不画
-    final bw = settings.hotZoneBorderWidth;
-    inner = Container(
-      decoration: BoxDecoration(
-        border: Border(
-          left: touchLeft
-              ? BorderSide.none
-              : BorderSide(color: color, width: bw),
-          top: touchTop
-              ? BorderSide.none
-              : BorderSide(color: color, width: bw),
-          right: touchRight
-              ? BorderSide.none
-              : BorderSide(color: color, width: bw),
-          bottom: touchBottom
-              ? BorderSide.none
-              : BorderSide(color: color, width: bw),
+    final color = Color(settings.hotZoneColor)
+        .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
+    if (settings.hotZoneStyle == 0) {
+      // 整块填色
+      inner = Container(color: color);
+    } else {
+      // 分界线：贴屏幕的边不画
+      final bw = settings.hotZoneBorderWidth;
+      inner = Container(
+        decoration: BoxDecoration(
+          border: Border(
+            left: touchLeft
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+            top: touchTop
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+            right: touchRight
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+            bottom: touchBottom
+                ? BorderSide.none
+                : BorderSide(color: color, width: bw),
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   // 注意：Positioned 必须是 Stack 的直接子节点，所以整个方法返回 Positioned，
