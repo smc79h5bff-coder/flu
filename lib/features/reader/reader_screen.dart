@@ -2105,38 +2105,52 @@ if (settings.hotZoneVisible) _buildHotZone(settings, size),
     );
   }
 
-  /// 滚动模式渲染。
-  Widget _buildScrollReader(ReaderSettings settings) {
-    if (_text == null || _lines.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    final path = widget.filePaths[_fileIndex];
-    final fileKey = readerFileKey(path);
-    final progress = ref.read(readerProgressProvider)[fileKey];
-    final initialOffset = progress?.charOffset ?? 0;
 
-    // key 里带字号/字重，字号变了会重建滚动视图（因为行高变了）。
-    final viewKey = ValueKey<String>(
-      'scroll|$fileKey|${settings.fontSize}|${settings.fontWeight}',
-    );
 
-    return ReaderScrollView(
-      key: viewKey,
-      text: _text!,
-      lines: _lines,
-      lineStarts: _lineStarts,
-      settings: settings,
-      initialOffset: initialOffset,
-      highlights: _highlights,
-      onProgressChanged: (offset) {
-        ref.read(readerProgressProvider.notifier).set(fileKey, offset);
-      },
-      onHighlightAdded: (word, palette) {
-        _applyHighlight(word, palette);
-      },
-    );
+
+
+  
+/// 滚动模式渲染。
+Widget _buildScrollReader(ReaderSettings settings) {
+  if (_text == null || _lines.isEmpty) {
+    return const SizedBox.shrink();
   }
+  final path = widget.filePaths[_fileIndex];
+  final fileKey = readerFileKey(path);
+  final progress = ref.read(readerProgressProvider)[fileKey];
+  final initialOffset = progress?.charOffset ?? 0;
 
+  final viewKey = ValueKey<String>(
+    'scroll|$fileKey|${settings.fontSize}|${settings.fontWeight}',
+  );
+
+  return ReaderScrollView(
+    key: viewKey,
+    text: _text!,
+    lines: _lines,
+    lineStarts: _lineStarts,
+    settings: settings,
+    initialOffset: initialOffset,
+    highlights: _highlights,
+    palettes: ref.watch(readerPaletteProvider),          // ← 新增
+    onProgressChanged: (offset) {
+      ref.read(readerProgressProvider.notifier).set(fileKey, offset);
+    },
+    onHighlightAdded: (word, palette) {
+      _applyHighlight(word, palette);
+    },
+    onPaletteEdit: (index) {                             // ← 新增
+      openPaletteEdit(context, index);
+    },
+  );
+}
+
+
+
+
+
+
+  
   // ==================== 菜单热区绘制 ====================
 
   Widget _buildHotZone(ReaderSettings settings, Size size) {
