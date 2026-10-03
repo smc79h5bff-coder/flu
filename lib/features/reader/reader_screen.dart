@@ -379,6 +379,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   EncodingType? _currentEncoding;
 
   bool _menuOpen = false;
+
+  /// 滚动模式下是否有选中文字。用于禁用/淡出悬浮按钮，
+  /// 避免按钮盖住底部选区操作栏导致点不到。
+  bool _scrollSelectionActive = false;
+
   final GlobalKey<ReaderScrollViewState> _scrollViewKey = GlobalKey();
 
   /// 上一次看到的阅读模式。用于检测用户切模式。
@@ -2361,7 +2366,8 @@ Future<void> _openLineEditor() async {
           ),
         ),
 
-        if (_hBarVisible && _sel != null) _buildHBar(settings, size),
+        // 注意：分页模式的选区操作栏（_buildHBar）已经挪到
+        // _buildShellOverlays 里，盖在悬浮按钮之上。这里不再画。
 
         // ---------- 搜索半开条 ----------
         Positioned(
@@ -2391,41 +2397,68 @@ Future<void> _openLineEditor() async {
     );
   }
 
-  /// 两种模式共用的"外壳"：菜单热区 + 上下文件悬浮按钮 + 删除文件悬浮按钮。
+  /// 两种模式共用的"外壳"：菜单热区 + 上下文件悬浮按钮 + 删除文件悬浮按钮
+  /// + 分页模式的选区操作栏。
+  ///
+  /// 层级说明（从下到上）：
+  ///   1. 菜单热区
+  ///   2. 悬浮按钮（滚动模式有选中时禁用 + 淡出）
+  ///   3. 分页模式的选区操作栏
   List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
     return [
       if (settings.hotZoneVisible) _buildHotZone(settings, size),
-      if (settings.showButtons) ...[
-        _buildFloatButton(
-          style: settings.topBtnStyle,
-          bgColor: Color(settings.topBtnBgColor),
-          fgColor: Color(settings.topBtnFgColor),
-          ringColor: Color(settings.topBtnRingColor),
-          ringWidth: settings.topBtnRingWidth,
-          x: settings.topBtnX,
-          y: settings.topBtnY,
-          scale: settings.topBtnScale,
-          opacity: settings.topBtnOpacity,
-          icon: Icons.keyboard_arrow_up,
-          size: size,
-          onTap: _prevFile,
+
+      // 悬浮按钮。滚动模式选中文字时：忽略点击 + 淡出，
+      // 让点击穿透到下面的 hBar，视觉上也不打架。
+      if (settings.showButtons)
+        Positioned.fill(
+          child: IgnorePointer(
+            ignoring: _scrollSelectionActive,
+            child: AnimatedOpacity(
+              opacity: _scrollSelectionActive ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              child: Stack(
+                children: [
+                  _buildFloatButton(
+                    style: settings.topBtnStyle,
+                    bgColor: Color(settings.topBtnBgColor),
+                    fgColor: Color(settings.topBtnFgColor),
+                    ringColor: Color(settings.topBtnRingColor),
+                    ringWidth: settings.topBtnRingWidth,
+                    x: settings.topBtnX,
+                    y: settings.topBtnY,
+                    scale: settings.topBtnScale,
+                    opacity: settings.topBtnOpacity,
+                    icon: Icons.keyboard_arrow_up,
+                    size: size,
+                    onTap: _prevFile,
+                  ),
+                  _buildFloatButton(
+                    style: settings.bottomBtnStyle,
+                    bgColor: Color(settings.bottomBtnBgColor),
+                    fgColor: Color(settings.bottomBtnFgColor),
+                    ringColor: Color(settings.bottomBtnRingColor),
+                    ringWidth: settings.bottomBtnRingWidth,
+                    x: settings.bottomBtnX,
+                    y: settings.bottomBtnY,
+                    scale: settings.bottomBtnScale,
+                    opacity: settings.bottomBtnOpacity,
+                    icon: Icons.keyboard_arrow_down,
+                    size: size,
+                    onTap: _nextFile,
+                  ),
+                  _buildDeleteButton(settings, size),
+                ],
+              ),
+            ),
+          ),
         ),
-        _buildFloatButton(
-          style: settings.bottomBtnStyle,
-          bgColor: Color(settings.bottomBtnBgColor),
-          fgColor: Color(settings.bottomBtnFgColor),
-          ringColor: Color(settings.bottomBtnRingColor),
-          ringWidth: settings.bottomBtnRingWidth,
-          x: settings.bottomBtnX,
-          y: settings.bottomBtnY,
-          scale: settings.bottomBtnScale,
-          opacity: settings.bottomBtnOpacity,
-          icon: Icons.keyboard_arrow_down,
-          size: size,
-          onTap: _nextFile,
-        ),
-        _buildDeleteButton(settings, size),
-      ],
+
+      // 分页模式的选区操作栏放最顶层，盖在悬浮按钮之上。
+      // 它是 Positioned，直接挂外层 Stack。
+      if (settings.readerMode == 0 && _hBarVisible && _sel != null)
+        _buildHBar(settings, size),
     ];
   }
 
@@ -2452,18 +2485,24 @@ Widget _buildScrollReader(ReaderSettings settings) {
     settings: settings,
     initialOffset: initialOffset,
     highlights: _highlights,
-    palettes: ref.watch(readerPaletteProvider),          // ← 新增
+    palettes: ref.watch(readerPaletteProvider),
     onProgressChanged: (offset) {
       ref.read(readerProgressProvider.notifier).set(fileKey, offset);
     },
     onHighlightAdded: (word, palette) {
       _applyHighlight(word, palette);
     },
-    onPaletteEdit: (index) {                             // ← 新增
+    onPaletteEdit: (index) {
       openPaletteEdit(context, index);
+    },
+    onSelectionActiveChanged: (active) {
+      if (_scrollSelectionActive == active) return;
+      if (!mounted) return;
+      setState(() => _scrollSelectionActive = active);
     },
   );
 }
+
 
 
 
