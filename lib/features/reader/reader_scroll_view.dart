@@ -191,19 +191,58 @@ class ReaderScrollViewState extends State<ReaderScrollView> {
   void _handleLongPressStart(LongPressStartDetails d) {
     final hit = _hitTest(d.globalPosition);
     if (hit == null) return;
+
+    // 选中一个"词"：中文一个字、英文一个单词、标点一个字符。
+    final lineText = widget.lines[hit.line];
+    final (from, to) = _wordRangeAt(lineText, hit.offset);
+
     _longPressActive = true;
     _longPressPos = d.globalPosition;
     _loupePos = d.globalPosition;
 
     setState(() {
       _selStartLine = hit.line;
-      _selStartOffset = hit.offset;
+      _selStartOffset = from;
       _selEndLine = hit.line;
-      _selEndOffset = hit.offset;
+      _selEndOffset = to;
       _hBarVisible = false;
     });
 
     _startEdgeScrollTimer();
+  }
+
+  /// 返回 [line] 内 offset 处的"词"范围 [from, to)。
+  /// 规则：中文一个字；英文/数字连续一段；其它一个字符。
+  (int, int) _wordRangeAt(String line, int offset) {
+    if (line.isEmpty) return (0, 0);
+    var o = offset.clamp(0, line.length - 1);
+    final code = line.codeUnitAt(o);
+
+    // 中文字符：选一个字
+    if (code >= 0x4E00 && code <= 0x9FFF) {
+      return (o, o + 1);
+    }
+
+    // 英文/数字/下划线：选连续一段
+    bool isWordChar(int c) =>
+        (c >= 0x30 && c <= 0x39) ||
+        (c >= 0x41 && c <= 0x5A) ||
+        (c >= 0x61 && c <= 0x7A) ||
+        c == 0x5F;
+    if (isWordChar(code)) {
+      var s = o;
+      var e = o + 1;
+      while (s > 0 && isWordChar(line.codeUnitAt(s - 1))) {
+        s--;
+      }
+      while (e < line.length && isWordChar(line.codeUnitAt(e))) {
+        e++;
+      }
+      return (s, e);
+    }
+
+    // 其它：选一个字符
+    return (o, o + 1);
   }
 
   void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails d) {
@@ -228,18 +267,28 @@ class ReaderScrollViewState extends State<ReaderScrollView> {
     _loupePos = null;
     _edgeScrollTimer?.cancel();
 
+    // 没选到任何东西 → 当普通点击处理
     if (_selStartLine == null || _selEndLine == null) {
+      _clearSelection();
       _handleTap();
       return;
     }
 
-    if (_selStartLine == _selEndLine &&
-        _selStartOffset == _selEndOffset) {
+    // 计算选中长度：跨行或同行内起止不同即视为"有选中"
+    final sL = _selStartLine!;
+    final eL = _selEndLine!;
+    final sO = _selStartOffset ?? 0;
+    final eO = _selEndOffset ?? 0;
+    final hasSelection = sL != eL || sO != eO;
+
+    if (!hasSelection) {
+      // 极端情况：连一个字符都没选上 → 当点击
       setState(_clearSelection);
       _handleTap();
       return;
     }
 
+    // 有选中 → 显示操作栏
     setState(() => _hBarVisible = true);
   }
 
@@ -456,13 +505,22 @@ class ReaderScrollViewState extends State<ReaderScrollView> {
                 ),
                 itemBuilder: (ctx, i) {
                   final key = _lineKeys.putIfAbsent(i, () => GlobalKey());
+                  final sL = _selStartLine;
+                  final eL = _selEndLine;
+                  final sO = _selStartOffset ?? 0;
+                  final eO = _selEndOffset ?? 0;
+                  final inSel = _isLineInSelection(i);
                   return _ScrollLineRow(
                     key: key,
                     lineIndex: i,
                     text: widget.lines[i],
                     style: baseStyle,
                     highlights: widget.highlights,
-                    inSelection: _isLineInSelection(i),
+                    inSelection: inSel,
+                    isSelStartLine: i == sL,
+                    isSelEndLine: i == eL,
+                    selStartOffset: sO,
+                    selEndOffset: eO,
                   );
                 },
               ),
@@ -759,29 +817,128 @@ class _ScrollLineRow extends StatelessWidget {
     required this.style,
     required this.highlights,
     required this.inSelection,
+    required this.isSelStartLine,
+    required this.isSelEndLine,
+    required this.selStartOffset,
+    required this.selEndOffset,
   });
 
   final int lineIndex;
   final String text;
   final TextStyle style;
   final List<HighlightEntry> highlights;
-  final bool inSelection;
+
+  // 选区信息
+  final bool inSelection;         // 这一行是否属于选区范围
+  final bool isSelStartLine;      // 这一行是选区的起点行
+  final bool isSelEndLine;        // 这一行是选区的终点行
+  final int selStartOffset;       // 只在 isSelStartLine 时有效，选区在这一行内的起点
+  final int selEndOffset;         // 只在 isSelEndLine 时有效，选区在这一行内的终点
 
   @override
   Widget build(BuildContext context) {
     final spans = _buildSpans();
-    final bg = inSelection ? const Color(0x223D7CFF) : null;
-    return Container(
-      color: bg,
-      child: Text.rich(
-        TextSpan(children: spans),
-        style: style,
-        softWrap: true,
-      ),
+    return Text.rich(
+      TextSpan(children: spans),
+      style: style,
+      softWrap: true,
     );
   }
 
   List<InlineSpan> _buildSpans() {
+    // 先构造基础 span 序列（含高亮），再在选区范围内加背景色。
+    // 简化实现：三段式拼接。
+    if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
+
+    // 1. 找出选区在本行内的字符范围 [selFrom, selTo)
+    int selFrom = -1;
+    int selTo = -1;
+    if (inSelection) {
+      if (isSelStartLine && isSelEndLine) {
+        selFrom = selStartOffset;
+        selTo = selEndOffset;
+      } else if (isSelStartLine) {
+        selFrom = selStartOffset;
+        selTo = text.length;
+      } else if (isSelEndLine) {
+        selFrom = 0;
+        selTo = selEndOffset;
+      } else {
+        selFrom = 0;
+        selTo = text.length;
+      }
+      if (selFrom < 0) selFrom = 0;
+      if (selTo > text.length) selTo = text.length;
+      if (selTo <= selFrom) {
+        selFrom = -1;
+        selTo = -1;
+      }
+    }
+
+    // 2. 构造基础 span（高亮逻辑）
+    final baseSpans = _buildHighlightSpans();
+
+    // 3. 如果没有选区，直接返回
+    if (selFrom < 0) return baseSpans;
+
+    // 4. 有选区：遍历 baseSpans，记录每个 span 的字符区间，
+    //    在选中范围内的部分加背景色。
+    final out = <InlineSpan>[];
+    var cursor = 0;
+    const selBg = Color(0x553D7CFF); // 蓝色选区背景
+
+    for (final span in baseSpans) {
+      if (span is! TextSpan) {
+        out.add(span);
+        continue;
+      }
+      final t = span.text ?? '';
+      if (t.isEmpty) {
+        out.add(span);
+        continue;
+      }
+      final spanStart = cursor;
+      final spanEnd = cursor + t.length;
+      cursor = spanEnd;
+
+      // 与选区范围求交
+      final lo = spanStart > selFrom ? spanStart : selFrom;
+      final hi = spanEnd < selTo ? spanEnd : selTo;
+
+      if (lo >= hi) {
+        // 完全不在选区内
+        out.add(span);
+        continue;
+      }
+
+      // 拆三段：选区前 | 选区内 | 选区后
+      if (lo > spanStart) {
+        out.add(TextSpan(
+          text: t.substring(0, lo - spanStart),
+          style: span.style ?? style,
+        ));
+      }
+      // 选区内：保留原样式，附加背景色
+      final inStyle = (span.style ?? style).copyWith(
+        backgroundColor: selBg,
+      );
+      out.add(TextSpan(
+        text: t.substring(lo - spanStart, hi - spanStart),
+        style: inStyle,
+      ));
+      if (hi < spanEnd) {
+        out.add(TextSpan(
+          text: t.substring(hi - spanStart),
+          style: span.style ?? style,
+        ));
+      }
+    }
+    return out;
+  }
+
+  /// 构造"只含高亮、不含选区"的 span。
+  /// 原来的高亮逻辑搬到这里。
+  List<InlineSpan> _buildHighlightSpans() {
     if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
     if (highlights.isEmpty) return [TextSpan(text: text, style: style)];
 
@@ -811,8 +968,10 @@ class _ScrollLineRow extends StatelessWidget {
     var cursor = 0;
     for (final r in kept) {
       if (r.start > cursor) {
-        spans.add(
-            TextSpan(text: text.substring(cursor, r.start), style: style));
+        spans.add(TextSpan(
+          text: text.substring(cursor, r.start),
+          style: style,
+        ));
       }
       final entry = r.entry;
       final hlText = text.substring(r.start, r.end);
