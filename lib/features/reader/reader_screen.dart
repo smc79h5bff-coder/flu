@@ -1,5 +1,5 @@
 // reader_screen.dart
-
+import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
