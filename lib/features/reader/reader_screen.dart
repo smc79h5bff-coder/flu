@@ -997,31 +997,39 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             ),
             const Divider(height: 1),
 
-            // ---------- 编辑 / 编码 ----------
-            Row(
-              children: [
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.edit,
-                    label: '编辑',
-                    onTap: () async {
-                      Navigator.pop(ctx);
-                      await _openEditor();
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.translate,
-                    label: '编码 $encodingLabel',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _showEncodingPicker();
-                    },
-                  ),
-                ),
-              ],
-            ),
+
+
+
+            // ---------- 行编辑 / 编码 ----------
+Row(
+  children: [
+    Expanded(
+      child: menuButton(
+        icon: Icons.view_list,
+        label: '行编辑',
+        onTap: () async {
+          Navigator.pop(ctx);
+          await _openLineEditor();
+        },
+      ),
+    ),
+    Expanded(
+      child: menuButton(
+        icon: Icons.translate,
+        label: '编码 $encodingLabel',
+        onTap: () {
+          Navigator.pop(ctx);
+          _showEncodingPicker();
+        },
+      ),
+    ),
+  ],
+),
+
+
+
+
+            
 
             // ---------- 设置 / 关闭 ----------
             Row(
