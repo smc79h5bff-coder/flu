@@ -178,37 +178,88 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     const Divider(),
                     const SizedBox(height: 8),
 
-                    // ---------- 翻页方式 ----------
-                    _sectionTitle('翻页方式'),
-                    Row(
-                      children: [
-                        ChoiceChip(
-                          label: const Text('分页'),
-                          selected: s.readerMode == 0,
-                          onSelected: (_) => n.setReaderMode(0),
-                        ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          label: const Text('滚动'),
-                          selected: s.readerMode == 1,
-                          onSelected: (_) => n.setReaderMode(1),
-                        ),
-                      ],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4, bottom: 8),
-                      child: Text(
-                        '分页：全屏点击下翻 / 从左→右滑回上页。\n'
-                        '滚动：上下自由滑动，点击会往下滚一屏。',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Divider(),
-                    const SizedBox(height: 8),
+
+
+
+// ---------- 翻页方式 ----------
+_sectionTitle('翻页方式'),
+Row(
+  children: [
+    ChoiceChip(
+      label: const Text('分页'),
+      selected: s.readerMode == 0,
+      onSelected: (_) => n.setReaderMode(0),
+    ),
+    const SizedBox(width: 8),
+    ChoiceChip(
+      label: const Text('滚动'),
+      selected: s.readerMode == 1,
+      onSelected: (_) => n.setReaderMode(1),
+    ),
+  ],
+),
+Padding(
+  padding: const EdgeInsets.only(top: 4, bottom: 8),
+  child: Text(
+    '分页：全屏点击下翻 / 从左→右滑回上页。\n'
+    '滚动：上下自由滑动，点击会往下滚一屏。',
+    style: TextStyle(
+      fontSize: 11,
+      color: Colors.grey.shade600,
+    ),
+  ),
+),
+
+// ---------- 分页底部安全边距（仅分页模式显示） ----------
+if (s.readerMode == 0) ...[
+  _sliderHeader(
+    '分页底部安全边距',
+    '${s.pageBottomSafePx} px',
+  ),
+  Row(
+    children: [
+      const Text('0', style: TextStyle(fontSize: 11)),
+      Expanded(
+        child: Slider(
+          min: 0,
+          max: 20,
+          divisions: 20,
+          value: s.pageBottomSafePx
+              .toDouble()
+              .clamp(0, 20),
+          onChanged: (v) => n
+              .setPageBottomSafePx(v.round()),
+        ),
+      ),
+      const Text('20',
+          style: TextStyle(fontSize: 11)),
+    ],
+  ),
+  Padding(
+    padding:
+        const EdgeInsets.only(top: 2, bottom: 4),
+    child: Text(
+      '只影响分页模式。\n'
+      '  · 0（默认）：不预留，屏幕利用率最高。\n'
+      '  · 调大：底部"本来就快塞满"的页面会少一行，'
+      '防止最后一行被裁切。\n'
+      '  · 底部余量本来就大的页面不受影响，'
+      '不会平白多出空白。\n'
+      '  · 一般 5~8 就能覆盖不同设备的字体渲染差异。',
+      style: TextStyle(
+        fontSize: 11,
+        color: Colors.grey.shade600,
+      ),
+    ),
+  ),
+],
+
+const SizedBox(height: 20),
+const Divider(),
+const SizedBox(height: 8),
+
+
+                    
 
                     // ---------- 悬浮按钮总开关 ----------
                     Row(
