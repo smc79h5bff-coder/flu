@@ -67,4 +67,5 @@ static const String lineEditorButtonColors = '${_p}lineEditor.buttonColors';
   static const String customSearchFolders = '${_p}browser.searchFolders';
   static const String lastPath = '${_p}browser.lastPath';
   static const String searchScope = '${_p}browser.searchScope';
+  static const String fileOpenMode = '${_p}browser.fileOpenMode';
 }
