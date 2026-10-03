@@ -8,9 +8,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../preprocessing/application/encoding_detector.dart';
-import '../../../preprocessing/application/preprocessing_service.dart';
-import '../../../preprocessing/domain/encoding_type.dart';
+import '../../preprocessing/application/encoding_detector.dart';
+import '../../preprocessing/application/preprocessing_service.dart';
+import '../../preprocessing/domain/encoding_type.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import '../../viewer/presentation/viewer_widgets.dart'
     show pickColorDialog;
