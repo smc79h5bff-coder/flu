@@ -178,7 +178,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
   static const EdgeInsets _dlgContentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
   static const EdgeInsets _dlgActionsPad =
       EdgeInsets.fromLTRB(4, 0, 4, 4);
-static const int _editSizeThreshold = 200 * 1024;   // 200KB
+  static const int _editSizeThreshold = 200 * 1024;   // 200KB
   // ==================== 扩展名 → 图标颜色 ====================
 
   /// 文本类扩展名（与 TextPreviewScreen 保持一致）。
@@ -239,6 +239,10 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   /// 列表滚动控制器。用来从阅读器返回时滚到"当前文件"那一项。
   final ItemScrollController _itemScrollController = ItemScrollController();
 
+  /// 滚动位置监听器。删除/移动/复制后用来还原滚动锚点。
+  final ItemPositionsListener _positionsListener =
+      ItemPositionsListener.create();
+
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
@@ -274,7 +278,16 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
     super.dispose();
   }
 
-  Future<void> _load() async {
+  /// 加载当前目录。
+  ///
+  /// [restoreScroll] = true 时，会先快照当前视口里的路径列表，
+  /// 加载完后跳到"第一个仍存在的路径"那一项——这样删除/移动/复制/
+  /// 重命名后，视觉上位置几乎不动，而不是被弹回顶部。
+  Future<void> _load({bool restoreScroll = false}) async {
+    // 关键：必须在 setState(loading) 之前取快照。
+    // loading 会把列表换成菊花，positionsListener 就清空了。
+    final anchor = restoreScroll ? _snapshotVisiblePaths() : const <String>[];
+
     setState(() {
       _loading = true;
       _error = null;
@@ -333,6 +346,8 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
         _entries = infos;
         _loading = false;
       });
+
+      if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -340,6 +355,52 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
         _loading = false;
       });
     }
+  }
+
+  // ==================== 滚动锚点 ====================
+
+  /// 快照当前视口内所有项的路径（按索引排序）。
+  /// 删除/移动/复制前的锚点来源。
+  List<String> _snapshotVisiblePaths() {
+    final positions = _positionsListener.itemPositions.value;
+    if (positions.isEmpty) return const <String>[];
+
+    final allPaths = _currentDisplayedPaths;
+    if (allPaths.isEmpty) return const <String>[];
+
+    final sorted = positions.toList()
+      ..sort((a, b) => a.index.compareTo(b.index));
+
+    final out = <String>[];
+    for (final p in sorted) {
+      if (p.index < 0 || p.index >= allPaths.length) continue;
+      out.add(allPaths[p.index]);
+    }
+    return out;
+  }
+
+  /// 加载完新列表后，跳到锚点里第一个仍存在的路径。
+  /// 全部找不到（比如整个目录被删空）→ 退回顶部。
+  void _restoreScrollAnchor(List<String> anchorPaths) {
+    if (anchorPaths.isEmpty) return;
+    final allPaths = _currentDisplayedPaths;
+    if (allPaths.isEmpty) return;
+
+    var targetIdx = -1;
+    for (final p in anchorPaths) {
+      final idx = allPaths.indexOf(p);
+      if (idx >= 0) {
+        targetIdx = idx;
+        break;
+      }
+    }
+    if (targetIdx < 0) targetIdx = 0;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_itemScrollController.isAttached) return;
+      _itemScrollController.jumpTo(index: targetIdx);
+    });
   }
 
   void _navigateTo(String path) {
@@ -376,24 +437,24 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   /// 对比页删文件后返回、或外部改动后调用。
   /// **自身不调用 setState**，调用方负责在合适的时机刷新 UI。
   void _pruneSearchResults() {
-  if (_searchResults.isEmpty) return;
-  final still = <_SearchHit>[];
-  var removed = 0;
-  for (final hit in _searchResults) {
-    if (FileSystemEntity.typeSync(hit.path) !=
-        FileSystemEntityType.notFound) {
-      still.add(hit);
-    } else {
-      removed++;
-      _selectedPaths.remove(hit.path);   // ← 新增
+    if (_searchResults.isEmpty) return;
+    final still = <_SearchHit>[];
+    var removed = 0;
+    for (final hit in _searchResults) {
+      if (FileSystemEntity.typeSync(hit.path) !=
+          FileSystemEntityType.notFound) {
+        still.add(hit);
+      } else {
+        removed++;
+        _selectedPaths.remove(hit.path);
+      }
     }
-  }
-  if (removed == 0) return;
-  _searchResults = still;
-  if (_selectedPaths.isEmpty) {          // ← 新增
-    _selectionMode = false;              // 选中全没了，退出选择模式
-    _anchorPath = null;
-  }
+    if (removed == 0) return;
+    _searchResults = still;
+    if (_selectedPaths.isEmpty) {
+      _selectionMode = false;
+      _anchorPath = null;
+    }
   }
 
   void _toggleSelection(FileSystemEntity e) {
@@ -491,178 +552,176 @@ static const int _editSizeThreshold = 200 * 1024;   // 200KB
   }
 
   /// 点击文件的统一入口。
-  /// 进阅读器时拿到返回的"当前文件路径"，返回后自动滚到那一项。
-  /// 点击文件的统一入口。
-///
-/// 非文本文件 → 预览页。
-/// 文本文件 → 按 [fileOpenModeProvider] 分流到 阅读器 / 旧编辑器 / 行编辑器 / 询问。
-Future<void> _openFile(String path, String name, int? size) async {
-  final isText = _textExts.contains(_extOf(name));
+  ///
+  /// 非文本文件 → 预览页。
+  /// 文本文件 → 按 [fileOpenModeProvider] 分流到 阅读器 / 旧编辑器 / 行编辑器 / 询问。
+  Future<void> _openFile(String path, String name, int? size) async {
+    final isText = _textExts.contains(_extOf(name));
 
-  // 非文本文件：走预览页，不需要返回定位。
-  if (!isText) {
-    Navigator.of(context).push(
+    // 非文本文件：走预览页，不需要返回定位。
+    if (!isText) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => TextPreviewScreen(
+            filePath: path,
+            fileName: name,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // 文本文件：先确定用哪种方式。
+    final configured = ref.read(fileOpenModeProvider);
+    FileOpenMode resolved;
+    if (configured == FileOpenMode.ask) {
+      final picked = await _askOpenMode(name);
+      if (picked == null) return;
+      resolved = picked;
+    } else {
+      resolved = configured;
+    }
+
+    switch (resolved) {
+      case FileOpenMode.reader:
+        await _openInReader(path, name);
+      case FileOpenMode.editor:
+        await _openInEditor(path, name);
+      case FileOpenMode.lineEditor:
+        await _openInLineEditor(path, name);
+      case FileOpenMode.ask:
+        // 不会到这里（上面已消化）
+        break;
+    }
+  }
+
+  /// 阅读器打开。返回后自动滚到"刚才看的那一项"。
+  Future<void> _openInReader(String path, String name) async {
+    final textPaths = _collectTextFilePaths();
+    var index = textPaths.indexOf(path);
+    if (index < 0) {
+      textPaths.insert(0, path);
+      index = 0;
+    }
+
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => ReaderScreen(
+          filePaths: textPaths,
+          initialIndex: index,
+        ),
+      ),
+    );
+
+    if (!mounted || result == null) return;
+    _scrollToPath(result);
+  }
+
+  /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
+  Future<void> _openInEditor(String path, String name) async {
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => TextPreviewScreen(
+        builder: (_) => SingleFileEditorScreen(
           filePath: path,
           fileName: name,
         ),
       ),
     );
-    return;
+    if (!mounted) return;
+    _load();
   }
 
-  // 文本文件：先确定用哪种方式。
-  final configured = ref.read(fileOpenModeProvider);
-  FileOpenMode resolved;
-  if (configured == FileOpenMode.ask) {
-    final picked = await _askOpenMode(name);
-    if (picked == null) return;
-    resolved = picked;
-  } else {
-    resolved = configured;
-  }
-
-  switch (resolved) {
-    case FileOpenMode.reader:
-      await _openInReader(path, name);
-    case FileOpenMode.editor:
-      await _openInEditor(path, name);
-    case FileOpenMode.lineEditor:
-      await _openInLineEditor(path, name);
-    case FileOpenMode.ask:
-      // 不会到这里（上面已消化）
-      break;
-  }
-}
-
-/// 阅读器打开。返回后自动滚到"刚才看的那一项"。
-Future<void> _openInReader(String path, String name) async {
-  final textPaths = _collectTextFilePaths();
-  var index = textPaths.indexOf(path);
-  if (index < 0) {
-    textPaths.insert(0, path);
-    index = 0;
-  }
-
-  final result = await Navigator.of(context).push<String>(
-    MaterialPageRoute<String>(
-      builder: (_) => ReaderScreen(
-        filePaths: textPaths,
-        initialIndex: index,
-      ),
-    ),
-  );
-
-  if (!mounted || result == null) return;
-  _scrollToPath(result);
-}
-
-/// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
-Future<void> _openInEditor(String path, String name) async {
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => SingleFileEditorScreen(
-        filePath: path,
-        fileName: name,
-      ),
-    ),
-  );
-  if (!mounted) return;
-  _load();
-}
-
-/// 行编辑器打开。返回后刷新列表。
-Future<void> _openInLineEditor(String path, String name) async {
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => LineEditorScreen(
-        filePath: path,
-        fileName: name,
-      ),
-    ),
-  );
-  if (!mounted) return;
-  _load();
-}
-
-/// "每次询问"模式：弹底部 sheet 让用户选，可以勾"记住"。
-Future<FileOpenMode?> _askOpenMode(String fileName) async {
-  final remember = ValueNotifier<bool>(false);
-  final picked = await showModalBottomSheet<FileOpenMode>(
-    context: context,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
-    builder: (c) => SafeArea(
-      child: StatefulBuilder(
-        builder: (c, setS) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.open_in_new, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      '用哪种方式打开「$fileName」？',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.menu_book),
-              title: const Text('阅读器'),
-              subtitle: const Text('分页翻页，看小说用'),
-              onTap: () => Navigator.pop(c, FileOpenMode.reader),
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_note),
-              title: const Text('旧编辑器'),
-              subtitle: const Text('功能全，大文件卡'),
-              onTap: () => Navigator.pop(c, FileOpenMode.editor),
-            ),
-            ListTile(
-              leading: const Icon(Icons.view_list),
-              title: const Text('行编辑器'),
-              subtitle: const Text('虚拟化，大文件流畅'),
-              onTap: () => Navigator.pop(c, FileOpenMode.lineEditor),
-            ),
-            const Divider(height: 1),
-            CheckboxListTile(
-              value: remember.value,
-              onChanged: (v) => setS(() => remember.value = v ?? false),
-              title: const Text('记住我的选择'),
-              subtitle: const Text(
-                '下次不再询问，直接按选中的方式打开。\n'
-                '想改回询问：右上角设置 → 打开方式 → 每次询问',
-                style: TextStyle(fontSize: 11),
-              ),
-              controlAffinity: ListTileControlAffinity.leading,
-            ),
-            const SizedBox(height: 6),
-          ],
+  /// 行编辑器打开。返回后刷新列表。
+  Future<void> _openInLineEditor(String path, String name) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LineEditorScreen(
+          filePath: path,
+          fileName: name,
         ),
       ),
-    ),
-  );
-
-  if (picked != null && remember.value) {
-    ref.read(fileOpenModeProvider.notifier).update(picked);
+    );
+    if (!mounted) return;
+    _load();
   }
-  return picked;
-}
+
+  /// "每次询问"模式：弹底部 sheet 让用户选，可以勾"记住"。
+  Future<FileOpenMode?> _askOpenMode(String fileName) async {
+    final remember = ValueNotifier<bool>(false);
+    final picked = await showModalBottomSheet<FileOpenMode>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (c) => SafeArea(
+        child: StatefulBuilder(
+          builder: (c, setS) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.open_in_new, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '用哪种方式打开「$fileName」？',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.menu_book),
+                title: const Text('阅读器'),
+                subtitle: const Text('分页翻页，看小说用'),
+                onTap: () => Navigator.pop(c, FileOpenMode.reader),
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_note),
+                title: const Text('旧编辑器'),
+                subtitle: const Text('功能全，大文件卡'),
+                onTap: () => Navigator.pop(c, FileOpenMode.editor),
+              ),
+              ListTile(
+                leading: const Icon(Icons.view_list),
+                title: const Text('行编辑器'),
+                subtitle: const Text('虚拟化，大文件流畅'),
+                onTap: () => Navigator.pop(c, FileOpenMode.lineEditor),
+              ),
+              const Divider(height: 1),
+              CheckboxListTile(
+                value: remember.value,
+                onChanged: (v) => setS(() => remember.value = v ?? false),
+                title: const Text('记住我的选择'),
+                subtitle: const Text(
+                  '下次不再询问，直接按选中的方式打开。\n'
+                  '想改回询问：右上角设置 → 打开方式 → 每次询问',
+                  style: TextStyle(fontSize: 11),
+                ),
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+              const SizedBox(height: 6),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (picked != null && remember.value) {
+      ref.read(fileOpenModeProvider.notifier).update(picked);
+    }
+    return picked;
+  }
 
   /// 把列表滚到指定路径那一项。
   /// 路径不在当前列表里就什么都不做（比如搜索词改了、目录变了）。
@@ -733,7 +792,7 @@ Future<FileOpenMode?> _askOpenMode(String fileName) async {
     final q = _searchCtrl.text;
     if (q.isEmpty) return;
 
-    ref.read(browserSearchHistoryProvider.notifier).add(q);   // ← 加这行
+    ref.read(browserSearchHistoryProvider.notifier).add(q);
 
     setState(() => _searchActive = true);
     _startSearch(q);
@@ -758,65 +817,65 @@ Future<FileOpenMode?> _askOpenMode(String fileName) async {
   }
 
   Future<void> _showSearchHistory() async {
-  await showDialog<void>(
-    context: context,
-    builder: (c) => Consumer(
-      builder: (c, ref, _) {
-        final history = ref.watch(browserSearchHistoryProvider);
-        return AlertDialog(
-          insetPadding: _dlgInset,
-          titlePadding: _dlgTitlePad,
-          contentPadding: _dlgContentPad,
-          actionsPadding: _dlgActionsPad,
-          title: const Text('搜索历史'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: MediaQuery.of(c).size.height * 0.7,
-            child: history.isEmpty
-                ? const Center(child: Text('还没有搜索记录'))
-                : ListView.builder(
-                    itemCount: history.length,
-                    itemBuilder: (ctx, i) {
-                      final q = history[i];
-                      return ListTile(
-                        dense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 8),
-                        leading: const Icon(Icons.history, size: 20),
-                        title: Text(
-                          q,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.close, size: 18),
-                          tooltip: '删除',
-                          onPressed: () {
-                            ref
-                                .read(browserSearchHistoryProvider.notifier)
-                                .remove(q);
+    await showDialog<void>(
+      context: context,
+      builder: (c) => Consumer(
+        builder: (c, ref, _) {
+          final history = ref.watch(browserSearchHistoryProvider);
+          return AlertDialog(
+            insetPadding: _dlgInset,
+            titlePadding: _dlgTitlePad,
+            contentPadding: _dlgContentPad,
+            actionsPadding: _dlgActionsPad,
+            title: const Text('搜索历史'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.of(c).size.height * 0.7,
+              child: history.isEmpty
+                  ? const Center(child: Text('还没有搜索记录'))
+                  : ListView.builder(
+                      itemCount: history.length,
+                      itemBuilder: (ctx, i) {
+                        final q = history[i];
+                        return ListTile(
+                          dense: true,
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 8),
+                          leading: const Icon(Icons.history, size: 20),
+                          title: Text(
+                            q,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.close, size: 18),
+                            tooltip: '删除',
+                            onPressed: () {
+                              ref
+                                  .read(browserSearchHistoryProvider.notifier)
+                                  .remove(q);
+                            },
+                          ),
+                          onTap: () {
+                            _searchCtrl.text = q;
+                            setState(() {});
+                            Navigator.pop(c);
                           },
-                        ),
-                        onTap: () {
-                          _searchCtrl.text = q;
-                          setState(() {});
-                          Navigator.pop(c);
-                        },
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('关闭'),
+                        );
+                      },
+                    ),
             ),
-          ],
-        );
-      },
-    ),
-  );
-}
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   Future<void> _showScopeMenu() async {
     final ctx = _searchBtnKey.currentContext;
@@ -844,10 +903,10 @@ Future<FileOpenMode?> _askOpenMode(String fileName) async {
         ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
-  value: 'manage',
-  enabled: scope == SearchScope.custom,
-  child: const Text('管理自定义的搜索范围'),
-),
+          value: 'manage',
+          enabled: scope == SearchScope.custom,
+          child: const Text('管理自定义的搜索范围'),
+        ),
       ],
     );
 
@@ -1069,9 +1128,9 @@ Future<FileOpenMode?> _askOpenMode(String fileName) async {
       ref.read(originalFilePathProvider.notifier).state = result.original.path;
       ref.read(modifiedFilePathProvider.notifier).state = result.modified.path;
       ref.read(importRevisionProvider.notifier).state++;
-// 清掉上次编辑留下的内存改动，保证这次从磁盘原文开始。
-ref.read(editedOriginalProvider.notifier).state = null;
-ref.read(editedModifiedProvider.notifier).state = null;
+      // 清掉上次编辑留下的内存改动，保证这次从磁盘原文开始。
+      ref.read(editedOriginalProvider.notifier).state = null;
+      ref.read(editedModifiedProvider.notifier).state = null;
 
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -1202,51 +1261,51 @@ ref.read(editedModifiedProvider.notifier).state = null;
     }
   }
 
-Future<void> _exportFolderListing() async {
-  if (_selectedPaths.length != 1) {
-    _toast('导出清单一次只能选一个文件夹');
-    return;
-  }
-  final path = _selectedPaths.first;
-  if (!Directory(path).existsSync()) {
-    _toast('导出清单只能用于文件夹');
-    return;
-  }
+  Future<void> _exportFolderListing() async {
+    if (_selectedPaths.length != 1) {
+      _toast('导出清单一次只能选一个文件夹');
+      return;
+    }
+    final path = _selectedPaths.first;
+    if (!Directory(path).existsSync()) {
+      _toast('导出清单只能用于文件夹');
+      return;
+    }
 
-  showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => const Center(child: CircularProgressIndicator()),
-  );
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
 
-  Uint8List bytes;
-  try {
-    bytes = await compute(_folderListingWorker, path);
-  } catch (e) {
+    Uint8List bytes;
+    try {
+      bytes = await compute(_folderListingWorker, path);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      _toast('扫描失败：$e');
+      return;
+    }
+
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
-    _toast('扫描失败：$e');
-    return;
+
+    final name = path.split('/').last;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final out = await FilePicker.saveFile(
+      fileName: '$name-list-$ts.txt',
+      bytes: bytes,
+      mimeType: 'text/plain',
+      dialogTitle: '保存文件夹清单',
+      type: FileType.custom,
+      allowedExtensions: ['txt'],
+    );
+    if (out != null && mounted) {
+      _toast('清单已导出');
+    }
   }
 
-  if (!mounted) return;
-  Navigator.of(context, rootNavigator: true).pop();
-
-  final name = path.split('/').last;
-  final ts = DateTime.now().millisecondsSinceEpoch;
-  final out = await FilePicker.saveFile(
-    fileName: '$name-list-$ts.txt',
-    bytes: bytes,
-    mimeType: 'text/plain',
-    dialogTitle: '保存文件夹清单',
-    type: FileType.custom,
-    allowedExtensions: ['txt'],
-  );
-  if (out != null && mounted) {
-    _toast('清单已导出');
-  }
-}
-  
   Future<void> _showProperties() async {
     if (_selectedPaths.length != 1) return;
     final path = _selectedPaths.first;
@@ -1419,47 +1478,49 @@ Future<void> _exportFolderListing() async {
     ref.read(favoritesProvider.notifier).toggle(_currentPath);
     _toast(wasFav ? '已取消收藏' : '已收藏当前目录');
   }
-Future<void> _exportConfig() async {
-  try {
-    final ok = await ConfigIoService.instance.export();
+
+  Future<void> _exportConfig() async {
+    try {
+      final ok = await ConfigIoService.instance.export();
+      if (!mounted) return;
+      if (ok) _toast('配置已导出');
+      // 用户取消：静默返回
+    } catch (e) {
+      if (mounted) _toast('导出失败：$e');
+    }
+  }
+
+  Future<void> _importConfig() async {
+    final result = await ConfigIoService.instance.import();
     if (!mounted) return;
-    if (ok) _toast('配置已导出');
-    // 用户取消：静默返回
-  } catch (e) {
-    if (mounted) _toast('导出失败：$e');
-  }
-}
 
-Future<void> _importConfig() async {
-  final result = await ConfigIoService.instance.import();
-  if (!mounted) return;
+    // 用户取消
+    if (!result.ok && result.message == null) return;
 
-  // 用户取消
-  if (!result.ok && result.message == null) return;
+    // 失败
+    if (!result.ok) {
+      _toast(result.message ?? '导入失败');
+      return;
+    }
 
-  // 失败
-  if (!result.ok) {
-    _toast(result.message ?? '导入失败');
-    return;
-  }
-
-  // 成功：提示重启
-  await showDialog<void>(
-    context: context,
-    builder: (c) => AlertDialog(
-      title: const Text('导入成功'),
-      content: const Text(
-        '配置已导入。请手动退出 App 再重新打开，配置才会生效。',
-      ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text('知道了'),
+    // 成功：提示重启
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('导入成功'),
+        content: const Text(
+          '配置已导入。请手动退出 App 再重新打开，配置才会生效。',
         ),
-      ],
-    ),
-  );
-}
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showFavorites() async {
     final picked = await showDialog<String>(
       context: context,
@@ -1642,7 +1703,7 @@ Future<void> _importConfig() async {
         await File(oldPath).rename(newPath);
       }
       _clearSelection();
-      _load();
+      _load(restoreScroll: true);
       _toast('已重命名为 $trimmed');
     } catch (e) {
       _toast('重命名失败：$e');
@@ -1673,11 +1734,11 @@ Future<void> _importConfig() async {
     }
 
     if (ok > 0) {
-    ref.read(recentMoveTargetsProvider.notifier).add(target);
-  }
+      ref.read(recentMoveTargetsProvider.notifier).add(target);
+    }
 
     _clearSelection();
-    _load();
+    _load(restoreScroll: true);
     _toast('已移动 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
 
@@ -1705,10 +1766,10 @@ Future<void> _importConfig() async {
     }
 
     if (ok > 0) {
-    ref.read(recentMoveTargetsProvider.notifier).add(target);
-  }
+      ref.read(recentMoveTargetsProvider.notifier).add(target);
+    }
     _clearSelection();
-    _load();
+    _load(restoreScroll: true);
     _toast('已复制 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
 
@@ -1755,6 +1816,8 @@ Future<void> _importConfig() async {
     if (_searchActive) {
       // 搜索结果模式：把删掉的条目从列表里剔除。
       // 目录被删时，目录里的所有文件也算删掉，一并移除。
+      // 加锚点，删完后保持滚动位置。
+      final anchor = _snapshotVisiblePaths();
       setState(() {
         _searchResults = _searchResults.where((h) {
           if (deletedPaths.contains(h.path)) return false;
@@ -1764,8 +1827,9 @@ Future<void> _importConfig() async {
           return true;
         }).toList();
       });
+      if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
     } else {
-      _load();
+      _load(restoreScroll: true);
     }
 
     _toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
@@ -1927,8 +1991,7 @@ Future<void> _importConfig() async {
               style: TextStyle(
                 fontSize: 12,
                 color: isLast ? Colors.black : Colors.black54,
-  fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
-
+                fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
               ),
             ),
           ),
@@ -1978,35 +2041,35 @@ Future<void> _importConfig() async {
     return fullPath;
   }
 
-@override
-Widget build(BuildContext context) {
-  return PopScope(
-    canPop: !_canGoUp && !_selectionMode && !_searchActive,
-    onPopInvokedWithResult: (didPop, _) {
-      if (didPop) return;
-      // 返回键优先级：先取消选中 → 再退搜索 → 最后上一级。
-      if (_selectionMode) {
-        setState(_clearSelection);
-      } else if (_searchActive) {
-        _clearSearch();
-      } else if (_canGoUp) {
-        _goUp();
-      }
-    },
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_canGoUp && !_selectionMode && !_searchActive,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        // 返回键优先级：先取消选中 → 再退搜索 → 最后上一级。
+        if (_selectionMode) {
+          setState(_clearSelection);
+        } else if (_searchActive) {
+          _clearSearch();
+        } else if (_canGoUp) {
+          _goUp();
+        }
+      },
       child: Scaffold(
-        appBar: _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
+        appBar:
+            _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
         body: Column(
-  children: [
-    if (!_selectionMode) _buildBreadcrumbs(),
-    IgnorePointer(
-      ignoring: _selectionMode,
-      child: _buildSearchBar(),
-    ),
-    if (_searchActive) _buildSearchStatusBar(),
-    Expanded(child: _buildBody()),
-  ],
-),
-        
+          children: [
+            if (!_selectionMode) _buildBreadcrumbs(),
+            IgnorePointer(
+              ignoring: _selectionMode,
+              child: _buildSearchBar(),
+            ),
+            if (_searchActive) _buildSearchStatusBar(),
+            Expanded(child: _buildBody()),
+          ],
+        ),
         bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
         floatingActionButton: null,
       ),
@@ -2017,28 +2080,27 @@ Widget build(BuildContext context) {
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
     return AppBar(
-title: GestureDetector(
-  onLongPress: _showJumpToPathDialog,
-  child: Text(
-    (_searchActive &&
-            ref.watch(searchScopeProvider) == SearchScope.custom)
-        ? '自定义的搜索范围'
-        : _title,
-    style: const TextStyle(fontSize: 14),
-  ),
-),
-     leading: _searchActive
-    ? IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: _clearSearch,
-      )
-    : (_canGoUp
-        ? IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _goUp,
-          )
-        : null),
-      
+      title: GestureDetector(
+        onLongPress: _showJumpToPathDialog,
+        child: Text(
+          (_searchActive &&
+                  ref.watch(searchScopeProvider) == SearchScope.custom)
+              ? '自定义的搜索范围'
+              : _title,
+          style: const TextStyle(fontSize: 14),
+        ),
+      ),
+      leading: _searchActive
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: _clearSearch,
+            )
+          : (_canGoUp
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _goUp,
+                )
+              : null),
       actions: [
         // 收藏/取消收藏
         IconButton(
@@ -2062,120 +2124,110 @@ title: GestureDetector(
           },
         ),
 
-
-        
         // 更多菜单（刷新 + 排序 + 已收藏目录）
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           tooltip: '更多',
 
-
-
-          
-  
           onSelected: (v) {
-  switch (v) {
-    case 'browserSettings':
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const BrowserSettingsScreen(),
-        ),
-      );
-    case 'exportConfig':
-      _exportConfig();
-    case 'importConfig':
-      _importConfig();
-    case 'refresh':
-      _load();
-    case 'sort':
-      _showSortDialog();
-    case 'favorites':
-      _showFavorites();
-    case 'newFolder':
-      _newFolder();
-  }
-},
-
-
+            switch (v) {
+              case 'browserSettings':
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BrowserSettingsScreen(),
+                  ),
+                );
+              case 'exportConfig':
+                _exportConfig();
+              case 'importConfig':
+                _importConfig();
+              case 'refresh':
+                _load();
+              case 'sort':
+                _showSortDialog();
+              case 'favorites':
+                _showFavorites();
+              case 'newFolder':
+                _newFolder();
+            }
+          },
 
           itemBuilder: (context) => [
-  const PopupMenuItem<String>(
-    value: 'browserSettings',
-    child: Row(
-      children: [
-        Icon(Icons.settings),
-        SizedBox(width: 10),
-        Text('浏览器设置'),
-      ],
-    ),
-  ),
-  const PopupMenuDivider(),
-  const PopupMenuItem<String>(
-    value: 'exportConfig',
-    child: Row(
-      children: [
-        Icon(Icons.upload_file),
-        SizedBox(width: 10),
-        Text('导出配置'),
-      ],
-    ),
-  ),
-  const PopupMenuItem<String>(
-    value: 'importConfig',
-    child: Row(
-      children: [
-        Icon(Icons.download),
-        SizedBox(width: 10),
-        Text('导入配置'),
-      ],
-    ),
-  ),
-  const PopupMenuDivider(),
-  const PopupMenuItem<String>(
-    value: 'refresh',
-    child: Row(
-      children: [
-        Icon(Icons.refresh),
-        SizedBox(width: 10),
-        Text('刷新'),
-      ],
-    ),
-  ),
-  const PopupMenuItem<String>(
-    value: 'sort',
-    child: Row(
-      children: [
-        Icon(Icons.sort),
-        SizedBox(width: 10),
-        Text('排序方式'),
-      ],
-    ),
-  ),
-  const PopupMenuDivider(),
-  PopupMenuItem<String>(
-    value: 'favorites',
-    child: Row(
-      children: [
-        const Icon(Icons.bookmarks_outlined),
-        const SizedBox(width: 10),
-        Text('已收藏目录 (${favorites.length})'),
-      ],
-    ),
-  ),
-  const PopupMenuDivider(),
-const PopupMenuItem<String>(
-  value: 'newFolder',
-  child: Row(
-    children: [
-      Icon(Icons.create_new_folder),
-      SizedBox(width: 10),
-      Text('新建文件夹'),
-    ],
-  ),
-),
-],
-          
-          
+            const PopupMenuItem<String>(
+              value: 'browserSettings',
+              child: Row(
+                children: [
+                  Icon(Icons.settings),
+                  SizedBox(width: 10),
+                  Text('浏览器设置'),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'exportConfig',
+              child: Row(
+                children: [
+                  Icon(Icons.upload_file),
+                  SizedBox(width: 10),
+                  Text('导出配置'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'importConfig',
+              child: Row(
+                children: [
+                  Icon(Icons.download),
+                  SizedBox(width: 10),
+                  Text('导入配置'),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'refresh',
+              child: Row(
+                children: [
+                  Icon(Icons.refresh),
+                  SizedBox(width: 10),
+                  Text('刷新'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'sort',
+              child: Row(
+                children: [
+                  Icon(Icons.sort),
+                  SizedBox(width: 10),
+                  Text('排序方式'),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem<String>(
+              value: 'favorites',
+              child: Row(
+                children: [
+                  const Icon(Icons.bookmarks_outlined),
+                  const SizedBox(width: 10),
+                  Text('已收藏目录 (${favorites.length})'),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'newFolder',
+              child: Row(
+                children: [
+                  Icon(Icons.create_new_folder),
+                  SizedBox(width: 10),
+                  Text('新建文件夹'),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -2201,7 +2253,6 @@ const PopupMenuItem<String>(
       ],
     );
   }
-  
 
   // ==================== 搜索栏 UI ====================
 
@@ -2231,30 +2282,27 @@ const PopupMenuItem<String>(
                         .withOpacity(0.12)
                     : null,
               ),
-              
-  child: Icon(
-  Icons.search,
-  color: _selectionMode
-      ? Colors.grey
-      : (hasText
-          ? Theme.of(context).colorScheme.primary
-          : Theme.of(context).colorScheme.onSurfaceVariant),
-),
-              
+              child: Icon(
+                Icons.search,
+                color: _selectionMode
+                    ? Colors.grey
+                    : (hasText
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
             ),
           ),
           const SizedBox(width: 4),
           Expanded(
             child: TextField(
               controller: _searchCtrl,
-              
-  enabled: !_selectionMode,     
+              enabled: !_selectionMode,
               decoration: InputDecoration(
                 hintText: _selectionMode
-    ? '选择模式下禁止点击'
-    : (isCustom && customFolders.isEmpty
-        ? '长按左侧设置搜索范围'
-        : '输入关键词'),
+                    ? '选择模式下禁止点击'
+                    : (isCustom && customFolders.isEmpty
+                        ? '长按左侧设置搜索范围'
+                        : '输入关键词'),
                 isDense: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -2264,29 +2312,24 @@ const PopupMenuItem<String>(
               onSubmitted: (_) => _doSearch(),
             ),
           ),
-    if (hasText)
-  IconButton(
-    icon: Icon(
-      Icons.clear,
-      color: _selectionMode ? Colors.grey : null,
-    ),
-    tooltip: '清空',
-    onPressed: _clearSearch,
-  )
-else
-
-          
-
-  IconButton(
-    icon: Icon(
-      Icons.history,
-      color: _selectionMode ? Colors.grey : null,
-    ),
-    tooltip: '搜索历史',
-    onPressed: _showSearchHistory,
-  ),
-
-          
+          if (hasText)
+            IconButton(
+              icon: Icon(
+                Icons.clear,
+                color: _selectionMode ? Colors.grey : null,
+              ),
+              tooltip: '清空',
+              onPressed: _clearSearch,
+            )
+          else
+            IconButton(
+              icon: Icon(
+                Icons.history,
+                color: _selectionMode ? Colors.grey : null,
+              ),
+              tooltip: '搜索历史',
+              onPressed: _showSearchHistory,
+            ),
         ],
       ),
     );
@@ -2363,65 +2406,65 @@ else
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
-  children: [
-    Expanded(
-      flex: 3,
-      child: FilledButton.icon(
-        icon: const Icon(Icons.compare_arrows, size: 16),
-        label: const Text('对比'),
-        onPressed: canCompare ? _startCompare : null,
-      ),
-    ),
-    const SizedBox(width: 4),
-    Expanded(
-      flex: 1,
-      child: FilledButton.tonal(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-        ),
-        onPressed: canProps ? _showProperties : null,
-        child: const Text(
-          '属性',
-          style: TextStyle(fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ),
-    const SizedBox(width: 3),
-    Expanded(
-      flex: 1,
-      child: FilledButton.tonal(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-        ),
-        onPressed: canProps ? _copyPath : null,
-        child: const Text(
-          '复制路径',
-          style: TextStyle(fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ),
-    const SizedBox(width: 3),
-    Expanded(
-      flex: 1,
-      child: FilledButton.tonal(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-        ),
-        onPressed: canProps ? _exportFolderListing : null,
-        child: const Text(
-          '导出清单',
-          style: TextStyle(fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ),
-  ],
-),
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.compare_arrows, size: 16),
+                    label: const Text('对比'),
+                    onPressed: canCompare ? _startCompare : null,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  flex: 1,
+                  child: FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                    ),
+                    onPressed: canProps ? _showProperties : null,
+                    child: const Text(
+                      '属性',
+                      style: TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Expanded(
+                  flex: 1,
+                  child: FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                    ),
+                    onPressed: canProps ? _copyPath : null,
+                    child: const Text(
+                      '复制路径',
+                      style: TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Expanded(
+                  flex: 1,
+                  child: FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                    ),
+                    onPressed: canProps ? _exportFolderListing : null,
+                    child: const Text(
+                      '导出清单',
+                      style: TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+            ),
 
             const SizedBox(height: 4),
             Row(
@@ -2508,6 +2551,7 @@ else
       }
       return ScrollablePositionedList.builder(
         itemScrollController: _itemScrollController,
+        itemPositionsListener: _positionsListener,
         itemCount: _searchResults.length,
         itemBuilder: (ctx, i) {
           final hit = _searchResults[i];
@@ -2517,68 +2561,67 @@ else
             _formatTime(hit.modified),
           ].where((s) => s.isNotEmpty).join(' · ');
 
-        return Container(
-  foregroundDecoration: selected
-      ? BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary,
-            width: 2,
-          ),
-        )
-      : null,
-  child: ListTile(
-    dense: true,
-    isThreeLine: true,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-    selected: selected,
-    selectedTileColor: Theme.of(context)
-        .colorScheme
-        .primary
-        .withOpacity(0.08),
-    leading: _leading(
-      selectionMode: _selectionMode,
-      selected: selected,
-      isDir: false,
-      name: hit.name,
-      onToggle: () => _toggleSelectionPath(hit.path),
-    ),
-    title: Text(
-      hit.name,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontWeight: FontWeight.bold),
-    ),
-    subtitle: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (metaLine.isNotEmpty)
-          Text(
-            metaLine,
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-        Text(
-          hit.path,
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface,
+          return Container(
+            foregroundDecoration: selected
+                ? BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2,
+                    ),
+                  )
+                : null,
+            child: ListTile(
+              dense: true,
+              isThreeLine: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              selected: selected,
+              selectedTileColor: Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withOpacity(0.08),
+              leading: _leading(
+                selectionMode: _selectionMode,
+                selected: selected,
+                isDir: false,
+                name: hit.name,
+                onToggle: () => _toggleSelectionPath(hit.path),
               ),
-          softWrap: true,
-        ),
-      ],
-    ),
-    onTap: () {
-      if (_selectionMode) {
-        _toggleSelectionPath(hit.path);
-        return;
-      }
-      _openFile(hit.path, hit.name, hit.size);
-    },
-    onLongPress: () => _onLongPressPath(hit.path),
-  ),
-);
-          
+              title: Text(
+                hit.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (metaLine.isNotEmpty)
+                    Text(
+                      metaLine,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  Text(
+                    hit.path,
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                    softWrap: true,
+                  ),
+                ],
+              ),
+              onTap: () {
+                if (_selectionMode) {
+                  _toggleSelectionPath(hit.path);
+                  return;
+                }
+                _openFile(hit.path, hit.name, hit.size);
+              },
+              onLongPress: () => _onLongPressPath(hit.path),
+            ),
+          );
         },
       );
     }
@@ -2612,6 +2655,7 @@ else
 
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
+      itemPositionsListener: _positionsListener,
       itemCount: entries.length,
       itemBuilder: (ctx, i) {
         final info = entries[i];
@@ -2627,64 +2671,64 @@ else
           metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
         }
 
-return Container(
-  foregroundDecoration: selected
-      ? BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary,
-            width: 2,
+        return Container(
+          foregroundDecoration: selected
+              ? BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2,
+                  ),
+                )
+              : null,
+          child: ListTile(
+            dense: true,
+            isThreeLine: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            selected: selected,
+            selectedTileColor:
+                Theme.of(context).colorScheme.primary.withOpacity(0.08),
+            leading: _leading(
+              selectionMode: _selectionMode,
+              selected: selected,
+              isDir: info.isDir,
+              name: info.name,
+              onToggle: () => _toggleSelection(e),
+            ),
+            title: Text(
+              info.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (metaLine.isNotEmpty)
+                  Text(
+                    metaLine,
+                    style: Theme.of(context).textTheme.labelSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+            onTap: () {
+              if (_selectionMode) {
+                _toggleSelection(e);
+                return;
+              }
+              if (info.isDir) {
+                _navigateTo(e.path);
+              } else {
+                _openPreview(info);
+              }
+            },
+            onLongPress: () => _onLongPressPath(e.path),
           ),
-        )
-      : null,
-  child: ListTile(
-    dense: true,
-    isThreeLine: true,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-    selected: selected,
-    selectedTileColor:
-        Theme.of(context).colorScheme.primary.withOpacity(0.08),
-    leading: _leading(
-      selectionMode: _selectionMode,
-      selected: selected,
-      isDir: info.isDir,
-      name: info.name,
-      onToggle: () => _toggleSelection(e),
-    ),
-    title: Text(
-      info.name,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        fontSize: 15,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-    subtitle: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (metaLine.isNotEmpty)
-          Text(
-            metaLine,
-            style: Theme.of(context).textTheme.labelSmall,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-      ],
-    ),
-    onTap: () {
-      if (_selectionMode) {
-        _toggleSelection(e);
-        return;
-      }
-      if (info.isDir) {
-        _navigateTo(e.path);
-      } else {
-        _openPreview(info);
-      }
-    },
-    onLongPress: () => _onLongPressPath(e.path),
-  ),
-);
+        );
       },
     );
   }
@@ -2893,112 +2937,113 @@ class _DirectoryPickerDialogState
     }
     return fullPath;
   }
-@override
-Widget build(BuildContext context) {
-  return PopScope(
-    canPop: !_canGoUp,
-    onPopInvokedWithResult: (didPop, _) {
-      if (didPop) return;
-      if (_canGoUp) _goUp();
-    },
-    child: Dialog.fullscreen(
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(widget.title),
-          leading: IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: '取消',
-            onPressed: () => Navigator.pop(context),
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_canGoUp,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_canGoUp) _goUp();
+      },
+      child: Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(widget.title),
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: '取消',
+              onPressed: () => Navigator.pop(context),
+            ),
           ),
-        ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 1, 8, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _jumpCtrl,
-                        decoration: const InputDecoration(
-                          hintText: '粘贴路径跳转',
-                          isDense: true,
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 8),
+          body: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 1, 8, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _jumpCtrl,
+                          decoration: const InputDecoration(
+                            hintText: '粘贴路径跳转',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
+                          ),
+                          onSubmitted: (v) => _jumpToPath(v.trim()),
                         ),
-                        onSubmitted: (v) => _jumpToPath(v.trim()),
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      icon: const Icon(Icons.arrow_forward),
-                      tooltip: '跳转',
-                      onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_upward),
-                      onPressed: _canGoUp ? _goUp : null,
-                      tooltip: '上一级',
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    Expanded(
-  child: SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Text(
-      _relPath(_path),
-      style: Theme.of(context).textTheme.labelMedium,
-      maxLines: 1,
-    ),
-  ),
-),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: Row(
-                  children: [
-                    Expanded(flex: 6, child: _buildLeftPane()),
-                    Container(
-                      width: 1,
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                    Expanded(flex: 4, child: _buildRightPane()),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('取消'),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.arrow_forward),
+                        tooltip: '跳转',
+                        onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () => Navigator.pop(context, _path),
-                        child: const Text('选这个目录'),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-             ),       
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_upward),
+                        onPressed: _canGoUp ? _goUp : null,
+                        tooltip: '上一级',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Text(
+                            _relPath(_path),
+                            style: Theme.of(context).textTheme.labelMedium,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(flex: 6, child: _buildLeftPane()),
+                      Container(
+                        width: 1,
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                      Expanded(flex: 4, child: _buildRightPane()),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('取消'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => Navigator.pop(context, _path),
+                          child: const Text('选这个目录'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -3017,12 +3062,10 @@ Widget build(BuildContext context) {
             decoration: const InputDecoration(
               hintText: '过滤子目录',
               prefixIcon: Icon(Icons.search, size: 14),
-              
-    prefixIconConstraints: BoxConstraints(
-      minWidth: 28,       // ← 加这个
-      minHeight: 0,
-    ),
-              
+              prefixIconConstraints: BoxConstraints(
+                minWidth: 28,
+                minHeight: 0,
+              ),
               isDense: true,
               border: OutlineInputBorder(),
               contentPadding:
@@ -3045,16 +3088,14 @@ Widget build(BuildContext context) {
                             final name = d.path.split('/').last;
                             return ListTile(
                               dense: true,
-                              
-  horizontalTitleGap: 2,            
+                              horizontalTitleGap: 2,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8),
                               leading: const Icon(Icons.folder,
                                   color: Colors.amber),
                               title: Text(
                                 name,
-  
-  softWrap: true,
+                                softWrap: true,
                               ),
                               onTap: () {
                                 setState(() {
@@ -3150,14 +3191,14 @@ Widget build(BuildContext context) {
   }
 
   Widget _shortcutTile(String path, {required bool isFavorite}) {
-final name = path.split('/').last;
-final displayName = path == widget.rootPath ? '/' : name;
-    
+    final name = path.split('/').last;
+    final displayName = path == widget.rootPath ? '/' : name;
+
     final relPath = _relPath(path);
 
     return ListTile(
       dense: true,
-      horizontalTitleGap: 2,                            // ← 加这行
+      horizontalTitleGap: 2,
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
       leading: Icon(
         isFavorite ? Icons.star : Icons.history,
@@ -3179,56 +3220,54 @@ final displayName = path == widget.rootPath ? '/' : name;
         softWrap: true,
       ),
       onTap: () => _selectShortcut(path),
-      
-onLongPress: () async {
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (c) => AlertDialog(
-      insetPadding: const EdgeInsets.all(8),
-      title: Text(isFavorite ? '取消收藏？' : '从最近移除？'),
-      content: Column(
-  mainAxisSize: MainAxisSize.min,
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    Text(displayName),
-    const SizedBox(height: 6),
-    Text(
-      path,
-      style: TextStyle(
-        fontSize: 11,
-        color: Theme.of(c).colorScheme.onSurfaceVariant,
-      ),
-    ),
-  ],
-),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(c, false),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(c, true),
-          child: const Text('确定'),
-        ),
-      ],
-    ),
-  );
-  if (ok != true || !mounted) return;
 
-  if (isFavorite) {
-    ref.read(favoritesProvider.notifier).remove(path);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已取消收藏')),
-    );
-  } else {
-    ref.read(recentMoveTargetsProvider.notifier).remove(path);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已从最近移除')),
-    );
-  }
-},
+      onLongPress: () async {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            insetPadding: const EdgeInsets.all(8),
+            title: Text(isFavorite ? '取消收藏？' : '从最近移除？'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(displayName),
+                const SizedBox(height: 6),
+                Text(
+                  path,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(c).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+        if (ok != true || !mounted) return;
 
-      
+        if (isFavorite) {
+          ref.read(favoritesProvider.notifier).remove(path);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已取消收藏')),
+          );
+        } else {
+          ref.read(recentMoveTargetsProvider.notifier).remove(path);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已从最近移除')),
+          );
+        }
+      },
     );
   }
 }
@@ -3386,17 +3425,16 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                     tooltip: '上一级',
                     visualDensity: VisualDensity.compact,
                   ),
-
                   Expanded(
-  child: SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Text(
-      relPath,
-      style: Theme.of(context).textTheme.labelSmall,
-      maxLines: 1,
-    ),
-  ),
-),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Text(
+                        relPath,
+                        style: Theme.of(context).textTheme.labelSmall,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
