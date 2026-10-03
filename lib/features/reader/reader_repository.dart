@@ -47,8 +47,10 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
 
-  void setReaderMode(int v) => update(state.copyWith(readerMode: v));
-
+/// 分页底部安全边距。范围 0~20 像素。
+void setPageBottomSafePx(int v) => update(state.copyWith(
+      pageBottomSafePx: v.clamp(0, 20),
+    ));
   // ---- 上一文件按钮 ----
 
   void setTopBtnStyle(int v) => update(state.copyWith(topBtnStyle: v));
