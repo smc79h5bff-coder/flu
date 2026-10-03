@@ -349,7 +349,7 @@ class HighlightEntry {
 
 /// ==================== 全局阅读设置 ====================
 ///
-/// 悬浮按钮：上下两个，样式 / 颜色 / 透明度 / 大小 / 位置各自独立。
+/// 悬浮按钮：上、下、删除，三个。样式 / 颜色 / 透明度 / 大小 / 位置各自独立。
 /// 菜单热区：任意位置的矩形，可显示/隐藏样式。
 class ReaderSettings {
   const ReaderSettings({
@@ -380,6 +380,17 @@ class ReaderSettings {
     required this.bottomBtnScale,
     required this.bottomBtnX,
     required this.bottomBtnY,
+
+    // ====== 删除文件按钮 ======
+    required this.delBtnStyle,
+    required this.delBtnBgColor,
+    required this.delBtnFgColor,
+    required this.delBtnRingColor,
+    required this.delBtnRingWidth,
+    required this.delBtnOpacity,
+    required this.delBtnScale,
+    required this.delBtnX,
+    required this.delBtnY,
 
     // ====== 菜单热区 ======
     required this.hotZoneVisible,
@@ -434,6 +445,22 @@ class ReaderSettings {
   final double bottomBtnX;
   final double bottomBtnY;
 
+  // ==================== 删除文件按钮 ====================
+  //
+  // 和上/下文件按钮完全同构：三种样式开关、三组颜色、透明度、
+  // 大小、位置，全部独立可配。图标固定用自定义垃圾桶（不随配置变）。
+
+  /// 样式：0 = 纯色圆（有垃圾桶图标），1 = 圆环（也有垃圾桶图标）。
+  final int delBtnStyle;
+  final int delBtnBgColor;    // 纯色圆背景色
+  final int delBtnFgColor;    // 纯色圆图标色
+  final int delBtnRingColor;  // 圆环颜色（兼图标色）
+  final double delBtnRingWidth;
+  final double delBtnOpacity;
+  final double delBtnScale;
+  final double delBtnX;
+  final double delBtnY;
+
   // ==================== 菜单热区 ====================
   //
   // 热区是一个矩形，中心在 (hotZoneX, hotZoneY)（0-1 相对屏幕内容区），
@@ -485,6 +512,17 @@ class ReaderSettings {
     bottomBtnX: 0.90,
     bottomBtnY: 0.85,
 
+    // 删除按钮：左下角，半透明红。
+    delBtnStyle: 0,
+    delBtnBgColor: 0x59B00020,
+    delBtnFgColor: 0xFFFFFFFF,
+    delBtnRingColor: 0xFFB00020,
+    delBtnRingWidth: 2.0,
+    delBtnOpacity: 0.7,
+    delBtnScale: 1.0,
+    delBtnX: 0.10,
+    delBtnY: 0.85,
+
     hotZoneVisible: false,
     hotZoneStyle: 1,
     hotZoneColor: 0xFFFF0000,
@@ -522,6 +560,16 @@ class ReaderSettings {
         'bbscl': bottomBtnScale,
         'bx': bottomBtnX,
         'by': bottomBtnY,
+
+        'dbs': delBtnStyle,
+        'dbb': delBtnBgColor,
+        'dbf': delBtnFgColor,
+        'dbr': delBtnRingColor,
+        'dbrw': delBtnRingWidth,
+        'dbo': delBtnOpacity,
+        'dbscl': delBtnScale,
+        'dx': delBtnX,
+        'dy': delBtnY,
 
         'hv': hotZoneVisible,
         'hs': hotZoneStyle,
@@ -561,6 +609,16 @@ class ReaderSettings {
         bottomBtnX: (j['bx'] as num?)?.toDouble() ?? 0.90,
         bottomBtnY: (j['by'] as num?)?.toDouble() ?? 0.85,
 
+        delBtnStyle: (j['dbs'] as num?)?.toInt() ?? 0,
+        delBtnBgColor: (j['dbb'] as num?)?.toInt() ?? 0x59B00020,
+        delBtnFgColor: (j['dbf'] as num?)?.toInt() ?? 0xFFFFFFFF,
+        delBtnRingColor: (j['dbr'] as num?)?.toInt() ?? 0xFFB00020,
+        delBtnRingWidth: (j['dbrw'] as num?)?.toDouble() ?? 2.0,
+        delBtnOpacity: (j['dbo'] as num?)?.toDouble() ?? 0.7,
+        delBtnScale: (j['dbscl'] as num?)?.toDouble() ?? 1.0,
+        delBtnX: (j['dx'] as num?)?.toDouble() ?? 0.10,
+        delBtnY: (j['dy'] as num?)?.toDouble() ?? 0.85,
+
         hotZoneVisible: j['hv'] as bool? ?? false,
         hotZoneStyle: (j['hs'] as num?)?.toInt() ?? 1,
         hotZoneColor: (j['hc'] as num?)?.toInt() ?? 0xFFFF0000,
@@ -599,6 +657,16 @@ class ReaderSettings {
     double? bottomBtnX,
     double? bottomBtnY,
 
+    int? delBtnStyle,
+    int? delBtnBgColor,
+    int? delBtnFgColor,
+    int? delBtnRingColor,
+    double? delBtnRingWidth,
+    double? delBtnOpacity,
+    double? delBtnScale,
+    double? delBtnX,
+    double? delBtnY,
+
     bool? hotZoneVisible,
     int? hotZoneStyle,
     int? hotZoneColor,
@@ -635,6 +703,16 @@ class ReaderSettings {
         bottomBtnScale: bottomBtnScale ?? this.bottomBtnScale,
         bottomBtnX: bottomBtnX ?? this.bottomBtnX,
         bottomBtnY: bottomBtnY ?? this.bottomBtnY,
+
+        delBtnStyle: delBtnStyle ?? this.delBtnStyle,
+        delBtnBgColor: delBtnBgColor ?? this.delBtnBgColor,
+        delBtnFgColor: delBtnFgColor ?? this.delBtnFgColor,
+        delBtnRingColor: delBtnRingColor ?? this.delBtnRingColor,
+        delBtnRingWidth: delBtnRingWidth ?? this.delBtnRingWidth,
+        delBtnOpacity: delBtnOpacity ?? this.delBtnOpacity,
+        delBtnScale: delBtnScale ?? this.delBtnScale,
+        delBtnX: delBtnX ?? this.delBtnX,
+        delBtnY: delBtnY ?? this.delBtnY,
 
         hotZoneVisible: hotZoneVisible ?? this.hotZoneVisible,
         hotZoneStyle: hotZoneStyle ?? this.hotZoneStyle,
@@ -690,8 +768,6 @@ class FindHistoryItem {
         usedAt: (j['t'] as num?)?.toInt() ?? 0,
       );
 }
-
-/// ==================== 分页结果 ====================
 
 /// ==================== 渲染单元 ====================
 ///
