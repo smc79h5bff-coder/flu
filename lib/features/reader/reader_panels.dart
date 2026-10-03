@@ -197,8 +197,8 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     Padding(
                       padding: const EdgeInsets.only(top: 4, bottom: 8),
                       child: Text(
-                        '分页：点击 / 右滑翻页。\n'
-                        '滚动：上下自由滑动，点击往下滚一屏。',
+                        '分页：全屏点击下翻 / 从左→右滑回上页。\n'
+                        '滚动：上下自由滑动，点击会往下滚一屏。',
                         style: TextStyle(
                           fontSize: 11,
                           color: Colors.grey.shade600,
@@ -456,7 +456,7 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     // ---------- 菜单热区 ----------
                     _sectionTitle('菜单热区'),
                     Text(
-                      '点击此区域 → 打开顶部菜单；点击其它区域 → 翻下一页。',
+                      '点击此区域 → 打开菜单；点击其它区域 → 翻下一页。',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade600),
                     ),
@@ -474,48 +474,49 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                       ],
                     ),
                     Text(
-                      '关掉后依旧能点，只是不画出来。',
+                      '关掉后 点击依旧能弹菜单，只是不在阅读页绘制。',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade600),
                     ),
                     const SizedBox(height: 8),
 
-                    const Text('显示样式', style: TextStyle(fontSize: 13)),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        ChoiceChip(
-                          label: const Text('整块填色'),
-                          selected: s.hotZoneStyle == 0,
-                          onSelected: (_) => n.setHotZoneStyle(0),
-                        ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          label: const Text('分界线'),
-                          selected: s.hotZoneStyle == 1,
-                          onSelected: (_) => n.setHotZoneStyle(1),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
+Row(
+  children: [
+    const Text('显示样式',
+        style: TextStyle(fontSize: 13)),
+    const SizedBox(width: 12),
+    ChoiceChip(
+      label: const Text('整块填色'),
+      selected: s.hotZoneStyle == 0,
+      onSelected: (_) => n.setHotZoneStyle(0),
+    ),
+    const SizedBox(width: 8),
+    ChoiceChip(
+      label: const Text('分界线'),
+      selected: s.hotZoneStyle == 1,
+      onSelected: (_) => n.setHotZoneStyle(1),
+    ),
+  ],
+),
+const SizedBox(height: 8),
 
-                    _colorRow(
-                      context: context,
-                      label: s.hotZoneStyle == 0 ? '填充颜色' : '边框颜色',
-                      color: Color(s.hotZoneColor),
-                      onPick: n.setHotZoneColor,
-                    ),
+_colorRow(
+  context: context,
+  label: s.hotZoneStyle == 0 ? '填充颜色' : '边框颜色',
+  color: Color(s.hotZoneColor),
+  onPick: n.setHotZoneColor,
+),
 
-                    if (s.hotZoneStyle == 1) ...[
-                      _sliderHeader('边框粗细',
-                          '${s.hotZoneBorderWidth.toStringAsFixed(1)} px'),
-                      Slider(
-                        min: 0.5,
-                        max: 20,
-                        value: s.hotZoneBorderWidth.clamp(0.5, 20),
-                        onChanged: n.setHotZoneBorderWidth,
-                      ),
-                    ],
+if (s.hotZoneStyle == 1) ...[
+  _sliderHeader('边框粗细',
+      '${s.hotZoneBorderWidth.toStringAsFixed(1)} px'),
+  Slider(
+    min: 0.5,
+    max: 20,
+    value: s.hotZoneBorderWidth.clamp(0.5, 20),
+    onChanged: n.setHotZoneBorderWidth,
+  ),
+],
 
                     _sliderHeader(
                         '透明度',
