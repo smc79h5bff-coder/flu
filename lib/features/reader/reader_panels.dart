@@ -210,28 +210,34 @@ Padding(
   ),
 ),
 
+
+
+
+
+                    
 // ---------- 分页底部安全边距（仅分页模式显示） ----------
 if (s.readerMode == 0) ...[
   _sliderHeader(
     '分页底部安全边距',
-    '${s.pageBottomSafePx} px',
+    '${s.pageBottomSafePx >= 0 ? "+" : ""}${s.pageBottomSafePx} px',
   ),
   Row(
     children: [
-      const Text('0', style: TextStyle(fontSize: 11)),
+      const Text('-20',
+          style: TextStyle(fontSize: 11)),
       Expanded(
         child: Slider(
-          min: 0,
-          max: 20,
-          divisions: 20,
+          min: -20,
+          max: 30,
+          divisions: 50,
           value: s.pageBottomSafePx
               .toDouble()
-              .clamp(0, 20),
+              .clamp(-20, 30),
           onChanged: (v) => n
               .setPageBottomSafePx(v.round()),
         ),
       ),
-      const Text('20',
+      const Text('+30',
           style: TextStyle(fontSize: 11)),
     ],
   ),
@@ -240,12 +246,12 @@ if (s.readerMode == 0) ...[
         const EdgeInsets.only(top: 2, bottom: 4),
     child: Text(
       '只影响分页模式。\n'
-      '  · 0（默认）：不预留，屏幕利用率最高。\n'
-      '  · 调大：底部"本来就快塞满"的页面会少一行，'
-      '防止最后一行被裁切。\n'
-      '  · 底部余量本来就大的页面不受影响，'
-      '不会平白多出空白。\n'
-      '  · 一般 5~8 就能覆盖不同设备的字体渲染差异。',
+      '  · 正数（+）：底部多留白，防止最后一行被裁。\n'
+      '  · 0（默认）：精确，屏幕利用率最高。\n'
+      '  · 负数（−）：底部榨空间，可能多显示一行，'
+      '但也可能把最后一行裁掉一点。\n'
+      '  · 只有"底部余量本来就小于该值"的页面'
+      '才会变化，其它页不受影响。',
       style: TextStyle(
         fontSize: 11,
         color: Colors.grey.shade600,
@@ -254,6 +260,11 @@ if (s.readerMode == 0) ...[
   ),
 ],
 
+
+
+
+
+                    
 const SizedBox(height: 20),
 const Divider(),
 const SizedBox(height: 8),
