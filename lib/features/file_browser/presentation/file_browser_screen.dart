@@ -1927,12 +1927,26 @@ title: GestureDetector(
             );
           },
         ),
+
+
+        
         // 更多菜单（刷新 + 排序 + 已收藏目录）
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           tooltip: '更多',
+
+
+
+          
+  
           onSelected: (v) {
   switch (v) {
+    case 'browserSettings':
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const BrowserSettingsScreen(),
+        ),
+      );
     case 'exportConfig':
       _exportConfig();
     case 'importConfig':
@@ -1943,13 +1957,25 @@ title: GestureDetector(
       _showSortDialog();
     case 'favorites':
       _showFavorites();
-      
-    case 'newFolder':                
+    case 'newFolder':
       _newFolder();
   }
 },
 
-itemBuilder: (context) => [
+
+
+          itemBuilder: (context) => [
+  const PopupMenuItem<String>(
+    value: 'browserSettings',
+    child: Row(
+      children: [
+        Icon(Icons.settings),
+        SizedBox(width: 10),
+        Text('浏览器设置'),
+      ],
+    ),
+  ),
+  const PopupMenuDivider(),
   const PopupMenuItem<String>(
     value: 'exportConfig',
     child: Row(
