@@ -1,25 +1,13 @@
 static ThemeData light() {
   final base = ThemeData.light(useMaterial3: true);
-
-  final colorScheme = ColorScheme.fromSeed(
-    seedColor: AppColors.brandGreen,
-    brightness: Brightness.light,
-  ).copyWith(
-    surface: Colors.white,
-    surfaceTint: Colors.transparent,
-    surfaceContainerLowest: Colors.white,
-    surfaceContainerLow: Colors.white,
-    surfaceContainer: Colors.white,
-    surfaceContainerHigh: Colors.white,
-    surfaceContainerHighest: Colors.white,
-  );
-
   return base.copyWith(
-    colorScheme: colorScheme,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: AppColors.brandGreen,
+      brightness: Brightness.light,
+    ),
     scaffoldBackgroundColor: Colors.white,
-    canvasColor: Colors.white,
-    cardColor: Colors.white,
 
+    // 只改弹窗，其他不动
     dialogTheme: const DialogThemeData(
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
@@ -36,6 +24,11 @@ static ThemeData light() {
     drawerTheme: const DrawerThemeData(
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
+    ),
+
+    textTheme: base.textTheme.apply(
+      bodyColor: Colors.black,
+      displayColor: Colors.black,
     ),
   );
 }
