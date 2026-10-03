@@ -614,9 +614,14 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen> {
       ),
     );
 
-    if (!mounted || result == null) return;
-    _scrollToPath(result);
-  }
+     if (!mounted) return;
+
+  // 阅读器里可能删过文件：重读目录，让删掉的文件从列表消失。
+  await _load();
+  if (!mounted) return;
+
+  if (result != null) _scrollToPath(result);
+}
 
   /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
   Future<void> _openInEditor(String path, String name) async {
