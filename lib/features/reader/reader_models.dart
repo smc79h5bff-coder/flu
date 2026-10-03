@@ -369,7 +369,9 @@ class ReaderSettings {
     required this.bgColor,
     required this.showButtons,
     required this.readerMode,
+required this.pageBottomSafePx,
 
+    
     // ====== 上一文件按钮 ======
     required this.topBtnStyle,
     required this.topBtnBgColor,
