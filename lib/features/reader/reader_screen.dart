@@ -18,6 +18,7 @@ import 'reader_models.dart';
 import 'reader_pagination.dart';
 import 'reader_panels.dart';
 import 'reader_repository.dart';
+import 'regex_highlight.dart';
 import 'reader_scroll_view.dart';
 import 'reader_search_provider.dart';
 import 'reader_search_screen.dart';
@@ -392,6 +393,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   List<HighlightEntry> _highlights = const [];
   AhoCorasick? _highlightAc;
   Map<int, HighlightEntry> _highlightEntryByPattern = const {};
+  List<HighlightEntry> _regexHighlights = const [];
   int _highlightsRevision = 0;
 
   Map<int, List<HighlightSpan>> _pageHighlightCache = {};
@@ -709,11 +711,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   void _rebuildHighlightAc() {
     final patterns = <String>[];
     final entryByPattern = <int, HighlightEntry>{};
+    final regexList = <HighlightEntry>[];
     for (final h in _highlights) {
       if (h.keyword.isEmpty) continue;
+      if (h.isRegex) {
+        regexList.add(h);
+        continue;
+      }
       patterns.add(h.keyword);
       entryByPattern[patterns.length - 1] = h;
     }
+    _regexHighlights = regexList;
     if (patterns.isEmpty) {
       _highlightAc = null;
       _highlightEntryByPattern = const {};
@@ -740,7 +748,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pageHighlightCacheForRevision = _highlightsRevision;
 
     final p = _paginator;
-    if (p?.result == null || _highlightAc == null) {
+    if (p?.result == null ||
+        (_highlightAc == null && _regexHighlights.isEmpty)) {
       _pageHighlightCache = {};
       return;
     }
@@ -770,37 +779,58 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final pageLen = pageText.length;
 
     final byLine = <int, List<HighlightSpan>>{};
-    _highlightAc!.findAllMatches(pageText, (start, end, pi) {
-      var lo = 0;
-      var hi = lineStartInBuf.length - 1;
-      while (lo < hi) {
-        final mid = (lo + hi + 1) >> 1;
-        if (lineStartInBuf[mid] <= start) {
-          lo = mid;
-        } else {
-          hi = mid - 1;
+
+    // ---------- 普通关键词：走 AC 一次扫完 ----------
+    if (_highlightAc != null) {
+      _highlightAc!.findAllMatches(pageText, (start, end, pi) {
+        var lo = 0;
+        var hi = lineStartInBuf.length - 1;
+        while (lo < hi) {
+          final mid = (lo + hi + 1) >> 1;
+          if (lineStartInBuf[mid] <= start) {
+            lo = mid;
+          } else {
+            hi = mid - 1;
+          }
         }
+        final rowIdx = lo;
+        final lineStart = lineStartInBuf[rowIdx];
+        final lineEnd = rowIdx + 1 < lineStartInBuf.length
+            ? lineStartInBuf[rowIdx + 1] - 1
+            : pageLen - 1;
+        if (end > lineEnd) return;
+
+        final actualLineIdx = lineIdxAtPos[rowIdx];
+        (byLine[actualLineIdx] ??= <HighlightSpan>[]).add(HighlightSpan(
+          startInLine: start - lineStart,
+          endInLine: end - lineStart,
+          entry: _highlightEntryByPattern[pi]!,
+        ));
+      });
+    }
+
+    // ---------- 正则高亮：逐条跑，结果并入 byLine ----------
+    if (_regexHighlights.isNotEmpty) {
+      final regexByLine = matchRegexOnPage(
+        pageText: pageText,
+        lineStartInBuf: lineStartInBuf,
+        lineIdxAtPos: lineIdxAtPos,
+        regexEntries: _regexHighlights,
+      );
+      for (final e in regexByLine.entries) {
+        (byLine[e.key] ??= <HighlightSpan>[]).addAll(e.value);
       }
-      final rowIdx = lo;
-      final lineStart = lineStartInBuf[rowIdx];
-      final lineEnd = rowIdx + 1 < lineStartInBuf.length
-          ? lineStartInBuf[rowIdx + 1] - 1
-          : pageLen - 1;
-      if (end > lineEnd) return;
+    }
 
-      final actualLineIdx = lineIdxAtPos[rowIdx];
-      (byLine[actualLineIdx] ??= <HighlightSpan>[]).add(HighlightSpan(
-        startInLine: start - lineStart,
-        endInLine: end - lineStart,
-        entry: _highlightEntryByPattern[pi]!,
-      ));
-    });
-
+    // ---------- 排序去重叠。正则优先，同类短的优先 ----------
     for (final i in byLine.keys.toList()) {
       final list = byLine[i]!;
       list.sort((a, b) {
         final byStart = a.startInLine.compareTo(b.startInLine);
         if (byStart != 0) return byStart;
+        final aR = a.entry.isRegex;
+        final bR = b.entry.isRegex;
+        if (aR != bR) return aR ? -1 : 1;
         return (a.endInLine - a.startInLine)
             .compareTo(b.endInLine - b.startInLine);
       });
