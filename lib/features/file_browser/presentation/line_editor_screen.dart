@@ -1,0 +1,1155 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:charset/charset.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../preprocessing/application/encoding_detector.dart';
+import '../../preprocessing/application/preprocessing_service.dart';
+import '../../preprocessing/domain/encoding_type.dart';
+import '../../preprocessing/domain/preprocessing_rule.dart';
+import '../../viewer/presentation/providers/toolbar_rules_provider.dart';
+import 'comparison_settings_screen.dart' show RuleEditorDialog, ruleSubtitle;
+
+const int _lineEditorWarnSizeBytes = 5 * 1024 * 1024;
+const int _lineEditorRejectSizeBytes = 100 * 1024 * 1024;
+
+enum _LineSaveEncoding {
+  utf8('UTF-8'),
+  gbk('GBK');
+
+  const _LineSaveEncoding(this.label);
+  final String label;
+}
+
+/// 行编辑器。
+///
+/// 与 [SingleFileEditorScreen] 的差别：
+///   · 用 `ListView.builder` 虚拟化，一屏只渲染可见的 ~20 行
+///   · 每行一个独立的小 `TextField`，敲字只触发那一行的 layout
+///   · controller 按需创建、LRU 淘汰，超大文件内存不会爆
+///   · 跨行选择/复制粘贴跨行不精细——这是取舍
+///
+/// 与 [SingleFileEditorScreen] 的共同点：
+///   · 同样的编码检测/保存逻辑
+///   · 同样的按钮栏（调用 toolbarRulesProvider）
+///   · 同样的查找替换
+class LineEditorScreen extends ConsumerStatefulWidget {
+  const LineEditorScreen({
+    super.key,
+    required this.filePath,
+    required this.fileName,
+  });
+
+  final String filePath;
+  final String fileName;
+
+  @override
+  ConsumerState<LineEditorScreen> createState() => _LineEditorScreenState();
+}
+
+class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
+  // 缓存上限：可见行约 20~30 行，留 20 倍余量给快速滚动。
+  static const int _controllerCacheCap = 600;
+
+  /// 事实来源：每行的文本。controller 只是这张表的镜像。
+  List<String> _lines = const <String>[];
+
+  /// 按行号缓存 controller。超上限时按插入顺序清掉前一半。
+  final Map<int, _LineController> _controllers = {};
+
+  bool _loading = true;
+  bool _dirty = false;
+  bool _saving = false;
+  bool _processing = false;
+  String _processingText = '';
+
+  String _detectedEncoding = '';
+  _LineSaveEncoding _saveEncoding = _LineSaveEncoding.utf8;
+
+  double _fontSize = 14.0;
+  bool _noWrap = false;
+
+  final ScrollController _scrollCtrl = ScrollController();
+
+  // ---- 查找 / 替换 ----
+  bool _showFind = false;
+  final TextEditingController _findCtrl = TextEditingController();
+  final TextEditingController _replaceCtrl = TextEditingController();
+  bool _useRegex = false;
+  bool _caseSensitive = false;
+  List<int> _findHits = const <int>[];
+  int _findPos = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    _findCtrl.dispose();
+    _replaceCtrl.dispose();
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  // ==================== 加载 / 保存 ====================
+
+  Future<void> _load() async {
+    try {
+      final file = File(widget.filePath);
+      final len = await file.length();
+
+      if (len > _lineEditorRejectSizeBytes) {
+        if (!mounted) return;
+        setState(() => _loading = false);
+        _toast(
+            '文件超过 ${_lineEditorRejectSizeBytes ~/ 1024 ~/ 1024} MB，请用预览功能');
+        return;
+      }
+
+      if (len > _lineEditorWarnSizeBytes && mounted) {
+        final mb = (len / 1024 / 1024).toStringAsFixed(1);
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('文件较大'),
+            content: Text(
+              '此文件约 $mb MB。\n'
+              '行编辑器只渲染可见行，超大文件仍可能卡顿。\n'
+              '继续打开？',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('打开'),
+              ),
+            ],
+          ),
+        );
+        if (ok != true) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+      }
+
+      final bytes = await file.readAsBytes();
+      final enc = EncodingDetector.detect(bytes);
+      final text = EncodingDetector.decodeChunked(bytes, enc);
+      if (!mounted) return;
+      setState(() {
+        _lines = text.split('\n');
+        _detectedEncoding = enc.label;
+        _saveEncoding = _guessSaveEncoding(enc);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _toast('读取失败：$e');
+    }
+  }
+
+  _LineSaveEncoding _guessSaveEncoding(EncodingType enc) {
+    switch (enc) {
+      case EncodingType.gbk:
+      case EncodingType.gb18030:
+        return _LineSaveEncoding.gbk;
+      default:
+        return _LineSaveEncoding.utf8;
+    }
+  }
+
+  Uint8List _encodeText(String text) {
+    switch (_saveEncoding) {
+      case _LineSaveEncoding.utf8:
+        return Uint8List.fromList(utf8.encode(text));
+      case _LineSaveEncoding.gbk:
+        return Uint8List.fromList(gbk.encode(text));
+    }
+  }
+
+  String _joinLines() => _lines.join('\n');
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final bytes = _encodeText(_joinLines());
+      final file = File(widget.filePath);
+      if (await file.exists()) {
+        final bak = File('${widget.filePath}.bak');
+        if (!await bak.exists()) {
+          await bak.writeAsBytes(await file.readAsBytes(), flush: true);
+        } else {
+          final ts = DateTime.now().millisecondsSinceEpoch;
+          await File('${widget.filePath}_$ts.bak')
+              .writeAsBytes(await file.readAsBytes(), flush: true);
+        }
+      }
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      setState(() {
+        _dirty = false;
+        _saving = false;
+      });
+      _toast('已保存（原文件已生成 .bak 备份）');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _toast('保存失败：$e');
+    }
+  }
+
+  Future<void> _saveAs() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final bytes = _encodeText(_joinLines());
+      final out = await FilePicker.saveFile(
+        fileName: widget.fileName,
+        bytes: bytes,
+        mimeType: 'text/plain',
+        dialogTitle: '另存为',
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+      );
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (out != null) _toast('已另存为 $out');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _toast('另存失败：$e');
+    }
+  }
+
+  Future<bool> _confirmLeave() async {
+    if (!_dirty) return true;
+    final r = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('有未保存的修改'),
+        content: const Text('返回将丢失改动，确定吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'cancel'),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'discard'),
+            child: const Text('放弃并返回'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, 'save'),
+            child: const Text('保存并返回'),
+          ),
+        ],
+      ),
+    );
+    if (r == 'save') {
+      await _save();
+      return !_dirty;
+    }
+    return r == 'discard';
+  }
+
+  // ==================== Controller 缓存 ====================
+
+  _LineController _controllerFor(int i) {
+    var c = _controllers[i];
+    if (c == null) {
+      c = _LineController(text: _lines[i]);
+      final cc = c;
+      c.addListener(() => _onLineChanged(i, cc.text));
+      _controllers[i] = c;
+      _maybeEvict();
+    } else if (c.text != _lines[i]) {
+      // 行内容被外部改过（查找替换、按钮规则），回灌到旧 controller。
+      // setter 会同步通知 listener，_onLineChanged 检测到相等就直接返回。
+      c.text = _lines[i];
+    }
+    c.findQuery = _findCtrl.text;
+    return c;
+  }
+
+  void _maybeEvict() {
+    if (_controllers.length <= _controllerCacheCap) return;
+    // Map 迭代按插入顺序 → 取前一半是最"老"的。
+    final keys =
+        _controllers.keys.take(_controllers.length ~/ 2).toList(growable: false);
+    for (final k in keys) {
+      _controllers.remove(k)?.dispose();
+    }
+  }
+
+  void _onLineChanged(int i, String text) {
+    if (i < 0 || i >= _lines.length) return;
+    if (_lines[i] == text) return;
+    _lines[i] = text;
+    // 只在第一次脏时 setState（让底部状态条刷新），之后敲字不再重绘。
+    if (!_dirty) {
+      setState(() => _dirty = true);
+    } else {
+      // 底部状态栏有字符数需要更新 → 每 5 次敲字刷一次也行，但这里保持
+      // 简单：仍然 setState，但代价很小（只有可见行重建）。
+      setState(() {});
+    }
+  }
+
+  // ==================== 查找 / 替换 ====================
+
+  Pattern _buildPattern() {
+    final q = _findCtrl.text;
+    if (q.isEmpty) return RegExp(r'(?!)');
+    try {
+      return _useRegex
+          ? RegExp(q, caseSensitive: _caseSensitive, multiLine: true)
+          : RegExp(RegExp.escape(q), caseSensitive: _caseSensitive);
+    } catch (_) {
+      return RegExp(r'(?!)');
+    }
+  }
+
+  void _recomputeHits() {
+    final q = _findCtrl.text;
+    if (q.isEmpty) {
+      setState(() {
+        _findHits = const <int>[];
+        _findPos = -1;
+      });
+      return;
+    }
+    final p = _buildPattern();
+    final hits = <int>[];
+    for (var i = 0; i < _lines.length; i++) {
+      if (p.allMatches(_lines[i]).isNotEmpty) hits.add(i);
+    }
+    setState(() {
+      _findHits = hits;
+      _findPos = hits.isEmpty ? -1 : 0;
+    });
+    if (hits.isNotEmpty) _scrollToLine(hits[0]);
+  }
+
+  void _findNext() {
+    if (_findHits.isEmpty) {
+      _recomputeHits();
+      return;
+    }
+    setState(
+        () => _findPos = (_findPos + 1) % _findHits.length);
+    _scrollToLine(_findHits[_findPos]);
+  }
+
+  void _findPrev() {
+    if (_findHits.isEmpty) {
+      _recomputeHits();
+      return;
+    }
+    setState(() =>
+        _findPos = (_findPos - 1 + _findHits.length) % _findHits.length);
+    _scrollToLine(_findHits[_findPos]);
+  }
+
+  void _replaceCurrent() {
+    if (_findHits.isEmpty || _findPos < 0) return;
+    final lineNo = _findHits[_findPos];
+    final line = _lines[lineNo];
+    final p = _buildPattern();
+    final newLine =
+        line.replaceAllMapped(p, (_) => _replaceCtrl.text);
+    if (newLine == line) return;
+    _lines[lineNo] = newLine;
+    _controllers[lineNo]?.text = newLine;
+    setState(() => _dirty = true);
+    _recomputeHits();
+  }
+
+  void _replaceAll() {
+    if (_findCtrl.text.isEmpty) {
+      _toast('请输入要查找的内容');
+      return;
+    }
+    final p = _buildPattern();
+    var count = 0;
+    for (var i = 0; i < _lines.length; i++) {
+      final line = _lines[i];
+      final newLine = line.replaceAllMapped(p, (_) => _replaceCtrl.text);
+      if (newLine != line) {
+        _lines[i] = newLine;
+        _controllers[i]?.text = newLine;
+        count++;
+      }
+    }
+    if (count == 0) {
+      _toast('没有匹配');
+      return;
+    }
+    setState(() => _dirty = true);
+    _recomputeHits();
+    _toast('已替换 $count 行');
+  }
+
+  // ==================== 滚动 / 跳转 ====================
+
+  /// 估算滚动偏移。真正的行高由 Flutter 决定，这里只能估算——偏差通过
+  /// 之后的用户滚动修正。跳转够用就行。
+  void _scrollToLine(int lineIdx) {
+    if (!_scrollCtrl.hasClients) return;
+    final est = lineIdx * (_fontSize * 1.4 + 18);
+    final max = _scrollCtrl.position.maxScrollExtent;
+    _scrollCtrl.jumpTo(est.clamp(0.0, max));
+  }
+
+  Future<void> _jumpToLine() async {
+    final ctrl = TextEditingController();
+    final line = await showDialog<int>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('跳到指定行'),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '输入行号（从 1 开始）',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) {
+            final n = int.tryParse(v.trim());
+            if (n != null && n >= 1) Navigator.pop(c, n);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final n = int.tryParse(ctrl.text.trim());
+              if (n != null && n >= 1) Navigator.pop(c, n);
+            },
+            child: const Text('跳转'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (line == null) return;
+    if (line < 1 || line > _lines.length) {
+      _toast('行号超出范围');
+      return;
+    }
+    _scrollToLine(line - 1);
+  }
+
+  void _jumpToTop() {
+    if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
+  }
+
+  void _jumpToBottom() {
+    if (!_scrollCtrl.hasClients) return;
+    _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
+  }
+
+  // ==================== 按钮栏 ====================
+
+  Widget _buildToolbar() {
+    final rules = ref.watch(toolbarRulesOrderedProvider);
+    final s = Theme.of(context).colorScheme;
+
+    return Container(
+      height: 46,
+      color: s.surfaceVariant.withOpacity(0.25),
+      child: Row(
+        children: [
+          Expanded(
+            child: rules.isEmpty
+                ? Center(
+                    child: Text(
+                      '点 + 添加常用按钮（长按按钮编辑）',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: s.onSurfaceVariant,
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    itemCount: rules.length,
+                    itemBuilder: (ctx, i) {
+                      final r = rules[i];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 3,
+                          vertical: 7,
+                        ),
+                        child: GestureDetector(
+                          onTap: () => _applyToolbarRule(r),
+                          onLongPress: () => _editToolbarRule(r),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.black.withOpacity(0.5),
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              r.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.black,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add, size: 20),
+            tooltip: '新建按钮',
+            visualDensity: VisualDensity.compact,
+            onPressed: _addToolbarRule,
+          ),
+          IconButton(
+            icon: const Icon(Icons.sort, size: 20),
+            tooltip: '排序按钮',
+            visualDensity: VisualDensity.compact,
+            onPressed: _showToolbarOrderDialog,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _applyToolbarRule(PreprocessingRule rule) async {
+    setState(() {
+      _processing = true;
+      _processingText = '正在执行「${rule.name}」…';
+    });
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+
+    try {
+      final joined = _joinLines();
+      final next = applyOneRule(joined, rule);
+      final nextLines = next.split('\n');
+
+      // 行数可能变了，旧 controller 全部作废。
+      for (final c in _controllers.values) {
+        c.dispose();
+      }
+      _controllers.clear();
+
+      setState(() {
+        _lines = nextLines;
+        _dirty = true;
+      });
+      _toast('已应用「${rule.name}」');
+    } catch (e) {
+      _toast('执行失败：$e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processing = false;
+          _processingText = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _addToolbarRule() async {
+    final rule = await showDialog<PreprocessingRule>(
+      context: context,
+      builder: (_) => const RuleEditorDialog(showCopyToPreprocess: false),
+    );
+    if (rule == null || !mounted) return;
+    ref.read(toolbarRulesProvider.notifier).add(rule);
+    _toast('已添加按钮「${rule.name}」');
+  }
+
+  Future<void> _editToolbarRule(PreprocessingRule rule) async {
+    final updated = await showDialog<PreprocessingRule>(
+      context: context,
+      builder: (_) => RuleEditorDialog(
+        initial: rule,
+        showCopyToPreprocess: true,
+      ),
+    );
+    if (updated == null || !mounted) return;
+    ref.read(toolbarRulesProvider.notifier).updateRule(updated);
+  }
+
+  Future<void> _showToolbarOrderDialog() async {
+    final rules = ref.read(toolbarRulesOrderedProvider);
+    if (rules.isEmpty) {
+      _toast('还没有按钮');
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (c) => _LineToolbarOrderDialog(rules: rules),
+    );
+  }
+
+  // ==================== UI ====================
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final ok = await _confirmLeave();
+        if (ok && mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            widget.fileName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.vertical_align_top),
+              tooltip: '跳到开头',
+              onPressed: _jumpToTop,
+            ),
+            IconButton(
+              icon: const Icon(Icons.vertical_align_bottom),
+              tooltip: '跳到结尾',
+              onPressed: _jumpToBottom,
+            ),
+            IconButton(
+              icon: const Icon(Icons.format_list_numbered),
+              tooltip: '跳到指定行',
+              onPressed: _jumpToLine,
+            ),
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: '查找 / 替换',
+              onPressed: () => setState(() => _showFind = !_showFind),
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (v) {
+                switch (v) {
+                  case 'saveAs':
+                    _saveAs();
+                    break;
+                  case 'wrap':
+                    setState(() => _noWrap = !_noWrap);
+                    break;
+                  case 'fontUp':
+                    setState(() => _fontSize = (_fontSize + 1).clamp(8, 36));
+                    break;
+                  case 'fontDown':
+                    setState(() => _fontSize = (_fontSize - 1).clamp(8, 36));
+                    break;
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'saveAs',
+                  child: Row(
+                    children: [
+                      Icon(Icons.save_as),
+                      SizedBox(width: 10),
+                      Text('另存为'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'wrap',
+                  child: Row(
+                    children: [
+                      Icon(_noWrap ? Icons.wrap_text : Icons.notes),
+                      const SizedBox(width: 10),
+                      Text(_noWrap ? '开启自动换行' : '关闭自动换行'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'fontUp',
+                  child: Row(
+                    children: [
+                      Icon(Icons.text_increase),
+                      SizedBox(width: 10),
+                      Text('字号 +1'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'fontDown',
+                  child: Row(
+                    children: [
+                      Icon(Icons.text_decrease),
+                      SizedBox(width: 10),
+                      Text('字号 -1'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            TextButton.icon(
+              onPressed: _saving || _loading ? null : _save,
+              icon: Icon(_saving ? Icons.hourglass_top : Icons.save),
+              label: const Text('保存'),
+            ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  _buildToolbar(),
+                  if (_processing) _buildProcessingBanner(),
+                  if (_showFind) _buildFindBar(),
+                  Expanded(child: _buildLineList()),
+                  _buildStatusBar(),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _buildProcessingBanner() {
+    return Container(
+      width: double.infinity,
+      color: Theme.of(context).colorScheme.tertiaryContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Text(
+        _processingText,
+        style: TextStyle(
+          fontSize: 12,
+          color: Theme.of(context).colorScheme.onTertiaryContainer,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLineList() {
+    final s = Theme.of(context).colorScheme;
+    final total = _lines.length;
+
+    return ListView.builder(
+      controller: _scrollCtrl,
+      itemCount: total,
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: true,
+      cacheExtent: 500,
+      itemBuilder: (ctx, i) {
+        final ctrl = _controllerFor(i);
+        return _LineRow(
+          index: i,
+          controller: ctrl,
+          fontSize: _fontSize,
+          noWrap: _noWrap,
+          gutterColor: s.outline,
+        );
+      },
+    );
+  }
+
+  Widget _buildStatusBar() {
+    final s = Theme.of(context).colorScheme;
+    final total = _lines.length;
+    return Container(
+      width: double.infinity,
+      color: s.surfaceVariant.withOpacity(0.4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Text(
+        '$total 行 · $_detectedEncoding → ${_saveEncoding.label}'
+        '${_noWrap ? " · 不换行" : ""}'
+        '${_dirty ? " · 未保存" : ""}',
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
+    );
+  }
+
+  Widget _buildFindBar() {
+    final s = Theme.of(context).colorScheme;
+    final total = _findHits.length;
+    final cur = total == 0 ? 0 : (_findPos + 1);
+
+    return Material(
+      color: s.surface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: '关闭查找',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() {
+                    _showFind = false;
+                    _findCtrl.clear();
+                    _findHits = const <int>[];
+                    _findPos = -1;
+                    for (final c in _controllers.values) {
+                      c.findQuery = '';
+                    }
+                  }),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _findCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: '查找',
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
+                    onSubmitted: (_) => _findNext(),
+                  ),
+                ),
+                Text(
+                  '$cur/$total',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_upward),
+                  tooltip: '上一个',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _findPrev,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_downward),
+                  tooltip: '下一个',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _findNext,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 48),
+                Expanded(
+                  child: TextField(
+                    controller: _replaceCtrl,
+                    decoration: const InputDecoration(
+                      hintText: '替换为（留空 = 删掉）',
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: _replaceCurrent,
+                  child: const Text('替换当前'),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: _replaceAll,
+                  child: const Text('全部替换'),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 8),
+                _toggle(
+                  label: '正则',
+                  value: _useRegex,
+                  onTap: () {
+                    setState(() => _useRegex = !_useRegex);
+                    _recomputeHits();
+                  },
+                ),
+                _toggle(
+                  label: '区分大小写',
+                  value: _caseSensitive,
+                  onTap: () {
+                    setState(() => _caseSensitive = !_caseSensitive);
+                    _recomputeHits();
+                  },
+                ),
+                const Spacer(),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: _recomputeHits,
+                  child: const Text('搜索'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _toggle({
+    required String label,
+    required bool value,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: value ? FontWeight.bold : FontWeight.normal,
+            color: value
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+}
+
+// ==================== 行 Widget ====================
+
+class _LineRow extends StatelessWidget {
+  const _LineRow({
+    required this.index,
+    required this.controller,
+    required this.fontSize,
+    required this.noWrap,
+    required this.gutterColor,
+  });
+
+  final int index;
+  final _LineController controller;
+  final double fontSize;
+  final bool noWrap;
+  final Color gutterColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 44,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8, right: 6, left: 4),
+            child: Text(
+              '${index + 1}',
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: fontSize - 3,
+                color: gutterColor,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: TextField(
+              controller: controller,
+              maxLines: noWrap ? 1 : null,
+              minLines: 1,
+              keyboardType: TextInputType.multiline,
+              style: TextStyle(
+                fontSize: fontSize,
+                height: 1.4,
+                fontFamily: 'monospace',
+              ),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== 带查找高亮的 controller ====================
+
+class _LineController extends TextEditingController {
+  _LineController({super.text});
+
+  String findQuery = '';
+
+  static const Color _matchYellow = Color(0xFFFFF59D);
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    // 有输入法组合时交给父类，避免遮掉组合下划线。
+    if (withComposing && value.composing.isValid) {
+      return super.buildTextSpan(
+        context: context,
+        style: style,
+        withComposing: withComposing,
+      );
+    }
+
+    final text = this.text;
+    final q = findQuery;
+    if (q.isEmpty || text.isEmpty) {
+      return TextSpan(style: style, text: text.isEmpty ? ' ' : text);
+    }
+
+    // 简单字面量匹配：把命中的位置涂黄。正则这里不做区分（正则命中的
+    // 子串不一定等于 q），所以查找栏开了正则时这里只做"整行含 q"的
+    // 标记——近似够用。
+    final spans = <InlineSpan>[];
+    var start = 0;
+    int idx;
+    while (start <= text.length && (idx = text.indexOf(q, start)) != -1) {
+      if (idx > start) {
+        spans.add(TextSpan(text: text.substring(start, idx)));
+      }
+      spans.add(TextSpan(
+        text: q,
+        style: const TextStyle(
+          backgroundColor: _matchYellow,
+          fontWeight: FontWeight.bold,
+        ),
+      ));
+      start = idx + q.length;
+    }
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start)));
+    }
+    return TextSpan(style: style, children: spans.isEmpty ? null : spans);
+  }
+}
+
+// ==================== 按钮排序对话框 ====================
+
+class _LineToolbarOrderDialog extends ConsumerStatefulWidget {
+  const _LineToolbarOrderDialog({required this.rules});
+
+  final List<PreprocessingRule> rules;
+
+  @override
+  ConsumerState<_LineToolbarOrderDialog> createState() =>
+      _LineToolbarOrderDialogState();
+}
+
+class _LineToolbarOrderDialogState
+    extends ConsumerState<_LineToolbarOrderDialog> {
+  late List<PreprocessingRule> _rules;
+
+  @override
+  void initState() {
+    super.initState();
+    _rules = List<PreprocessingRule>.from(widget.rules);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: const Text('按钮排序'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: ReorderableListView.builder(
+          itemCount: _rules.length,
+          onReorder: (oldIndex, newIndex) {
+            setState(() {
+              if (newIndex > oldIndex) newIndex--;
+              final item = _rules.removeAt(oldIndex);
+              _rules.insert(newIndex, item);
+            });
+          },
+          itemBuilder: (ctx, i) {
+            final r = _rules[i];
+            return ListTile(
+              key: ValueKey<String>('order:${r.id}'),
+              leading: const Icon(Icons.drag_handle),
+              title: Text(r.name),
+              subtitle: Text(
+                ruleSubtitle(r),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11),
+              ),
+              trailing: IconButton(
+                tooltip: '删除',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () {
+                  setState(() => _rules.removeAt(i));
+                },
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    ref
+        .read(toolbarOrderProvider.notifier)
+        .setAll(_rules.map((r) => r.id).toList());
+    ref.read(toolbarRulesProvider.notifier).setAll(_rules);
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已保存')),
+    );
+  }
+}
