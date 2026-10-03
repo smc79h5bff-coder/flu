@@ -302,7 +302,7 @@ class _LineRangeSelectorDialogState extends State<LineRangeSelectorDialog> {
         bg = Colors.blue.withValues(alpha: 0.10);
         leftBar = Colors.orange;
       } else if (inRange) {
-        bg = Colors.blue.withValues(alpha: 0.08);
+        bg = Colors.blue.withValues(alpha: 0.06);
       }
 
       rows.add(
