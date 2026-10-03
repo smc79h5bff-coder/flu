@@ -48,7 +48,10 @@ static const String builtinRuleHidden = '${_p}rules.builtinHidden';
   // ==================== 对比页按钮栏 ====================
   static const String toolbarRules = '${_p}toolbar.rules';
   static const String toolbarOrder = '${_p}toolbar.order';
-
+// ==================== 行编辑器按钮栏 ====================
+static const String lineEditorRules = '${_p}lineEditor.rules';
+static const String lineEditorOrder = '${_p}lineEditor.order';
+static const String lineEditorButtonColors = '${_p}lineEditor.buttonColors';
   /// 按钮独立颜色：Map<ruleId, {bg, fg, border}>。
   static const String toolbarButtonColors = '${_p}toolbar.buttonColors';
 
