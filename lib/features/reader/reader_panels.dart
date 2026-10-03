@@ -3421,6 +3421,9 @@ class _HighlightEditScreenState
   late List<double> _stops;
   late Color _textColor;
   String? _groupId;
+  late bool _isRegex;
+  late int _groupIndex;
+  String? _regexError;
 
   int _editorKey = 0;
 
@@ -3442,6 +3445,8 @@ class _HighlightEditScreenState
     }
     _textColor = Color(e.textColor);
     _groupId = e.groupId;
+    _isRegex = e.isRegex;
+    _groupIndex = e.groupIndex;
   }
 
   @override
@@ -3454,6 +3459,20 @@ class _HighlightEditScreenState
   void _save() {
     final kw = _kwCtrl.text.trim();
     if (kw.isEmpty) return;
+
+    // 正则模式：先校验
+    if (_isRegex) {
+      try {
+        RegExp(kw);
+      } catch (e) {
+        setState(() => _regexError = '正则无效：$e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('正则无效，请检查')),
+        );
+        return;
+      }
+    }
+
     final colors = _isGradient
         ? _colors.map((c) => c.toARGB32()).toList()
         : <int>[_colors.first.toARGB32()];
@@ -3467,7 +3486,13 @@ class _HighlightEditScreenState
       name: _nameCtrl.text.trim(),
       groupId: _groupId,
       clearGroup: _groupId == null,
+      isRegex: _isRegex,
+      groupIndex: _isRegex ? _groupIndex : 0,
     );
+
+    // 清一次编译缓存，避免旧 pattern 残留（可选，防内存增长）。
+    invalidateRegexCache();
+
     Navigator.pop(context, HighlightEditResult(action: 'save', entry: updated));
   }
 
@@ -3580,17 +3605,86 @@ class _HighlightEditScreenState
               onPressed: () => _createRegexHighlightFromEdit(),
             ),
           ),
-          const Text('关键词'),
+          Text(_isRegex ? '正则表达式' : '关键词'),
           TextField(
             controller: _kwCtrl,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            style: _isRegex
+                ? const TextStyle(fontFamily: 'monospace')
+                : null,
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               isDense: true,
+              hintText: _isRegex
+                  ? r'例如：(?<=「)[^」]+(?=」)'
+                  : '要匹配的文字',
             ),
-
-onChanged: (_) => setState(() {}),
-            
+            onChanged: (_) => setState(() {
+              _regexError = null;
+            }),
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('使用正则', style: TextStyle(fontSize: 13)),
+              const SizedBox(width: 4),
+              const Tooltip(
+                message: '开：上方内容按正则表达式解析\n'
+                    '关：按字面匹配',
+                child: Icon(Icons.info_outline, size: 14),
+              ),
+              const Spacer(),
+              Switch(
+                value: _isRegex,
+                onChanged: (v) => setState(() {
+                  _isRegex = v;
+                  _regexError = null;
+                }),
+              ),
+            ],
+          ),
+          if (_regexError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _regexError!,
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              ),
+            ),
+          if (_isRegex) ...[
+            const SizedBox(height: 12),
+            const Text('高亮第几个捕获组'),
+            TextFormField(
+              key: ValueKey('group_$_groupIndex'),
+              initialValue: _groupIndex.toString(),
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+                hintText: '0 = 整个匹配；1 = 第 1 对括号；2 = 第 2 对括号',
+              ),
+              onFieldSubmitted: (v) {
+                final n = int.tryParse(v.trim());
+                setState(() => _groupIndex = n ?? 0);
+              },
+              onChanged: (v) {
+                final n = int.tryParse(v.trim());
+                if (n != null && n >= 0) {
+                  _groupIndex = n;
+                }
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '例：正则 "([^"]+)" 填 1，只高亮引号里的字。\n'
+                '   正则 (?<=「)[^」]+(?=」) 填 0，一样效果。',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           Row(
             children: [
