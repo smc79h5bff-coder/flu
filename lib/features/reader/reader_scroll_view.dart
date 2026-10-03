@@ -10,18 +10,21 @@ import 'package:share_plus/share_plus.dart';
 import 'reader_loupe.dart';
 import 'reader_models.dart';
 
-/// 滚动模式的阅读视图。
+/// 滚动模式的阅读视图（正文层）。
 ///
-/// 交互：
-///   · 手指自由上下滑动（GestureDetector 用 translucent，不拦滚动）
-///   · 点击（不移动）→ 往下滚一屏
-///   · 右滑 → 往上滚一屏
-///   · 长按 → 开始选字。此时手势被 GestureDetector 抢走，滚动被锁
-///   · 长按后手指滑动 → 扩展选区
-///   · 手指停在屏幕上下边缘 → 内容自动滚（边缘自动滚）
-///   · 松手 → 显示底部操作栏（复制 / 分享 / 色块条）
+/// 只负责"正文怎么滚 + 选区怎么选"。菜单、热区、悬浮按钮归 ReaderScreen。
 ///
-/// 独立于分页模式。父级 [ReaderScreen] 只需要在两种模式间切换即可。
+/// 手势（在内部 GestureDetector(translucent) 上注册，不抢 Scrollable 的竖向滚动）：
+///   · onTap                → 往下滚一屏（无动画）
+///   · onHorizontalDragEnd  → 右滑往上滚一屏（无动画）
+///   · onLongPressStart     → 开始选字
+///   · onLongPressMoveUpdate→ 扩展选区
+///   · onLongPressEnd       → 结束选字，显示操作栏
+///   · 竖向拖动             → 交给 Scrollable（自由滚动）
+///
+/// 公开方法（供父级调用）：
+///   · jumpToOffset(int charOffset)  跳到某个字符偏移
+///   · jumpByScreen(int dir)         滚一屏（dir>0 往下，dir<0 往上）
 class ReaderScrollView extends StatefulWidget {
   const ReaderScrollView({
     super.key,
@@ -50,10 +53,10 @@ class ReaderScrollView extends StatefulWidget {
   final void Function(int paletteIndex) onPaletteEdit;
 
   @override
-  State<ReaderScrollView> createState() => _ReaderScrollViewState();
+  State<ReaderScrollView> createState() => ReaderScrollViewState();
 }
 
-class _ReaderScrollViewState extends State<ReaderScrollView> {
+class ReaderScrollViewState extends State<ReaderScrollView> {
   late final ItemScrollController _scrollCtrl;
   late final ItemPositionsListener _positions;
 
@@ -82,7 +85,8 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
   // ---- 选区操作栏 ----
   bool _hBarVisible = false;
 
-  static const Color _selectionBg = Color(0x773D7CFF);
+  // ---- 进度上报 ----
+  int _lastReportedOffset = -1;
 
   @override
   void initState() {
@@ -92,7 +96,7 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     _positions.itemPositions.addListener(_onPositionsChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _jumpToOffset(widget.initialOffset);
+      jumpToOffset(widget.initialOffset);
     });
   }
 
@@ -103,24 +107,10 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     super.dispose();
   }
 
-  // ==================== 进度上报 ====================
+  // ==================== 公开方法 ====================
 
-  int _lastReportedOffset = -1;
-
-  void _onPositionsChanged() {
-    final list = _positions.itemPositions.value;
-    if (list.isEmpty) return;
-    final first = list.reduce((a, b) => a.index < b.index ? a : b);
-    final idx = first.index;
-    if (idx < 0 || idx >= widget.lineStarts.length) return;
-    final offset = widget.lineStarts[idx];
-    if (offset != _lastReportedOffset) {
-      _lastReportedOffset = offset;
-      widget.onProgressChanged(offset);
-    }
-  }
-
-  void _jumpToOffset(int charOffset) {
+  /// 跳到某个字符偏移（二分找到对应行，再 jumpTo）。
+  void jumpToOffset(int charOffset) {
     if (!_scrollCtrl.isAttached) return;
     if (widget.lineStarts.isEmpty) return;
     var lo = 0;
@@ -136,7 +126,33 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     _scrollCtrl.jumpTo(index: lo);
   }
 
-  // ==================== 顶部/底部可见行 ====================
+  /// 滚一屏。dir > 0 往下，dir < 0 往上。
+  void jumpByScreen(int dir) {
+    if (!_scrollCtrl.isAttached) return;
+    final first = _firstVisibleLine();
+    final last = _lastVisibleLine();
+    if (first == null || last == null) return;
+    final visibleCount = last - first + 1;
+    final target = dir > 0
+        ? (first + visibleCount).clamp(0, widget.lines.length - 1)
+        : (first - visibleCount).clamp(0, widget.lines.length - 1);
+    _scrollCtrl.jumpTo(index: target);
+  }
+
+  // ==================== 进度上报 ====================
+
+  void _onPositionsChanged() {
+    final list = _positions.itemPositions.value;
+    if (list.isEmpty) return;
+    final first = list.reduce((a, b) => a.index < b.index ? a : b);
+    final idx = first.index;
+    if (idx < 0 || idx >= widget.lineStarts.length) return;
+    final offset = widget.lineStarts[idx];
+    if (offset != _lastReportedOffset) {
+      _lastReportedOffset = offset;
+      widget.onProgressChanged(offset);
+    }
+  }
 
   int? _firstVisibleLine() {
     final list = _positions.itemPositions.value;
@@ -157,40 +173,17 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
       setState(_clearSelection);
       return;
     }
-    _scrollDownOneScreen();
+    jumpByScreen(1);
   }
 
   void _handleHorizontalDragEnd(DragEndDetails d) {
     if (_hBarVisible || _selStartLine != null) return;
     final v = d.primaryVelocity ?? 0;
-    // 右滑（正速度）→ 往上翻
     if (v > 200) {
-      _scrollUpOneScreen();
+      jumpByScreen(-1);
     } else if (v < -200) {
-      _scrollDownOneScreen();
+      jumpByScreen(1);
     }
-  }
-
-  void _scrollDownOneScreen() {
-    if (!_scrollCtrl.isAttached) return;
-    final first = _firstVisibleLine();
-    final last = _lastVisibleLine();
-    if (first == null || last == null) return;
-    final visibleCount = last - first + 1;
-    final target =
-        (first + visibleCount).clamp(0, widget.lines.length - 1);
-    _scrollCtrl.jumpTo(index: target);
-  }
-
-  void _scrollUpOneScreen() {
-    if (!_scrollCtrl.isAttached) return;
-    final first = _firstVisibleLine();
-    final last = _lastVisibleLine();
-    if (first == null || last == null) return;
-    final visibleCount = last - first + 1;
-    final target =
-        (first - visibleCount).clamp(0, widget.lines.length - 1);
-    _scrollCtrl.jumpTo(index: target);
   }
 
   // ==================== 手势：长按选字 ====================
@@ -235,13 +228,11 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     _loupePos = null;
     _edgeScrollTimer?.cancel();
 
-    // 长按但没有选区（点到了空白）→ 视为普通点击
     if (_selStartLine == null || _selEndLine == null) {
       _handleTap();
       return;
     }
 
-    // 起点终点相同且没有扩展 → 也当作点击
     if (_selStartLine == _selEndLine &&
         _selStartOffset == _selEndOffset) {
       setState(_clearSelection);
@@ -277,7 +268,6 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     }
   }
 
-  /// dir = -1 上滚（往顶部），dir = 1 下滚（往底部）。
   void _edgeScrollStep(int dir) {
     if (!_scrollCtrl.isAttached) return;
     final first = _firstVisibleLine();
@@ -294,7 +284,6 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     }
     _scrollCtrl.jumpTo(index: target);
 
-    // 滚完后重算手指位置对应的行/字，更新选区终点。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_longPressActive) return;
       final p = _longPressPos;
@@ -308,11 +297,10 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
     });
   }
 
-  // ==================== 选区 ====================
+  // ==================== 选区计算 ====================
 
   ({int line, int offset})? _hitTest(Offset globalPos) {
     final list = _positions.itemPositions.value;
-    // 按 y 从大到小遍历（先命中下半屏，视觉上更符合预期）
     final sorted = list.toList()..sort((a, b) => b.index.compareTo(a.index));
     for (final p in sorted) {
       final key = _lineKeys[p.index];
@@ -396,7 +384,7 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
       _hBarVisible = false;
     });
     _edgeScrollTimer?.cancel();
-    _longPressActive = true; // 复用边缘滚检测
+    _longPressActive = true;
     _longPressPos = pos;
     _startEdgeScrollTimer();
   }
@@ -450,7 +438,6 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
       color: bgColor,
       child: Stack(
         children: [
-          // ---------- 正文 + 手势 ----------
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -482,14 +469,11 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
             ),
           ),
 
-          // ---------- 手柄 ----------
           ..._buildHandles(),
 
-          // ---------- 放大镜 ----------
           if (_loupePos != null && _selStartLine != null)
             _buildLoupe(s, _loupePos!),
 
-          // ---------- 底部操作栏 ----------
           if (_hBarVisible && _selStartLine != null && _selEndLine != null)
             _buildHBar(context, s),
         ],
@@ -514,7 +498,6 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
 
     final widgets = <Widget>[];
 
-    // 起点手柄
     final startCtx = _lineKeys[_selStartLine!]?.currentContext;
     if (startCtx != null) {
       final box = startCtx.findRenderObject() as RenderBox?;
@@ -535,7 +518,6 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
       }
     }
 
-    // 终点手柄
     final endCtx = _lineKeys[_selEndLine!]?.currentContext;
     if (endCtx != null) {
       final box = endCtx.findRenderObject() as RenderBox?;
@@ -675,7 +657,6 @@ class _ReaderScrollViewState extends State<ReaderScrollView> {
                 ],
               ),
               const Divider(height: 6),
-              // ---- 色块条 ----
               SizedBox(
                 height: 40,
                 child: ListView.builder(
