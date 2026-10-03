@@ -475,7 +475,8 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                       ],
                     ),
                     Text(
-                      '关掉后 点击依旧能弹菜单，只是不在阅读页绘制。',
+                      '关掉后 热区变成透明，仍可点击弹菜单，只是不绘制出来。\n'
+  '默认位置：屏幕顶部中央一条横带（可在此页调整位置和大小）。',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade600),
                     ),
