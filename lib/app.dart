@@ -17,6 +17,13 @@ class DocDiffApp extends ConsumerWidget {
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
 
+      // 禁用整个 App 的 Hero 机制。
+      // 我们没用 Hero，但它在无动画 PageRouteBuilder 下会报 null 错。
+      // 包一层 HeroControllerScope.none 让 Hero 控制器直接跳过。
+      builder: (context, child) {
+        return HeroControllerScope.none(child: child!);
+      },
+
       navigatorObservers: [fileBrowserRouteObserver],
       home: const PermissionGate(child: FileBrowserScreen()),
     );
