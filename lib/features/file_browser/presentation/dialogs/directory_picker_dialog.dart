@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import '../dir_loader.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../providers/file_browser_providers.dart';
 
@@ -55,29 +55,35 @@ class _DirectoryPickerDialogState
     super.dispose();
   }
 
+
+
+
+
+
+  
   Future<void> _load() async {
-    setState(() => _loading = true);
-    try {
-      final raw = await Directory(_path).list(followLinks: false).toList();
-      final dirs = raw.whereType<Directory>().where((d) {
-        final name = d.path.split('/').last;
-        return !name.startsWith('.');
-      }).toList()
-        ..sort((a, b) =>
-            a.path.toLowerCase().compareTo(b.path.toLowerCase()));
-      if (!mounted) return;
-      setState(() {
-        _dirs = dirs;
-        _loading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _dirs = const [];
-        _loading = false;
-      });
-    }
+  setState(() => _loading = true);
+  try {
+    final dirs = await listSubdirectoriesSafe(_path);
+    if (!mounted) return;
+    setState(() {
+      _dirs = dirs;
+      _loading = false;
+    });
+  } catch (_) {
+    if (!mounted) return;
+    setState(() {
+      _dirs = const [];
+      _loading = false;
+    });
   }
+}
+
+
+
+
+
+  
 
   bool get _canGoUp => _path != widget.rootPath;
 
