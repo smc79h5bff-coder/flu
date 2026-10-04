@@ -94,6 +94,21 @@ class DirCache {
     }
   }
 
+  /// 对该目录下所有排序方式的缓存，应用一次转换函数。
+  /// 用于"App 内删文件后同步缓存"：把被删的项从所有排序的缓存里剔掉。
+  void applyToAll(String path,
+      List<EntryInfo> Function(List<EntryInfo>) transform) {
+    final prefix = '$path|';
+    final keys = _map.keys.where((k) => k.startsWith(prefix)).toList();
+    for (final k in keys) {
+      _map[k] = transform(_map[k]!);
+    }
+    if (keys.isNotEmpty) {
+      ReaderLoadLog.instance
+          .info('[DirCache] 同步删除到 ${keys.length} 条缓存  $path');
+    }
+  }
+
   void invalidateAll() {
     _map.clear();
     ReaderLoadLog.instance.info('[DirCache] 全部失效');
