@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'browser_settings_screen.dart';
+import '../../core/constants/app_colors.dart';
 import 'line_editor_screen.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
