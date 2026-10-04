@@ -259,7 +259,14 @@ Future<List<Directory>> listSubdirectoriesSafe(String path) async {
   }
 }
 
+
+
+
+
+
+
 /// 手动构造 /storage 下的子目录列表。
+/// 手动构造 /storage 下的子目录列表（供弹窗使用）。
 List<Directory> _storageRootDirs() {
   final out = <Directory>[];
   final seen = <String>{};
@@ -272,9 +279,22 @@ List<Directory> _storageRootDirs() {
     out.add(dir);
   }
 
-  add('/storage/emulated');
-  add('/storage/self');
+  // 内部存储
+  add('/storage/emulated/0');
 
+  // 双开空间
+  try {
+    final raw = Directory('/storage/emulated').listSync(followLinks: false);
+    for (final e in raw) {
+      if (e is! Directory) continue;
+      final name = e.path.split('/').last;
+      if (name == '0' || name == 'self') continue;
+      if (!RegExp(r'^\d+$').hasMatch(name)) continue;
+      add(e.path);
+    }
+  } catch (_) {}
+
+  // SD 卡 / U 盘
   final uuidPattern = RegExp(r'([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})');
   const sources = <String>[
     '/proc/mounts',
@@ -295,8 +315,11 @@ List<Directory> _storageRootDirs() {
   }
 
   for (final uuid in uuids) {
-    add('/storage/$uuid');
-    add('/mnt/media_rw/$uuid');
+    if (Directory('/storage/$uuid').existsSync()) {
+      add('/storage/$uuid');
+    } else if (Directory('/mnt/media_rw/$uuid').existsSync()) {
+      add('/mnt/media_rw/$uuid');
+    }
   }
 
   return out;
