@@ -9,7 +9,7 @@ class AppColors {
 
   /// 高饱和亮紫 —— 用于本次改色的所有控件。
   /// 想换色号只改这一行。
-  static const Color accentPurple = Color(0xFF6100FF);
+  static const Color accentPurple = Color(0xFF6F00C7);
 
   // Diff highlights — light mode
   static const Color addedLight = Color(0xFF2ECC71);
