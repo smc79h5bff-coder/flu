@@ -526,8 +526,8 @@ final int pageBottomSafePx;
     fontSize: 17.0,
     fontWeight: 400,
     bgColor: bgCream,
-    showButtons: true,
-    readerMode: 0,
+    showButtons: false,
+    readerMode: 1,
 pageBottomSafePx: 0,
     
     topBtnStyle: 0,
