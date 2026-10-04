@@ -1734,7 +1734,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       DropdownButtonFormField<String>(
         value: _presetId,
         isExpanded: true,
-        style: const TextStyle(color: AppColors.accentPurple),
         iconEnabledColor: AppColors.accentPurple,
         decoration: const InputDecoration(
           labelText: '选择功能',
@@ -1752,8 +1751,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
             DropdownMenuItem(
               value: p.id,
               child: Text(p.name,
-                  style: const TextStyle(
-                      color: AppColors.accentPurple)),
+                  style: const TextStyle(color: Colors.black)),
             ),
         ],
         onChanged: (v) {
@@ -1805,7 +1803,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         return DropdownButtonFormField<String>(
           value: value,
           isExpanded: true,
-          style: const TextStyle(color: AppColors.accentPurple),
           iconEnabledColor: AppColors.accentPurple,
           decoration: InputDecoration(
             labelText: p.label,
@@ -1824,8 +1821,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
               DropdownMenuItem(
                 value: _optValue(o),
                 child: Text(_optLabel(o),
-                    style: const TextStyle(
-                        color: AppColors.accentPurple)),
+                    style: const TextStyle(color: Colors.black)),
               ),
           ],
           onChanged: (v) {
@@ -2029,7 +2025,6 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     return DropdownButtonFormField<RuleScope>(
       value: _scope,
       isExpanded: true,
-      style: const TextStyle(color: AppColors.accentPurple),
       iconEnabledColor: AppColors.accentPurple,
       decoration: const InputDecoration(
         labelText: '作用范围',
@@ -2046,15 +2041,15 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         DropdownMenuItem(
             value: RuleScope.both,
             child: Text('两侧文件',
-                style: TextStyle(color: AppColors.accentPurple))),
+                style: TextStyle(color: Colors.black))),
         DropdownMenuItem(
             value: RuleScope.originalOnly,
             child: Text('仅左侧文件',
-                style: TextStyle(color: AppColors.accentPurple))),
+                style: TextStyle(color: Colors.black))),
         DropdownMenuItem(
             value: RuleScope.modifiedOnly,
             child: Text('仅右侧文件',
-                style: TextStyle(color: AppColors.accentPurple))),
+                style: TextStyle(color: Colors.black))),
       ],
       onChanged: (v) => setState(() => _scope = v ?? RuleScope.both),
     );
