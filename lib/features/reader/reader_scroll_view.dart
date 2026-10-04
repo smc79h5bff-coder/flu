@@ -15,19 +15,11 @@ import 'reader_search_provider.dart';
 
 /// 滚动模式的阅读视图（正文层）。
 ///
-/// 只负责"正文怎么滚 + 选区怎么选"。菜单、热区、悬浮按钮归 ReaderScreen。
-///
-/// 手势（在内部 GestureDetector(translucent) 上注册，不抢 Scrollable 的竖向滚动）：
-///   · onTap                → 往下滚一屏（无动画）
-///   · onHorizontalDragEnd  → 右滑往上滚一屏（无动画）
-///   · onLongPressStart     → 开始选字
-///   · onLongPressMoveUpdate→ 扩展选区
-///   · onLongPressEnd       → 结束选字，显示操作栏
-///   · 竖向拖动             → 交给 Scrollable（自由滚动）
-///
-/// 公开方法（供父级调用）：
-///   · jumpToOffset(int charOffset)  跳到某个字符偏移
-///   · jumpByScreen(int dir)         滚一屏（dir>0 往下，dir<0 往上）
+/// 手势用 `Listener` + 手动计时器（抄分页模式），不抢 Scrollable 的竖向滚动。
+///   · 长按 400ms → 开始选字
+///   · 手指明显水平滑动 → 翻页
+///   · 竖直滑动 → 交给 Scrollable 自由滚动
+///   · 快速点击 → 往下滚一屏
 class ReaderScrollView extends ConsumerStatefulWidget {
   const ReaderScrollView({
     super.key,
@@ -56,8 +48,6 @@ class ReaderScrollView extends ConsumerStatefulWidget {
   final void Function(String word, HighlightPalette palette) onHighlightAdded;
   final void Function(int paletteIndex) onPaletteEdit;
 
-  /// 选区状态变化回调。用于通知父级"滚动模式现在有/没有选中文字"，
-  /// 父级据此禁用/淡出悬浮按钮，避免按钮盖住底部操作栏。
   final ValueChanged<bool>? onSelectionActiveChanged;
 
   @override
@@ -74,22 +64,30 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   int? _selEndLine;
   int? _selEndOffset;
 
-  /// 0=不在拖，1=左（起点），2=右（终点）。
   int _draggingHandle = 0;
   Offset? _dragHandlePos;
 
   final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
 
-  /// 整个滚动视图的 Stack。用于把行 / 手指的全局坐标转成 Stack 内局部
-  /// 坐标，让手柄 / 放大镜 / 操作栏的 Positioned 定位正确。
   final GlobalKey _stackKey = GlobalKey();
 
-  // ---- 长按 / 边缘滚 ----
-  bool _longPressActive = false;
-  Offset? _longPressPos;
+  // ---- 手势状态（抄分页模式）----
+  Timer? _longPressTimer;
+  Offset _downPos = Offset.zero;
+  bool _longPressFired = false;
+  bool _movedBeyondThreshold = false;
+  bool _pressDown = false;
+  bool _horizontalDrag = false;
+  int _downMs = 0;
+  int _lastTapUpMs = 0;
+
+  static const int _longPressMs = 400;
+  static const double _moveThresholdDp = 10.0;
+  static const int _tapDebounceMs = 100;
+  static const double _hDragMinDx = 60.0;
+
+  // ---- 边缘滚动（已禁用，保留占位）----
   Timer? _edgeScrollTimer;
-  static const double _edgeThreshold = 80.0;
-  static const int _edgeScrollIntervalMs = 80;
 
   // ---- 放大镜 ----
   Offset? _loupePos;
@@ -100,10 +98,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   // ---- 进度上报 ----
   int _lastReportedOffset = -1;
 
-  // ---- 选区激活状态（用于通知父级）----
+  // ---- 选区激活状态 ----
   bool _lastReportedSelectionActive = false;
 
-  /// 选区统一色（手柄下方那条蓝，放大镜里也是它）。
   static const Color _selectionBg = Color(0x553D7CFF);
 
   @override
@@ -120,9 +117,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
   @override
   void dispose() {
+    _longPressTimer?.cancel();
     _edgeScrollTimer?.cancel();
     _positions.itemPositions.removeListener(_onPositionsChanged);
-    // 通知父级：选区没了。用 microtask 避开当前帧正在 dispose 的时机。
     final cb = widget.onSelectionActiveChanged;
     if (cb != null && _lastReportedSelectionActive) {
       Future.microtask(() => cb(false));
@@ -132,7 +129,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
   // ==================== 公开方法 ====================
 
-  /// 跳到某个字符偏移（二分找到对应行，再 jumpTo）。
   void jumpToOffset(int charOffset) {
     if (!_scrollCtrl.isAttached) return;
     if (widget.lineStarts.isEmpty) return;
@@ -149,7 +145,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _scrollCtrl.jumpTo(index: lo);
   }
 
-  /// 滚一屏。dir > 0 往下，dir < 0 往上。
   void jumpByScreen(int dir) {
     if (!_scrollCtrl.isAttached) return;
     final positions = _positions.itemPositions.value;
@@ -169,7 +164,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
         }
       }
       if (bottomRow == null) return;
-
       final fullyVisible = bottomTrailing <= 1.0 + 1e-3;
       final target = fullyVisible ? bottomRow + 1 : bottomRow;
       final clamped = target.clamp(0, widget.lines.length - 1);
@@ -199,18 +193,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     }
   }
 
-  int? _firstVisibleLine() {
-    final list = _positions.itemPositions.value;
-    if (list.isEmpty) return null;
-    return list.reduce((a, b) => a.index < b.index ? a : b).index;
-  }
-
-  int? _lastVisibleLine() {
-    final list = _positions.itemPositions.value;
-    if (list.isEmpty) return null;
-    return list.reduce((a, b) => a.index > b.index ? a : b).index;
-  }
-
   // ==================== 选区状态通知 ====================
 
   void _notifySelectionActive() {
@@ -221,7 +203,119 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     }
   }
 
-  // ==================== 手势：点击 / 右滑 ====================
+  // ==================== 手势：Listener 版本（抄分页模式）====================
+
+  void _onPointerDown(PointerDownEvent e) {
+    _longPressTimer?.cancel();
+    _downPos = e.position;
+    _downMs = DateTime.now().millisecondsSinceEpoch;
+    _longPressFired = false;
+    _movedBeyondThreshold = false;
+    _horizontalDrag = false;
+    _pressDown = true;
+
+    // 已存在选区时，先清掉
+    if (_hBarVisible || _selStartLine != null) {
+      setState(_clearSelection);
+    }
+
+    _longPressTimer = Timer(const Duration(milliseconds: _longPressMs), () {
+      if (!mounted) return;
+      if (!_pressDown) return;
+      if (_movedBeyondThreshold) return;
+      _longPressFired = true;
+      _doLongPressStart(_downPos);
+    });
+  }
+
+  void _onPointerMove(PointerMoveEvent e) {
+    if (!_pressDown) return;
+
+    if (_longPressFired) {
+      // 长按已触发：扩展选区 / 拖动手柄
+      _doLongPressMove(e.position);
+      return;
+    }
+
+    final dx = e.position.dx - _downPos.dx;
+    final dy = e.position.dy - _downPos.dy;
+    final absDx = dx.abs();
+    final absDy = dy.abs();
+
+    if (!_movedBeyondThreshold) {
+      if (absDx > _moveThresholdDp || absDy > _moveThresholdDp) {
+        _movedBeyondThreshold = true;
+        _longPressTimer?.cancel();
+      }
+    }
+
+    if (_draggingHandle == 0 && !_horizontalDrag) {
+      if (absDx > 20 && absDx > absDy * 1.5) {
+        _horizontalDrag = true;
+      }
+    }
+  }
+
+  void _onPointerUp(PointerUpEvent e) {
+    _longPressTimer?.cancel();
+
+    // 拖手柄结束
+    if (_draggingHandle != 0) {
+      _doDragEnd();
+      _pressDown = false;
+      return;
+    }
+
+    // 长按结束
+    if (_longPressFired) {
+      _doLongPressEnd();
+      _pressDown = false;
+      return;
+    }
+
+    // 水平滑动结束 → 翻页
+    if (_horizontalDrag) {
+      final dx = e.position.dx - _downPos.dx;
+      final elapsed = DateTime.now().millisecondsSinceEpoch - _downMs;
+      if (elapsed < 800) {
+        if (dx > _hDragMinDx) {
+          jumpByScreen(-1);
+        } else if (dx < -_hDragMinDx) {
+          jumpByScreen(1);
+        }
+      }
+      _pressDown = false;
+      _horizontalDrag = false;
+      return;
+    }
+
+    if (_movedBeyondThreshold) {
+      _pressDown = false;
+      return;
+    }
+
+    // 点击
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_lastTapUpMs != 0 && now - _lastTapUpMs < _tapDebounceMs) {
+      _pressDown = false;
+      return;
+    }
+    _lastTapUpMs = now;
+
+    _handleTap();
+    _pressDown = false;
+  }
+
+  void _onPointerCancel(PointerCancelEvent e) {
+    _longPressTimer?.cancel();
+    _pressDown = false;
+    _horizontalDrag = false;
+    _longPressFired = false;
+    _movedBeyondThreshold = false;
+    if (_draggingHandle != 0) {
+      _doDragEnd();
+    }
+  }
 
   void _handleTap() {
     if (_hBarVisible || _selStartLine != null) {
@@ -231,29 +325,16 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     jumpByScreen(1);
   }
 
-  void _handleHorizontalDragEnd(DragEndDetails d) {
-    if (_hBarVisible || _selStartLine != null) return;
-    final v = d.primaryVelocity ?? 0;
-    if (v > 200) {
-      jumpByScreen(-1);
-    } else if (v < -200) {
-      jumpByScreen(1);
-    }
-  }
+  // ==================== 长按逻辑（原 GestureDetector 版本改过来的）====================
 
-  // ==================== 手势：长按选字 ====================
-
-  void _handleLongPressStart(LongPressStartDetails d) {
-    final hit = _hitTest(d.globalPosition);
+  void _doLongPressStart(Offset pos) {
+    final hit = _hitTest(pos);
     if (hit == null) return;
 
     final lineText = widget.lines[hit.line];
     final (from, to) = _wordRangeAt(lineText, hit.offset);
 
-    _longPressActive = true;
-    _longPressPos = d.globalPosition;
-    _loupePos = d.globalPosition;
-
+    _loupePos = pos;
     setState(() {
       _selStartLine = hit.line;
       _selStartOffset = from;
@@ -261,12 +342,47 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       _selEndOffset = to;
       _hBarVisible = false;
     });
-
-    _startEdgeScrollTimer();
     _notifySelectionActive();
   }
 
-  /// 返回 [line] 内 offset 处的"词"范围 [from, to)。
+  void _doLongPressMove(Offset pos) {
+    _loupePos = pos;
+    final hit = _hitTest(pos);
+    if (hit != null) {
+      setState(() {
+        _selEndLine = hit.line;
+        _selEndOffset = hit.offset;
+      });
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _doLongPressEnd() {
+    _loupePos = null;
+
+    if (_selStartLine == null || _selEndLine == null) {
+      _clearSelection();
+      _handleTap();
+      return;
+    }
+
+    final sL = _selStartLine!;
+    final eL = _selEndLine!;
+    final sO = _selStartOffset ?? 0;
+    final eO = _selEndOffset ?? 0;
+    final hasSelection = sL != eL || sO != eO;
+
+    if (!hasSelection) {
+      setState(_clearSelection);
+      _handleTap();
+      return;
+    }
+
+    setState(() => _hBarVisible = true);
+    _notifySelectionActive();
+  }
+
   (int, int) _wordRangeAt(String line, int offset) {
     if (line.isEmpty) return (0, 0);
     var o = offset.clamp(0, line.length - 1);
@@ -292,69 +408,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       }
       return (s, e);
     }
-
     return (o, o + 1);
-  }
-
-  void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails d) {
-    if (!_longPressActive) return;
-    _longPressPos = d.globalPosition;
-    _loupePos = d.globalPosition;
-
-    final hit = _hitTest(d.globalPosition);
-    if (hit != null) {
-      setState(() {
-        _selEndLine = hit.line;
-        _selEndOffset = hit.offset;
-      });
-    } else {
-      setState(() {});
-    }
-  }
-
-  void _handleLongPressEnd(LongPressEndDetails d) {
-    _longPressActive = false;
-    _longPressPos = null;
-    _loupePos = null;
-    _edgeScrollTimer?.cancel();
-
-    if (_selStartLine == null || _selEndLine == null) {
-      _clearSelection();
-      _handleTap();
-      return;
-    }
-
-    final sL = _selStartLine!;
-    final eL = _selEndLine!;
-    final sO = _selStartOffset ?? 0;
-    final eO = _selEndOffset ?? 0;
-    final hasSelection = sL != eL || sO != eO;
-
-    if (!hasSelection) {
-      setState(_clearSelection);
-      _handleTap();
-      return;
-    }
-
-    setState(() => _hBarVisible = true);
-    _notifySelectionActive();
-  }
-
-  // ==================== 边缘自动滚（已禁用） ====================
-
-  void _startEdgeScrollTimer() {
-    // 选中模式下禁用边缘自动滚动。
-    // 只能选当前屏幕可见的内容。
-    // 想选跨屏的大段文字，先松开手指、手动滚动、再重新长按。
-    return;
-  }
-
-  void _tickEdgeScroll() {
-    // 已禁用，保留占位。
-  }
-
-  void _edgeScrollStep(int dir) {
-    // 已禁用，保留占位。
   }
 
   // ==================== 选区计算 ====================
@@ -437,24 +491,19 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
   // ==================== 手柄拖动 ====================
 
-  void _handleDragStart(int which, Offset pos) {
+  void _handleDragStartInternal(int which, Offset pos) {
     setState(() {
       _draggingHandle = which;
       _dragHandlePos = pos;
       _loupePos = pos;
       _hBarVisible = false;
     });
-    _edgeScrollTimer?.cancel();
-    _longPressActive = true;
-    _longPressPos = pos;
-    _startEdgeScrollTimer();
     _notifySelectionActive();
   }
 
-  void _handleDragUpdate(Offset pos) {
+  void _doDragUpdate(Offset pos) {
     if (_draggingHandle == 0) return;
     _dragHandlePos = pos;
-    _longPressPos = pos;
     _loupePos = pos;
 
     final hit = _hitTest(pos);
@@ -473,13 +522,10 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     }
   }
 
-  void _handleDragEnd() {
+  void _doDragEnd() {
     _draggingHandle = 0;
     _dragHandlePos = null;
-    _longPressActive = false;
-    _longPressPos = null;
     _loupePos = null;
-    _edgeScrollTimer?.cancel();
     setState(() => _hBarVisible = true);
     _notifySelectionActive();
   }
@@ -503,13 +549,12 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
         key: _stackKey,
         children: [
           Positioned.fill(
-            child: GestureDetector(
+            child: Listener(
               behavior: HitTestBehavior.translucent,
-              onTap: _handleTap,
-              onHorizontalDragEnd: _handleHorizontalDragEnd,
-              onLongPressStart: _handleLongPressStart,
-              onLongPressMoveUpdate: _handleLongPressMoveUpdate,
-              onLongPressEnd: _handleLongPressEnd,
+              onPointerDown: _onPointerDown,
+              onPointerMove: _onPointerMove,
+              onPointerUp: _onPointerUp,
+              onPointerCancel: _onPointerCancel,
               child: ScrollablePositionedList.builder(
                 itemScrollController: _scrollCtrl,
                 itemPositionsListener: _positions,
@@ -572,8 +617,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     return i >= lo && i <= hi;
   }
 
-  /// 取某一行某个字符的左边缘上角 global 坐标。
-  /// 用于左手柄 / 操作栏精确贴到"选中起点"的左边。
   Offset? _posOfCharLeft(int line, int offset) {
     final key = _lineKeys[line];
     final ctx = key?.currentContext;
@@ -586,7 +629,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     if (lineText.isEmpty) return rp.localToGlobal(Offset.zero);
 
     if (off >= lineText.length) {
-      // 末尾：取最后一个字符的左上角
       final boxes = rp.getBoxesForSelection(TextSelection(
         baseOffset: lineText.length - 1,
         extentOffset: lineText.length,
@@ -596,7 +638,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       return rp.localToGlobal(Offset(box.left, box.top));
     }
 
-    // 正常：取当前字符 box 的左上角
     final boxes = rp.getBoxesForSelection(TextSelection(
       baseOffset: off,
       extentOffset: off + 1,
@@ -612,8 +653,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     return rp.localToGlobal(Offset(box.left, box.top));
   }
 
-  /// 取某一行某个字符的右边缘上角 global 坐标。
-  /// 用于右手柄 / 操作栏精确贴到"选中终点"的右边。
   Offset? _posOfCharRight(int line, int offset) {
     final key = _lineKeys[line];
     final ctx = key?.currentContext;
@@ -635,7 +674,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       return rp.localToGlobal(Offset(box.left, box.top));
     }
 
-    // 正常：取前一个字符 box 的右上角
     final boxes = rp.getBoxesForSelection(TextSelection(
       baseOffset: off - 1,
       extentOffset: off,
@@ -653,7 +691,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
   List<Widget> _buildHandles() {
     if (_selStartLine == null || _selEndLine == null) return const [];
-    if (_hBarVisible == false && _draggingHandle == 0 && !_longPressActive) {
+    if (_hBarVisible == false && _draggingHandle == 0 && !_longPressFired) {
       return const [];
     }
 
@@ -664,7 +702,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     final widgets = <Widget>[];
     final fontSize = widget.settings.fontSize;
 
-    // 左手柄：贴到"选中起点字符"的左下角
     final leftGlobal = _posOfCharLeft(_selStartLine!, _selStartOffset ?? 0);
     if (leftGlobal != null) {
       final local = stackBox.globalToLocal(leftGlobal);
@@ -674,15 +711,14 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
           top: local.dy + fontSize,
           child: _DragHandle(
             isLeft: true,
-            onDragStart: (pos) => _handleDragStart(1, pos),
-            onDragUpdate: _handleDragUpdate,
-            onDragEnd: _handleDragEnd,
+            onDragStart: (pos) => _handleDragStartInternal(1, pos),
+            onDragUpdate: _doDragUpdate,
+            onDragEnd: _doDragEnd,
           ),
         ),
       );
     }
 
-    // 右手柄：贴到"选中终点字符"的右下角
     final rightGlobal = _posOfCharRight(_selEndLine!, _selEndOffset ?? 0);
     if (rightGlobal != null) {
       final local = stackBox.globalToLocal(rightGlobal);
@@ -692,9 +728,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
           top: local.dy + fontSize,
           child: _DragHandle(
             isLeft: false,
-            onDragStart: (pos) => _handleDragStart(2, pos),
-            onDragUpdate: _handleDragUpdate,
-            onDragEnd: _handleDragEnd,
+            onDragStart: (pos) => _handleDragStartInternal(2, pos),
+            onDragUpdate: _doDragUpdate,
+            onDragEnd: _doDragEnd,
           ),
         ),
       );
@@ -782,9 +818,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     );
   }
 
-  /// 选区操作栏 —— 和分页模式一致：浮动在选中文字附近，两排色块，44×40。
   Widget _buildHBar(BuildContext context, ReaderSettings s) {
-    // 规范化选区起止顺序（选区可能是"从下往上"选的）。
     var sLine = _selStartLine;
     var sOff = _selStartOffset;
     var eLine = _selEndLine;
@@ -816,11 +850,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     const approxW = 260.0;
     const approxH = 150.0;
 
-    // 选区的上下边界。_posOfChar* 返回的是字符左上角，加 fontSize 得到下沿。
     final selTop = startPos.dy;
     final selBottom = endPos.dy + s.fontSize;
 
-    // 选区在上半屏 → 操作栏显示在下方；否则显示在上方。
     final midY = (selTop + selBottom) / 2;
     final screenMid = stackSize.height / 2;
     final showBelow = midY < screenMid;
