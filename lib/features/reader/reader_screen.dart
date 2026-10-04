@@ -1,3 +1,4 @@
+
 // reader_screen.dart
 import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
@@ -2073,15 +2074,19 @@ Future<void> _openLineEditor() async {
   }
 
   void _handleTap(Offset globalPos) {
-  // 有选中文字 → 只取消选中，不翻页。
-  if (_hBarVisible || _sel != null) {
-    _clearSelection();
-    return;
+    // 有选中文字 → 只取消选中，不翻页。
+    if (_hBarVisible || _sel != null) {
+      _clearSelection();
+      return;
+    }
+    // 点在热区内 → 打开菜单。
+    if (_isInHotZone(globalPos)) {
+      _showTopMenu();
+      return;
+    }
+    // 其它区域 → 翻下一页。
+    _nextPage();
   }
-  // 没选中 → 点空白翻下一页。
-  // 热区和悬浮按钮已经被各自的 GestureDetector 接管。
-  _nextPage();
-}
 
   // ==================== 手柄拖动 ====================
 
@@ -2557,8 +2562,27 @@ Widget _buildScrollReader(ReaderSettings settings) {
 
 
 
-  
   // ==================== 菜单热区绘制 ====================
+
+  /// 判断某个全局坐标是否落在"菜单热区"内。
+  bool _isInHotZone(Offset globalPos) {
+    final contentCtx = _contentKey.currentContext;
+    if (contentCtx == null) return false;
+    final contentBox = contentCtx.findRenderObject() as RenderBox?;
+    if (contentBox == null) return false;
+    final local = contentBox.globalToLocal(globalPos);
+    final size = contentBox.size;
+
+    final settings = ref.read(readerSettingsProvider);
+    final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
+    final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
+    final right = left + settings.hotZoneW * size.width;
+    final bottom = top + settings.hotZoneH * size.height;
+    return local.dx >= left &&
+        local.dx <= right &&
+        local.dy >= top &&
+        local.dy <= bottom;
+  }
 
  Widget _buildHotZone(ReaderSettings settings, Size size) {
   final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
@@ -2605,19 +2629,13 @@ Widget _buildScrollReader(ReaderSettings settings) {
     }
   }
 
-  // 注意：Positioned 必须是 Stack 的直接子节点，所以整个方法返回 Positioned，
-  // 调用方不要再包 Positioned.fill / IgnorePointer。
-  // 点击穿透用 IgnorePointer 包在 Positioned 内部，保证 Listener 能收到点击。
+  // 只画，不吃事件。点击由 _handleTap 判断（避免挡住长按选字）。
   return Positioned(
     left: left,
     top: top,
     width: width,
     height: height,
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _showTopMenu,
-      child: inner,
-    ),
+    child: IgnorePointer(child: inner),
   );
 }
   
