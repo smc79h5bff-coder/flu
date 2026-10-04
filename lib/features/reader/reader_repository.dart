@@ -623,8 +623,18 @@ class ReaderPaletteNotifier
   void resetToDefaults() => update(HighlightPalette.defaults());
 }
 
-// ==================== 查找历史（全局共享） ====================
+// ========================
+// ==================== 阅读器删除路径暂存（不持久化） ====================
 
+/// 阅读器里删掉的文件的路径列表。
+///
+/// 阅读器删文件时往里塞；文件浏览器在返回时读取，处理完清空。
+/// 只存内存，App 重启后自动重置为 []。
+///
+/// 用 [StateProvider] 而不是持久化，是因为这只是跨页面传递的临时数据，
+/// 没必要写盘；就算写盘了反而会因为"崩溃残留"误删正确文件。
+final readerDeletedPathsProvider =
+    StateProvider<List<String>>((ref) => const <String>[]);
 final readerFindHistoryProvider = NotifierProvider<ReaderFindHistoryNotifier,
     List<FindHistoryItem>>(ReaderFindHistoryNotifier.new);
 
