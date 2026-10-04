@@ -322,13 +322,17 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     }
   }
 
-  void _handleTap() {
-    if (_hBarVisible || _selStartLine != null) {
-      setState(_clearSelection);
-      return;
-    }
-    jumpByScreen(1);
+ void _handleTap() {
+  if (_hBarVisible || _selStartLine != null) {
+    setState(_clearSelection);
+    return;
   }
+  // 先问父级："点在按钮 / 热区里吗？"
+  final handled = widget.onTapOnShell?.call(_downPos) ?? false;
+  if (handled) return;
+  // 父级没处理 → 自己翻页。
+  jumpByScreen(1);
+}
 
   // ==================== 长按逻辑（原 GestureDetector 版本改过来的）====================
 
