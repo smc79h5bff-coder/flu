@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/constants/app_colors.dart';
 import '../../../../core/storage/persistent_notifier.dart';
 import '../../import/presentation/providers/import_providers.dart';
 
@@ -168,10 +169,20 @@ class _ReplaceRulesScreenState extends ConsumerState<ReplaceRulesScreen> {
         appBar: AppBar(
           title: Text(_title),
           actions: [
+            // ========== 改动（B19）：右上角保存按钮文字 ==========
             TextButton.icon(
               onPressed: _dirty ? _save : null,
-              icon: const Icon(Icons.save, size: 18),
-              label: const Text('保存'),
+              icon: Icon(
+                Icons.save,
+                size: 18,
+                color: _dirty ? AppColors.accentPurple : null,
+              ),
+              label: Text(
+                '保存',
+                style: TextStyle(
+                  color: _dirty ? AppColors.accentPurple : null,
+                ),
+              ),
             ),
           ],
         ),
@@ -416,14 +427,22 @@ class _RulesHelpDialogState extends State<_RulesHelpDialog> {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(12),
+                // ========== 改动（B19）：详情弹窗大编辑框 ==========
                 child: TextField(
                   controller: _ctrl,
                   maxLines: null,
                   expands: true,
                   textAlignVertical: TextAlignVertical.top,
+                  cursorColor: AppColors.accentPurple,
                   style: const TextStyle(fontSize: 14, height: 1.6),
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(
+                        color: AppColors.accentPurple,
+                        width: 2,
+                      ),
+                    ),
                     contentPadding: EdgeInsets.all(12),
                     hintText: '在这里编辑详细说明…',
                   ),
