@@ -3015,7 +3015,7 @@ class _HighlightCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           border: Border.all(color: Colors.black12, width: 0.5),
         ),
-        padding: const EdgeInsets.fromLTRB(6, 3, 4, 4),
+        padding: const EdgeInsets.fromLTRB(2, 2, 2, 2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
