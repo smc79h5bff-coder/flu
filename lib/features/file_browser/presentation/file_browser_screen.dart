@@ -664,17 +664,28 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     }
     log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
 
-    final tPush = DateTime.now();
-    final result = await Navigator.of(context).push<String>(
-      PageRouteBuilder<String>(
-        pageBuilder: (_, __, ___) => ReaderScreen(
-          filePaths: textPaths,
-          initialIndex: index,
-        ),
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: Duration.zero,
-      ),
-    );
+
+
+
+
+
+      final tPush = DateTime.now();
+final openedPath = path; // ← 新增
+final result = await Navigator.of(context).push<String>(
+  PageRouteBuilder<String>(
+    pageBuilder: (_, __, ___) => ReaderScreen(
+      filePaths: textPaths,
+      initialIndex: index,
+    ),
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+  ),
+);
+
+
+
+
+      
     log.info(
         '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
 
@@ -717,10 +728,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           '[Browser→Reader] 返回时无已删记录  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
     }
 
-    if (result != null) _scrollToPath(result);
-    log.info(
-        '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+
+
+
+      
+     // 只在用户换了文件时才滚动。
+  // 如果返回的就是打开时那个文件，说明用户只是看了看，
+  // 保持列表原样，不要跳动。
+  if (result != null && result != openedPath) {
+    _scrollToPath(result);
   }
+  log.info(
+      '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+}
+
+
+    
 
   /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
   Future<void> _openInEditor(String path, String name) async {
