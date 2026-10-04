@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/app_colors.dart';
 import '../file_browser/presentation/single_file_editor_screen.dart';
 import 'reader_models.dart';
 import 'reader_pagination.dart';
@@ -178,99 +179,83 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     const Divider(),
                     const SizedBox(height: 8),
 
+                    // ---------- 翻页方式 ----------
+                    _sectionTitle('翻页方式'),
+                    Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('分页'),
+                          selected: s.readerMode == 0,
+                          onSelected: (_) => n.setReaderMode(0),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: const Text('滚动'),
+                          selected: s.readerMode == 1,
+                          onSelected: (_) => n.setReaderMode(1),
+                        ),
+                      ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 8),
+                      child: Text(
+                        '分页：全屏点击下翻 / 从左→右滑回上页。\n'
+                        '滚动：上下自由滑动，点击会往下滚一屏。',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
 
+                    // ---------- 分页底部安全边距（仅分页模式显示） ----------
+                    if (s.readerMode == 0) ...[
+                      _sliderHeader(
+                        '分页底部安全边距',
+                        '${s.pageBottomSafePx >= 0 ? "+" : ""}${s.pageBottomSafePx} px',
+                      ),
+                      Row(
+                        children: [
+                          const Text('-20',
+                              style: TextStyle(fontSize: 11)),
+                          Expanded(
+                            child: Slider(
+                              min: -20,
+                              max: 30,
+                              divisions: 50,
+                              value: s.pageBottomSafePx
+                                  .toDouble()
+                                  .clamp(-20, 30),
+                              onChanged: (v) => n
+                                  .setPageBottomSafePx(v.round()),
+                            ),
+                          ),
+                          const Text('+30',
+                              style: TextStyle(fontSize: 11)),
+                        ],
+                      ),
+                      Padding(
+                        padding:
+                            const EdgeInsets.only(top: 2, bottom: 4),
+                        child: Text(
+                          '只影响分页模式。\n'
+                          '  · 正数（+）：底部多留白，防止最后一行被裁。\n'
+                          '  · 0（默认）：精确，屏幕利用率最高。\n'
+                          '  · 负数（−）：底部榨空间，可能多显示一行，'
+                          '但也可能把最后一行裁掉一点。\n'
+                          '  · 只有"底部余量本来就小于该值"的页面'
+                          '才会变化，其它页不受影响。',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ],
 
-
-// ---------- 翻页方式 ----------
-_sectionTitle('翻页方式'),
-Row(
-  children: [
-    ChoiceChip(
-      label: const Text('分页'),
-      selected: s.readerMode == 0,
-      onSelected: (_) => n.setReaderMode(0),
-    ),
-    const SizedBox(width: 8),
-    ChoiceChip(
-      label: const Text('滚动'),
-      selected: s.readerMode == 1,
-      onSelected: (_) => n.setReaderMode(1),
-    ),
-  ],
-),
-Padding(
-  padding: const EdgeInsets.only(top: 4, bottom: 8),
-  child: Text(
-    '分页：全屏点击下翻 / 从左→右滑回上页。\n'
-    '滚动：上下自由滑动，点击会往下滚一屏。',
-    style: TextStyle(
-      fontSize: 11,
-      color: Colors.grey.shade600,
-    ),
-  ),
-),
-
-
-
-
-
-                    
-// ---------- 分页底部安全边距（仅分页模式显示） ----------
-if (s.readerMode == 0) ...[
-  _sliderHeader(
-    '分页底部安全边距',
-    '${s.pageBottomSafePx >= 0 ? "+" : ""}${s.pageBottomSafePx} px',
-  ),
-  Row(
-    children: [
-      const Text('-20',
-          style: TextStyle(fontSize: 11)),
-      Expanded(
-        child: Slider(
-          min: -20,
-          max: 30,
-          divisions: 50,
-          value: s.pageBottomSafePx
-              .toDouble()
-              .clamp(-20, 30),
-          onChanged: (v) => n
-              .setPageBottomSafePx(v.round()),
-        ),
-      ),
-      const Text('+30',
-          style: TextStyle(fontSize: 11)),
-    ],
-  ),
-  Padding(
-    padding:
-        const EdgeInsets.only(top: 2, bottom: 4),
-    child: Text(
-      '只影响分页模式。\n'
-      '  · 正数（+）：底部多留白，防止最后一行被裁。\n'
-      '  · 0（默认）：精确，屏幕利用率最高。\n'
-      '  · 负数（−）：底部榨空间，可能多显示一行，'
-      '但也可能把最后一行裁掉一点。\n'
-      '  · 只有"底部余量本来就小于该值"的页面'
-      '才会变化，其它页不受影响。',
-      style: TextStyle(
-        fontSize: 11,
-        color: Colors.grey.shade600,
-      ),
-    ),
-  ),
-],
-
-
-
-
-
-                    
-const SizedBox(height: 20),
-const Divider(),
-const SizedBox(height: 8),
-
-
-                    
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 8),
 
                     // ---------- 悬浮按钮总开关 ----------
                     Row(
@@ -538,49 +523,49 @@ const SizedBox(height: 8),
                     ),
                     Text(
                       '关掉后 热区变成透明，仍可点击弹菜单，只是不绘制出来。\n'
-  '默认位置：屏幕顶部中央一条横带（可在此页调整位置和大小）。',
+                      '默认位置：屏幕顶部中央一条横带（可在此页调整位置和大小）。',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade600),
                     ),
                     const SizedBox(height: 8),
 
-Row(
-  children: [
-    const Text('显示样式',
-        style: TextStyle(fontSize: 13)),
-    const SizedBox(width: 12),
-    ChoiceChip(
-      label: const Text('整块填色'),
-      selected: s.hotZoneStyle == 0,
-      onSelected: (_) => n.setHotZoneStyle(0),
-    ),
-    const SizedBox(width: 8),
-    ChoiceChip(
-      label: const Text('分界线'),
-      selected: s.hotZoneStyle == 1,
-      onSelected: (_) => n.setHotZoneStyle(1),
-    ),
-  ],
-),
-const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Text('显示样式',
+                            style: TextStyle(fontSize: 13)),
+                        const SizedBox(width: 12),
+                        ChoiceChip(
+                          label: const Text('整块填色'),
+                          selected: s.hotZoneStyle == 0,
+                          onSelected: (_) => n.setHotZoneStyle(0),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: const Text('分界线'),
+                          selected: s.hotZoneStyle == 1,
+                          onSelected: (_) => n.setHotZoneStyle(1),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
 
-_colorRow(
-  context: context,
-  label: s.hotZoneStyle == 0 ? '填充颜色' : '边框颜色',
-  color: Color(s.hotZoneColor),
-  onPick: n.setHotZoneColor,
-),
+                    _colorRow(
+                      context: context,
+                      label: s.hotZoneStyle == 0 ? '填充颜色' : '边框颜色',
+                      color: Color(s.hotZoneColor),
+                      onPick: n.setHotZoneColor,
+                    ),
 
-if (s.hotZoneStyle == 1) ...[
-  _sliderHeader('边框粗细',
-      '${s.hotZoneBorderWidth.toStringAsFixed(1)} px'),
-  Slider(
-    min: 0.5,
-    max: 20,
-    value: s.hotZoneBorderWidth.clamp(0.5, 20),
-    onChanged: n.setHotZoneBorderWidth,
-  ),
-],
+                    if (s.hotZoneStyle == 1) ...[
+                      _sliderHeader('边框粗细',
+                          '${s.hotZoneBorderWidth.toStringAsFixed(1)} px'),
+                      Slider(
+                        min: 0.5,
+                        max: 20,
+                        value: s.hotZoneBorderWidth.clamp(0.5, 20),
+                        onChanged: n.setHotZoneBorderWidth,
+                      ),
+                    ],
 
                     _sliderHeader(
                         '透明度',
@@ -748,6 +733,7 @@ if (s.hotZoneStyle == 1) ...[
     );
   }
 
+  // ========== 改动 2（B9）：字号数字输入框加紫边框 + 紫光标 ==========
   Widget _numberInput({
     required String value,
     required ValueChanged<String> onSubmitted,
@@ -757,9 +743,16 @@ if (s.hotZoneStyle == 1) ...[
       child: TextFormField(
         initialValue: value,
         keyboardType: TextInputType.number,
+        cursorColor: AppColors.accentPurple,
         decoration: const InputDecoration(
           isDense: true,
           border: OutlineInputBorder(),
+          focusedBorder: OutlineInputBorder(
+            borderSide: BorderSide(
+              color: AppColors.accentPurple,
+              width: 2,
+            ),
+          ),
           contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         ),
         onFieldSubmitted: onSubmitted,
@@ -1462,22 +1455,34 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ========== 改动 3①：名称输入框 ==========
           const Text('名称'),
           TextField(
             controller: TextEditingController(text: _name)
               ..selection =
                   TextSelection.collapsed(offset: _name.length),
             onChanged: (v) => _name = v,
+            cursorColor: AppColors.accentPurple,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
+                ),
+              ),
               isDense: true,
             ),
           ),
+
+          // ========== 改动 3②：新建正则高亮按钮 ==========
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('新建正则高亮'),
+              icon: const Icon(Icons.add, size: 16,
+                  color: AppColors.accentPurple),
+              label: const Text('新建正则高亮',
+                  style: TextStyle(color: AppColors.accentPurple)),
               onPressed: () => _createRegexHighlight(),
             ),
           ),
@@ -1547,22 +1552,35 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 8),
+
+          // ========== 改动 3③：默认分组下拉框 ==========
           DropdownButtonFormField<String?>(
             value: _defaultGroupId,
             isExpanded: true,
+            style: const TextStyle(color: AppColors.accentPurple),
+            iconEnabledColor: AppColors.accentPurple,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
+                ),
+              ),
               isDense: true,
             ),
             items: [
               const DropdownMenuItem<String?>(
                 value: null,
-                child: Text('未分组'),
+                child: Text('未分组',
+                    style: TextStyle(color: AppColors.accentPurple)),
               ),
               for (final g in groups)
                 DropdownMenuItem<String?>(
                   value: g.id,
-                  child: Text(g.name),
+                  child: Text(g.name,
+                      style: const TextStyle(
+                          color: AppColors.accentPurple)),
                 ),
             ],
             onChanged: (v) => setState(() => _defaultGroupId = v),
@@ -1783,7 +1801,6 @@ class _SimpleColorPickerState extends State<_SimpleColorPicker> {
 }
 
 // ==================== 渐变色编辑器 ====================
-
 
 class _GradientEditor extends StatefulWidget {
   const _GradientEditor({
@@ -2291,105 +2308,99 @@ class _BookmarkHighlightManagerState
                 )
               : null,
           titleSpacing: 0,
+          // ========== 改动 4（B16）：TabBar 下划线 ==========
           title: TabBar(
             controller: _tab,
             dividerColor: Colors.transparent,
+            indicatorColor: AppColors.accentPurple,
             tabs: [
               Tab(text: '高亮 (${highlights.length})'),
               Tab(text: '书签 (${bookmarks.length})'),
             ],
           ),
 
-
-
-
-
-
-
-
-          
           actions: [
-  // 固定 3 个槽位，每个 52px，总宽 156px。
-  // 无论切 tab 或进出选中模式，actions 宽度恒定，TabBar 位置不动。
-  //
-  // 槽 1：选中 + 高亮 → 移入分组；其它情况空
-  // 槽 2：非选中 + 高亮 → 筛选；选中 → 全选；其它情况空
-  // 槽 3：非选中 → 批量选择；选中 → 删除
-  SizedBox(
-    width: 52,
-    height: kToolbarHeight,
-    child: _selectionMode && _isHighlightTab
-        ? IconButton(
-            icon: const Icon(Icons.folder_outlined),
-            tooltip: '移入分组',
-            onPressed: selectedCount == 0 ? null : _moveToGroup,
-          )
-        : (!_selectionMode && _isHighlightTab
-            ? IconButton(
-                icon: const Icon(Icons.add),
-                tooltip: '新建高亮',
-                onPressed: () => _newHighlight(context),
-              )
-            : null),
-  ),
-  SizedBox(
-    width: 52,
-    height: kToolbarHeight,
-    child: _selectionMode
-        ? IconButton(
-            icon: Icon(
-              allSelected ? Icons.deselect : Icons.select_all,
+            // 固定 3 个槽位，每个 52px，总宽 156px。
+            // 无论切 tab 或进出选中模式，actions 宽度恒定，TabBar 位置不动。
+            //
+            // 槽 1：选中 + 高亮 → 移入分组；其它情况空
+            // 槽 2：非选中 + 高亮 → 筛选；选中 → 全选；其它情况空
+            // 槽 3：非选中 → 批量选择；选中 → 删除
+            SizedBox(
+              width: 52,
+              height: kToolbarHeight,
+              child: _selectionMode && _isHighlightTab
+                  ? IconButton(
+                      icon: const Icon(Icons.folder_outlined),
+                      tooltip: '移入分组',
+                      onPressed: selectedCount == 0 ? null : _moveToGroup,
+                    )
+                  : (!_selectionMode && _isHighlightTab
+                      ? IconButton(
+                          icon: const Icon(Icons.add),
+                          tooltip: '新建高亮',
+                          onPressed: () => _newHighlight(context),
+                        )
+                      : null),
             ),
-            tooltip: allSelected ? '全不选' : '全选',
-            onPressed: () {
-              setState(() {
-                if (_isBookmarkTab) {
-                  if (allSelected) {
-                    _selectedBookmarks.clear();
-                  } else {
-                    _selectedBookmarks
-                      ..clear()
-                      ..addAll(bookmarks.map((b) => b.id));
-                  }
-                } else {
-                  if (allSelected) {
-                    _selectedHighlights.clear();
-                  } else {
-                    _selectedHighlights
-                      ..clear()
-                      ..addAll(highlights
-                          .map((h) => (h.fileKey, h.entry.id)));
-                  }
-                }
-              });
-            },
-          )
-        : (_isHighlightTab
-            ? IconButton(
-                icon: const Icon(Icons.filter_list),
-                tooltip: '筛选（分组 / 范围）',
-                onPressed: () => _showFilterSheet(groups),
-              )
-            : null),
-  ),
-  SizedBox(
-    width: 52,
-    height: kToolbarHeight,
-    child: _selectionMode
-        ? IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: '删除所选',
-            onPressed: selectedCount == 0 ? null : _deleteSelected,
-          )
-        : InkWell(
-            onTap: () => setState(() => _selectionMode = true),
-            onLongPress: _isHighlightTab
-                ? _showHighlightViewSettings
-                : null,
-            child: const Icon(Icons.checklist),
-          ),
-  ),
-],
+            SizedBox(
+              width: 52,
+              height: kToolbarHeight,
+              child: _selectionMode
+                  ? IconButton(
+                      icon: Icon(
+                        allSelected ? Icons.deselect : Icons.select_all,
+                      ),
+                      tooltip: allSelected ? '全不选' : '全选',
+                      onPressed: () {
+                        setState(() {
+                          if (_isBookmarkTab) {
+                            if (allSelected) {
+                              _selectedBookmarks.clear();
+                            } else {
+                              _selectedBookmarks
+                                ..clear()
+                                ..addAll(bookmarks.map((b) => b.id));
+                            }
+                          } else {
+                            if (allSelected) {
+                              _selectedHighlights.clear();
+                            } else {
+                              _selectedHighlights
+                                ..clear()
+                                ..addAll(highlights
+                                    .map((h) => (h.fileKey, h.entry.id)));
+                            }
+                          }
+                        });
+                      },
+                    )
+                  : (_isHighlightTab
+                      ? IconButton(
+                          icon: const Icon(Icons.filter_list),
+                          tooltip: '筛选（分组 / 范围）',
+                          onPressed: () => _showFilterSheet(groups),
+                        )
+                      : null),
+            ),
+            SizedBox(
+              width: 52,
+              height: kToolbarHeight,
+              child: _selectionMode
+                  ? IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      tooltip: '删除所选',
+                      onPressed: selectedCount == 0 ? null : _deleteSelected,
+                    )
+                  : InkWell(
+                      onTap: () => setState(() => _selectionMode = true),
+                      onLongPress: _isHighlightTab
+                          ? _showHighlightViewSettings
+                          : null,
+                      child: const Icon(Icons.checklist),
+                    ),
+            ),
+          ],
         ),
         body: TabBarView(
           controller: _tab,
@@ -3197,9 +3208,12 @@ class _HighlightFilterSheetState extends State<_HighlightFilterSheet> {
                   },
                 ),
                 const Spacer(),
+                // ========== 改动 5（B15）：管理分组按钮 ==========
                 TextButton.icon(
-                  icon: const Icon(Icons.folder_outlined, size: 18),
-                  label: const Text('管理分组'),
+                  icon: const Icon(Icons.folder_outlined, size: 18,
+                      color: AppColors.accentPurple),
+                  label: const Text('管理分组',
+                      style: TextStyle(color: AppColors.accentPurple)),
                   onPressed: () {
                     Navigator.pop(context);
                     Navigator.of(context).push(
@@ -3653,11 +3667,19 @@ class _HighlightEditScreenState
           ),
           const SizedBox(height: 16),
 
+          // ========== 改动 7①：高亮名输入框 ==========
           const Text('高亮名'),
           TextField(
             controller: _nameCtrl,
+            cursorColor: AppColors.accentPurple,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
+                ),
+              ),
               isDense: true,
               hintText: '默认与关键词相同',
             ),
@@ -3670,14 +3692,23 @@ class _HighlightEditScreenState
               onPressed: () => _createRegexHighlightFromEdit(),
             ),
           ),
+
+          // ========== 改动 7②：关键词 / 正则输入框 ==========
           Text(_isRegex ? '正则表达式' : '关键词'),
           TextField(
             controller: _kwCtrl,
+            cursorColor: AppColors.accentPurple,
             style: _isRegex
                 ? const TextStyle(fontFamily: 'monospace')
                 : null,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
+                ),
+              ),
               isDense: true,
               hintText: _isRegex
                   ? r'例如：(?<=「)[^」]+(?=」)'
@@ -3717,13 +3748,22 @@ class _HighlightEditScreenState
             ),
           if (_isRegex) ...[
             const SizedBox(height: 12),
+
+            // ========== 改动 7③：捕获组输入框 ==========
             const Text('高亮第几个捕获组'),
             TextFormField(
               key: ValueKey('group_$_groupIndex'),
               initialValue: _groupIndex.toString(),
               keyboardType: TextInputType.number,
+              cursorColor: AppColors.accentPurple,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: AppColors.accentPurple,
+                    width: 2,
+                  ),
+                ),
                 isDense: true,
                 hintText: '0 = 整个匹配；1 = 第 1 对括号；2 = 第 2 对括号',
               ),
@@ -3807,67 +3847,80 @@ class _HighlightEditScreenState
               '文字颜色', _textColor, (c) => setState(() => _textColor = c)),
           const SizedBox(height: 16),
 
-const SizedBox(height: 16),
-const Text('预览'),
-const SizedBox(height: 6),
-Container(
-  padding: const EdgeInsets.all(12),
-  decoration: BoxDecoration(
-    color: Colors.grey.shade100,
-    borderRadius: BorderRadius.circular(6),
-  ),
-  child: RichText(
-    text: TextSpan(
-      style: const TextStyle(fontSize: 16, color: Colors.black),
-      children: [
-        const TextSpan(text: '这是 '),
-        WidgetSpan(
-          child: Container(
+          const SizedBox(height: 16),
+          const Text('预览'),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: _isGradient ? null : _colors.first,
-              gradient: _isGradient
-                  ? LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: _colors,
-                      stops: _stops.length == _colors.length
-                          ? _stops
-                          : null,
-                    )
-                  : null,
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(6),
             ),
-            padding: const EdgeInsets.symmetric(
-                horizontal: 4, vertical: 2),
-            child: Text(
-              _kwCtrl.text.isEmpty ? '关键词' : _kwCtrl.text,
-              style: TextStyle(color: _textColor),
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 16, color: Colors.black),
+                children: [
+                  const TextSpan(text: '这是 '),
+                  WidgetSpan(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: _isGradient ? null : _colors.first,
+                        gradient: _isGradient
+                            ? LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: _colors,
+                                stops: _stops.length == _colors.length
+                                    ? _stops
+                                    : null,
+                              )
+                            : null,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 2),
+                      child: Text(
+                        _kwCtrl.text.isEmpty ? '关键词' : _kwCtrl.text,
+                        style: TextStyle(color: _textColor),
+                      ),
+                    ),
+                  ),
+                  const TextSpan(text: ' 的示例。'),
+                ],
+              ),
             ),
           ),
-        ),
-        const TextSpan(text: ' 的示例。'),
-      ],
-    ),
-  ),
-),
-          
+
           const Text('分组'),
           const SizedBox(height: 4),
+
+          // ========== 改动 7④：分组下拉框 ==========
           DropdownButtonFormField<String?>(
             value: _groupId,
             isExpanded: true,
+            style: const TextStyle(color: AppColors.accentPurple),
+            iconEnabledColor: AppColors.accentPurple,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
+                ),
+              ),
               isDense: true,
             ),
             items: [
               const DropdownMenuItem<String?>(
                 value: null,
-                child: Text('未分组'),
+                child: Text('未分组',
+                    style: TextStyle(color: AppColors.accentPurple)),
               ),
               for (final g in groups)
                 DropdownMenuItem<String?>(
                   value: g.id,
-                  child: Text(g.name),
+                  child: Text(g.name,
+                      style: const TextStyle(
+                          color: AppColors.accentPurple)),
                 ),
             ],
             onChanged: (v) => setState(() => _groupId = v),
@@ -4240,28 +4293,42 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ---------- 名称 ----------
+              // ========== 改动 6①：名称输入框 ==========
               const Text('名称'),
               TextField(
                 controller: _nameCtrl,
+                cursorColor: AppColors.accentPurple,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(
+                      color: AppColors.accentPurple,
+                      width: 2,
+                    ),
+                  ),
                   isDense: true,
                   hintText: '给这条高亮起个名（可留空）',
                 ),
               ),
               const SizedBox(height: 12),
 
-              // ---------- 关键词 / 正则 ----------
+              // ========== 改动 6②：关键词 / 正则输入框 ==========
               Text(_isRegex ? '正则表达式' : '关键词 / 正则'),
               TextField(
                 controller: _kwCtrl,
                 onChanged: (_) => _validateRegex(),
+                cursorColor: AppColors.accentPurple,
                 style: _isRegex
                     ? const TextStyle(fontFamily: 'monospace')
                     : null,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
+                  focusedBorder: const OutlineInputBorder(
+                    borderSide: BorderSide(
+                      color: AppColors.accentPurple,
+                      width: 2,
+                    ),
+                  ),
                   isDense: true,
                   hintText: _isRegex
                       ? r'例如：(?<=「)[^」]+(?=」)'
@@ -4300,7 +4367,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   ),
                 ),
 
-              // ---------- 捕获组索引（正则模式） ----------
+              // ========== 改动 6③：捕获组输入框 ==========
               if (_isRegex) ...[
                 const SizedBox(height: 12),
                 const Text('高亮第几个捕获组'),
@@ -4308,8 +4375,15 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   key: ValueKey('new_group_$_groupIndex'),
                   initialValue: _groupIndex.toString(),
                   keyboardType: TextInputType.number,
+                  cursorColor: AppColors.accentPurple,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(
+                        color: AppColors.accentPurple,
+                        width: 2,
+                      ),
+                    ),
                     isDense: true,
                     hintText: '0 = 整个匹配；1 = 第 1 对括号；2 = 第 2 对括号',
                   ),
@@ -4546,22 +4620,35 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const Text('分组',
                   style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
+
+              // ========== 改动 6④：分组下拉框 ==========
               DropdownButtonFormField<String?>(
                 value: _groupId,
                 isExpanded: true,
+                style: const TextStyle(color: AppColors.accentPurple),
+                iconEnabledColor: AppColors.accentPurple,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(
+                      color: AppColors.accentPurple,
+                      width: 2,
+                    ),
+                  ),
                   isDense: true,
                 ),
                 items: [
                   const DropdownMenuItem<String?>(
                     value: null,
-                    child: Text('未分组'),
+                    child: Text('未分组',
+                        style: TextStyle(color: AppColors.accentPurple)),
                   ),
                   for (final g in widget.groups)
                     DropdownMenuItem<String?>(
                       value: g.id,
-                      child: Text(g.name),
+                      child: Text(g.name,
+                          style: const TextStyle(
+                              color: AppColors.accentPurple)),
                     ),
                 ],
                 onChanged: (v) => setState(() => _groupId = v),
