@@ -50,17 +50,26 @@ class ReaderLoadLog {
 
   // ---------------- 加载阶段 ----------------
 
-  /// 开始一次新的加载日志。会清空旧内容（包括帧明细）。
-  void start(String label) {
-    _entries.clear();
-    _totalChars = 0;
-    _sw.reset();
-    _sw.start();
-    _lastMark = 0;
-    _add('══════ $label ══════');
-    _add('开始时间：${DateTime.now().toIso8601String()}');
-    _add('会话启动至今：${_sessionSw.elapsedMilliseconds}ms');
-  }
+ /// 开始一次新的加载日志。
+/// 不再清空事件日志 —— 保留之前的（比如 [Dir] 目录加载日志），
+/// 只在中间插一条分隔线。
+void start(String label) {
+  _sw.reset();
+  _sw.start();
+  _lastMark = 0;
+  _add('');
+  _add('══════ $label ══════');
+  _add('开始时间：${DateTime.now().toIso8601String()}');
+  _add('会话启动至今：${_sessionSw.elapsedMilliseconds}ms');
+}
+
+/// 手动清空（导出后想重新开始用）。
+void reset() {
+  _entries.clear();
+  _totalChars = 0;
+  _slowFrameDetails.clear();
+  slowFrameCount = 0;
+}
 
   /// 打一个带耗时的节点。自动计算与上一个 mark 的间隔。
   void mark(String msg) {
