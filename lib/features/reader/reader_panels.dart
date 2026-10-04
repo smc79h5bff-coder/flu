@@ -3073,12 +3073,12 @@ class _HighlightCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 bookName,
-                maxLines: 1,
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 10,
-                  color: Colors.grey.shade600,
+                  color: Colors.black,
                 ),
               ),
             ],
