@@ -6,6 +6,7 @@ import 'package:enough_convert/enough_convert.dart' hide gbk;
 import 'package:gbk_codec/gbk_codec.dart' hide gbk;
 
 import '../domain/encoding_type.dart';
+import '../reader_load_log.dart';
 
 /// Sniff text encoding from raw bytes.
 ///
@@ -19,7 +20,13 @@ class EncodingDetector {
   static const int _sampleSize = 64 * 1024;
 
   static EncodingType detect(Uint8List bytes) {
-    if (bytes.isEmpty) return EncodingType.ascii;
+    final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
+
+    if (bytes.isEmpty) {
+      log.info('[Enc] detect 空 bytes → ascii');
+      return EncodingType.ascii;
+    }
 
     // 1. BOM checks（必须用原文，BOM 只在文件头）
     // 顺序重要：先 UTF-8 BOM，再 UTF-16，再排除 UTF-32。
@@ -27,6 +34,8 @@ class EncodingDetector {
         bytes[0] == 0xEF &&
         bytes[1] == 0xBB &&
         bytes[2] == 0xBF) {
+      log.info(
+          '[Enc] detect → utf8bom  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.utf8bom;
     }
 
@@ -34,13 +43,17 @@ class EncodingDetector {
       // UTF-16 LE BOM: FF FE，但要排除 UTF-32 LE (FF FE 00 00)
       if (bytes[0] == 0xFF && bytes[1] == 0xFE) {
         if (bytes.length >= 4 && bytes[2] == 0x00 && bytes[3] == 0x00) {
-          // UTF-32 LE，暂不支持
+          log.info('[Enc] detect → unknown (UTF-32 LE 不支持)');
           return EncodingType.unknown;
         }
+        log.info(
+            '[Enc] detect → utf16le  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
         return EncodingType.utf16le;
       }
       // UTF-16 BE BOM: FE FF（UTF-32 BE 是 00 00 FE FF，不冲突）
       if (bytes[0] == 0xFE && bytes[1] == 0xFF) {
+        log.info(
+            '[Enc] detect → utf16be  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
         return EncodingType.utf16be;
       }
     }
@@ -48,8 +61,13 @@ class EncodingDetector {
     // 2. UTF-16 无 BOM 启发式（必须在 UTF-8 之前！
     //    因为 UTF-16 里的 NUL 字节在 UTF-8 里是合法字符，
     //    会被 _isStrictUtf8 误判为 UTF-8）
+    final tUtf16 = DateTime.now();
     final utf16Guess = _guessUtf16WithoutBom(bytes);
-    if (utf16Guess != null) return utf16Guess;
+    if (utf16Guess != null) {
+      log.info(
+          '[Enc] detect → $utf16Guess (无 BOM 启发式)  启发耗时=${DateTime.now().difference(tUtf16).inMilliseconds}ms  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return utf16Guess;
+    }
 
     // 采样前缀用于启发式判断（编码对全文一致，取前 64KB 判断足够，
     // 避免对大 TXT 全文反复 O(n) 扫描导致导入卡顿）。
@@ -58,27 +76,53 @@ class EncodingDetector {
         : Uint8List.sublistView(bytes, 0, _sampleSize);
 
     // 3. Strict UTF-8 trial
-    if (_isStrictUtf8(sample)) {
-      return bytes.every((b) => b < 0x80)
-          ? EncodingType.ascii
-          : EncodingType.utf8;
+    final tUtf8 = DateTime.now();
+    final isUtf8 = _isStrictUtf8(sample);
+    log.info(
+        '[Enc] _isStrictUtf8 耗时=${DateTime.now().difference(tUtf8).inMilliseconds}ms  结果=$isUtf8  sample=${sample.length}B');
+    if (isUtf8) {
+      final isAscii = bytes.every((b) => b < 0x80);
+      log.info(
+          '[Enc] detect → ${isAscii ? "ascii" : "utf8"}  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return isAscii ? EncodingType.ascii : EncodingType.utf8;
     }
 
     // 4. GB-family heuristic
-    if (_looksLikeGbk(sample) && _isHighMissRate(sample)) {
+    final tGbk = DateTime.now();
+    final looksGbk = _looksLikeGbk(sample);
+    final highMiss = looksGbk ? _isHighMissRate(sample) : false;
+    log.info(
+        '[Enc] GBK 检查  耗时=${DateTime.now().difference(tGbk).inMilliseconds}ms  looksGbk=$looksGbk  highMiss=$highMiss');
+    if (looksGbk && highMiss) {
+      log.info(
+          '[Enc] detect → gbk  总=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.gbk;
     }
 
     // 5. Big5 heuristic
-    if (_looksLikeBig5(sample)) {
+    final tBig5 = DateTime.now();
+    final looksBig5 = _looksLikeBig5(sample);
+    log.info(
+        '[Enc] Big5 检查  耗时=${DateTime.now().difference(tBig5).inMilliseconds}ms  结果=$looksBig5');
+    if (looksBig5) {
+      log.info(
+          '[Enc] detect → big5  总=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.big5;
     }
 
     // 6. Shift-JIS heuristic
-    if (_looksLikeShiftJis(sample)) {
+    final tSjis = DateTime.now();
+    final looksSjis = _looksLikeShiftJis(sample);
+    log.info(
+        '[Enc] SJIS 检查  耗时=${DateTime.now().difference(tSjis).inMilliseconds}ms  结果=$looksSjis');
+    if (looksSjis) {
+      log.info(
+          '[Enc] detect → shiftJis  总=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.shiftJis;
     }
 
+    log.info(
+        '[Enc] detect → unknown  总=${DateTime.now().difference(t0).inMilliseconds}ms');
     return EncodingType.unknown;
   }
 
@@ -126,6 +170,9 @@ class EncodingDetector {
   /// UTF-16 也走一次性解码（有 BOM 处理，且字节长度必须偶数）；
   /// UTF-8 / ascii 也走一次性解码（内置快路径）。
   static String decodeChunked(Uint8List bytes, EncodingType encoding) {
+    final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
+
     switch (encoding) {
       case EncodingType.ascii:
       case EncodingType.utf8:
@@ -134,36 +181,51 @@ class EncodingDetector {
       case EncodingType.utf16be:
       case EncodingType.binary:
       case EncodingType.unknown:
-        return decode(bytes, encoding);
+        final result = decode(bytes, encoding);
+        log.info(
+            '[Enc] decodeChunked $encoding (一次性)  ${bytes.length}B → ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        return result;
       case EncodingType.gbk:
       case EncodingType.gb18030:
       case EncodingType.big5:
       case EncodingType.shiftJis:
         // 小文件直接一次性解码，无跨块状态问题（更快且不会闪退）。
         if (bytes.length <= _decodeChunkSize) {
-          return _decodeLegacy(bytes: bytes, encoding: encoding);
+          final result = _decodeLegacy(bytes: bytes, encoding: encoding);
+          log.info(
+              '[Enc] decodeChunked $encoding (小文件)  ${bytes.length}B → ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+          return result;
         }
         // 大文件：用 stateful 流式解码器分块，解码器自身缓存跨块半个字符。
         // 任何异常都整体回退到逐块独立 decode（每块自洽，状态不会错乱），
         // 绝不继续向已污染的 sink 写入，避免异常传播导致闪退。
+        log.info(
+            '[Enc] decodeChunked $encoding (分块)  ${bytes.length}B  块大小=$_decodeChunkSize');
         final codec = _multiByteCodec(encoding);
         try {
           final buf = StringBuffer();
           final sink = codec.decoder.startChunkedConversion(
             StringConversionSink.fromStringSink(buf),
           ) as ByteConversionSink;
+          var chunkCount = 0;
           for (var start = 0; start < bytes.length;) {
             final end = (start + _decodeChunkSize) > bytes.length
                 ? bytes.length
                 : start + _decodeChunkSize;
             sink.add(Uint8List.sublistView(bytes, start, end));
             start = end;
+            chunkCount++;
           }
           sink.close();
-          return buf.toString();
-        } catch (_) {
+          final result = buf.toString();
+          log.info(
+              '[Enc] decodeChunked $encoding 流式完成  块数=$chunkCount  ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+          return result;
+        } catch (e) {
           // 整体回退：逐块独立解码并拼接，每个 chunk 是一个完整解码单元。
+          log.info('[Enc] decodeChunked 流式失败 → 回退逐块  $e');
           final buf = StringBuffer();
+          var chunkCount = 0;
           for (var start = 0; start < bytes.length;) {
             final end = (start + _decodeChunkSize) > bytes.length
                 ? bytes.length
@@ -173,8 +235,12 @@ class EncodingDetector {
               encoding: encoding,
             ));
             start = end;
+            chunkCount++;
           }
-          return buf.toString();
+          final result = buf.toString();
+          log.info(
+              '[Enc] decodeChunked $encoding 回退完成  块数=$chunkCount  ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+          return result;
         }
     }
   }
