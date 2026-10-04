@@ -733,7 +733,6 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
     );
   }
 
-  // ========== 改动 2（B9）：字号数字输入框加紫边框 + 紫光标 ==========
   Widget _numberInput({
     required String value,
     required ValueChanged<String> onSubmitted,
@@ -899,7 +898,6 @@ Widget _miniPreview(
                 ringWidth: s.bottomBtnRingWidth * scale,
                 icon: Icons.keyboard_arrow_down,
               ),
-              // 删除按钮预览
               _previewButton(
                 scale: scale,
                 screenW: screenSize.width,
@@ -1423,6 +1421,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     });
   }
 
+  // ========== 改动：全局高亮单独存到 readerGlobalHighlightsProvider ==========
   Future<void> _createRegexHighlight() async {
     final entry = await showNewHighlightDialog(
       context: context,
@@ -1431,13 +1430,21 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
       presetColor: _colors.first.toARGB32(),
     );
     if (entry == null || !mounted) return;
-    // 色块页不知道用户正在读哪本书，只能提示去阅读器里用。
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('已记录配置。请到阅读器里选中文字、点该色块，即可生效。'),
-      ),
-    );
+    if (entry.isGlobal) {
+      // 全局高亮：色块页也能存，不依赖具体某本书。
+      ref.read(readerGlobalHighlightsProvider.notifier).addOrReplace(entry);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已添加到全局高亮')),
+      );
+    } else {
+      // 本书高亮：色块页不知道是哪本书，只能提示去阅读器里用。
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已记录配置。请到阅读器里选中文字、点该色块，即可生效。'),
+        ),
+      );
+    }
   }
 
   @override
@@ -1455,7 +1462,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ========== 改动 3①：名称输入框 ==========
           const Text('名称'),
           TextField(
             controller: TextEditingController(text: _name)
@@ -1474,8 +1480,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
               isDense: true,
             ),
           ),
-
-          // ========== 改动 3②：新建正则高亮按钮 ==========
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
@@ -1552,8 +1556,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 8),
-
-          // ========== 改动 3③：默认分组下拉框 ==========
           DropdownButtonFormField<String?>(
             value: _defaultGroupId,
             isExpanded: true,
@@ -2166,8 +2168,6 @@ class _GradientEditorState extends State<_GradientEditor> {
   }
 }
 
-// 上面到 _GradientEditor 结束（这部分和原文件一致）。
-
 // ==================== 高亮管理页 ====================
 
 /// 一条高亮 + 它所属的文件路径。
@@ -2263,18 +2263,24 @@ class _BookmarkHighlightManagerState
     final bookmarks =
         ref.watch(readerBookmarksProvider)[widget.fileKey] ?? const [];
     final allMap = ref.watch(readerHighlightsProvider);
+    final global = ref.watch(readerGlobalHighlightsProvider);
     final groups = ref.watch(readerHighlightGroupsProvider);
     final viewSettings = ref.watch(highlightViewSettingsProvider);
 
     // 高亮：先按范围（本书 / 全部），再按分组过滤
+    // 全局高亮在两种模式下都显示（因为对所有书生效）。
     final highlightsRaw = _allBooksMode
         ? <_HighlightItem>[
             for (final e in allMap.entries)
               for (final h in e.value) (fileKey: e.key, entry: h),
+            for (final h in global)
+              (fileKey: kGlobalHighlightsKey, entry: h),
           ]
         : <_HighlightItem>[
             for (final h in (allMap[widget.fileKey] ?? const <HighlightEntry>[]))
               (fileKey: widget.fileKey, entry: h),
+            for (final h in global)
+              (fileKey: kGlobalHighlightsKey, entry: h),
           ];
 
     final highlights = _visibleGroupIds.isEmpty
@@ -2306,7 +2312,6 @@ class _BookmarkHighlightManagerState
                 )
               : null,
           titleSpacing: 0,
-          // ========== 改动 4（B16）：TabBar 下划线 ==========
           title: TabBar(
             controller: _tab,
             dividerColor: Colors.transparent,
@@ -2475,8 +2480,12 @@ class _BookmarkHighlightManagerState
   Future<void> _showFilterSheet(List<HighlightGroup> groups) async {
     final all =
         ref.read(readerHighlightsProvider)[widget.fileKey] ?? const [];
+    final global = ref.read(readerGlobalHighlightsProvider);
     final usedIds = <String?>{};
     for (final h in all) {
+      usedIds.add(h.groupId);
+    }
+    for (final h in global) {
       usedIds.add(h.groupId);
     }
 
@@ -2508,6 +2517,10 @@ class _BookmarkHighlightManagerState
         _visibleGroupIds = result.groups;
       }
     });
+    // 切到"全部书籍"模式时，把没加载过的书也读进来
+    if (result.allBooks) {
+      ref.read(readerHighlightsProvider.notifier).loadAll();
+    }
   }
 
   // ==================== 批量删除 / 移入分组 ====================
@@ -2525,14 +2538,24 @@ class _BookmarkHighlightManagerState
       });
     } else {
       if (_selectedHighlights.isEmpty) return;
-      // 按 bookKey 分组，逐本处理
+      // 按 bookKey 分组；全局的单独处理
       final byBook = <String, Set<String>>{};
+      final globalIds = <String>{};
       for (final (fileKey, id) in _selectedHighlights) {
-        (byBook[fileKey] ??= <String>{}).add(id);
+        if (fileKey == kGlobalHighlightsKey) {
+          globalIds.add(id);
+        } else {
+          (byBook[fileKey] ??= <String>{}).add(id);
+        }
       }
-      final notifier = ref.read(readerHighlightsProvider.notifier);
+      final localNotifier = ref.read(readerHighlightsProvider.notifier);
       for (final e in byBook.entries) {
-        notifier.removeMany(e.key, e.value);
+        localNotifier.removeMany(e.key, e.value);
+      }
+      if (globalIds.isNotEmpty) {
+        ref
+            .read(readerGlobalHighlightsProvider.notifier)
+            .removeMany(globalIds);
       }
       setState(() {
         _selectedHighlights.clear();
@@ -2635,14 +2658,24 @@ class _BookmarkHighlightManagerState
       groupId = picked;
     }
 
-    // 按 bookKey 分组处理
+    // 按 bookKey 分组处理；全局的单独处理
     final byBook = <String, Set<String>>{};
+    final globalIds = <String>{};
     for (final (fileKey, id) in _selectedHighlights) {
-      (byBook[fileKey] ??= <String>{}).add(id);
+      if (fileKey == kGlobalHighlightsKey) {
+        globalIds.add(id);
+      } else {
+        (byBook[fileKey] ??= <String>{}).add(id);
+      }
     }
-    final notifier = ref.read(readerHighlightsProvider.notifier);
+    final localNotifier = ref.read(readerHighlightsProvider.notifier);
     for (final e in byBook.entries) {
-      notifier.setGroupMany(e.key, e.value, groupId);
+      localNotifier.setGroupMany(e.key, e.value, groupId);
+    }
+    if (globalIds.isNotEmpty) {
+      ref
+          .read(readerGlobalHighlightsProvider.notifier)
+          .setGroupMany(globalIds, groupId);
     }
 
     if (!mounted) return;
@@ -2665,9 +2698,13 @@ class _BookmarkHighlightManagerState
       groups: ref.read(readerHighlightGroupsProvider),
     );
     if (entry == null || !mounted) return;
-    ref
-        .read(readerHighlightsProvider.notifier)
-        .addOrReplace(widget.fileKey, entry);
+    if (entry.isGlobal) {
+      ref.read(readerGlobalHighlightsProvider.notifier).addOrReplace(entry);
+    } else {
+      ref
+          .read(readerHighlightsProvider.notifier)
+          .addOrReplace(widget.fileKey, entry);
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已新建高亮')),
@@ -2793,7 +2830,10 @@ class _BookmarkHighlightManagerState
         final h = item.entry;
         final key = (item.fileKey, h.id);
         final selected = _selectedHighlights.contains(key);
-        final bookName = item.fileKey.split('/').last;
+        // 全局高亮的"书名"显示为"全部书籍"
+        final bookName = item.fileKey == kGlobalHighlightsKey
+            ? '全部书籍'
+            : item.fileKey.split('/').last;
 
         return _HighlightCard(
           entry: h,
@@ -2811,13 +2851,25 @@ class _BookmarkHighlightManagerState
                   );
                   if (r != null && mounted) {
                     if (r.action == 'delete') {
-                      ref
-                          .read(readerHighlightsProvider.notifier)
-                          .remove(item.fileKey, h.id);
+                      if (item.fileKey == kGlobalHighlightsKey) {
+                        ref
+                            .read(readerGlobalHighlightsProvider.notifier)
+                            .remove(h.id);
+                      } else {
+                        ref
+                            .read(readerHighlightsProvider.notifier)
+                            .remove(item.fileKey, h.id);
+                      }
                     } else if (r.action == 'save' && r.entry != null) {
-                      ref
-                          .read(readerHighlightsProvider.notifier)
-                          .updateOne(item.fileKey, r.entry!);
+                      if (item.fileKey == kGlobalHighlightsKey) {
+                        ref
+                            .read(readerGlobalHighlightsProvider.notifier)
+                            .updateOne(r.entry!);
+                      } else {
+                        ref
+                            .read(readerHighlightsProvider.notifier)
+                            .updateOne(item.fileKey, r.entry!);
+                      }
                     }
                   }
                 },
@@ -2849,9 +2901,13 @@ class _BookmarkHighlightManagerState
       ),
     );
     if (ok == true && mounted) {
-      ref
-          .read(readerHighlightsProvider.notifier)
-          .remove(item.fileKey, h.id);
+      if (item.fileKey == kGlobalHighlightsKey) {
+        ref.read(readerGlobalHighlightsProvider.notifier).remove(h.id);
+      } else {
+        ref
+            .read(readerHighlightsProvider.notifier)
+            .remove(item.fileKey, h.id);
+      }
     }
   }
 
@@ -3206,7 +3262,6 @@ class _HighlightFilterSheetState extends State<_HighlightFilterSheet> {
                   },
                 ),
                 const Spacer(),
-                // ========== 改动 5（B15）：管理分组按钮 ==========
                 TextButton.icon(
                   icon: const Icon(Icons.folder_outlined, size: 18,
                       color: AppColors.accentPurple),
@@ -3329,11 +3384,15 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
 
   Future<void> _deleteGroup(HighlightGroup g) async {
     final all = ref.read(readerHighlightsProvider);
+    final global = ref.read(readerGlobalHighlightsProvider);
     var count = 0;
     for (final list in all.values) {
       for (final h in list) {
         if (h.groupId == g.id) count++;
       }
+    }
+    for (final h in global) {
+      if (h.groupId == g.id) count++;
     }
 
     final choice = await showDialog<String>(
@@ -3372,7 +3431,9 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
     }
 
     final highlightsNotifier = ref.read(readerHighlightsProvider.notifier);
+    final globalNotifier = ref.read(readerGlobalHighlightsProvider.notifier);
     if (choice == 'detach') {
+      // 从各书的本地高亮里摘掉该分组
       final all = ref.read(readerHighlightsProvider);
       for (final entry in all.entries) {
         for (final h in entry.value) {
@@ -3382,6 +3443,12 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
               h.copyWith(clearGroup: true),
             );
           }
+        }
+      }
+      // 从全局高亮里摘掉该分组
+      for (final h in ref.read(readerGlobalHighlightsProvider)) {
+        if (h.groupId == g.id) {
+          globalNotifier.updateOne(h.copyWith(clearGroup: true));
         }
       }
     } else if (choice == 'delete') {
@@ -3394,6 +3461,14 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
         if (ids.isNotEmpty) {
           highlightsNotifier.removeMany(entry.key, ids);
         }
+      }
+      final globalIds = ref
+          .read(readerGlobalHighlightsProvider)
+          .where((h) => h.groupId == g.id)
+          .map((h) => h.id)
+          .toSet();
+      if (globalIds.isNotEmpty) {
+        globalNotifier.removeMany(globalIds);
       }
     }
 
@@ -3555,6 +3630,7 @@ class _HighlightEditScreenState
         : <int>[_colors.first.toARGB32()];
     final stops = _isGradient ? List<double>.from(_stops) : <double>[0.0];
 
+    // isGlobal 在编辑页不改动，copyWith 默认保留原值。
     final updated = widget.entry.copyWith(
       keyword: kw,
       colors: colors,
@@ -3584,10 +3660,14 @@ class _HighlightEditScreenState
       groups: ref.read(readerHighlightGroupsProvider),
     );
     if (newEntry == null || !mounted) return;
-    // 直接加到当前文件
-    ref
-        .read(readerHighlightsProvider.notifier)
-        .addOrReplace(widget.fileKey, newEntry);
+    // 根据 isGlobal 决定存哪
+    if (newEntry.isGlobal) {
+      ref.read(readerGlobalHighlightsProvider.notifier).addOrReplace(newEntry);
+    } else {
+      ref
+          .read(readerHighlightsProvider.notifier)
+          .addOrReplace(widget.fileKey, newEntry);
+    }
     if (!mounted) return;
     // 返回管理页并标记"内容有变化"
     Navigator.pop(
@@ -3595,14 +3675,16 @@ class _HighlightEditScreenState
       HighlightEditResult(action: 'save', entry: widget.entry),
     );
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已新建正则高亮')),
+      const SnackBar(content: Text('已新建高亮')),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final groups = ref.watch(readerHighlightGroupsProvider);
-    final fileName = widget.fileKey.split('/').last;
+    final fileName = widget.fileKey == kGlobalHighlightsKey
+        ? '全部书籍'
+        : widget.fileKey.split('/').last;
 
     return Scaffold(
       appBar: AppBar(
@@ -3665,7 +3747,6 @@ class _HighlightEditScreenState
           ),
           const SizedBox(height: 16),
 
-          // ========== 改动 7①：高亮名输入框 ==========
           const Text('高亮名'),
           TextField(
             controller: _nameCtrl,
@@ -3691,7 +3772,6 @@ class _HighlightEditScreenState
             ),
           ),
 
-          // ========== 改动 7②：关键词 / 正则输入框 ==========
           Text(_isRegex ? '正则表达式' : '关键词'),
           TextField(
             controller: _kwCtrl,
@@ -3744,10 +3824,27 @@ class _HighlightEditScreenState
                 style: const TextStyle(color: Colors.red, fontSize: 12),
               ),
             ),
+
+          // ---------- 应用到所有书籍（只读） ----------
+          Row(
+            children: [
+              const Text('应用到所有书籍',
+                  style: TextStyle(fontSize: 13)),
+              const SizedBox(width: 4),
+              const Tooltip(
+                message: '创建时确定，不可修改。\n想改请删了重建。',
+                child: Icon(Icons.info_outline, size: 14),
+              ),
+              const Spacer(),
+              Switch(
+                value: widget.entry.isGlobal,
+                onChanged: null,
+              ),
+            ],
+          ),
+
           if (_isRegex) ...[
             const SizedBox(height: 12),
-
-            // ========== 改动 7③：捕获组输入框 ==========
             const Text('高亮第几个捕获组'),
             TextFormField(
               key: ValueKey('group_$_groupIndex'),
@@ -3891,7 +3988,6 @@ class _HighlightEditScreenState
           const Text('分组'),
           const SizedBox(height: 4),
 
-          // ========== 改动 7④：分组下拉框 ==========
           DropdownButtonFormField<String?>(
             value: _groupId,
             isExpanded: true,
@@ -4155,6 +4251,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
   final _nameCtrl = TextEditingController();
   final _kwCtrl = TextEditingController();
   bool _isRegex = false;
+  bool _isGlobal = false;
   int _groupIndex = 0;
   String? _groupId;
   String? _regexError;
@@ -4265,6 +4362,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
       groupId: _groupId,
       isRegex: _isRegex,
       groupIndex: _isRegex ? _groupIndex : 0,
+      isGlobal: _isGlobal,
     );
     Navigator.pop(context, entry);
   }
@@ -4289,7 +4387,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ========== 改动 6①：名称输入框 ==========
               const Text('名称'),
               TextField(
                 controller: _nameCtrl,
@@ -4308,7 +4405,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               ),
               const SizedBox(height: 12),
 
-              // ========== 改动 6②：关键词 / 正则输入框 ==========
               Text(_isRegex ? '正则表达式' : '关键词 / 正则'),
               TextField(
                 controller: _kwCtrl,
@@ -4363,7 +4459,25 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   ),
                 ),
 
-              // ========== 改动 6③：捕获组输入框 ==========
+              // ---------- 应用到所有书籍 ----------
+              Row(
+                children: [
+                  const Text('应用到所有书籍',
+                      style: TextStyle(fontSize: 13)),
+                  const SizedBox(width: 4),
+                  const Tooltip(
+                    message: '开：所有书都生效，独立存储\n'
+                        '关：只对当前书生效',
+                    child: Icon(Icons.info_outline, size: 14),
+                  ),
+                  const Spacer(),
+                  Switch(
+                    value: _isGlobal,
+                    onChanged: (v) => setState(() => _isGlobal = v),
+                  ),
+                ],
+              ),
+
               if (_isRegex) ...[
                 const SizedBox(height: 12),
                 const Text('高亮第几个捕获组'),
@@ -4616,8 +4730,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const Text('分组',
                   style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
-
-              // ========== 改动 6④：分组下拉框 ==========
               DropdownButtonFormField<String?>(
                 value: _groupId,
                 isExpanded: true,
@@ -4700,3 +4812,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     );
   }
 }
+
+
+
+
+
