@@ -1,4 +1,3 @@
-
 import 'dart:io';
 import 'dart:typed_data';
 import 'browser_settings_screen.dart';
@@ -555,13 +554,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     _navigateTo(parent);
   }
 
-
-
-
-
-    
   /// 列出 /storage 下能访问的存储卷。
-  
 List<EntryInfo> _listStorageRoot() {
   final log = ReaderLoadLog.instance;
   log.info('[Storage] 手动构造 /storage 条目');
@@ -632,15 +625,6 @@ List<EntryInfo> _listStorageRoot() {
   return out;
 }
 
-
-
-
-
-
-
-
-
-    
   void _clearSelection() {
     _selectionMode = false;
     _selectedPaths.clear();
@@ -832,42 +816,28 @@ List<EntryInfo> _listStorageRoot() {
     }
     log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
 
+    final tPush = DateTime.now();
+    final openedPath = path;
+    final result = await Navigator.of(context).push<String>(
+      PageRouteBuilder<String>(
+        pageBuilder: (_, __, ___) => ReaderScreen(
+          filePaths: textPaths,
+          initialIndex: index,
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
 
-
-
-
-
-      final tPush = DateTime.now();
-final openedPath = path; // ← 新增
-final result = await Navigator.of(context).push<String>(
-  PageRouteBuilder<String>(
-    pageBuilder: (_, __, ___) => ReaderScreen(
-      filePaths: textPaths,
-      initialIndex: index,
-    ),
-    transitionDuration: Duration.zero,
-    reverseTransitionDuration: Duration.zero,
-  ),
-);
-
-
-
-
-      
     log.info(
         '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
 
     if (!mounted) return;
 
     // ---------- 按阅读器上报的"已删路径"过滤列表 ----------
-    // 阅读器删文件时会把路径塞进 readerDeletedPathsProvider。
-    // 这里读出来，从 _entries 里移除对应项，然后清空 provider。
-    // 只处理 App 内删除；外部删除不管（用户可下拉刷新 / 菜单刷新）。
-    // 复杂度 O(n)，用 HashSet 查找，1 万项约 0.3ms，无系统调用。
     final deleted = ref.read(readerDeletedPathsProvider);
     final tFilter = DateTime.now();
     if (deleted.isNotEmpty) {
-      // 先清空，防止下次进入时误用旧数据。
       ref.read(readerDeletedPathsProvider.notifier).state = const [];
 
       final deletedSet = deleted.toSet();
@@ -885,7 +855,6 @@ final result = await Navigator.of(context).push<String>(
           '[Browser→Reader] 返回时按已删名单移除 $removedCount 项  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
       if (removedCount > 0) {
         setState(() => _entries = stillThere);
-        // ★ 新增：同步到缓存（所有排序方式）
         DirCache.instance.applyToAll(
           _currentPath,
           (list) => list.where((e) => !deletedSet.contains(e.path)).toList(),
@@ -896,26 +865,16 @@ final result = await Navigator.of(context).push<String>(
           '[Browser→Reader] 返回时无已删记录  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
     }
 
-
-
-
-      
-     // 只在用户换了文件时才滚动。
-  // 如果返回的就是打开时那个文件，说明用户只是看了看，
-  // 保持列表原样，不要跳动。
-  if (result != null && result != openedPath) {
-    _scrollToPath(result);
-    // ★ 让 _dirScrollPositions 记住这个新位置，下次从别的目录回来能恢复。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _recordCurrentScroll();
-    });
+    // 只在用户换了文件时才滚动。
+    if (result != null && result != openedPath) {
+      _scrollToPath(result);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _recordCurrentScroll();
+      });
+    }
+    log.info(
+        '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
   }
-  log.info(
-      '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-}
-
-
-    
 
   /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
   Future<void> _openInEditor(String path, String name) async {
@@ -1037,8 +996,6 @@ final result = await Navigator.of(context).push<String>(
     }
     if (index < 0) return;
 
-    // 延后一帧再跳，确保列表已经完成布局（从其他页面刚返回时，
-    // 本页可能还在重建中，直接 jumpTo 会落在错位置）。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!_itemScrollController.isAttached) return;
@@ -1047,9 +1004,6 @@ final result = await Navigator.of(context).push<String>(
   }
 
   /// 收集"当前视图里所有文本文件的路径"。
-  ///
-  /// - 普通浏览模式：用当前目录的所有文件（已按排序排好）
-  /// - 搜索模式：用搜索结果里所有文本文件
   List<String> _collectTextFilePaths() {
     if (_searchActive) {
       return [
@@ -1439,7 +1393,6 @@ final result = await Navigator.of(context).push<String>(
       ref.read(originalFilePathProvider.notifier).state = result.original.path;
       ref.read(modifiedFilePathProvider.notifier).state = result.modified.path;
       ref.read(importRevisionProvider.notifier).state++;
-      // 清掉上次编辑留下的内存改动，保证这次从磁盘原文开始。
       ref.read(editedOriginalProvider.notifier).state = null;
       ref.read(editedModifiedProvider.notifier).state = null;
 
@@ -1449,8 +1402,6 @@ final result = await Navigator.of(context).push<String>(
         ),
       );
       if (!mounted) return;
-      // 对比页可能删过文件；返回后清掉选中，并把已经不存在的
-      // 搜索结果从列表里剔除。目录列表不需要动。
       setState(() {
         _pruneSearchResults();
       });
@@ -1795,7 +1746,6 @@ final result = await Navigator.of(context).push<String>(
       final ok = await ConfigIoService.instance.export();
       if (!mounted) return;
       if (ok) _toast('配置已导出');
-      // 用户取消：静默返回
     } catch (e) {
       if (mounted) _toast('导出失败：$e');
     }
@@ -1805,16 +1755,13 @@ final result = await Navigator.of(context).push<String>(
     final result = await ConfigIoService.instance.import();
     if (!mounted) return;
 
-    // 用户取消
     if (!result.ok && result.message == null) return;
 
-    // 失败
     if (!result.ok) {
       _toast(result.message ?? '导入失败');
       return;
     }
 
-    // 成功：提示重启
     await showDialog<void>(
       context: context,
       builder: (c) => AlertDialog(
@@ -1851,7 +1798,6 @@ final result = await Navigator.of(context).push<String>(
               height: MediaQuery.of(context).size.height * 0.7,
               child: Column(
                 children: [
-                  // 顶部：收藏/取消收藏当前目录
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
@@ -1876,7 +1822,6 @@ final result = await Navigator.of(context).push<String>(
                     },
                   ),
                   const Divider(height: 1),
-                  // 收藏列表
                   Expanded(
                     child: favorites.isEmpty
                         ? const Center(child: Text('还没有收藏任何目录'))
@@ -2133,9 +2078,6 @@ final result = await Navigator.of(context).push<String>(
     _clearSelection();
 
     if (_searchActive) {
-      // 搜索结果模式：把删掉的条目从列表里剔除。
-      // 目录被删时，目录里的所有文件也算删掉，一并移除。
-      // 加锚点，删完后保持滚动位置。
       final anchor = _snapshotVisiblePaths();
       setState(() {
         _searchResults = _searchResults.where((h) {
@@ -2166,7 +2108,6 @@ final result = await Navigator.of(context).push<String>(
     if (name == null) return;
 
     final trimmed = name.trim();
-    // 校验：非空、不含 /、不是 . 或 ..
     if (trimmed.isEmpty) {
       _toast('名称不能为空');
       return;
@@ -2403,7 +2344,6 @@ final result = await Navigator.of(context).push<String>(
       canPop: !_canGoUp && !_selectionMode && !_searchActive,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        // 返回键优先级：先取消选中 → 再退搜索 → 最后上一级。
         if (_selectionMode) {
           setState(_clearSelection);
         } else if (_searchActive) {
@@ -2458,7 +2398,6 @@ final result = await Navigator.of(context).push<String>(
                 )
               : null),
       actions: [
-        // 收藏/取消收藏
         IconButton(
           icon: Icon(
             isFav ? Icons.star : Icons.star_border,
@@ -2467,7 +2406,6 @@ final result = await Navigator.of(context).push<String>(
           tooltip: isFav ? '取消收藏此目录' : '收藏此目录',
           onPressed: _toggleFavorite,
         ),
-        // 比较设置
         IconButton(
           icon: const Icon(Icons.tune),
           tooltip: '比较设置',
@@ -2480,7 +2418,6 @@ final result = await Navigator.of(context).push<String>(
           },
         ),
 
-        // 更多菜单（刷新 + 排序 + 已收藏目录）
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           tooltip: '更多',
@@ -3173,6 +3110,15 @@ class _TextInputDialogState extends State<_TextInputDialog> {
 }
 
 /// 自定义搜索文件夹的勾选器。
+///
+/// 顶部有路径跳转输入框（抄自 DirectoryPickerDialog，高度略矮）。
+/// 底部工具条有"全选"chip 和"区间"chip。
+///
+/// 区间模式：
+///   - 点"区间"chip 进入。标题栏替换为提示文字，字号 16→14，颜色转蓝。
+///   - 点第一行 → 记起点（行加浅蓝背景）。标题变成"再点一行设为终点"。
+///   - 点第二行 → 两端之间（含两端）全部勾上；自动退出区间模式。
+///   - 期间点右侧 `>` 箭头仍可进子目录，并退出区间模式。
 class _SearchFolderPickerDialog extends StatefulWidget {
   const _SearchFolderPickerDialog({
     required this.rootPath,
@@ -3193,42 +3139,54 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
   /// 内部存储根路径（用于相对路径显示）。
   static const String _internalRoot = '/storage/emulated/0';
 
+  /// 区间色（蓝）。
+  static const Color _rangeBlue = Color(0xFF3D7CFF);
+
+  /// 起点高亮背景（同蓝色 20% 透明）。
+  static const Color _rangeHighlight = Color(0x333D7CFF);
+
   late String _path;
   late List<String> _selected;
+  late final TextEditingController _jumpCtrl;
   List<Directory> _dirs = const [];
   bool _loading = true;
+
+  // ========== 区间选择 ==========
+  bool _rangeMode = false;
+  String? _rangeAnchorPath;
 
   @override
   void initState() {
     super.initState();
     _path = widget.initialPath;
     _selected = List<String>.from(widget.initialSelected);
+    _jumpCtrl = TextEditingController();
     _load();
   }
 
-
-
-    
-Future<void> _load() async {
-  setState(() => _loading = true);
-  try {
-    final dirs = await listSubdirectoriesSafe(_path);
-    if (!mounted) return;
-    setState(() {
-      _dirs = dirs;
-      _loading = false;
-    });
-  } catch (_) {
-    if (!mounted) return;
-    setState(() {
-      _dirs = const [];
-      _loading = false;
-    });
+  @override
+  void dispose() {
+    _jumpCtrl.dispose();
+    super.dispose();
   }
-}
 
-
-    
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final dirs = await listSubdirectoriesSafe(_path);
+      if (!mounted) return;
+      setState(() {
+        _dirs = dirs;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dirs = const [];
+        _loading = false;
+      });
+    }
+  }
 
   bool get _canGoUp => _path != widget.rootPath;
 
@@ -3236,7 +3194,10 @@ Future<void> _load() async {
     if (!_canGoUp) return;
     final parent = Directory(_path).parent.path;
     if (!parent.startsWith(widget.rootPath)) return;
-    setState(() => _path = parent);
+    setState(() {
+      _path = parent;
+      _rangeAnchorPath = null;
+    });
     _load();
   }
 
@@ -3253,6 +3214,35 @@ Future<void> _load() async {
     return _path;
   }
 
+  // ==================== 路径跳转 ====================
+
+  void _jumpToPath(String path) {
+    if (path.isEmpty) return;
+    var target = path;
+    if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
+      target = File(target).parent.path;
+    }
+    if (!Directory(target).existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('目录不存在')),
+      );
+      return;
+    }
+    if (!target.startsWith(widget.rootPath)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('只能跳到内部存储以内')),
+      );
+      return;
+    }
+    setState(() {
+      _path = target;
+      _rangeAnchorPath = null;
+    });
+    _load();
+  }
+
+  // ==================== 勾选 ====================
+
   void _toggle(String path) {
     setState(() {
       if (_selected.contains(path)) {
@@ -3262,6 +3252,71 @@ Future<void> _load() async {
       }
     });
   }
+
+  // ==================== 全选 ====================
+
+  /// 当前视图是否"全部已勾选"。空视图返回 false。
+  bool get _allVisibleSelected {
+    if (_dirs.isEmpty) return false;
+    for (final d in _dirs) {
+      if (!_selected.contains(d.path)) return false;
+    }
+    return true;
+  }
+
+  void _toggleSelectAll() {
+    setState(() {
+      if (_allVisibleSelected) {
+        for (final d in _dirs) {
+          _selected.remove(d.path);
+        }
+      } else {
+        for (final d in _dirs) {
+          if (!_selected.contains(d.path)) _selected.add(d.path);
+        }
+      }
+    });
+  }
+
+  // ==================== 区间选择 ====================
+
+  void _toggleRangeMode() {
+    setState(() {
+      _rangeMode = !_rangeMode;
+      _rangeAnchorPath = null;
+    });
+  }
+
+  /// 区间模式下点某一行：第一次设锚点，第二次把区间内全勾上，自动退出。
+  void _handleRangeTap(String path) {
+    final anchor = _rangeAnchorPath;
+    if (anchor == null) {
+      setState(() => _rangeAnchorPath = path);
+      return;
+    }
+
+    final visible = _dirs.map((d) => d.path).toList();
+    final from = visible.indexOf(anchor);
+    final to = visible.indexOf(path);
+    if (from < 0 || to < 0) {
+      // 锚点被换目录/换过滤冲掉了 → 重设
+      setState(() => _rangeAnchorPath = path);
+      return;
+    }
+    final lo = from < to ? from : to;
+    final hi = from < to ? to : from;
+
+    setState(() {
+      for (var i = lo; i <= hi; i++) {
+        _selected.add(visible[i]);
+      }
+      // 自动退出区间模式
+      _rangeMode = false;
+      _rangeAnchorPath = null;
+    });
+  }
+
+  // ==================== 已勾选查看 ====================
 
   Future<void> _showSelected() async {
     await showDialog<void>(
@@ -3313,6 +3368,21 @@ Future<void> _load() async {
     );
   }
 
+  // ==================== 标题 ====================
+
+  String get _titleText {
+    if (_rangeMode) {
+      return _rangeAnchorPath == null ? '点第一行设为起点' : '再点一行设为终点';
+    }
+    return '勾选要搜索的文件夹';
+  }
+
+  double get _titleSize => _rangeMode ? 14.0 : 16.0;
+
+  Color? get _titleColor => _rangeMode ? _rangeBlue : null;
+
+  // ==================== build ====================
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -3320,13 +3390,61 @@ Future<void> _load() async {
       titlePadding: _dlgTitlePadG,
       contentPadding: EdgeInsets.zero,
       actionsPadding: _dlgActionsPadG,
-      title: const Text('勾选要搜索的文件夹'),
+      title: Text(
+        _titleText,
+        style: TextStyle(
+          fontSize: _titleSize,
+          fontWeight: FontWeight.bold,
+          color: _titleColor,
+        ),
+      ),
       content: SizedBox(
         width: double.maxFinite,
         height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ---------- 路径跳转 ----------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _jumpCtrl,
+                      cursorColor: AppColors.accentPurple,
+                      style: const TextStyle(fontSize: 13),
+                      decoration: const InputDecoration(
+                        hintText: '粘贴路径跳转',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(
+                            color: AppColors.accentPurple,
+                            width: 2,
+                          ),
+                        ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                      ),
+                      onSubmitted: (v) => _jumpToPath(v.trim()),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_forward),
+                    color: AppColors.accentPurple,
+                    tooltip: '跳转',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
+                  ),
+                ],
+              ),
+            ),
+
+            // ---------- 上一级 + 当前路径 ----------
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
               child: Row(
@@ -3350,7 +3468,10 @@ Future<void> _load() async {
                 ],
               ),
             ),
+
             const Divider(height: 1),
+
+            // ---------- 列表 ----------
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
@@ -3362,63 +3483,148 @@ Future<void> _load() async {
                             final d = _dirs[i];
                             final name = d.path.split('/').last;
                             final selected = _selected.contains(d.path);
-                            return ListTile(
-                              dense: true,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 4),
-                              leading: SizedBox(
-                                width: 68,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    InkWell(
-                                      onTap: () => _toggle(d.path),
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(4),
-                                        child: Icon(
-                                          selected
-                                              ? Icons.check_box
-                                              : Icons
-                                                  .check_box_outline_blank,
-                                          color: selected
-                                              ? Theme.of(context)
-                                                  .colorScheme
-                                                  .primary
-                                              : null,
+                            final isAnchor = d.path == _rangeAnchorPath;
+
+                            return Container(
+                              color: isAnchor ? _rangeHighlight : null,
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 4),
+                                leading: SizedBox(
+                                  width: 68,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      InkWell(
+                                        onTap: () => _toggle(d.path),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(4),
+                                          child: Icon(
+                                            selected
+                                                ? Icons.check_box
+                                                : Icons
+                                                    .check_box_outline_blank,
+                                            color: selected
+                                                ? Theme.of(context)
+                                                    .colorScheme
+                                                    .primary
+                                                : null,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    InkWell(
-                                      onTap: () => _toggle(d.path),
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(4),
-                                        child: Icon(Icons.folder,
-                                            color: Colors.amber),
+                                      InkWell(
+                                        onTap: () => _toggle(d.path),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(4),
+                                          child: Icon(Icons.folder,
+                                              color: Colors.amber),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
+                                title: Text(name),
+                                trailing: InkWell(
+                                  onTap: () {
+                                    // 进子目录：同时退出区间模式
+                                    setState(() {
+                                      _path = d.path;
+                                      _rangeMode = false;
+                                      _rangeAnchorPath = null;
+                                    });
+                                    _load();
+                                  },
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(8),
+                                    child: Icon(Icons.chevron_right),
+                                  ),
+                                ),
+                                onTap: () {
+                                  if (_rangeMode) {
+                                    _handleRangeTap(d.path);
+                                    return;
+                                  }
+                                  setState(() {
+                                    _path = d.path;
+                                    _rangeAnchorPath = null;
+                                  });
+                                  _load();
+                                },
                               ),
-                              title: Text(name),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
-                                setState(() => _path = d.path);
-                                _load();
-                              },
                             );
                           },
                         ),
             ),
+
             const Divider(height: 1),
+
+            // ---------- 工具条 ----------
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 2, 4, 2),
+              padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
               child: Row(
                 children: [
+                  // 全选 chip
+                  FilterChip(
+                    label: const Text('全选'),
+                    selected: _allVisibleSelected,
+                    onSelected: (_) => _toggleSelectAll(),
+                    selectedColor:
+                        AppColors.accentPurple.withOpacity(0.15),
+                    checkmarkColor: AppColors.accentPurple,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      color: _allVisibleSelected
+                          ? AppColors.accentPurple
+                          : Colors.black,
+                      fontWeight: _allVisibleSelected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                    side: BorderSide(
+                      color: _allVisibleSelected
+                          ? AppColors.accentPurple
+                          : Colors.grey.shade400,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize:
+                        MaterialTapTargetSize.shrinkWrap,
+                  ),
+
+                  const SizedBox(width: 24),
+
+                  // 区间 chip
+                  FilterChip(
+                    label: const Text('区间'),
+                    selected: _rangeMode,
+                    onSelected: (_) => _toggleRangeMode(),
+                    selectedColor: _rangeBlue.withOpacity(0.15),
+                    checkmarkColor: _rangeBlue,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      color: _rangeMode ? _rangeBlue : Colors.black,
+                      fontWeight: _rangeMode
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                    side: BorderSide(
+                      color: _rangeMode
+                          ? _rangeBlue
+                          : Colors.grey.shade400,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize:
+                        MaterialTapTargetSize.shrinkWrap,
+                  ),
+
+                  const Spacer(),
+
+                  // 已勾选计数 + 查看
                   Text(
                     '已勾选 ${_selected.length} 个',
                     style: Theme.of(context).textTheme.labelMedium,
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 4),
                   TextButton(
                     onPressed: _selected.isEmpty ? null : _showSelected,
                     child: const Text('查看'),
