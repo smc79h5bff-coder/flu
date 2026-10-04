@@ -6,7 +6,7 @@ import 'package:enough_convert/enough_convert.dart' hide gbk;
 import 'package:gbk_codec/gbk_codec.dart' hide gbk;
 
 import '../domain/encoding_type.dart';
-import '../reader_load_log.dart';
+import '../../reader/reader_load_log.dart';
 
 /// Sniff text encoding from raw bytes.
 ///
