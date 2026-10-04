@@ -1557,7 +1557,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           DropdownButtonFormField<String?>(
             value: _defaultGroupId,
             isExpanded: true,
-            style: const TextStyle(color: AppColors.accentPurple),
             iconEnabledColor: AppColors.accentPurple,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
@@ -1573,14 +1572,13 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
               const DropdownMenuItem<String?>(
                 value: null,
                 child: Text('未分组',
-                    style: TextStyle(color: AppColors.accentPurple)),
+                    style: TextStyle(color: Colors.black)),
               ),
               for (final g in groups)
                 DropdownMenuItem<String?>(
                   value: g.id,
                   child: Text(g.name,
-                      style: const TextStyle(
-                          color: AppColors.accentPurple)),
+                      style: const TextStyle(color: Colors.black)),
                 ),
             ],
             onChanged: (v) => setState(() => _defaultGroupId = v),
@@ -3897,7 +3895,6 @@ class _HighlightEditScreenState
           DropdownButtonFormField<String?>(
             value: _groupId,
             isExpanded: true,
-            style: const TextStyle(color: AppColors.accentPurple),
             iconEnabledColor: AppColors.accentPurple,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
@@ -3913,14 +3910,13 @@ class _HighlightEditScreenState
               const DropdownMenuItem<String?>(
                 value: null,
                 child: Text('未分组',
-                    style: TextStyle(color: AppColors.accentPurple)),
+                    style: TextStyle(color: Colors.black)),
               ),
               for (final g in groups)
                 DropdownMenuItem<String?>(
                   value: g.id,
                   child: Text(g.name,
-                      style: const TextStyle(
-                          color: AppColors.accentPurple)),
+                      style: const TextStyle(color: Colors.black)),
                 ),
             ],
             onChanged: (v) => setState(() => _groupId = v),
@@ -4625,7 +4621,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               DropdownButtonFormField<String?>(
                 value: _groupId,
                 isExpanded: true,
-                style: const TextStyle(color: AppColors.accentPurple),
                 iconEnabledColor: AppColors.accentPurple,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
@@ -4641,14 +4636,13 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   const DropdownMenuItem<String?>(
                     value: null,
                     child: Text('未分组',
-                        style: TextStyle(color: AppColors.accentPurple)),
+                        style: TextStyle(color: Colors.black)),
                   ),
                   for (final g in widget.groups)
                     DropdownMenuItem<String?>(
                       value: g.id,
                       child: Text(g.name,
-                          style: const TextStyle(
-                              color: AppColors.accentPurple)),
+                          style: const TextStyle(color: Colors.black)),
                     ),
                 ],
                 onChanged: (v) => setState(() => _groupId = v),
