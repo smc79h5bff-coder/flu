@@ -1274,18 +1274,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
     if (ok != true || !mounted) return;
 
-    try {
-      await File(path).delete();
-    } catch (e) {
-      if (!mounted) return;
-      _showToast('删除失败：$e');
-      return;
-    }
-    if (!mounted) return;
 
-    setState(() {
-      _filePaths.removeAt(_fileIndex);
-    });
+    
+try {
+  await File(path).delete();
+} catch (e) {
+  if (!mounted) return;
+  _showToast('删除失败：$e');
+  return;
+}
+if (!mounted) return;
+
+// ★ 新增：把被删路径暂存起来，供文件浏览器返回时过滤。
+// 只在删除成功后记录；删除失败会在上面 catch 里 return，不记录。
+ref.read(readerDeletedPathsProvider.notifier).state = [
+  ...ref.read(readerDeletedPathsProvider),
+  path,
+];
+
+setState(() {
+  _filePaths.removeAt(_fileIndex);
+});
+
+
+
+    
 
     // 整个目录已删完
     if (_filePaths.isEmpty) {
