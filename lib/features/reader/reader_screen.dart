@@ -620,11 +620,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       paginator.addListener(_onPaginatorChanged);
       paginator.start();
 
-      final split = splitLinesWithOffsets(text);
-      final fileKey = readerFileKey(path);
-      final highlights =
-          ref.read(readerHighlightsProvider)[fileKey] ?? const [];
 
+
+
+
+
+      
+final split = splitLinesWithOffsets(text);
+final fileKey = readerFileKey(path);
+// 按需加载这本书的高亮（内存缓存）
+ref.read(readerHighlightsProvider.notifier).ensureLoaded(fileKey);
+final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
+final global = ref.read(readerGlobalHighlightsProvider);
+final highlights = [...local, ...global];
+
+
+      
       final progress = ref.read(readerProgressProvider)[fileKey];
       final startPage = progress != null
           ? findPageForOffset(paginator.result!, progress.charOffset)
