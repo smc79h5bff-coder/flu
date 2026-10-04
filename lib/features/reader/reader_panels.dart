@@ -3107,7 +3107,7 @@ class _HighlightCard extends StatelessWidget {
                   stops: stops,
                 )
               : null,
-          borderRadius: BorderRadius.circular(2),
+          
         ),
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
         child: Text(
