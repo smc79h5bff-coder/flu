@@ -3015,7 +3015,7 @@ class _HighlightCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           border: Border.all(color: Colors.black12, width: 0.5),
         ),
-        padding: const EdgeInsets.fromLTRB(2, 2, 2, 2),
+        padding: const EdgeInsets.fromLTRB(1, 1, 1, 1),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -3032,7 +3032,7 @@ class _HighlightCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
@@ -3117,7 +3117,7 @@ class _HighlightCard extends StatelessWidget {
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Color(entry.textColor),
-            fontSize: 11,
+            fontSize: 14,
             height: 1.05,
           ),
         ),
