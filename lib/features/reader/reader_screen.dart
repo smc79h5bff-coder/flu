@@ -3525,6 +3525,13 @@ Widget _buildFloatButton({
 
   // ==================== 弹窗渲染 ====================
 
+
+
+
+
+
+
+  
   Widget _buildHBar(ReaderSettings settings, Size size) {
     final sel = _sel;
     if (sel == null) return const SizedBox.shrink();
@@ -3715,50 +3722,212 @@ void _applyHighlight(String word, HighlightPalette palette) {
     id: DateTime.now().microsecondsSinceEpoch.toString(),
     keyword: word,
     colors: List<int>.from(palette.colors),
-    stops: List<double>.from(palette.stops),
-    angle: palette.angle,
-    textColor: palette.textColor,
-    createdAt: DateTime.now().millisecondsSinceEpoch,
-    groupId: palette.defaultGroupId,
-    // 阅读器里点色块加的高亮永远是本书高亮，不是全局。
-    isGlobal: false,
-  );
-  ref.read(readerHighlightsProvider.notifier).addOrReplace(fileKey, entry);
 
-  final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
-  final global = ref.read(readerGlobalHighlightsProvider);
-  final newHighlights = [...local, ...global];
-  setState(() {
-    _highlights = newHighlights;
-    _highlightsRevision++;
-    _rebuildHighlightAc();
-    _sel = null;
-    _hBarVisible = false;
-    _spansCache.clear();
-    _gradRectCache.clear();
-    _pageHighlightCache = {};
-    _pageHighlightCacheForPage = -1;
-    _pageHighlightCacheForRevision = -1;
-    _lastHighlightQueryLine = -1;
-    _lastHighlightQueryResult = const [];
-  });
-}
-  
+      Widget _buildHBar(ReaderSettings settings, Size size) {
+    final sel = _sel;
+    if (sel == null) return const SizedBox.shrink();
+    final n = sel.normalized();
 
+    final startPos = _posOfCharLeft(n.startLine, n.startOffset);
+    final endPos = _posOfCharLeft(n.endLine, n.endOffset);
+    if (startPos == null || endPos == null) {
+      return const SizedBox.shrink();
+    }
 
+    final safeTop = MediaQuery.of(context).padding.top;
+    final safeBottom = MediaQuery.of(context).padding.bottom;
+    final topAreaH = size.height - safeTop - safeBottom;
 
+    const approxW = 260.0;
+    const approxH = 150.0;
 
+    final selTop = startPos.dy;
+    final selBottom =
+        endPos.dy + settings.fontSize * kReaderLineHeightFactor;
 
+    final midY = (selTop + selBottom) / 2;
+    final screenMid = safeTop + topAreaH / 2;
+    final showBelow = midY < screenMid;
 
+    double top;
+    if (showBelow) {
+      top = selBottom - safeTop + 24;
+    } else {
+      top = selTop - safeTop - approxH - 8;
+    }
+    top = top.clamp(4.0, topAreaH - approxH - 4);
 
+    double left = startPos.dx - 8;
+    if (left + approxW > size.width - 4) {
+      left = size.width - approxW - 4;
+    }
+    if (left < 4) left = 4;
 
+    return Positioned(
+      left: left,
+      top: top,
+      child: Container(
+        width: approxW,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: '复制',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    final t = _selectedText();
+                    if (t.isEmpty) return;
+                    Clipboard.setData(ClipboardData(text: t));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('已复制'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.share, size: 18),
+                  tooltip: '分享',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    final t = _selectedText();
+                    if (t.isEmpty) return;
+                    Share.share(t);
+                  },
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    _selectedText(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 6),
+            _buildColorRow(0, 10),
+            const SizedBox(height: 4),
+            _buildColorRow(10, 20),
+          ],
+        ),
+      ),
+    );
+  }
 
+  Widget _buildColorRow(int from, int to) {
+    final palette = ref.read(readerPaletteProvider);
+    final list =
+        palette.where((p) => p.index >= from && p.index < to).toList();
+    if (list.isEmpty) return const SizedBox.shrink();
 
+    const tileW = 44.0;
+    const tileH = 40.0;
 
+    return SizedBox(
+      height: tileH,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: list.length,
+        itemBuilder: (ctx, i) {
+          final p = list[i];
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: GestureDetector(
+              onTap: () {
+                final word = _selectedText();
+                if (word.isEmpty) return;
+                _applyHighlight(word, p);
+              },
+              onLongPress: () {
+                _clearSelection();
+                openPaletteEdit(context, p.index);
+              },
+              child: Container(
+                width: tileW,
+                height: tileH,
+                decoration: BoxDecoration(
+                  color: p.isGradient ? null : Color(p.colors.first),
+                  gradient: p.isGradient
+                      ? LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: p.colors
+                              .map((c) => Color(c))
+                              .toList(growable: false),
+                          stops: p.stops.length == p.colors.length
+                              ? p.stops
+                              : null,
+                        )
+                      : null,
+                  border: Border.all(color: Colors.black12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  p.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Color(p.textColor),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
+  void _applyHighlight(String word, HighlightPalette palette) {
+    if (_text == null) return;
+    final path = _filePaths[_fileIndex];
+    final fileKey = readerFileKey(path);
+    final entry = HighlightEntry(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      keyword: word,
+      colors: List<int>.from(palette.colors),
+      stops: List<double>.from(palette.stops),
+      angle: palette.angle,
+      textColor: palette.textColor,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+      groupId: palette.defaultGroupId,
+      // 阅读器里点色块加的高亮永远是本书高亮，不是全局。
+      isGlobal: false,
+    );
+    ref.read(readerHighlightsProvider.notifier).addOrReplace(fileKey, entry);
 
-
-
-
-  
+    final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
+    final global = ref.read(readerGlobalHighlightsProvider);
+    final newHighlights = [...local, ...global];
+    setState(() {
+      _highlights = newHighlights;
+      _highlightsRevision++;
+      _rebuildHighlightAc();
+      _sel = null;
+      _hBarVisible = false;
+      _spansCache.clear();
+      _gradRectCache.clear();
+      _pageHighlightCache = {};
+      _pageHighlightCacheForPage = -1;
+      _pageHighlightCacheForRevision = -1;
+      _lastHighlightQueryLine = -1;
+      _lastHighlightQueryResult = const [];
+    });
+  }
 }
