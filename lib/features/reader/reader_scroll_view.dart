@@ -24,6 +24,11 @@ import 'reader_search_provider.dart';
 ///   · 手指明显水平滑动 → 翻页
 ///   · 竖直滑动 → 交给 Scrollable 自由滚动
 ///   · 快速点击 → 往下滚一屏
+///
+/// 滚动锁定：有选区 / 长按中 / 拖手柄时，内容不随手指滚动（见 _ReaderScrollPhysics）。
+/// 手柄拖动：抄分页模式，记录手指相对文字左上角的偏移，拖动中反推 handleLogic
+/// 并把判定点往文字方向推 lineHeight/3，手感贴字。
+/// 手柄贴底：选中屏幕最后一行时，手柄翻到文字上方（flip），避免飘出屏幕。
 class ReaderScrollView extends ConsumerStatefulWidget {
   const ReaderScrollView({
     super.key,
@@ -76,6 +81,10 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   int _draggingHandle = 0;
   Offset? _dragHandlePos;
 
+  /// 拖动开始时记下"手指相对手柄逻辑位置（文字左上角）的偏移"。
+  /// 拖动时用 手指位置 - 偏移 反推文字新位置，抄分页模式。
+  Offset? _dragHandleOffset;
+
   final Map<int, GlobalKey> _lineKeys = <int, GlobalKey>{};
 
   final GlobalKey _stackKey = GlobalKey();
@@ -109,6 +118,17 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
   // ---- 选区激活状态 ----
   bool _lastReportedSelectionActive = false;
+
+  // ---- 滚动锁定：有选区 / 长按中 / 拖手柄时，禁止内容随手指滚动 ----
+  late final ScrollPhysics _scrollPhysics = _ReaderScrollPhysics(
+    isLocked: () =>
+        _selStartLine != null ||
+        _longPressFired ||
+        _draggingHandle != 0,
+  );
+
+  // ---- pointer down 之前是否有选区（用于 tap 时判断要不要翻页） ----
+  bool _hadSelectionAtDown = false;
 
   static const Color _selectionBg = Color(0x553D7CFF);
 
@@ -223,8 +243,11 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _horizontalDrag = false;
     _pressDown = true;
 
-    // 已存在选区时，先清掉
-    if (_hBarVisible || _selStartLine != null) {
+    // 记下按下的瞬间有没有选区，然后清掉。
+    // 清掉是为了让"用户想滚动"时不被 _scrollPhysics 锁住。
+    // 但清掉后 pointer up 走 tap 分支时不能翻页 —— 用 _hadSelectionAtDown 拦。
+    _hadSelectionAtDown = _hBarVisible || _selStartLine != null;
+    if (_hadSelectionAtDown) {
       setState(_clearSelection);
     }
 
@@ -327,6 +350,12 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   }
 
  void _handleTap() {
+  // 按下的瞬间有选区 → 用户这一下只是想取消选区，不翻页。
+  if (_hadSelectionAtDown) {
+    _hadSelectionAtDown = false;
+    return;
+  }
+  // 兜底：走到这里如果还有选区（比如长按后没抬手），也先清选区。
   if (_hBarVisible || _selStartLine != null) {
     setState(_clearSelection);
     return;
@@ -460,6 +489,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _hBarVisible = false;
     _draggingHandle = 0;
     _dragHandlePos = null;
+    _dragHandleOffset = null;
     _notifySelectionActive();
   }
 
@@ -502,24 +532,49 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     return sb.toString();
   }
 
-  // ==================== 手柄拖动 ====================
+  // ==================== 手柄拖动（抄分页模式：偏移 + 判定点）====================
 
-  void _handleDragStartInternal(int which, Offset pos) {
+  void _handleDragStartInternal(int which, Offset fingerPos) {
+    // 手柄的逻辑位置 = 文字左上角（左）或右上角（右），和分页模式一致。
+    Offset? handleLogic;
+    if (which == 1) {
+      handleLogic = _posOfCharLeft(_selStartLine!, _selStartOffset ?? 0);
+    } else {
+      handleLogic = _posOfCharRight(_selEndLine!, _selEndOffset ?? 0);
+    }
+
     setState(() {
       _draggingHandle = which;
-      _dragHandlePos = pos;
-      _loupePos = pos;
+      _dragHandlePos = handleLogic ?? fingerPos;
+      _dragHandleOffset = handleLogic == null
+          ? Offset.zero
+          : fingerPos - handleLogic;
+      _loupePos = fingerPos;
       _hBarVisible = false;
     });
     _notifySelectionActive();
   }
 
-  void _doDragUpdate(Offset pos) {
+  void _doDragUpdate(Offset fingerPos) {
     if (_draggingHandle == 0) return;
-    _dragHandlePos = pos;
-    _loupePos = pos;
 
-    final hit = _hitTest(pos);
+    // 抄分页模式：handleLogic = 手指位置 - 按下时的偏移 = 文字左上角新位置。
+    final offset = _dragHandleOffset ?? Offset.zero;
+    final handleLogic = fingerPos - offset;
+    _dragHandlePos = handleLogic;
+    _loupePos = fingerPos;
+
+    // 判定点从"文字左上角"往文字方向推 fontSize - lineHeight/3。
+    // 手指按在手柄上（手柄贴在文字下方），但用户心里想选的是那一行文字；
+    // 判定点往文字中间推一点，手感才贴着字。
+    final fontSize = widget.settings.fontSize;
+    final lineHeight = fontSize * 1.1; // 与 baseStyle.height 保持一致
+    final judge = Offset(
+      handleLogic.dx,
+      handleLogic.dy + fontSize - lineHeight / 3,
+    );
+
+    final hit = _hitTest(judge);
     if (hit != null) {
       setState(() {
         if (_draggingHandle == 1) {
@@ -538,6 +593,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   void _doDragEnd() {
     _draggingHandle = 0;
     _dragHandlePos = null;
+    _dragHandleOffset = null;
     _loupePos = null;
     setState(() => _hBarVisible = true);
     _notifySelectionActive();
@@ -571,6 +627,7 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
               child: ScrollablePositionedList.builder(
                 itemScrollController: _scrollCtrl,
                 itemPositionsListener: _positions,
+                physics: _scrollPhysics,
                 itemCount: widget.lines.length,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 4,
@@ -714,39 +771,47 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
 
     final widgets = <Widget>[];
     final fontSize = widget.settings.fontSize;
+    final stackHeight = stackBox.size.height;
 
-    final leftGlobal = _posOfCharLeft(_selStartLine!, _selStartOffset ?? 0);
-    if (leftGlobal != null) {
-      final local = stackBox.globalToLocal(leftGlobal);
-      widgets.add(
-        Positioned(
-          left: math.max(0, local.dx - 22),
-          top: local.dy + fontSize,
-          child: _DragHandle(
-            isLeft: true,
-            onDragStart: (pos) => _handleDragStartInternal(1, pos),
-            onDragUpdate: _doDragUpdate,
-            onDragEnd: _doDragEnd,
-          ),
+    const trapW = 22.0;
+    const trapH = 28.0;
+
+    Widget buildHandle(Offset globalPos, bool isLeft) {
+      final local = stackBox.globalToLocal(globalPos);
+
+      // 文字底部 + 手柄高度 + 4 超过可视高度 → 手柄翻到文字上方。
+      // 避免选中屏幕最底那一行时，手柄飘到屏幕外点不到。
+      final textBottomY = local.dy + fontSize;
+      final bottomOverflow = textBottomY + trapH + 4 > stackHeight;
+      final double top = bottomOverflow ? local.dy - trapH : textBottomY;
+
+      return Positioned(
+        left: isLeft ? math.max(0, local.dx - trapW) : local.dx,
+        top: top,
+        child: _DragHandle(
+          isLeft: isLeft,
+          flip: bottomOverflow,
+          onDragStart: (pos) => _handleDragStartInternal(isLeft ? 1 : 2, pos),
+          onDragUpdate: _doDragUpdate,
+          onDragEnd: _doDragEnd,
         ),
       );
     }
 
-    final rightGlobal = _posOfCharRight(_selEndLine!, _selEndOffset ?? 0);
+    // 拖动中：用手柄逻辑位置（文字左上角新位置）覆盖；
+    // 不在拖动：用选区实际位置。
+    final leftGlobal = (_draggingHandle == 1 && _dragHandlePos != null)
+        ? _dragHandlePos!
+        : _posOfCharLeft(_selStartLine!, _selStartOffset ?? 0);
+    if (leftGlobal != null) {
+      widgets.add(buildHandle(leftGlobal, true));
+    }
+
+    final rightGlobal = (_draggingHandle == 2 && _dragHandlePos != null)
+        ? _dragHandlePos!
+        : _posOfCharRight(_selEndLine!, _selEndOffset ?? 0);
     if (rightGlobal != null) {
-      final local = stackBox.globalToLocal(rightGlobal);
-      widgets.add(
-        Positioned(
-          left: local.dx,
-          top: local.dy + fontSize,
-          child: _DragHandle(
-            isLeft: false,
-            onDragStart: (pos) => _handleDragStartInternal(2, pos),
-            onDragUpdate: _doDragUpdate,
-            onDragEnd: _doDragEnd,
-          ),
-        ),
-      );
+      widgets.add(buildHandle(rightGlobal, false));
     }
 
     return widgets;
@@ -1048,6 +1113,31 @@ FontWeight _toFontWeight(int v) {
       return FontWeight.w900;
     default:
       return FontWeight.w400;
+  }
+}
+
+// ==================== 滚动锁定 Physics ====================
+
+/// 滚动模式的自定义 ScrollPhysics。
+///
+/// [isLocked] 返回 true 时，用户拖拽不产生偏移。
+/// 用途：长按选字 / 拖手柄 / 有选区时，禁止内容跟随手指滚动。
+class _ReaderScrollPhysics extends ScrollPhysics {
+  const _ReaderScrollPhysics({
+    required this.isLocked,
+    super.parent,
+  });
+
+  final bool Function() isLocked;
+
+  @override
+  _ReaderScrollPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ReaderScrollPhysics(isLocked: isLocked, parent: buildParent(ancestor));
+
+  @override
+  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
+    if (isLocked()) return 0;
+    return super.applyPhysicsToUserOffset(position, offset);
   }
 }
 
@@ -1398,12 +1488,18 @@ List<_GradRect> _measureGradientRects({
 class _DragHandle extends StatelessWidget {
   const _DragHandle({
     required this.isLeft,
+    required this.flip,
     required this.onDragStart,
     required this.onDragUpdate,
     required this.onDragEnd,
   });
 
   final bool isLeft;
+
+  /// true = 手柄在文字上方（尖角朝下，指向文字）。
+  /// false = 手柄在文字下方（尖角朝上，指向文字）。
+  final bool flip;
+
   final void Function(Offset globalPos) onDragStart;
   final void Function(Offset globalPos) onDragUpdate;
   final VoidCallback onDragEnd;
@@ -1411,12 +1507,16 @@ class _DragHandle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
-    return GestureDetector(
+    // 用 Listener 而非 GestureDetector：
+    // GestureDetector 的 pan 手势会和下方 Scrollable 的 drag 手势竞争，
+    // Scrollable 的 kTouchSlop 只有 18px，比 pan 先赢，导致拖手柄时内容也滚。
+    // Listener 直接接管指针事件，Scrollable 收不到 down，就不会竞争。
+    return Listener(
       behavior: HitTestBehavior.opaque,
-      onPanStart: (d) => onDragStart(d.globalPosition),
-      onPanUpdate: (d) => onDragUpdate(d.globalPosition),
-      onPanEnd: (_) => onDragEnd(),
-      onPanCancel: onDragEnd,
+      onPointerDown: (e) => onDragStart(e.position),
+      onPointerMove: (e) => onDragUpdate(e.position),
+      onPointerUp: (_) => onDragEnd(),
+      onPointerCancel: (_) => onDragEnd(),
       child: SizedBox(
         width: 24,
         height: 28,
@@ -1424,6 +1524,7 @@ class _DragHandle extends StatelessWidget {
           painter: _HandlePainter(
             color: s.primary.withValues(alpha: 0.75),
             isLeft: isLeft,
+            flip: flip,
           ),
         ),
       ),
@@ -1432,10 +1533,15 @@ class _DragHandle extends StatelessWidget {
 }
 
 class _HandlePainter extends CustomPainter {
-  _HandlePainter({required this.color, required this.isLeft});
+  _HandlePainter({
+    required this.color,
+    required this.isLeft,
+    required this.flip,
+  });
 
   final Color color;
   final bool isLeft;
+  final bool flip;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1444,23 +1550,42 @@ class _HandlePainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
     final mid = h / 2;
-    if (isLeft) {
-      path.moveTo(w, 0);
-      path.lineTo(w, h);
-      path.lineTo(0, h);
-      path.lineTo(0, mid);
-      path.close();
+
+    if (!flip) {
+      // 手柄在文字下方：尖角朝上（指向文字）
+      if (isLeft) {
+        path.moveTo(w, 0);
+        path.lineTo(w, h);
+        path.lineTo(0, h);
+        path.lineTo(0, mid);
+        path.close();
+      } else {
+        path.moveTo(0, 0);
+        path.lineTo(0, h);
+        path.lineTo(w, h);
+        path.lineTo(w, mid);
+        path.close();
+      }
     } else {
-      path.moveTo(0, 0);
-      path.lineTo(0, h);
-      path.lineTo(w, h);
-      path.lineTo(w, mid);
-      path.close();
+      // 手柄在文字上方：尖角朝下（指向文字）
+      if (isLeft) {
+        path.moveTo(w, h);
+        path.lineTo(w, 0);
+        path.lineTo(0, 0);
+        path.lineTo(0, mid);
+        path.close();
+      } else {
+        path.moveTo(0, h);
+        path.lineTo(0, 0);
+        path.lineTo(w, 0);
+        path.lineTo(w, mid);
+        path.close();
+      }
     }
     canvas.drawPath(path, paint);
   }
 
   @override
   bool shouldRepaint(_HandlePainter old) =>
-      old.color != color || old.isLeft != isLeft;
+      old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
