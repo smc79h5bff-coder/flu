@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/constants/app_colors.dart';
 import '../providers/file_browser_providers.dart';
 
 // 弹窗间距常量（和 file_browser_screen.dart 里那份同名，但本地独立一份）
@@ -181,11 +182,18 @@ class _DirectoryPickerDialogState
                       Expanded(
                         child: TextField(
                           controller: _jumpCtrl,
-                          decoration: const InputDecoration(
+                          cursorColor: AppColors.accentPurple,
+                          decoration: InputDecoration(
                             hintText: '粘贴路径跳转',
                             isDense: true,
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
+                            border: const OutlineInputBorder(),
+                            focusedBorder: const OutlineInputBorder(
+                              borderSide: BorderSide(
+                                color: AppColors.accentPurple,
+                                width: 2,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 8),
                           ),
                           onSubmitted: (v) => _jumpToPath(v.trim()),
@@ -194,6 +202,7 @@ class _DirectoryPickerDialogState
                       const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.arrow_forward),
+                        color: AppColors.accentPurple,
                         tooltip: '跳转',
                         onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
                       ),
@@ -206,6 +215,7 @@ class _DirectoryPickerDialogState
                     children: [
                       IconButton(
                         icon: const Icon(Icons.arrow_upward),
+                        color: AppColors.accentPurple,
                         onPressed: _canGoUp ? _goUp : null,
                         tooltip: '上一级',
                         visualDensity: VisualDensity.compact,
