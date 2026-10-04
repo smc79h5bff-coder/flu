@@ -1590,19 +1590,34 @@ Row(
       final page = findPageForOffset(_paginator!.result!, result);
       _jumpToPage(page);
     }
-    final updated =
-        ref.read(readerHighlightsProvider)[fileKey] ?? const [];
-    if (mounted) {
-      setState(() {
-        _highlights = updated;
-        _highlightsRevision++;
-        _rebuildHighlightAc();
-        _invalidatePageCaches();
-        _pageHighlightCache = {};
-        _pageHighlightCacheForPage = -1;
-        _pageHighlightCacheForRevision = -1;
-      });
-    }
+
+
+
+
+
+
+
+    final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
+final global = ref.read(readerGlobalHighlightsProvider);
+final updated = [...local, ...global];
+if (mounted) {
+  setState(() {
+    _highlights = updated;
+    _highlightsRevision++;
+    _rebuildHighlightAc();
+    _invalidatePageCaches();
+    _pageHighlightCache = {};
+    _pageHighlightCacheForPage = -1;
+    _pageHighlightCacheForRevision = -1;
+  });
+}
+
+
+
+
+
+
+    
   }
 
   Future<void> _openEditor() async {
@@ -3445,37 +3460,66 @@ Row(
     );
   }
 
-  void _applyHighlight(String word, HighlightPalette palette) {
-    if (_text == null) return;
-    final path = _filePaths[_fileIndex];
-    final fileKey = readerFileKey(path);
-    final entry = HighlightEntry(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      keyword: word,
-      colors: List<int>.from(palette.colors),
-      stops: List<double>.from(palette.stops),
-      angle: palette.angle,
-      textColor: palette.textColor,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
-      groupId: palette.defaultGroupId,
-    );
-    ref.read(readerHighlightsProvider.notifier).addOrReplace(fileKey, entry);
 
-    final newHighlights =
-        ref.read(readerHighlightsProvider)[fileKey] ?? const [];
-    setState(() {
-      _highlights = newHighlights;
-      _highlightsRevision++;
-      _rebuildHighlightAc();
-      _sel = null;
-      _hBarVisible = false;
-      _spansCache.clear();
-      _gradRectCache.clear();
-      _pageHighlightCache = {};
-      _pageHighlightCacheForPage = -1;
-      _pageHighlightCacheForRevision = -1;
-      _lastHighlightQueryLine = -1;
-      _lastHighlightQueryResult = const [];
-    });
-  }
+
+
+
+
+
+
+
+void _applyHighlight(String word, HighlightPalette palette) {
+  if (_text == null) return;
+  final path = _filePaths[_fileIndex];
+  final fileKey = readerFileKey(path);
+  final entry = HighlightEntry(
+    id: DateTime.now().microsecondsSinceEpoch.toString(),
+    keyword: word,
+    colors: List<int>.from(palette.colors),
+    stops: List<double>.from(palette.stops),
+    angle: palette.angle,
+    textColor: palette.textColor,
+    createdAt: DateTime.now().millisecondsSinceEpoch,
+    groupId: palette.defaultGroupId,
+    // 阅读器里点色块加的高亮永远是本书高亮，不是全局。
+    isGlobal: false,
+  );
+  ref.read(readerHighlightsProvider.notifier).addOrReplace(fileKey, entry);
+
+  final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
+  final global = ref.read(readerGlobalHighlightsProvider);
+  final newHighlights = [...local, ...global];
+  setState(() {
+    _highlights = newHighlights;
+    _highlightsRevision++;
+    _rebuildHighlightAc();
+    _sel = null;
+    _hBarVisible = false;
+    _spansCache.clear();
+    _gradRectCache.clear();
+    _pageHighlightCache = {};
+    _pageHighlightCacheForPage = -1;
+    _pageHighlightCacheForRevision = -1;
+    _lastHighlightQueryLine = -1;
+    _lastHighlightQueryResult = const [];
+  });
+}
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
 }
