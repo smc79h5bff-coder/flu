@@ -247,6 +247,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   final ItemPositionsListener _positionsListener =
       ItemPositionsListener.create();
 
+  /// 每个目录的滚动位置（可见的第一项索引）。切换目录时用。
+  /// key = 目录路径，value = 索引。
+  final Map<String, int> _dirScrollPositions = {};
+
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
@@ -341,7 +345,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           _loading = false;
           _error = null;
         });
-        if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
+        if (anchor.isNotEmpty) {
+          _restoreScrollAnchor(anchor);
+        } else {
+          _restoreDirScroll();
+        }
         log.info(
             '[Dir] _load 缓存命中，总耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
         return;
@@ -372,6 +380,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           });
           if (anchor.isNotEmpty && !anchorRestored) {
             _restoreScrollAnchor(anchor);
+            anchorRestored = true;
+          } else if (anchor.isEmpty && !anchorRestored) {
+            _restoreDirScroll();
             anchorRestored = true;
           }
         },
@@ -449,8 +460,36 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     });
   }
 
+  /// 记录当前目录的滚动位置。离开当前目录前调用。
+  void _recordCurrentScroll() {
+    final positions = _positionsListener.itemPositions.value;
+    if (positions.isEmpty) return;
+    var minIdx = 1 << 30;
+    for (final p in positions) {
+      if (p.index < minIdx) minIdx = p.index;
+    }
+    if (minIdx < (1 << 30)) {
+      _dirScrollPositions[_currentPath] = minIdx;
+    }
+  }
+
+  /// 加载完成后，根据当前目录的滚动记录决定：恢复 or 跳顶。
+  void _restoreDirScroll() {
+    final saved = _dirScrollPositions[_currentPath];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_itemScrollController.isAttached) return;
+      final target = (saved != null && saved > 0) ? saved : 0;
+      _itemScrollController.jumpTo(index: target);
+    });
+  }
+
   void _navigateTo(String path) {
     if (path == _currentPath) return;
+
+    // ★ 记录离开前的滚动位置，供以后回到这个目录时恢复。
+    _recordCurrentScroll();
+
     _clearSelection();
     _searchCtrl.clear();
     _searchTaskId++;
@@ -737,6 +776,10 @@ final result = await Navigator.of(context).push<String>(
   // 保持列表原样，不要跳动。
   if (result != null && result != openedPath) {
     _scrollToPath(result);
+    // ★ 让 _dirScrollPositions 记住这个新位置，下次从别的目录回来能恢复。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _recordCurrentScroll();
+    });
   }
   log.info(
       '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
