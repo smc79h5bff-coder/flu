@@ -1,4 +1,3 @@
-
 // reader_screen.dart
 import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
@@ -1274,31 +1273,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
     if (ok != true || !mounted) return;
 
+    try {
+      await File(path).delete();
+    } catch (e) {
+      if (!mounted) return;
+      _showToast('删除失败：$e');
+      return;
+    }
+    if (!mounted) return;
 
-    
-try {
-  await File(path).delete();
-} catch (e) {
-  if (!mounted) return;
-  _showToast('删除失败：$e');
-  return;
-}
-if (!mounted) return;
+    // ★ 新增：把被删路径暂存起来，供文件浏览器返回时过滤。
+    // 只在删除成功后记录；删除失败会在上面 catch 里 return，不记录。
+    ref.read(readerDeletedPathsProvider.notifier).state = [
+      ...ref.read(readerDeletedPathsProvider),
+      path,
+    ];
 
-// ★ 新增：把被删路径暂存起来，供文件浏览器返回时过滤。
-// 只在删除成功后记录；删除失败会在上面 catch 里 return，不记录。
-ref.read(readerDeletedPathsProvider.notifier).state = [
-  ...ref.read(readerDeletedPathsProvider),
-  path,
-];
-
-setState(() {
-  _filePaths.removeAt(_fileIndex);
-});
-
-
-
-    
+    setState(() {
+      _filePaths.removeAt(_fileIndex);
+    });
 
     // 整个目录已删完
     if (_filePaths.isEmpty) {
@@ -1353,234 +1346,228 @@ setState(() {
   }
 
   Widget _buildTopMenuSheet(BuildContext ctx) {
-  final p = _paginator?.result;
-  final pct = p == null
-      ? '-'
-      : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
+    final p = _paginator?.result;
+    final pct = p == null
+        ? '-'
+        : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
 
-  final path = _filePaths.isEmpty ? '' : _filePaths[_fileIndex];
-  final fileName = path.split('/').last;
+    final path = _filePaths.isEmpty ? '' : _filePaths[_fileIndex];
+    final fileName = path.split('/').last;
 
-  // 当前编码简称（给"编码"按钮显示用）
-  final encodingLabel = _currentEncoding?.label ?? '未识别';
+    // 当前编码简称（给"编码"按钮显示用）
+    final encodingLabel = _currentEncoding?.label ?? '未识别';
 
-  Widget menuButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    Color? color,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: color),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: color,
+    Widget menuButton({
+      required IconData icon,
+      required String label,
+      required VoidCallback onTap,
+      Color? color,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: color,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // ---------- 文件名（全宽，长按复制路径） ----------
+              ListTile(
+                isThreeLine: true,
+                leading: const Icon(Icons.description_outlined),
+                title: Text(
+                  fileName.isEmpty ? '（未命名）' : fileName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14),
+                ),
+                subtitle: Text(
+                  path,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onLongPress: () {
+                  if (path.isEmpty) return;
+                  Clipboard.setData(ClipboardData(text: path));
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(
+                      content: Text('路径已复制'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+
+              // ---------- 进度 / 查找 ----------
+              Row(
+                children: [
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.tune,
+                      label: '进度 $pct',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _showProgressSlider();
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.search,
+                      label: '查找',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _openFind();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              // ---------- 加书签 / 书签与高亮 ----------
+              Row(
+                children: [
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.bookmark_add_outlined,
+                      label: '加书签',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _addBookmark();
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.bookmarks_outlined,
+                      label: '书签与高亮',
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        await _openManager();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 1),
+
+              // ---------- 行编辑 / 编码 ----------
+              Row(
+                children: [
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.view_list,
+                      label: '行编辑',
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        await _openLineEditor();
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.translate,
+                      label: '编码 $encodingLabel',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _showEncodingPicker();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              // ---------- 导出加载日志 ----------
+              Row(
+                children: [
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.article_outlined,
+                      label: '导出加载日志',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _exportLoadLog();
+                      },
+                    ),
+                  ),
+                  const Expanded(child: SizedBox.shrink()),
+                ],
+              ),
+              const Divider(height: 1),
+
+              // ---------- 设置 / 关闭 ----------
+              Row(
+                children: [
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.settings,
+                      label: '设置',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        showReaderSettingsSheet(context);
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.close,
+                      label: '关闭文件',
+                      color: Colors.red,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _closeFile();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
-  }
-
-  return SafeArea(
-    child: ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(ctx).size.height * 0.85,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // ---------- 文件名（全宽，长按复制路径） ----------
-            ListTile(
-              isThreeLine: true,
-              leading: const Icon(Icons.description_outlined),
-              title: Text(
-                fileName.isEmpty ? '（未命名）' : fileName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 14),
-              ),
-              subtitle: Text(
-                path,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11),
-              ),
-              onLongPress: () {
-                if (path.isEmpty) return;
-                Clipboard.setData(ClipboardData(text: path));
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(
-                    content: Text('路径已复制'),
-                    duration: Duration(seconds: 1),
-                  ),
-                );
-              },
-            ),
-            const Divider(height: 1),
-
-            // ---------- 进度 / 查找 ----------
-            Row(
-              children: [
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.tune,
-                    label: '进度 $pct',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _showProgressSlider();
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.search,
-                    label: '查找',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _openFind();
-                    },
-                  ),
-                ),
-              ],
-            ),
-
-            // ---------- 加书签 / 书签与高亮 ----------
-            Row(
-              children: [
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.bookmark_add_outlined,
-                    label: '加书签',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _addBookmark();
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.bookmarks_outlined,
-                    label: '书签与高亮',
-                    onTap: () async {
-                      Navigator.pop(ctx);
-                      await _openManager();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const Divider(height: 1),
-
-
-
-
-            // ---------- 行编辑 / 编码 ----------
-Row(
-  children: [
-    Expanded(
-      child: menuButton(
-        icon: Icons.view_list,
-        label: '行编辑',
-        onTap: () async {
-          Navigator.pop(ctx);
-          await _openLineEditor();
-        },
-      ),
-    ),
-    Expanded(
-      child: menuButton(
-        icon: Icons.translate,
-        label: '编码 $encodingLabel',
-        onTap: () {
-          Navigator.pop(ctx);
-          _showEncodingPicker();
-        },
-      ),
-    ),
-  ],
-),
-
-
-
-
-            // ---------- 导出加载日志 ----------
-            Row(
-              children: [
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.article_outlined,
-                    label: '导出加载日志',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _exportLoadLog();
-                    },
-                  ),
-                ),
-                const Expanded(child: SizedBox.shrink()),
-              ],
-            ),
-            const Divider(height: 1),
-
-            // ---------- 设置 / 关闭 ----------
-            Row(
-              children: [
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.settings,
-                    label: '设置',
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      showReaderSettingsSheet(context);
-                    },
-                  ),
-                ),
-                Expanded(
-                  child: menuButton(
-                    icon: Icons.close,
-                    label: '关闭文件',
-                    color: Colors.red,
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _closeFile();
-                    },
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    ),
-  );
   }
 
   String _encodingSubtitle() {
@@ -1724,33 +1711,20 @@ Row(
       _jumpToPage(page);
     }
 
-
-
-
-
-
-
     final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
-final global = ref.read(readerGlobalHighlightsProvider);
-final updated = [...local, ...global];
-if (mounted) {
-  setState(() {
-    _highlights = updated;
-    _highlightsRevision++;
-    _rebuildHighlightAc();
-    _invalidatePageCaches();
-    _pageHighlightCache = {};
-    _pageHighlightCacheForPage = -1;
-    _pageHighlightCacheForRevision = -1;
-  });
-}
-
-
-
-
-
-
-    
+    final global = ref.read(readerGlobalHighlightsProvider);
+    final updated = [...local, ...global];
+    if (mounted) {
+      setState(() {
+        _highlights = updated;
+        _highlightsRevision++;
+        _rebuildHighlightAc();
+        _invalidatePageCaches();
+        _pageHighlightCache = {};
+        _pageHighlightCacheForPage = -1;
+        _pageHighlightCacheForRevision = -1;
+      });
+    }
   }
 
   Future<void> _openEditor() async {
@@ -1764,27 +1738,27 @@ if (mounted) {
       _ensureLoaded();
     });
   }
-Future<void> _openLineEditor() async {
-  if (_filePaths.isEmpty) return;
-  final path = _filePaths[_fileIndex];
-  final fileName = path.split('/').last;
-  _saveProgressNow();
-  _clearSelection();
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => LineEditorScreen(
-        filePath: path,
-        fileName: fileName,
-      ),
-    ),
-  );
-  if (!mounted) return;
-  // 回来重新加载（文件可能被改过）
-  _lastLoadedKey = null;
-  _ensureLoaded();
-}
 
-  
+  Future<void> _openLineEditor() async {
+    if (_filePaths.isEmpty) return;
+    final path = _filePaths[_fileIndex];
+    final fileName = path.split('/').last;
+    _saveProgressNow();
+    _clearSelection();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LineEditorScreen(
+          filePath: path,
+          fileName: fileName,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // 回来重新加载（文件可能被改过）
+    _lastLoadedKey = null;
+    _ensureLoaded();
+  }
+
   // ==================== 选区 ====================
 
   void _clearSelection() {
@@ -2405,16 +2379,14 @@ Future<void> _openLineEditor() async {
         data: MediaQuery.of(context).copyWith(
           textScaler: TextScaler.noScaling,
         ),
-
-
         child: Scaffold(
-  backgroundColor: Color(settings.bgColor),
-  // 阅读器不需要键盘顶起内容。开着它会导致：
-  // 进搜索页 → 弹键盘 → body 高度变 → viewportSize 变；
-  // 返回 → 收键盘 → body 高度又变 → 又触发 _ensureLoaded，
-  // 于是"卡一会"重新读文件 + 重新分页。
-  resizeToAvoidBottomInset: false,
-  body: SafeArea(
+          backgroundColor: Color(settings.bgColor),
+          // 阅读器不需要键盘顶起内容。开着它会导致：
+          // 进搜索页 → 弹键盘 → body 高度变 → viewportSize 变；
+          // 返回 → 收键盘 → body 高度又变 → 又触发 _ensureLoaded，
+          // 于是"卡一会"重新读文件 + 重新分页。
+          resizeToAvoidBottomInset: false,
+          body: SafeArea(
             child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final size = Size(constraints.maxWidth, constraints.maxHeight);
@@ -2601,12 +2573,9 @@ Future<void> _openLineEditor() async {
   ///   1. 菜单热区
   ///   2. 悬浮按钮（滚动模式有选中时禁用 + 淡出）
   ///   3. 分页模式的选区操作栏
-
-
-  
   List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
     return [
-_buildHotZone(settings, size),
+      _buildHotZone(settings, size),
       // 悬浮按钮。滚动模式选中文字时：忽略点击 + 淡出，
       // 让点击穿透到下面的 hBar，视觉上也不打架。
       // 注意：这里所有悬浮按钮内部都用 IgnorePointer，
@@ -2663,76 +2632,65 @@ _buildHotZone(settings, size),
     ];
   }
 
+  /// 滚动模式渲染。
+  Widget _buildScrollReader(ReaderSettings settings) {
+    if (_text == null || _lines.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final path = _filePaths[_fileIndex];
+    final fileKey = readerFileKey(path);
+    final progress = ref.read(readerProgressProvider)[fileKey];
+    final initialOffset = progress?.charOffset ?? 0;
 
-
-
-
-  
-/// 滚动模式渲染。
-Widget _buildScrollReader(ReaderSettings settings) {
-  if (_text == null || _lines.isEmpty) {
-    return const SizedBox.shrink();
+    return ReaderScrollView(
+      key: _scrollViewKey,
+      text: _text!,
+      lines: _lines,
+      lineStarts: _lineStarts,
+      settings: settings,
+      initialOffset: initialOffset,
+      highlights: _highlights,
+      palettes: ref.watch(readerPaletteProvider),
+      onProgressChanged: (offset) {
+        ref.read(readerProgressProvider.notifier).set(fileKey, offset);
+      },
+      onHighlightAdded: (word, palette) {
+        _applyHighlight(word, palette);
+      },
+      onPaletteEdit: (index) {
+        openPaletteEdit(context, index);
+      },
+      onSelectionActiveChanged: (active) {
+        if (_scrollSelectionActive == active) return;
+        if (!mounted) return;
+        setState(() => _scrollSelectionActive = active);
+      },
+      // 滚动模式下点击空白：父级先判断是不是按钮 / 热区。
+      onTapOnShell: (pos) {
+        // 按钮？
+        final btn = _hitFloatButton(pos);
+        if (btn == 'prev') {
+          _prevFile();
+          return true;
+        }
+        if (btn == 'next') {
+          _nextFile();
+          return true;
+        }
+        if (btn == 'del') {
+          _deleteCurrentFile();
+          return true;
+        }
+        // 热区？
+        if (_isInHotZone(pos)) {
+          _showTopMenu();
+          return true;
+        }
+        // 父级没处理 → 让滚动模式自己翻页。
+        return false;
+      },
+    );
   }
-  final path = _filePaths[_fileIndex];
-  final fileKey = readerFileKey(path);
-  final progress = ref.read(readerProgressProvider)[fileKey];
-  final initialOffset = progress?.charOffset ?? 0;
-
-  return ReaderScrollView(
-    key: _scrollViewKey,
-    text: _text!,
-    lines: _lines,
-    lineStarts: _lineStarts,
-    settings: settings,
-    initialOffset: initialOffset,
-    highlights: _highlights,
-    palettes: ref.watch(readerPaletteProvider),
-    onProgressChanged: (offset) {
-      ref.read(readerProgressProvider.notifier).set(fileKey, offset);
-    },
-    onHighlightAdded: (word, palette) {
-      _applyHighlight(word, palette);
-    },
-    onPaletteEdit: (index) {
-      openPaletteEdit(context, index);
-    },
-    onSelectionActiveChanged: (active) {
-      if (_scrollSelectionActive == active) return;
-      if (!mounted) return;
-      setState(() => _scrollSelectionActive = active);
-    },
-    // 滚动模式下点击空白：父级先判断是不是按钮 / 热区。
-    onTapOnShell: (pos) {
-      // 按钮？
-      final btn = _hitFloatButton(pos);
-      if (btn == 'prev') {
-        _prevFile();
-        return true;
-      }
-      if (btn == 'next') {
-        _nextFile();
-        return true;
-      }
-      if (btn == 'del') {
-        _deleteCurrentFile();
-        return true;
-      }
-      // 热区？
-      if (_isInHotZone(pos)) {
-        _showTopMenu();
-        return true;
-      }
-      // 父级没处理 → 让滚动模式自己翻页。
-      return false;
-    },
-  );
-}
-
-
-
-
-
-
 
   // ==================== 菜单热区绘制 ====================
 
@@ -2797,61 +2755,61 @@ Widget _buildScrollReader(ReaderSettings settings) {
     return null;
   }
 
- Widget _buildHotZone(ReaderSettings settings, Size size) {
-  final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
-  final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
-  final width = settings.hotZoneW * size.width;
-  final height = settings.hotZoneH * size.height;
+  Widget _buildHotZone(ReaderSettings settings, Size size) {
+    final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
+    final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
+    final width = settings.hotZoneW * size.width;
+    final height = settings.hotZoneH * size.height;
 
-  final touchLeft = left <= 1;
-  final touchTop = top <= 1;
-  final touchRight = left + width >= size.width - 1;
-  final touchBottom = top + height >= size.height - 1;
+    final touchLeft = left <= 1;
+    final touchTop = top <= 1;
+    final touchRight = left + width >= size.width - 1;
+    final touchBottom = top + height >= size.height - 1;
 
-  final Widget inner;
-  if (!settings.hotZoneVisible) {
-    // 不可见时：纯透明点击层。不画任何东西，但保留点击区域。
-    inner = const SizedBox.expand();
-  } else {
-    final color = Color(settings.hotZoneColor)
-        .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
-    if (settings.hotZoneStyle == 0) {
-      // 整块填色
-      inner = Container(color: color);
+    final Widget inner;
+    if (!settings.hotZoneVisible) {
+      // 不可见时：纯透明点击层。不画任何东西，但保留点击区域。
+      inner = const SizedBox.expand();
     } else {
-      // 分界线：贴屏幕的边不画
-      final bw = settings.hotZoneBorderWidth;
-      inner = Container(
-        decoration: BoxDecoration(
-          border: Border(
-            left: touchLeft
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
-            top: touchTop
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
-            right: touchRight
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
-            bottom: touchBottom
-                ? BorderSide.none
-                : BorderSide(color: color, width: bw),
+      final color = Color(settings.hotZoneColor)
+          .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
+      if (settings.hotZoneStyle == 0) {
+        // 整块填色
+        inner = Container(color: color);
+      } else {
+        // 分界线：贴屏幕的边不画
+        final bw = settings.hotZoneBorderWidth;
+        inner = Container(
+          decoration: BoxDecoration(
+            border: Border(
+              left: touchLeft
+                  ? BorderSide.none
+                  : BorderSide(color: color, width: bw),
+              top: touchTop
+                  ? BorderSide.none
+                  : BorderSide(color: color, width: bw),
+              right: touchRight
+                  ? BorderSide.none
+                  : BorderSide(color: color, width: bw),
+              bottom: touchBottom
+                  ? BorderSide.none
+                  : BorderSide(color: color, width: bw),
+            ),
           ),
-        ),
-      );
+        );
+      }
     }
+
+    // 只画，不吃事件。点击由 _handleTap 判断（避免挡住长按选字）。
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: IgnorePointer(child: inner),
+    );
   }
 
-  // 只画，不吃事件。点击由 _handleTap 判断（避免挡住长按选字）。
-  return Positioned(
-    left: left,
-    top: top,
-    width: width,
-    height: height,
-    child: IgnorePointer(child: inner),
-  );
-}
-  
   // ==================== 选区覆盖层 ====================
 
   Widget _buildSelectionOverlay(_SelectionRange? sel) {
@@ -3190,135 +3148,121 @@ Widget _buildScrollReader(ReaderSettings settings) {
     return spans;
   }
 
-
-
-
-
-
-
-  
   // ==================== 悬浮按钮 ====================
-Widget _buildFloatButton({
-  required int style,
-  required Color bgColor,
-  required Color fgColor,
-  required Color ringColor,
-  required double ringWidth,
-  required double x,
-  required double y,
-  required double scale,
-  required double opacity,
-  required IconData icon,
-  required Size size,
-  required VoidCallback onTap,
-}) {
-  final btnSize = 50.0 * scale;
-  final left = x * size.width - btnSize / 2;
-  final top = y * size.height - btnSize / 2;
-  final alpha = opacity.clamp(0.0, 1.0);
 
-  Widget body;
-  if (style == 0) {
-    body = Container(
-      width: btnSize,
-      height: btnSize,
-      decoration: BoxDecoration(
-        color: bgColor.withValues(alpha: bgColor.a * alpha),
-        shape: BoxShape.circle,
-      ),
-      child: Icon(
-        icon,
-        color: fgColor.withValues(alpha: fgColor.a * alpha),
-        size: btnSize * 0.6,
-      ),
-    );
-  } else {
-    body = Container(
-      width: btnSize,
-      height: btnSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: ringColor.withValues(alpha: ringColor.a * alpha),
-          width: ringWidth,
+  Widget _buildFloatButton({
+    required int style,
+    required Color bgColor,
+    required Color fgColor,
+    required Color ringColor,
+    required double ringWidth,
+    required double x,
+    required double y,
+    required double scale,
+    required double opacity,
+    required IconData icon,
+    required Size size,
+    required VoidCallback onTap,
+  }) {
+    final btnSize = 50.0 * scale;
+    final left = x * size.width - btnSize / 2;
+    final top = y * size.height - btnSize / 2;
+    final alpha = opacity.clamp(0.0, 1.0);
+
+    Widget body;
+    if (style == 0) {
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          color: bgColor.withValues(alpha: bgColor.a * alpha),
+          shape: BoxShape.circle,
         ),
-      ),
+        child: Icon(
+          icon,
+          color: fgColor.withValues(alpha: fgColor.a * alpha),
+          size: btnSize * 0.6,
+        ),
+      );
+    } else {
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: ringColor.withValues(alpha: ringColor.a * alpha),
+            width: ringWidth,
+          ),
+        ),
+      );
+    }
+
+    // 用 IgnorePointer 让点击由父级统一派发；透明度直接合进颜色，
+    // 不再包 Opacity（避免 saveLayer，滚动更省电）。
+    return Positioned(
+      left: left,
+      top: top,
+      child: IgnorePointer(child: body),
     );
   }
-
-  // 用 IgnorePointer 让点击由父级统一派发；透明度直接合进颜色，
-  // 不再包 Opacity（避免 saveLayer，滚动更省电）。
-  return Positioned(
-    left: left,
-    top: top,
-    child: IgnorePointer(child: body),
-  );
-}
-  
-
-
-
-
-  
 
   /// 删除文件悬浮按钮。样式 / 颜色 / 大小 / 位置完全可配，
   /// 图标用自定义 SVG 形状（_TrashIconPainter）。
-  
   Widget _buildDeleteButton(ReaderSettings settings, Size size) {
-  final btnSize = 50.0 * settings.delBtnScale;
-  final left = settings.delBtnX * size.width - btnSize / 2;
-  final top = settings.delBtnY * size.height - btnSize / 2;
-  final alpha = settings.delBtnOpacity.clamp(0.0, 1.0);
+    final btnSize = 50.0 * settings.delBtnScale;
+    final left = settings.delBtnX * size.width - btnSize / 2;
+    final top = settings.delBtnY * size.height - btnSize / 2;
+    final alpha = settings.delBtnOpacity.clamp(0.0, 1.0);
 
-  final iconBaseColor = settings.delBtnStyle == 0
-      ? Color(settings.delBtnFgColor)
-      : Color(settings.delBtnRingColor);
-  final iconColor = iconBaseColor.withValues(alpha: iconBaseColor.a * alpha);
-  final iconSize = btnSize * 0.6;
+    final iconBaseColor = settings.delBtnStyle == 0
+        ? Color(settings.delBtnFgColor)
+        : Color(settings.delBtnRingColor);
+    final iconColor = iconBaseColor.withValues(alpha: iconBaseColor.a * alpha);
+    final iconSize = btnSize * 0.6;
 
-  Widget body;
-  if (settings.delBtnStyle == 0) {
-    final bg = Color(settings.delBtnBgColor);
-    body = Container(
-      width: btnSize,
-      height: btnSize,
-      decoration: BoxDecoration(
-        color: bg.withValues(alpha: bg.a * alpha),
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: CustomPaint(
-        size: Size.square(iconSize),
-        painter: _TrashIconPainter(color: iconColor),
-      ),
-    );
-  } else {
-    final ring = Color(settings.delBtnRingColor);
-    body = Container(
-      width: btnSize,
-      height: btnSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: ring.withValues(alpha: ring.a * alpha),
-          width: settings.delBtnRingWidth,
+    Widget body;
+    if (settings.delBtnStyle == 0) {
+      final bg = Color(settings.delBtnBgColor);
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          color: bg.withValues(alpha: bg.a * alpha),
+          shape: BoxShape.circle,
         ),
-      ),
-      alignment: Alignment.center,
-      child: CustomPaint(
-        size: Size.square(iconSize),
-        painter: _TrashIconPainter(color: iconColor),
-      ),
+        alignment: Alignment.center,
+        child: CustomPaint(
+          size: Size.square(iconSize),
+          painter: _TrashIconPainter(color: iconColor),
+        ),
+      );
+    } else {
+      final ring = Color(settings.delBtnRingColor);
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: ring.withValues(alpha: ring.a * alpha),
+            width: settings.delBtnRingWidth,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: CustomPaint(
+          size: Size.square(iconSize),
+          painter: _TrashIconPainter(color: iconColor),
+        ),
+      );
+    }
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: IgnorePointer(child: body),
     );
   }
-
-  return Positioned(
-    left: left,
-    top: top,
-    child: IgnorePointer(child: body),
-  );
-}
-      
 
   // ==================== 手柄渲染 ====================
 
@@ -3426,304 +3370,106 @@ Widget _buildFloatButton({
 
   // ==================== 放大镜 ====================
 
- Widget _buildLoupe(
-  ReaderSettings settings,
-  Size size,
-  _DragInfo drag,
-  _SelectionRange sel,
-) {
-  final int line;
-  final int offset;
-  int? selStartInLine;
-  int? selEndInLine;
+  Widget _buildLoupe(
+    ReaderSettings settings,
+    Size size,
+    _DragInfo drag,
+    _SelectionRange sel,
+  ) {
+    final int line;
+    final int offset;
+    int? selStartInLine;
+    int? selEndInLine;
 
-  if (drag.handle == 1) {
-    line = sel.startLine;
-    offset = sel.startOffset;
-    selStartInLine = sel.startOffset;
-    if (sel.startLine == sel.endLine) {
-      selEndInLine = sel.endOffset;
-    } else {
-      selEndInLine = (line >= 0 && line < _lines.length)
-          ? _lines[line].length
-          : sel.startOffset;
-    }
-  } else {
-    line = sel.endLine;
-    offset = sel.endOffset;
-    if (sel.startLine == sel.endLine) {
+    if (drag.handle == 1) {
+      line = sel.startLine;
+      offset = sel.startOffset;
       selStartInLine = sel.startOffset;
+      if (sel.startLine == sel.endLine) {
+        selEndInLine = sel.endOffset;
+      } else {
+        selEndInLine = (line >= 0 && line < _lines.length)
+            ? _lines[line].length
+            : sel.startOffset;
+      }
     } else {
-      selStartInLine = 0;
+      line = sel.endLine;
+      offset = sel.endOffset;
+      if (sel.startLine == sel.endLine) {
+        selStartInLine = sel.startOffset;
+      } else {
+        selStartInLine = 0;
+      }
+      selEndInLine = sel.endOffset;
     }
-    selEndInLine = sel.endOffset;
-  }
 
-  if (line < 0 || line >= _lines.length) return const SizedBox.shrink();
+    if (line < 0 || line >= _lines.length) return const SizedBox.shrink();
 
-  // ---- 放大镜参数（长方形，倍数小，看到更多字）----
-  const double loupeW = 160;
-  const double loupeH = 56;
-  const double scale = 1.4;
-  const double gap = 18;
-  const double margin = 8;
+    // ---- 放大镜参数（长方形，倍数小，看到更多字）----
+    const double loupeW = 160;
+    const double loupeH = 56;
+    const double scale = 1.4;
+    const double gap = 18;
+    const double margin = 8;
 
-  final h = drag.handlePos;
+    final h = drag.handlePos;
 
-  // 默认放在手指上方，水平居中在手指上；上方不够就放下方
-  final aboveCenter = Offset(h.dx, h.dy - gap - loupeH / 2);
-  final belowCenter = Offset(h.dx, h.dy + gap + loupeH / 2);
-  var center = aboveCenter;
-  if (aboveCenter.dy - loupeH / 2 < margin) {
-    center = belowCenter;
-  }
-  center = Offset(
-    center.dx.clamp(
-        margin + loupeW / 2, size.width - margin - loupeW / 2),
-    center.dy.clamp(
-        margin + loupeH / 2, size.height - margin - loupeH / 2),
-  );
+    // 默认放在手指上方，水平居中在手指上；上方不够就放下方
+    final aboveCenter = Offset(h.dx, h.dy - gap - loupeH / 2);
+    final belowCenter = Offset(h.dx, h.dy + gap + loupeH / 2);
+    var center = aboveCenter;
+    if (aboveCenter.dy - loupeH / 2 < margin) {
+      center = belowCenter;
+    }
+    center = Offset(
+      center.dx.clamp(
+          margin + loupeW / 2, size.width - margin - loupeW / 2),
+      center.dy.clamp(
+          margin + loupeH / 2, size.height - margin - loupeH / 2),
+    );
 
-  final base = _baseStyle(settings);
-  final loupeStyle = base.copyWith(color: null);
+    final base = _baseStyle(settings);
+    final loupeStyle = base.copyWith(color: null);
 
-  return Positioned(
-    left: center.dx - loupeW / 2,
-    top: center.dy - loupeH / 2,
-    child: IgnorePointer(
-      child: RepaintBoundary(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: Colors.black.withValues(alpha: 0.10),
-                width: 0.5,
+    return Positioned(
+      left: center.dx - loupeW / 2,
+      top: center.dy - loupeH / 2,
+      child: IgnorePointer(
+        child: RepaintBoundary(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: Colors.black.withValues(alpha: 0.10),
+                  width: 0.5,
+                ),
               ),
-            ),
-            child: ReaderLoupe(
-              lineText: _lines[line],
-              caretOffset: offset,
-              style: loupeStyle,
-              bgColor: Color(settings.bgColor),
-              fgColor: const Color(0xFF222222),
-              caretColor: Theme.of(context).colorScheme.primary,
-              selectionStart: selStartInLine,
-              selectionEnd: selEndInLine,
-              selectionBg: _selectionBg,
-              scale: scale,
-              width: loupeW,
-              height: loupeH,
+              child: ReaderLoupe(
+                lineText: _lines[line],
+                caretOffset: offset,
+                style: loupeStyle,
+                bgColor: Color(settings.bgColor),
+                fgColor: const Color(0xFF222222),
+                caretColor: Theme.of(context).colorScheme.primary,
+                selectionStart: selStartInLine,
+                selectionEnd: selEndInLine,
+                selectionBg: _selectionBg,
+                scale: scale,
+                width: loupeW,
+                height: loupeH,
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
-} 
+    );
+  }
 
   // ==================== 弹窗渲染 ====================
 
-
-
-
-
-
-
-  
   Widget _buildHBar(ReaderSettings settings, Size size) {
-    final sel = _sel;
-    if (sel == null) return const SizedBox.shrink();
-    final n = sel.normalized();
-
-    final startPos = _posOfCharLeft(n.startLine, n.startOffset);
-    final endPos = _posOfCharLeft(n.endLine, n.endOffset);
-    if (startPos == null || endPos == null) {
-      return const SizedBox.shrink();
-    }
-
-    final safeTop = MediaQuery.of(context).padding.top;
-    final safeBottom = MediaQuery.of(context).padding.bottom;
-    final topAreaH = size.height - safeTop - safeBottom;
-
-    const approxW = 260.0;
-    const approxH = 150.0;
-
-    final selTop = startPos.dy;
-    final selBottom =
-        endPos.dy + settings.fontSize * kReaderLineHeightFactor;
-
-    final midY = (selTop + selBottom) / 2;
-    final screenMid = safeTop + topAreaH / 2;
-    final showBelow = midY < screenMid;
-
-    double top;
-    if (showBelow) {
-      top = selBottom - safeTop + 24;
-    } else {
-      top = selTop - safeTop - approxH - 8;
-    }
-    top = top.clamp(4.0, topAreaH - approxH - 4);
-
-    double left = startPos.dx - 8;
-    if (left + approxW > size.width - 4) {
-      left = size.width - approxW - 4;
-    }
-    if (left < 4) left = 4;
-
-    return Positioned(
-      left: left,
-      top: top,
-      child: Container(
-        width: approxW,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-
-Row(
-  children: [
-    IconButton(
-      icon: const Icon(Icons.copy, size: 18),
-      tooltip: '复制',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final t = _selectedText();
-        if (t.isEmpty) return;
-        Clipboard.setData(ClipboardData(text: t));
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('已复制'),
-            duration: Duration(seconds: 1),
-          ),
-        );
-      },
-    ),
-    IconButton(
-      icon: const Icon(Icons.share, size: 18),
-      tooltip: '分享',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final t = _selectedText();
-        if (t.isEmpty) return;
-        Share.share(t);
-      },
-    ),
-    const SizedBox(width: 4),
-
-                  Expanded(
-                    child: Text(
-                      _selectedText(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-              const Divider(height: 6),
-              _buildColorRow(0, 10),
-              const SizedBox(height: 4),
-              _buildColorRow(10, 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildColorRow(int from, int to) {
-    final palette = ref.read(readerPaletteProvider);
-    final list =
-        palette.where((p) => p.index >= from && p.index < to).toList();
-    if (list.isEmpty) return const SizedBox.shrink();
-
-    const tileW = 44.0;
-    const tileH = 40.0;
-
-    return SizedBox(
-      height: tileH,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: list.length,
-        itemBuilder: (ctx, i) {
-          final p = list[i];
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: GestureDetector(
-              onTap: () {
-                final word = _selectedText();
-                if (word.isEmpty) return;
-                _applyHighlight(word, p);
-              },
-              onLongPress: () {
-                _clearSelection();
-                openPaletteEdit(context, p.index);
-              },
-              child: Container(
-                width: tileW,
-                height: tileH,
-                decoration: BoxDecoration(
-                  color: p.isGradient ? null : Color(p.colors.first),
-                  gradient: p.isGradient
-                      ? LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: p.colors
-                              .map((c) => Color(c))
-                              .toList(growable: false),
-                          stops: p.stops.length == p.colors.length
-                              ? p.stops
-                              : null,
-                        )
-                      : null,
-                  border: Border.all(color: Colors.black12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  p.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Color(p.textColor),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-
-
-
-
-
-
-
-
-void _applyHighlight(String word, HighlightPalette palette) {
-  if (_text == null) return;
-  final path = _filePaths[_fileIndex];
-  final fileKey = readerFileKey(path);
-  final entry = HighlightEntry(
-    id: DateTime.now().microsecondsSinceEpoch.toString(),
-    keyword: word,
-    colors: List<int>.from(palette.colors),
-
-      Widget _buildHBar(ReaderSettings settings, Size size) {
     final sel = _sel;
     if (sel == null) return const SizedBox.shrink();
     final n = sel.normalized();
