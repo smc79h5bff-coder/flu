@@ -284,17 +284,25 @@ class _DirectoryPickerDialogState
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
           child: TextField(
             controller: _filterCtrl,
-            decoration: const InputDecoration(
+            cursorColor: AppColors.accentPurple,
+            cursorHeight: 14,
+            decoration: InputDecoration(
               hintText: '过滤子目录',
-              prefixIcon: Icon(Icons.search, size: 14),
-              prefixIconConstraints: BoxConstraints(
+              prefixIcon: const Icon(Icons.search, size: 14),
+              prefixIconConstraints: const BoxConstraints(
                 minWidth: 28,
                 minHeight: 0,
               ),
               isDense: true,
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
+                ),
+              ),
               contentPadding:
-                  EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                  const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
             ),
             onChanged: (v) => setState(() => _filterQuery = v),
           ),
