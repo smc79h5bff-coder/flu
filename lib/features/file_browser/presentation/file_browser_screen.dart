@@ -555,59 +555,92 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     _navigateTo(parent);
   }
 
+
+
+
+
+    
   /// 列出 /storage 下能访问的存储卷。
-  List<EntryInfo> _listStorageRoot() {
-    final log = ReaderLoadLog.instance;
-    log.info('[Storage] 手动构造 /storage 条目');
+  
+List<EntryInfo> _listStorageRoot() {
+  final log = ReaderLoadLog.instance;
+  log.info('[Storage] 手动构造 /storage 条目');
 
-    final out = <EntryInfo>[];
-    final seen = <String>{};
+  final out = <EntryInfo>[];
+  final seen = <String>{};
 
-    void addDir(String path, String name) {
-      if (seen.contains(path)) return;
-      final dir = Directory(path);
-      if (!dir.existsSync()) return;
-      seen.add(path);
-      out.add(EntryInfo(entity: dir, name: name, isDir: true));
-    }
-
-    addDir('/storage/emulated', 'emulated');
-    addDir('/storage/self', 'self');
-
-    final uuidPattern = RegExp(r'([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})');
-    const sources = <String>[
-      '/proc/mounts',
-      '/proc/self/mountinfo',
-      '/proc/self/mounts',
-      '/etc/mtab',
-    ];
-
-    final uuids = <String>{};
-    for (final src in sources) {
-      try {
-        final content = File(src).readAsStringSync();
-        for (final m in uuidPattern.allMatches(content)) {
-          uuids.add(m.group(1)!);
-        }
-        if (uuids.isNotEmpty) {
-          log.info('[Storage] 从 $src 找到 ${uuids.length} 个 UUID');
-          break;
-        }
-      } catch (e) {
-        log.info('[Storage] 读 $src 失败：$e');
-      }
-    }
-
-    for (final uuid in uuids) {
-      addDir('/storage/$uuid', uuid);
-      addDir('/mnt/media_rw/$uuid', '$uuid (media_rw)');
-    }
-
-    log.info(
-        '[Storage] 共找到 ${out.length} 个条目：${out.map((e) => e.name).join(", ")}');
-    return out;
+  void addDir(String path, String name) {
+    if (seen.contains(path)) return;
+    final dir = Directory(path);
+    if (!dir.existsSync()) return;
+    seen.add(path);
+    out.add(EntryInfo(entity: dir, name: name, isDir: true));
   }
 
+  // 1. 内部存储：直接指向 /storage/emulated/0，显示"内部存储"。
+  //    不显示 /storage/emulated 本身（它是中间目录，list 会报错）。
+  addDir('/storage/emulated/0', '内部存储');
+
+  // 2. 双开空间：/storage/emulated/10、999 等数字目录。
+  try {
+    final raw = Directory('/storage/emulated').listSync(followLinks: false);
+    for (final e in raw) {
+      if (e is! Directory) continue;
+      final name = e.path.split('/').last;
+      if (name == '0' || name == 'self') continue;
+      if (!RegExp(r'^\d+$').hasMatch(name)) continue;
+      addDir(e.path, '双开($name)');
+    }
+  } catch (_) {}
+
+  // 3. SD 卡 / U 盘：从 /proc/mounts 找 UUID，优先 /storage/UUID。
+  final uuidPattern = RegExp(r'([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})');
+  const sources = <String>[
+    '/proc/mounts',
+    '/proc/self/mountinfo',
+    '/proc/self/mounts',
+    '/etc/mtab',
+  ];
+
+  final uuids = <String>{};
+  for (final src in sources) {
+    try {
+      final content = File(src).readAsStringSync();
+      for (final m in uuidPattern.allMatches(content)) {
+        uuids.add(m.group(1)!);
+      }
+      if (uuids.isNotEmpty) {
+        log.info('[Storage] 从 $src 找到 ${uuids.length} 个 UUID');
+        break;
+      }
+    } catch (e) {
+      log.info('[Storage] 读 $src 失败：$e');
+    }
+  }
+
+  for (final uuid in uuids) {
+    // 优先 /storage/UUID，不存在才 fallback 到 /mnt/media_rw/UUID。
+    if (Directory('/storage/$uuid').existsSync()) {
+      addDir('/storage/$uuid', '外部存储($uuid)');
+    } else if (Directory('/mnt/media_rw/$uuid').existsSync()) {
+      addDir('/mnt/media_rw/$uuid', '外部存储($uuid)');
+    }
+  }
+
+  log.info(
+      '[Storage] 共找到 ${out.length} 个条目：${out.map((e) => e.name).join(", ")}');
+  return out;
+}
+
+
+
+
+
+
+
+
+
+    
   void _clearSelection() {
     _selectionMode = false;
     _selectedPaths.clear();
