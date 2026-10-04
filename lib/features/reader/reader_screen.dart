@@ -2079,6 +2079,20 @@ Future<void> _openLineEditor() async {
       _clearSelection();
       return;
     }
+    // 点在悬浮按钮里 → 触发按钮。
+    final btn = _hitFloatButton(globalPos);
+    if (btn == 'prev') {
+      _prevFile();
+      return;
+    }
+    if (btn == 'next') {
+      _nextFile();
+      return;
+    }
+    if (btn == 'del') {
+      _deleteCurrentFile();
+      return;
+    }
     // 点在热区内 → 打开菜单。
     if (_isInHotZone(globalPos)) {
       _showTopMenu();
@@ -2463,6 +2477,8 @@ Future<void> _openLineEditor() async {
 _buildHotZone(settings, size),
       // 悬浮按钮。滚动模式选中文字时：忽略点击 + 淡出，
       // 让点击穿透到下面的 hBar，视觉上也不打架。
+      // 注意：这里所有悬浮按钮内部都用 IgnorePointer，
+      // 事件不吃，点击由 _handleTap / onTapOnShell 统一派发。
       if (settings.showButtons)
         Positioned.fill(
           child: IgnorePointer(
@@ -2553,6 +2569,30 @@ Widget _buildScrollReader(ReaderSettings settings) {
       if (!mounted) return;
       setState(() => _scrollSelectionActive = active);
     },
+    // 滚动模式下点击空白：父级先判断是不是按钮 / 热区。
+    onTapOnShell: (pos) {
+      // 按钮？
+      final btn = _hitFloatButton(pos);
+      if (btn == 'prev') {
+        _prevFile();
+        return true;
+      }
+      if (btn == 'next') {
+        _nextFile();
+        return true;
+      }
+      if (btn == 'del') {
+        _deleteCurrentFile();
+        return true;
+      }
+      // 热区？
+      if (_isInHotZone(pos)) {
+        _showTopMenu();
+        return true;
+      }
+      // 父级没处理 → 让滚动模式自己翻页。
+      return false;
+    },
   );
 }
 
@@ -2566,22 +2606,63 @@ Widget _buildScrollReader(ReaderSettings settings) {
 
   /// 判断某个全局坐标是否落在"菜单热区"内。
   bool _isInHotZone(Offset globalPos) {
-    final contentCtx = _contentKey.currentContext;
-    if (contentCtx == null) return false;
-    final contentBox = contentCtx.findRenderObject() as RenderBox?;
-    if (contentBox == null) return false;
-    final local = contentBox.globalToLocal(globalPos);
-    final size = contentBox.size;
-
     final settings = ref.read(readerSettingsProvider);
-    final left = (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
-    final top = (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
-    final right = left + settings.hotZoneW * size.width;
-    final bottom = top + settings.hotZoneH * size.height;
-    return local.dx >= left &&
-        local.dx <= right &&
-        local.dy >= top &&
-        local.dy <= bottom;
+    final screen = MediaQuery.of(context).size;
+    final safe = MediaQuery.of(context).padding;
+    final contentLeft = safe.left;
+    final contentTop = safe.top;
+    final contentW = screen.width - safe.left - safe.right;
+    final contentH = screen.height - safe.top - safe.bottom;
+
+    final left =
+        contentLeft + (settings.hotZoneX - settings.hotZoneW / 2) * contentW;
+    final top =
+        contentTop + (settings.hotZoneY - settings.hotZoneH / 2) * contentH;
+    final right = left + settings.hotZoneW * contentW;
+    final bottom = top + settings.hotZoneH * contentH;
+
+    return globalPos.dx >= left &&
+        globalPos.dx <= right &&
+        globalPos.dy >= top &&
+        globalPos.dy <= bottom;
+  }
+
+  /// 判断某个全局坐标是否落在悬浮按钮里。
+  /// 返回：null = 不在；'prev' = 上一文件；'next' = 下一文件；'del' = 删除。
+  String? _hitFloatButton(Offset globalPos) {
+    final settings = ref.read(readerSettingsProvider);
+    if (!settings.showButtons) return null;
+
+    final screen = MediaQuery.of(context).size;
+    final safe = MediaQuery.of(context).padding;
+    final contentLeft = safe.left;
+    final contentTop = safe.top;
+    final contentW = screen.width - safe.left - safe.right;
+    final contentH = screen.height - safe.top - safe.bottom;
+
+    bool inBtn(double x, double y, double scale) {
+      final btnSize = 50.0 * scale;
+      final cx = contentLeft + x * contentW;
+      final cy = contentTop + y * contentH;
+      final dx = globalPos.dx - cx;
+      final dy = globalPos.dy - cy;
+      // 判定半径比视觉半径大 8 像素，手指按得准一些。
+      final r = btnSize / 2 + 8;
+      return dx * dx + dy * dy < r * r;
+    }
+
+    // 优先顺序：删除 → 上 → 下
+    if (inBtn(settings.delBtnX, settings.delBtnY, settings.delBtnScale)) {
+      return 'del';
+    }
+    if (inBtn(settings.topBtnX, settings.topBtnY, settings.topBtnScale)) {
+      return 'prev';
+    }
+    if (inBtn(settings.bottomBtnX, settings.bottomBtnY,
+        settings.bottomBtnScale)) {
+      return 'next';
+    }
+    return null;
   }
 
  Widget _buildHotZone(ReaderSettings settings, Size size) {
@@ -3026,12 +3107,12 @@ Widget _buildScrollReader(ReaderSettings settings) {
       );
     }
 
+    // 注意：这里用 IgnorePointer，按钮本身不吃指针事件。
+    // 点击判定交给 _handleTap / onTapOnShell，避免挡住长按选字。
     return Positioned(
       left: left,
       top: top,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
+      child: IgnorePointer(
         child: Opacity(
           opacity: opacity.clamp(0.0, 1.0),
           child: body,
@@ -3086,12 +3167,11 @@ Widget _buildScrollReader(ReaderSettings settings) {
       );
     }
 
+    // 同 _buildFloatButton：用 IgnorePointer，事件交给父级派发。
     return Positioned(
       left: left,
       top: top,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _deleteCurrentFile,
+      child: IgnorePointer(
         child: Opacity(
           opacity: settings.delBtnOpacity.clamp(0.0, 1.0),
           child: body,
@@ -3546,3 +3626,4 @@ void _applyHighlight(String word, HighlightPalette palette) {
 
   
 }
+
