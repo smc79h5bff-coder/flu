@@ -2299,85 +2299,105 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== 搜索栏 UI ====================
 
-  Widget _buildSearchBar() {
-    final isCustom = ref.watch(searchScopeProvider) == SearchScope.custom;
-    final customFolders = ref.watch(customSearchFoldersProvider);
-    final hasText = _searchCtrl.text.isNotEmpty;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
-      child: Row(
-        children: [
-          InkWell(
-            key: _searchBtnKey,
-            onTap: hasText ? _doSearch : null,
-            onLongPress: _showScopeMenu,
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                color: isCustom
-                    ? Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withOpacity(0.12)
-                    : null,
-              ),
-              child: Icon(
-                Icons.search,
-                color: _selectionMode
-                    ? Colors.grey
-                    : (hasText
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurfaceVariant),
-              ),
+
+
+Widget _buildSearchBar() {
+  final isCustom = ref.watch(searchScopeProvider) == SearchScope.custom;
+  final customFolders = ref.watch(customSearchFoldersProvider);
+  final hasText = _searchCtrl.text.isNotEmpty;
+
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
+    child: Row(
+      children: [
+        InkWell(
+          key: _searchBtnKey,
+          onTap: hasText ? _doSearch : null,
+          onLongPress: _showScopeMenu,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: isCustom
+                  ? Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withOpacity(0.12)
+                  : null,
+            ),
+            child: Icon(
+              Icons.search,
+              color: _selectionMode
+                  ? Colors.grey
+                  : (hasText
+                      ? AppColors.accentPurple
+                      : Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: TextField(
-              controller: _searchCtrl,
-              enabled: !_selectionMode,
-              decoration: InputDecoration(
-                hintText: _selectionMode
-                    ? '选择模式下禁止点击'
-                    : (isCustom && customFolders.isEmpty
-                        ? '长按左侧设置搜索范围'
-                        : '输入关键词'),
-                isDense: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: TextField(
+            controller: _searchCtrl,
+            enabled: !_selectionMode,
+            cursorColor: AppColors.accentPurple,
+            decoration: InputDecoration(
+              hintText: _selectionMode
+                  ? '选择模式下禁止点击'
+                  : (isCustom && customFolders.isEmpty
+                      ? '长按左侧设置搜索范围'
+                      : '输入关键词'),
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
                 ),
               ),
-              onChanged: _onSearchChanged,
-              onSubmitted: (_) => _doSearch(),
             ),
+            onChanged: _onSearchChanged,
+            onSubmitted: (_) => _doSearch(),
           ),
-          if (hasText)
-            IconButton(
-              icon: Icon(
-                Icons.clear,
-                color: _selectionMode ? Colors.grey : null,
-              ),
-              tooltip: '清空',
-              onPressed: _clearSearch,
-            )
-          else
-            IconButton(
-              icon: Icon(
-                Icons.history,
-                color: _selectionMode ? Colors.grey : null,
-              ),
-              tooltip: '搜索历史',
-              onPressed: _showSearchHistory,
+        ),
+        if (hasText)
+          IconButton(
+            icon: Icon(
+              Icons.clear,
+              color: _selectionMode ? Colors.grey : AppColors.accentPurple,
             ),
-        ],
-      ),
-    );
-  }
+            tooltip: '清空',
+            onPressed: _clearSearch,
+          )
+        else
+          IconButton(
+            icon: Icon(
+              Icons.history,
+              color: _selectionMode ? Colors.grey : AppColors.accentPurple,
+            ),
+            tooltip: '搜索历史',
+            onPressed: _showSearchHistory,
+          ),
+      ],
+    ),
+  );
+}
 
+   
+
+
+
+
+
+
+
+    
   Widget _buildSearchStatusBar() {
     if (_searching) {
       return Container(
