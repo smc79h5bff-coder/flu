@@ -3077,7 +3077,7 @@ class _HighlightCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 11,
                   color: Colors.black,
                 ),
               ),
