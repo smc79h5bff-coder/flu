@@ -33,8 +33,9 @@ class ReaderScrollView extends ConsumerStatefulWidget {
     required this.onProgressChanged,
     required this.onHighlightAdded,
     required this.onPaletteEdit,
-    this.onSelectionActiveChanged,
-  });
+  this.onSelectionActiveChanged,
+  this.onTapOnShell,
+});
 
   final String text;
   final List<String> lines;
@@ -49,7 +50,11 @@ class ReaderScrollView extends ConsumerStatefulWidget {
   final void Function(int paletteIndex) onPaletteEdit;
 
   final ValueChanged<bool>? onSelectionActiveChanged;
-
+/// 点击空白时先问父级："这点到按钮 / 热区了吗？"
+/// 返回 true = 父级处理了，不用翻页。
+/// 返回 false / null = 让滚动模式自己翻页。
+final bool Function(Offset globalPos)? onTapOnShell;
+  
   @override
   ConsumerState<ReaderScrollView> createState() => ReaderScrollViewState();
 }
