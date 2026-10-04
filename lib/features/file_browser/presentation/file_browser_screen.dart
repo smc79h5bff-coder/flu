@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../reader/reader_screen.dart';
+import '../../reader/reader_load_log.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
@@ -320,19 +321,29 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     // loading 会把列表换成菊花，positionsListener 就清空了。
     final anchor = restoreScroll ? _snapshotVisiblePaths() : const <String>[];
 
+    final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
+    log.info(
+        '[Dir] _load 开始  path=$_currentPath  restoreScroll=$restoreScroll');
+
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final dir = Directory(_currentPath);
+
+      final tList = DateTime.now();
       final raw = await dir.list(followLinks: false).toList();
+      final listMs = DateTime.now().difference(tList).inMilliseconds;
+      log.info('[Dir] Directory.list 返回 ${raw.length} 项  耗时=${listMs}ms');
 
       raw.removeWhere((e) {
         final name = e.path.split('/').last;
         return name.startsWith('.');
       });
 
+      final tStat = DateTime.now();
       final infos = await Future.wait(raw.map((e) async {
         final name = e.path.split('/').last;
         final isDir = e is Directory;
@@ -351,10 +362,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           modified: modified,
         );
       }));
+      final statMs = DateTime.now().difference(tStat).inMilliseconds;
+      log.info('[Dir] 全部 stat 完成  耗时=${statMs}ms  (${raw.length} 项)');
 
       final sortField = ref.read(sortFieldProvider);
       final sortAsc = ref.read(sortAscProvider);
 
+      final tSort = DateTime.now();
       infos.sort((a, b) {
         if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
         int cmp;
@@ -372,6 +386,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         }
         return sortAsc ? cmp : -cmp;
       });
+      log.info(
+          '[Dir] 排序完成  耗时=${DateTime.now().difference(tSort).inMilliseconds}ms');
 
       if (!mounted) return;
       setState(() {
@@ -380,8 +396,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       });
 
       if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
+
+      final totalMs = DateTime.now().difference(t0).inMilliseconds;
+      log.info('[Dir] _load 结束  总耗时=${totalMs}ms');
     } catch (e) {
       if (!mounted) return;
+      log.info('[Dir] ❌ _load 失败  $e');
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -588,6 +608,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   /// 非文本文件 → 预览页。
   /// 文本文件 → 按 [fileOpenModeProvider] 分流到 阅读器 / 旧编辑器 / 行编辑器 / 询问。
   Future<void> _openFile(String path, String name, int? size) async {
+    final log = ReaderLoadLog.instance;
+    log.info('[Browser] 点击文件 name=$name  size=$size');
+    final tOpen = DateTime.now();
+
     final isText = _textExts.contains(_extOf(name));
 
     // 非文本文件：走预览页，不需要返回定位。
@@ -614,6 +638,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       resolved = configured;
     }
 
+    log.info(
+        '[Browser] 决定打开方式=$resolved  决策耗时=${DateTime.now().difference(tOpen).inMilliseconds}ms');
+
     switch (resolved) {
       case FileOpenMode.reader:
         await _openInReader(path, name);
@@ -629,13 +656,21 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   /// 阅读器打开。返回后自动滚到"刚才看的那一项"。
   Future<void> _openInReader(String path, String name) async {
+    final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
+
     final textPaths = _collectTextFilePaths();
+    log.info(
+        '[Browser→Reader] 收集文本文件列表  ${textPaths.length} 项  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+
     var index = textPaths.indexOf(path);
     if (index < 0) {
       textPaths.insert(0, path);
       index = 0;
     }
+    log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
 
+    final tPush = DateTime.now();
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
         builder: (_) => ReaderScreen(
@@ -644,15 +679,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         ),
       ),
     );
+    log.info(
+        '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
 
-     if (!mounted) return;
+    if (!mounted) return;
 
-  // 阅读器里可能删过文件：重读目录，让删掉的文件从列表消失。
-  await _load();
-  if (!mounted) return;
+    final tReload = DateTime.now();
+    await _load();
+    log.info(
+        '[Browser→Reader] 回来后 _load 耗时=${DateTime.now().difference(tReload).inMilliseconds}ms');
 
-  if (result != null) _scrollToPath(result);
-}
+    if (!mounted) return;
+
+    if (result != null) _scrollToPath(result);
+    log.info(
+        '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+  }
 
   /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
   Future<void> _openInEditor(String path, String name) async {
@@ -763,28 +805,23 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   /// 把列表滚到指定路径那一项。
   /// 路径不在当前列表里就什么都不做（比如搜索词改了、目录变了）。
   void _scrollToPath(String path) {
-  int index = -1;
-  if (_searchActive) {
-    index = _searchResults.indexWhere((h) => h.path == path);
-  } else {
-    index = (_entries ?? const <_EntryInfo>[])
-        .indexWhere((e) => e.entity.path == path);
+    int index = -1;
+    if (_searchActive) {
+      index = _searchResults.indexWhere((h) => h.path == path);
+    } else {
+      index = (_entries ?? const <_EntryInfo>[])
+          .indexWhere((e) => e.entity.path == path);
+    }
+    if (index < 0) return;
+
+    // 延后一帧再跳，确保列表已经完成布局（从其他页面刚返回时，
+    // 本页可能还在重建中，直接 jumpTo 会落在错位置）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_itemScrollController.isAttached) return;
+      _itemScrollController.jumpTo(index: index);
+    });
   }
-  if (index < 0) return;
-
-  // 延后一帧再跳，确保列表已经完成布局（从其他页面刚返回时，
-  // 本页可能还在重建中，直接 jumpTo 会落在错位置）。
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (!mounted) return;
-    if (!_itemScrollController.isAttached) return;
-    _itemScrollController.jumpTo(index: index);
-  });
-}
-
-
-
-
-  
 
   /// 收集"当前视图里所有文本文件的路径"。
   ///
@@ -983,6 +1020,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   Future<void> _startSearch(String query) async {
+    final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
+
     final taskId = ++_searchTaskId;
     if (query.isEmpty) {
       setState(() {
@@ -1013,6 +1053,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       roots.addAll(_dedupFolders(customFolders));
     }
 
+    log.info('[Search] 开始  query="$query"  roots=${roots.length}');
+
     final lowerQuery = query.toLowerCase();
     final results = <_SearchHit>[];
 
@@ -1024,11 +1066,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     if (taskId != _searchTaskId) return;
     if (!mounted) return;
 
-    // 按用户当前的排序方式排搜索结果。
-    // 搜索结果全是文件（扫描只收集 File，不收集 Directory），
-    // 所以不用像目录列表那样"文件夹优先"，直接按字段排。
     final sortField = ref.read(sortFieldProvider);
     final sortAsc = ref.read(sortAscProvider);
+
+    final tSort = DateTime.now();
     results.sort((a, b) {
       int cmp;
       switch (sortField) {
@@ -1050,6 +1091,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       _searching = false;
       _searchResults = List.from(results);
     });
+
+    final totalMs = DateTime.now().difference(t0).inMilliseconds;
+    log.info(
+        '[Search] 结束  结果=${results.length}  排序=${DateTime.now().difference(tSort).inMilliseconds}ms  总耗时=${totalMs}ms');
   }
 
   Future<void> _scanDir(
@@ -2299,105 +2344,93 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== 搜索栏 UI ====================
 
+  Widget _buildSearchBar() {
+    final isCustom = ref.watch(searchScopeProvider) == SearchScope.custom;
+    final customFolders = ref.watch(customSearchFoldersProvider);
+    final hasText = _searchCtrl.text.isNotEmpty;
 
-
-
-Widget _buildSearchBar() {
-  final isCustom = ref.watch(searchScopeProvider) == SearchScope.custom;
-  final customFolders = ref.watch(customSearchFoldersProvider);
-  final hasText = _searchCtrl.text.isNotEmpty;
-
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
-    child: Row(
-      children: [
-        InkWell(
-          key: _searchBtnKey,
-          onTap: hasText ? _doSearch : null,
-          onLongPress: _showScopeMenu,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              color: isCustom
-                  ? Theme.of(context)
-                      .colorScheme
-                      .primary
-                      .withOpacity(0.12)
-                  : null,
-            ),
-            child: Icon(
-              Icons.search,
-              color: _selectionMode
-                  ? Colors.grey
-                  : (hasText
-                      ? AppColors.accentPurple
-                      : Theme.of(context).colorScheme.onSurfaceVariant),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
+      child: Row(
+        children: [
+          InkWell(
+            key: _searchBtnKey,
+            onTap: hasText ? _doSearch : null,
+            onLongPress: _showScopeMenu,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                color: isCustom
+                    ? Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withOpacity(0.12)
+                    : null,
+              ),
+              child: Icon(
+                Icons.search,
+                color: _selectionMode
+                    ? Colors.grey
+                    : (hasText
+                        ? AppColors.accentPurple
+                        : Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: TextField(
-            controller: _searchCtrl,
-            enabled: !_selectionMode,
-            cursorColor: AppColors.accentPurple,
-            decoration: InputDecoration(
-              hintText: _selectionMode
-                  ? '选择模式下禁止点击'
-                  : (isCustom && customFolders.isEmpty
-                      ? '长按左侧设置搜索范围'
-                      : '输入关键词'),
-              isDense: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(
-                  color: AppColors.accentPurple,
-                  width: 2,
+          const SizedBox(width: 4),
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              enabled: !_selectionMode,
+              cursorColor: AppColors.accentPurple,
+              decoration: InputDecoration(
+                hintText: _selectionMode
+                    ? '选择模式下禁止点击'
+                    : (isCustom && customFolders.isEmpty
+                        ? '长按左侧设置搜索范围'
+                        : '输入关键词'),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(
+                    color: AppColors.accentPurple,
+                    width: 2,
+                  ),
                 ),
               ),
+              onChanged: _onSearchChanged,
+              onSubmitted: (_) => _doSearch(),
             ),
-            onChanged: _onSearchChanged,
-            onSubmitted: (_) => _doSearch(),
           ),
-        ),
-        if (hasText)
-          IconButton(
-            icon: Icon(
-              Icons.clear,
-              color: _selectionMode ? Colors.grey : AppColors.accentPurple,
+          if (hasText)
+            IconButton(
+              icon: Icon(
+                Icons.clear,
+                color: _selectionMode ? Colors.grey : AppColors.accentPurple,
+              ),
+              tooltip: '清空',
+              onPressed: _clearSearch,
+            )
+          else
+            IconButton(
+              icon: Icon(
+                Icons.history,
+                color: _selectionMode ? Colors.grey : AppColors.accentPurple,
+              ),
+              tooltip: '搜索历史',
+              onPressed: _showSearchHistory,
             ),
-            tooltip: '清空',
-            onPressed: _clearSearch,
-          )
-        else
-          IconButton(
-            icon: Icon(
-              Icons.history,
-              color: _selectionMode ? Colors.grey : AppColors.accentPurple,
-            ),
-            tooltip: '搜索历史',
-            onPressed: _showSearchHistory,
-          ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
-   
-
-
-
-
-
-
-
-    
   Widget _buildSearchStatusBar() {
     if (_searching) {
       return Container(
@@ -2468,97 +2501,81 @@ Widget _buildSearchBar() {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-
-
-
-
-
-
-              
-
-
-Row(
-  children: [
-    Expanded(
-      flex: 3,
-      child: FilledButton.icon(
-        icon: const Icon(Icons.compare_arrows, size: 16),
-        label: const Text('对比'),
-        onPressed: canCompare ? _startCompare : null,
-      ),
-    ),
-    const SizedBox(width: 4),
-    Expanded(
-      flex: 1,
-      child: FilledButton(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-          backgroundColor: Colors.transparent,
-          foregroundColor: Colors.black,
-          side: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        onPressed: canProps ? _showProperties : null,
-        child: const Text(
-          '属性',
-          style: TextStyle(fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ),
-    const SizedBox(width: 3),
-    Expanded(
-      flex: 1,
-      child: FilledButton(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-          backgroundColor: Colors.transparent,
-          foregroundColor: Colors.black,
-          side: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        onPressed: canProps ? _copyPath : null,
-        child: const Text(
-          '复制路径',
-          style: TextStyle(fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ),
-    const SizedBox(width: 3),
-    Expanded(
-      flex: 1,
-      child: FilledButton(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 1),
-          backgroundColor: Colors.transparent,
-          foregroundColor: Colors.black,
-          side: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        onPressed: canProps ? _exportFolderListing : null,
-        child: const Text(
-          '导出清单',
-          style: TextStyle(fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ),
-  ],
-),
-
-
-
-
-
-
-              
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.compare_arrows, size: 16),
+                    label: const Text('对比'),
+                    onPressed: canCompare ? _startCompare : null,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  flex: 1,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.black,
+                      side: BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    onPressed: canProps ? _showProperties : null,
+                    child: const Text(
+                      '属性',
+                      style: TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Expanded(
+                  flex: 1,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.black,
+                      side: BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    onPressed: canProps ? _copyPath : null,
+                    child: const Text(
+                      '复制路径',
+                      style: TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Expanded(
+                  flex: 1,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.black,
+                      side: BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    onPressed: canProps ? _exportFolderListing : null,
+                    child: const Text(
+                      '导出清单',
+                      style: TextStyle(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             Row(
               children: [
@@ -2667,10 +2684,8 @@ Row(
               dense: true,
               isThreeLine: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-         selected: selected,
-selectedTileColor: const Color(0xFFFFF3FB),
-
-                
+              selected: selected,
+              selectedTileColor: const Color(0xFFFFF3FB),
               leading: _leading(
                 selectionMode: _selectionMode,
                 selected: selected,
@@ -2776,12 +2791,9 @@ selectedTileColor: const Color(0xFFFFF3FB),
             dense: true,
             isThreeLine: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-        
-              
-        selected: selected,
-selectedTileColor: const Color(0xFFFFF3FB),
-              
-              leading: _leading(
+            selected: selected,
+            selectedTileColor: const Color(0xFFFFF3FB),
+            leading: _leading(
               selectionMode: _selectionMode,
               selected: selected,
               isDir: info.isDir,
