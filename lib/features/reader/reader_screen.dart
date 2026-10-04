@@ -3178,127 +3178,135 @@ Widget _buildScrollReader(ReaderSettings settings) {
     return spans;
   }
 
+
+
+
+
+
+
+  
   // ==================== 悬浮按钮 ====================
+Widget _buildFloatButton({
+  required int style,
+  required Color bgColor,
+  required Color fgColor,
+  required Color ringColor,
+  required double ringWidth,
+  required double x,
+  required double y,
+  required double scale,
+  required double opacity,
+  required IconData icon,
+  required Size size,
+  required VoidCallback onTap,
+}) {
+  final btnSize = 50.0 * scale;
+  final left = x * size.width - btnSize / 2;
+  final top = y * size.height - btnSize / 2;
+  final alpha = opacity.clamp(0.0, 1.0);
 
-  Widget _buildFloatButton({
-    required int style,
-    required Color bgColor,
-    required Color fgColor,
-    required Color ringColor,
-    required double ringWidth,
-    required double x,
-    required double y,
-    required double scale,
-    required double opacity,
-    required IconData icon,
-    required Size size,
-    required VoidCallback onTap,
-  }) {
-    final btnSize = 50.0 * scale;
-    final left = x * size.width - btnSize / 2;
-    final top = y * size.height - btnSize / 2;
-
-    Widget body;
-    if (style == 0) {
-      body = Container(
-        width: btnSize,
-        height: btnSize,
-        decoration: BoxDecoration(
-          color: bgColor,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          color: fgColor,
-          size: btnSize * 0.6,
-        ),
-      );
-    } else {
-      body = Container(
-        width: btnSize,
-        height: btnSize,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: ringColor,
-            width: ringWidth,
-          ),
-        ),
-      );
-    }
-
-    // 注意：这里用 IgnorePointer，按钮本身不吃指针事件。
-    // 点击判定交给 _handleTap / onTapOnShell，避免挡住长按选字。
-    return Positioned(
-      left: left,
-      top: top,
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: opacity.clamp(0.0, 1.0),
-          child: body,
+  Widget body;
+  if (style == 0) {
+    body = Container(
+      width: btnSize,
+      height: btnSize,
+      decoration: BoxDecoration(
+        color: bgColor.withValues(alpha: bgColor.a * alpha),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        icon,
+        color: fgColor.withValues(alpha: fgColor.a * alpha),
+        size: btnSize * 0.6,
+      ),
+    );
+  } else {
+    body = Container(
+      width: btnSize,
+      height: btnSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: ringColor.withValues(alpha: ringColor.a * alpha),
+          width: ringWidth,
         ),
       ),
     );
   }
+
+  // 用 IgnorePointer 让点击由父级统一派发；透明度直接合进颜色，
+  // 不再包 Opacity（避免 saveLayer，滚动更省电）。
+  return Positioned(
+    left: left,
+    top: top,
+    child: IgnorePointer(child: body),
+  );
+}
+  
+
+
+
+
+  
 
   /// 删除文件悬浮按钮。样式 / 颜色 / 大小 / 位置完全可配，
   /// 图标用自定义 SVG 形状（_TrashIconPainter）。
+  
   Widget _buildDeleteButton(ReaderSettings settings, Size size) {
-    final btnSize = 50.0 * settings.delBtnScale;
-    final left = settings.delBtnX * size.width - btnSize / 2;
-    final top = settings.delBtnY * size.height - btnSize / 2;
+  final btnSize = 50.0 * settings.delBtnScale;
+  final left = settings.delBtnX * size.width - btnSize / 2;
+  final top = settings.delBtnY * size.height - btnSize / 2;
+  final alpha = settings.delBtnOpacity.clamp(0.0, 1.0);
 
-    final iconColor = settings.delBtnStyle == 0
-        ? Color(settings.delBtnFgColor)
-        : Color(settings.delBtnRingColor);
-    final iconSize = btnSize * 0.6;
+  final iconBaseColor = settings.delBtnStyle == 0
+      ? Color(settings.delBtnFgColor)
+      : Color(settings.delBtnRingColor);
+  final iconColor = iconBaseColor.withValues(alpha: iconBaseColor.a * alpha);
+  final iconSize = btnSize * 0.6;
 
-    Widget body;
-    if (settings.delBtnStyle == 0) {
-      body = Container(
-        width: btnSize,
-        height: btnSize,
-        decoration: BoxDecoration(
-          color: Color(settings.delBtnBgColor),
-          shape: BoxShape.circle,
+  Widget body;
+  if (settings.delBtnStyle == 0) {
+    final bg = Color(settings.delBtnBgColor);
+    body = Container(
+      width: btnSize,
+      height: btnSize,
+      decoration: BoxDecoration(
+        color: bg.withValues(alpha: bg.a * alpha),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: CustomPaint(
+        size: Size.square(iconSize),
+        painter: _TrashIconPainter(color: iconColor),
+      ),
+    );
+  } else {
+    final ring = Color(settings.delBtnRingColor);
+    body = Container(
+      width: btnSize,
+      height: btnSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: ring.withValues(alpha: ring.a * alpha),
+          width: settings.delBtnRingWidth,
         ),
-        alignment: Alignment.center,
-        child: CustomPaint(
-          size: Size.square(iconSize),
-          painter: _TrashIconPainter(color: iconColor),
-        ),
-      );
-    } else {
-      body = Container(
-        width: btnSize,
-        height: btnSize,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Color(settings.delBtnRingColor),
-            width: settings.delBtnRingWidth,
-          ),
-        ),
-        alignment: Alignment.center,
-        child: CustomPaint(
-          size: Size.square(iconSize),
-          painter: _TrashIconPainter(color: iconColor),
-        ),
-      );
-    }
-
-    // 同 _buildFloatButton：用 IgnorePointer，事件交给父级派发。
-    return Positioned(
-      left: left,
-      top: top,
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: settings.delBtnOpacity.clamp(0.0, 1.0),
-          child: body,
-        ),
+      ),
+      alignment: Alignment.center,
+      child: CustomPaint(
+        size: Size.square(iconSize),
+        painter: _TrashIconPainter(color: iconColor),
       ),
     );
   }
+
+  return Positioned(
+    left: left,
+    top: top,
+    child: IgnorePointer(child: body),
+  );
+}
+      
 
   // ==================== 手柄渲染 ====================
 
