@@ -3088,42 +3088,132 @@ class _HighlightCard extends StatelessWidget {
     );
   }
 
-  Widget _preview() {
-    final colors = entry.colors.map((c) => Color(c)).toList();
-    final stops =
-        entry.stops.length == colors.length ? entry.stops : null;
-    final isGradient = colors.length > 1;
 
-    // 只有文字本身有背景色，其它区域透明（跟阅读器里一致）。
+
+
+
+/// 把关键词按渲染时的实际换行位置切成多行。
+/// 最多切 2 行，多余部分丢弃。
+List<String> _splitKeywordIntoLines(
+  String text,
+  TextStyle style,
+  double maxWidth,
+) {
+  if (text.isEmpty || maxWidth <= 0) return [text];
+
+  final tp = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    textAlign: TextAlign.left,
+    maxLines: 2,
+  )..layout(maxWidth: maxWidth);
+
+  final metrics = tp.computeLineMetrics();
+  if (metrics.length <= 1) return [text];
+
+  final ranges = <({int start, int end})>[];
+  for (final m in metrics) {
+    final yMid = m.baseline + (m.descent - m.ascent) / 2;
+    final pStart = tp.getPositionForOffset(Offset(0, yMid));
+    final pEnd = tp.getPositionForOffset(Offset(maxWidth, yMid));
+    var s = pStart.offset;
+    var e = pEnd.offset;
+    if (s < 0) s = 0;
+    if (e > text.length) e = text.length;
+    if (e <= s) e = s + 1;
+    ranges.add((start: s, end: e));
+  }
+
+  // 首行起点强制 0，相邻行衔接，末行终点强制到末尾
+  ranges[0] = (start: 0, end: ranges[0].end);
+  for (var i = 1; i < ranges.length; i++) {
+    final prevEnd = ranges[i - 1].end;
+    var s = ranges[i].start;
+    var e = ranges[i].end;
+    if (s < prevEnd) s = prevEnd;
+    if (e <= s) e = s + 1;
+    if (e > text.length) e = text.length;
+    ranges[i] = (start: s, end: e);
+  }
+  ranges[ranges.length - 1] = (
+    start: ranges[ranges.length - 1].start,
+    end: text.length,
+  );
+
+  return [for (final r in ranges) text.substring(r.start, r.end)];
+}
+  
+
+
+Widget _preview() {
+  final colors = entry.colors.map((c) => Color(c)).toList();
+  final stops = entry.stops.length == colors.length ? entry.stops : null;
+  final isGradient = colors.length > 1;
+  final textColor = Color(entry.textColor);
+
+  final textStyle = TextStyle(
+    color: textColor,
+    fontSize: 11,
+    height: 1.15,
+  );
+
+  // 纯色：保持原样（一行搞定）
+  if (!isGradient) {
     return Center(
       child: Container(
-        decoration: BoxDecoration(
-          color: isGradient ? null : colors.first,
-          gradient: isGradient
-              ? LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: colors,
-                  stops: stops,
-                )
-              : null,
-          
-        ),
+        decoration: BoxDecoration(color: colors.first),
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
         child: Text(
           entry.keyword,
-          maxLines: 4,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Color(entry.textColor),
-            fontSize: 14,
-            height: 1.05,
-          ),
+          style: textStyle,
         ),
       ),
     );
   }
+
+  // 渐变：按实际换行拆成多段，每段独立渐变
+  return LayoutBuilder(
+    builder: (ctx, constraints) {
+      final maxW = constraints.maxWidth;
+      final lines = _splitKeywordIntoLines(
+        entry.keyword,
+        textStyle,
+        maxW,
+      );
+
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final line in lines)
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: colors,
+                    stops: stops,
+                  ),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                child: Text(line, maxLines: 1, style: textStyle),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+
+
+
+
+  
 }
 
 // ==================== 高亮筛选面板（范围 + 分组） ====================
