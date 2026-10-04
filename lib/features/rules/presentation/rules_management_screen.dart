@@ -183,7 +183,6 @@ class _RuleEditorDialogState extends State<_RuleEditorDialog> {
             DropdownButtonFormField<RuleScope>(
               value: _scope,
               isExpanded: true,
-              style: const TextStyle(color: AppColors.accentPurple),
               iconEnabledColor: AppColors.accentPurple,
               decoration: const InputDecoration(
                 labelText: '作用范围',
@@ -199,17 +198,17 @@ class _RuleEditorDialogState extends State<_RuleEditorDialog> {
                 DropdownMenuItem(
                   value: RuleScope.both,
                   child: Text('两份文档',
-                      style: TextStyle(color: AppColors.accentPurple)),
+                      style: TextStyle(color: Colors.black)),
                 ),
                 DropdownMenuItem(
                   value: RuleScope.originalOnly,
                   child: Text('仅原文',
-                      style: TextStyle(color: AppColors.accentPurple)),
+                      style: TextStyle(color: Colors.black)),
                 ),
                 DropdownMenuItem(
                   value: RuleScope.modifiedOnly,
                   child: Text('仅修改版',
-                      style: TextStyle(color: AppColors.accentPurple)),
+                      style: TextStyle(color: Colors.black)),
                 ),
               ],
               onChanged: (v) => setState(() => _scope = v ?? RuleScope.both),
