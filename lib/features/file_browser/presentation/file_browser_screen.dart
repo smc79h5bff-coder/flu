@@ -1,3 +1,4 @@
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'browser_settings_screen.dart';
@@ -170,9 +171,6 @@ class _SearchHit {
 class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     with RouteAware {
   static const String _rootPath = '/storage/emulated/0';
-
-  /// 允许浏览的最顶层。`/storage` 下有内置存储、双开、SD 卡、U 盘等。
-  /// 从 `/storage` 开始能访问所有卷，但 `/data`、`/system` 等系统分区仍被挡。
   static const String _topPath = '/storage';
 
   // 弹窗统一参数：几乎铺满屏，间距最小
@@ -370,6 +368,45 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       _error = null;
     });
 
+    // ---------- /storage 特判 ----------
+    // Android 11+ 直接 list /storage 可能返回空（受分区沙箱限制），
+    // 这时用手动拼卷的方式兜底，列出 /storage/emulated、self、
+    // 以及从 /proc/mounts 里扫到的 SD 卡 / U 盘 UUID。
+    if (_currentPath == _topPath) {
+      List<FileSystemEntity> raw;
+      try {
+        raw = await Directory(_currentPath).list(followLinks: false).toList();
+      } on PathAccessException catch (e) {
+        log.info('[Dir] list 权限拒绝  $_currentPath  $e');
+        raw = <FileSystemEntity>[];
+      } catch (e) {
+        log.info('[Dir] list 失败  $_currentPath  $e');
+        raw = <FileSystemEntity>[];
+      }
+
+      if (raw.isEmpty) {
+        final entries = _listStorageRoot();
+        if (!mounted || token.isCancelled) return;
+        setState(() {
+          _entries = entries;
+          _loading = false;
+          _error = null;
+        });
+        DirCache.instance.put(cacheKey, entries);
+        final hasExternal = entries.any((e) =>
+            !e.name.startsWith('emulated') &&
+            !e.name.startsWith('self'));
+        if (!hasExternal) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _toast('未检测到外部存储。可长按标题手动输入路径');
+          });
+        }
+        return;
+      }
+      // raw 非空：走正常加载流程
+    }
+
     try {
       await loadDirectoryAsync(
         path: _currentPath,
@@ -516,6 +553,59 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final parent = Directory(_currentPath).parent.path;
     if (!parent.startsWith(_topPath)) return;
     _navigateTo(parent);
+  }
+
+  /// 列出 /storage 下能访问的存储卷。
+  List<EntryInfo> _listStorageRoot() {
+    final log = ReaderLoadLog.instance;
+    log.info('[Storage] 手动构造 /storage 条目');
+
+    final out = <EntryInfo>[];
+    final seen = <String>{};
+
+    void addDir(String path, String name) {
+      if (seen.contains(path)) return;
+      final dir = Directory(path);
+      if (!dir.existsSync()) return;
+      seen.add(path);
+      out.add(EntryInfo(entity: dir, name: name, isDir: true));
+    }
+
+    addDir('/storage/emulated', 'emulated');
+    addDir('/storage/self', 'self');
+
+    final uuidPattern = RegExp(r'([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})');
+    const sources = <String>[
+      '/proc/mounts',
+      '/proc/self/mountinfo',
+      '/proc/self/mounts',
+      '/etc/mtab',
+    ];
+
+    final uuids = <String>{};
+    for (final src in sources) {
+      try {
+        final content = File(src).readAsStringSync();
+        for (final m in uuidPattern.allMatches(content)) {
+          uuids.add(m.group(1)!);
+        }
+        if (uuids.isNotEmpty) {
+          log.info('[Storage] 从 $src 找到 ${uuids.length} 个 UUID');
+          break;
+        }
+      } catch (e) {
+        log.info('[Storage] 读 $src 失败：$e');
+      }
+    }
+
+    for (final uuid in uuids) {
+      addDir('/storage/$uuid', uuid);
+      addDir('/mnt/media_rw/$uuid', '$uuid (media_rw)');
+    }
+
+    log.info(
+        '[Storage] 共找到 ${out.length} 个条目：${out.map((e) => e.name).join(", ")}');
+    return out;
   }
 
   void _clearSelection() {
@@ -2134,8 +2224,8 @@ final result = await Navigator.of(context).push<String>(
       _toast('目录不存在：$target');
       return;
     }
-    if (!target.startsWith(_topPath)) {
-      _toast('只能跳到 $_topPath 以内');
+    if (!target.startsWith('/storage/')) {
+      _toast('只能跳到 /storage 以内的路径');
       return;
     }
     _navigateTo(target);
@@ -2155,12 +2245,10 @@ final result = await Navigator.of(context).push<String>(
   // ==================== 面包屑 ====================
 
   List<({String label, String path})> get _crumbs {
-    // 在 /storage 顶层：只有一个"存储"面包屑
     if (_currentPath == _topPath) {
       return [(label: '存储', path: _topPath)];
     }
 
-    // 在内部存储下：从"内部存储"开始
     if (_currentPath == _rootPath ||
         _currentPath.startsWith('$_rootPath/')) {
       final out = <({String label, String path})>[
@@ -2177,7 +2265,6 @@ final result = await Navigator.of(context).push<String>(
       return out;
     }
 
-    // 其它 /storage 下的路径（emulated/999、SD 卡、U 盘等）
     final out = <({String label, String path})>[
       (label: '存储', path: _topPath),
     ];
@@ -2193,26 +2280,16 @@ final result = await Navigator.of(context).push<String>(
     return out;
   }
 
-  /// 生成某一级面包屑的显示名。对特殊路径做美化：
-  ///   · /storage/emulated/0        → 内部存储
-  ///   · /storage/emulated/<其他数字> → 双开(<数字>)
-  ///   · /storage/XXXX-XXXX         → 外部存储(XXXX-XXXX)
-  /// 其它情况直接返回目录名。
   String _crumbLabelFor(String fullPath, String segment) {
     if (segment == 'emulated') return 'emulated';
     if (segment == 'self') return 'self';
-
     if (fullPath == _rootPath) return '内部存储';
-
     if (fullPath.startsWith('$_topPath/emulated/')) {
       return '双开($segment)';
     }
-
-    // UUID 卷名格式：4 位十六进制 + 短横 + 4 位十六进制
     if (RegExp(r'^[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}$').hasMatch(segment)) {
       return '外部存储($segment)';
     }
-
     return segment;
   }
 
