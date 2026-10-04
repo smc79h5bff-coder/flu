@@ -2073,10 +2073,15 @@ Future<void> _openLineEditor() async {
   }
 
   void _handleTap(Offset globalPos) {
-    // 热区和悬浮按钮已经被各自的 GestureDetector 接管，
-    // 这里只剩"点空白 = 翻下一页"。
-    _nextPage();
+  // 有选中文字 → 只取消选中，不翻页。
+  if (_hBarVisible || _sel != null) {
+    _clearSelection();
+    return;
   }
+  // 没选中 → 点空白翻下一页。
+  // 热区和悬浮按钮已经被各自的 GestureDetector 接管。
+  _nextPage();
+}
 
   // ==================== 手柄拖动 ====================
 
