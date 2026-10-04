@@ -7,6 +7,10 @@ class AppColors {
 
   static const Color brandGreen = Color(0xFFFEF7FF);
 
+  /// 高饱和亮紫 —— 用于本次改色的所有控件。
+  /// 想换色号只改这一行。
+  static const Color accentPurple = Color(0xFF6100FF);
+
   // Diff highlights — light mode
   static const Color addedLight = Color(0xFF2ECC71);
   static const Color deletedLight = Color(0xFFE74C3C);
