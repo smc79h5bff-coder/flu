@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../../../../core/constants/app_colors.dart';
 import '../../preprocessing/application/encoding_detector.dart';
 import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/encoding_type.dart';
@@ -939,10 +940,23 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                 ),
               ],
             ),
+            // ========== 改动（B20）：右上角保存按钮 ==========
             TextButton.icon(
               onPressed: _saving || _loading ? null : _save,
-              icon: Icon(_saving ? Icons.hourglass_top : Icons.save),
-              label: const Text('保存'),
+              icon: Icon(
+                _saving ? Icons.hourglass_top : Icons.save,
+                color: (_saving || _loading)
+                    ? null
+                    : AppColors.accentPurple,
+              ),
+              label: Text(
+                '保存',
+                style: TextStyle(
+                  color: (_saving || _loading)
+                      ? null
+                      : AppColors.accentPurple,
+                ),
+              ),
             ),
           ],
         ),
@@ -1057,6 +1071,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     );
   }
 
+  // ========== 改动（B20）：查找栏 ==========
   Widget _buildFindBar() {
     final s = Theme.of(context).colorScheme;
     final total = _findHits.length;
@@ -1093,6 +1108,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                   child: TextField(
                     controller: _findCtrl,
                     autofocus: true,
+                    cursorColor: AppColors.accentPurple,
                     decoration: const InputDecoration(
                       hintText: '查找',
                       isDense: true,
@@ -1126,6 +1142,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                 Expanded(
                   child: TextField(
                     controller: _replaceCtrl,
+                    cursorColor: AppColors.accentPurple,
                     decoration: const InputDecoration(
                       hintText: '替换为（留空 = 删掉）',
                       isDense: true,
@@ -1136,6 +1153,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                 TextButton(
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.accentPurple,
                   ),
                   onPressed: _replaceCurrent,
                   child: const Text('替换当前'),
@@ -1143,6 +1161,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                 TextButton(
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.accentPurple,
                   ),
                   onPressed: _replaceAll,
                   child: const Text('全部替换'),
@@ -1172,6 +1191,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                 TextButton(
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.accentPurple,
                   ),
                   onPressed: () => setState(() => _recomputeHits()),
                   child: const Text('搜索'),
@@ -1184,6 +1204,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     );
   }
 
+  // ========== 改动（B20）：toggle 打开时变紫 ==========
   Widget _toggle({
     required String label,
     required bool value,
@@ -1199,7 +1220,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
             fontSize: 12,
             fontWeight: value ? FontWeight.bold : FontWeight.normal,
             color: value
-                ? Theme.of(context).colorScheme.primary
+                ? AppColors.accentPurple
                 : Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
@@ -1214,6 +1235,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     );
   }
 }
+
 
 // ==================== 行 Widget ====================
 
