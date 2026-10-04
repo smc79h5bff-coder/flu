@@ -531,6 +531,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _lastSeenMode = ref.read(readerSettingsProvider).readerMode;
   }
 
+
+  @override
+void deactivate() {
+  // 在 widget 被从树上移除时调用（比 dispose 早，此时 ref 还有效）。
+  // 在这里保存进度，代替原来 dispose 里那次调用。
+  _saveProgressNow();
+  super.deactivate();
+}
+
+  
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -540,7 +550,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _toastTimer?.cancel();
     _toastEntry?.remove();
     _toastEntry = null;
-    _saveProgressNow();
+    
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     _selNotifier.dispose();
