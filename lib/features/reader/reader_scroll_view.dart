@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -8,9 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:share_plus/share_plus.dart';
 
-import 'reader_pagination.dart';   // ← 加
-import 'reader_panels.dart';        // ← 加
-import 'reader_repository.dart';    // ← 加
+import 'reader_pagination.dart';
+import 'reader_panels.dart';
+import 'reader_repository.dart';
 
 import 'reader_loupe.dart';
 import 'reader_models.dart';
@@ -42,9 +43,9 @@ class ReaderScrollView extends ConsumerStatefulWidget {
     required this.onProgressChanged,
     required this.onHighlightAdded,
     required this.onPaletteEdit,
-  this.onSelectionActiveChanged,
-  this.onTapOnShell,
-});
+    this.onSelectionActiveChanged,
+    this.onTapOnShell,
+  });
 
   final String text;
   final List<String> lines;
@@ -59,11 +60,11 @@ class ReaderScrollView extends ConsumerStatefulWidget {
   final void Function(int paletteIndex) onPaletteEdit;
 
   final ValueChanged<bool>? onSelectionActiveChanged;
-/// 点击空白时先问父级："这点到按钮 / 热区了吗？"
-/// 返回 true = 父级处理了，不用翻页。
-/// 返回 false / null = 让滚动模式自己翻页。
-final bool Function(Offset globalPos)? onTapOnShell;
-  
+  /// 点击空白时先问父级："这点到按钮 / 热区了吗？"
+  /// 返回 true = 父级处理了，不用翻页。
+  /// 返回 false / null = 让滚动模式自己翻页。
+  final bool Function(Offset globalPos)? onTapOnShell;
+
   @override
   ConsumerState<ReaderScrollView> createState() => ReaderScrollViewState();
 }
@@ -349,23 +350,23 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     }
   }
 
- void _handleTap() {
-  // 按下的瞬间有选区 → 用户这一下只是想取消选区，不翻页。
-  if (_hadSelectionAtDown) {
-    _hadSelectionAtDown = false;
-    return;
+  void _handleTap() {
+    // 按下的瞬间有选区 → 用户这一下只是想取消选区，不翻页。
+    if (_hadSelectionAtDown) {
+      _hadSelectionAtDown = false;
+      return;
+    }
+    // 兜底：走到这里如果还有选区（比如长按后没抬手），也先清选区。
+    if (_hBarVisible || _selStartLine != null) {
+      setState(_clearSelection);
+      return;
+    }
+    // 先问父级："点在按钮 / 热区里吗？"
+    final handled = widget.onTapOnShell?.call(_downPos) ?? false;
+    if (handled) return;
+    // 父级没处理 → 自己翻页。
+    jumpByScreen(1);
   }
-  // 兜底：走到这里如果还有选区（比如长按后没抬手），也先清选区。
-  if (_hBarVisible || _selStartLine != null) {
-    setState(_clearSelection);
-    return;
-  }
-  // 先问父级："点在按钮 / 热区里吗？"
-  final handled = widget.onTapOnShell?.call(_downPos) ?? false;
-  if (handled) return;
-  // 父级没处理 → 自己翻页。
-  jumpByScreen(1);
-}
 
   // ==================== 长按逻辑（原 GestureDetector 版本改过来的）====================
 
@@ -454,6 +455,21 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   }
 
   // ==================== 选区计算 ====================
+
+  /// 返回归一化后的选区：start 永远是物理位置更早的，end 更晚。
+  /// 用户反方向拖手柄时，状态里 start/end 可能是反的，渲染前要用这个。
+  ({int startLine, int startOffset, int endLine, int endOffset})?
+      _normSel() {
+    final sL = _selStartLine;
+    final sO = _selStartOffset;
+    final eL = _selEndLine;
+    final eO = _selEndOffset;
+    if (sL == null || sO == null || eL == null || eO == null) return null;
+    if (sL < eL || (sL == eL && sO <= eO)) {
+      return (startLine: sL, startOffset: sO, endLine: eL, endOffset: eO);
+    }
+    return (startLine: eL, startOffset: eO, endLine: sL, endOffset: sO);
+  }
 
   ({int line, int offset})? _hitTest(Offset globalPos) {
     final list = _positions.itemPositions.value;
@@ -642,6 +658,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
                                   searchState.hits.length)
                           ? searchState.hits[searchState.currentPos]
                           : null;
+
+                  // 用归一化选区渲染：反方向拖手柄时选区也要正确显示。
+                  final norm = _normSel();
                   return _ScrollLineRow(
                     lineKey: key,
                     lineIndex: i,
@@ -649,10 +668,10 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
                     style: baseStyle,
                     highlights: widget.highlights,
                     inSelection: _isLineInSelection(i),
-                    isSelStartLine: i == _selStartLine,
-                    isSelEndLine: i == _selEndLine,
-                    selStartOffset: _selStartOffset ?? 0,
-                    selEndOffset: _selEndOffset ?? 0,
+                    isSelStartLine: norm != null && i == norm.startLine,
+                    isSelEndLine: norm != null && i == norm.endLine,
+                    selStartOffset: norm?.startOffset ?? 0,
+                    selEndOffset: norm?.endOffset ?? 0,
                     searchHit: (searchHit != null &&
                             searchHit.lineIndex == i)
                         ? (
@@ -679,12 +698,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   }
 
   bool _isLineInSelection(int i) {
-    final sL = _selStartLine;
-    final eL = _selEndLine;
-    if (sL == null || eL == null) return false;
-    final lo = sL < eL ? sL : eL;
-    final hi = sL < eL ? eL : sL;
-    return i >= lo && i <= hi;
+    final norm = _normSel();
+    if (norm == null) return false;
+    return i >= norm.startLine && i <= norm.endLine;
   }
 
   Offset? _posOfCharLeft(int line, int offset) {
@@ -769,6 +785,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
         _stackKey.currentContext?.findRenderObject() as RenderBox?;
     if (stackBox == null) return const [];
 
+    final norm = _normSel();
+    if (norm == null) return const [];
+
     final widgets = <Widget>[];
     final fontSize = widget.settings.fontSize;
     final stackHeight = stackBox.size.height;
@@ -798,18 +817,24 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       );
     }
 
-    // 拖动中：用手柄逻辑位置（文字左上角新位置）覆盖；
-    // 不在拖动：用选区实际位置。
-    final leftGlobal = (_draggingHandle == 1 && _dragHandlePos != null)
-        ? _dragHandlePos!
-        : _posOfCharLeft(_selStartLine!, _selStartOffset ?? 0);
+    // 拖动中：被拖动的手柄跟随手指；另一端用归一化位置，保证手柄不会乱跳。
+    // 不拖动：两端都用归一化位置（左在左，右在右）。
+    Offset? leftGlobal;
+    Offset? rightGlobal;
+    if (_draggingHandle == 1 && _dragHandlePos != null) {
+      leftGlobal = _dragHandlePos;
+      rightGlobal = _posOfCharRight(norm.endLine, norm.endOffset);
+    } else if (_draggingHandle == 2 && _dragHandlePos != null) {
+      leftGlobal = _posOfCharLeft(norm.startLine, norm.startOffset);
+      rightGlobal = _dragHandlePos;
+    } else {
+      leftGlobal = _posOfCharLeft(norm.startLine, norm.startOffset);
+      rightGlobal = _posOfCharRight(norm.endLine, norm.endOffset);
+    }
+
     if (leftGlobal != null) {
       widgets.add(buildHandle(leftGlobal, true));
     }
-
-    final rightGlobal = (_draggingHandle == 2 && _dragHandlePos != null)
-        ? _dragHandlePos!
-        : _posOfCharRight(_selEndLine!, _selEndOffset ?? 0);
     if (rightGlobal != null) {
       widgets.add(buildHandle(rightGlobal, false));
     }
@@ -1589,3 +1614,4 @@ class _HandlePainter extends CustomPainter {
   bool shouldRepaint(_HandlePainter old) =>
       old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
+
