@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/constants/app_colors.dart';
 import '../../../../core/storage/pref_keys.dart';
 import '../../../../core/storage/persistent_notifier.dart';
 import '../../help/presentation/help_screen.dart';
@@ -1020,6 +1021,7 @@ Future<void> _showHiddenRules() async {
     );
   }
 
+  // ========== 改动（B17）：顶部笔记图标 ==========
   Widget _buildHeader() {
     final s = Theme.of(context).colorScheme;
     final notes = ref.watch(_notesProvider);
@@ -1061,7 +1063,7 @@ Future<void> _showHiddenRules() async {
               Icon(
                 hasNote ? Icons.sticky_note_2 : Icons.sticky_note_2_outlined,
                 size: 20,
-                color: hasNote ? s.primary : s.onSurfaceVariant,
+                color: hasNote ? AppColors.accentPurple : s.onSurfaceVariant,
               ),
             ],
           ),
@@ -1521,11 +1523,19 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                 children: [
+                  // ========== 改动（A7）：规则名输入框 ==========
                   TextField(
                     controller: _nameCtrl,
+                    cursorColor: AppColors.accentPurple,
                     decoration: const InputDecoration(
                       labelText: '规则名',
                       border: OutlineInputBorder(),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(
+                          color: AppColors.accentPurple,
+                          width: 2,
+                        ),
+                      ),
                       isDense: true,
                     ),
                   ),
@@ -1613,14 +1623,23 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     return [
       _sectionHeader('查找词'),
       const SizedBox(height: 6),
+
+      // ========== 改动（A7）：查找词输入框 ==========
       TextField(
         controller: _findCtrl,
         minLines: 3,
         maxLines: 8,
+        cursorColor: AppColors.accentPurple,
         style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
         decoration: const InputDecoration(
           hintText: r'例如：\d{4}-\d{2}-\d{2}',
           border: OutlineInputBorder(),
+          focusedBorder: OutlineInputBorder(
+            borderSide: BorderSide(
+              color: AppColors.accentPurple,
+              width: 2,
+            ),
+          ),
           isDense: true,
           contentPadding: EdgeInsets.all(10),
         ),
@@ -1650,14 +1669,23 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       const SizedBox(height: 20),
       _sectionHeader('替换词'),
       const SizedBox(height: 6),
+
+      // ========== 改动（A7）：替换词输入框 ==========
       TextField(
         controller: _replaceCtrl,
         minLines: 3,
         maxLines: 8,
+        cursorColor: AppColors.accentPurple,
         style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
         decoration: const InputDecoration(
           hintText: r'例如：$1年$2月$3日',
           border: OutlineInputBorder(),
+          focusedBorder: OutlineInputBorder(
+            borderSide: BorderSide(
+              color: AppColors.accentPurple,
+              width: 2,
+            ),
+          ),
           isDense: true,
           contentPadding: EdgeInsets.all(10),
         ),
@@ -1701,17 +1729,32 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     return [
       _sectionHeader('预置功能'),
       const SizedBox(height: 9),
+
+      // ========== 改动（A7）：选择功能下拉框 ==========
       DropdownButtonFormField<String>(
         value: _presetId,
         isExpanded: true,
+        style: const TextStyle(color: AppColors.accentPurple),
+        iconEnabledColor: AppColors.accentPurple,
         decoration: const InputDecoration(
           labelText: '选择功能',
           border: OutlineInputBorder(),
+          focusedBorder: OutlineInputBorder(
+            borderSide: BorderSide(
+              color: AppColors.accentPurple,
+              width: 2,
+            ),
+          ),
           isDense: true,
         ),
         items: [
           for (final p in presets)
-            DropdownMenuItem(value: p.id, child: Text(p.name)),
+            DropdownMenuItem(
+              value: p.id,
+              child: Text(p.name,
+                  style: const TextStyle(
+                      color: AppColors.accentPurple)),
+            ),
         ],
         onChanged: (v) {
           if (v == null) return;
@@ -1754,6 +1797,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     ];
   }
 
+  // ========== 改动（A7）：参数输入框 / 下拉框 ==========
   Widget _buildPresetParam(PresetParam p) {
     final value = _presetParams[p.key] ?? p.defaultValue;
     switch (p.type) {
@@ -1761,16 +1805,28 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         return DropdownButtonFormField<String>(
           value: value,
           isExpanded: true,
+          style: const TextStyle(color: AppColors.accentPurple),
+          iconEnabledColor: AppColors.accentPurple,
           decoration: InputDecoration(
             labelText: p.label,
             border: const OutlineInputBorder(),
+            focusedBorder: const OutlineInputBorder(
+              borderSide: BorderSide(
+                color: AppColors.accentPurple,
+                width: 2,
+              ),
+            ),
             isDense: true,
             helperText: p.hint.isEmpty ? null : p.hint,
           ),
           items: [
             for (final o in p.options)
               DropdownMenuItem(
-                  value: _optValue(o), child: Text(_optLabel(o))),
+                value: _optValue(o),
+                child: Text(_optLabel(o),
+                    style: const TextStyle(
+                        color: AppColors.accentPurple)),
+              ),
           ],
           onChanged: (v) {
             if (v == null) return;
@@ -1784,9 +1840,16 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         return TextFormField(
           initialValue: value,
           keyboardType: TextInputType.number,
+          cursorColor: AppColors.accentPurple,
           decoration: InputDecoration(
             labelText: p.label,
             border: const OutlineInputBorder(),
+            focusedBorder: const OutlineInputBorder(
+              borderSide: BorderSide(
+                color: AppColors.accentPurple,
+                width: 2,
+              ),
+            ),
             isDense: true,
             helperText: p.hint.isEmpty ? null : p.hint,
           ),
@@ -1797,9 +1860,16 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       case PresetParamType.text:
         return TextFormField(
           initialValue: value,
+          cursorColor: AppColors.accentPurple,
           decoration: InputDecoration(
             labelText: p.label,
             border: const OutlineInputBorder(),
+            focusedBorder: const OutlineInputBorder(
+              borderSide: BorderSide(
+                color: AppColors.accentPurple,
+                width: 2,
+              ),
+            ),
             isDense: true,
             helperText: p.hint.isEmpty ? null : p.hint,
           ),
@@ -1878,10 +1948,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         ),
       ),
       const SizedBox(height: 8),
+
+      // ========== 改动（A7）：JS 脚本输入框 ==========
       TextField(
         controller: _jsCtrl,
         minLines: 12,
         maxLines: 24,
+        cursorColor: AppColors.accentPurple,
         style: const TextStyle(
           fontFamily: 'monospace',
           fontSize: 13,
@@ -1891,6 +1964,12 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
           hintText:
               '// 例如：删除空行\ntext.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')',
           border: OutlineInputBorder(),
+          focusedBorder: OutlineInputBorder(
+            borderSide: BorderSide(
+              color: AppColors.accentPurple,
+              width: 2,
+            ),
+          ),
           contentPadding: EdgeInsets.all(10),
         ),
       ),
@@ -1945,21 +2024,37 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     );
   }
 
+  // ========== 改动（A7）：作用范围下拉框 ==========
   Widget _buildScopeDropdown() {
     return DropdownButtonFormField<RuleScope>(
       value: _scope,
       isExpanded: true,
+      style: const TextStyle(color: AppColors.accentPurple),
+      iconEnabledColor: AppColors.accentPurple,
       decoration: const InputDecoration(
         labelText: '作用范围',
         border: OutlineInputBorder(),
+        focusedBorder: OutlineInputBorder(
+          borderSide: BorderSide(
+            color: AppColors.accentPurple,
+            width: 2,
+          ),
+        ),
         isDense: true,
       ),
       items: const [
-        DropdownMenuItem(value: RuleScope.both, child: Text('两侧文件')),
         DropdownMenuItem(
-            value: RuleScope.originalOnly, child: Text('仅左侧文件')),
+            value: RuleScope.both,
+            child: Text('两侧文件',
+                style: TextStyle(color: AppColors.accentPurple))),
         DropdownMenuItem(
-            value: RuleScope.modifiedOnly, child: Text('仅右侧文件')),
+            value: RuleScope.originalOnly,
+            child: Text('仅左侧文件',
+                style: TextStyle(color: AppColors.accentPurple))),
+        DropdownMenuItem(
+            value: RuleScope.modifiedOnly,
+            child: Text('仅右侧文件',
+                style: TextStyle(color: AppColors.accentPurple))),
       ],
       onChanged: (v) => setState(() => _scope = v ?? RuleScope.both),
     );
