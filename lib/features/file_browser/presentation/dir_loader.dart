@@ -236,3 +236,68 @@ List<EntryInfo> _sortEntries(
   });
   return copy;
 }
+// ==================== 安全列目录（供弹窗使用） ====================
+
+/// 安全列目录，只返回**子目录**（过滤隐藏）。用于"选目标目录"类弹窗。
+///
+/// 特殊处理 `/storage`：Android 11+ 禁止 list /storage，即使有全文件权限，
+/// 所以手动构造条目（emulated / self / SD 卡 UUID）。
+Future<List<Directory>> listSubdirectoriesSafe(String path) async {
+  if (path == '/storage') {
+    return _storageRootDirs();
+  }
+  try {
+    final raw = await Directory(path).list(followLinks: false).toList();
+    return raw.whereType<Directory>().where((d) {
+      final name = d.path.split('/').last;
+      return !name.startsWith('.');
+    }).toList()
+      ..sort((a, b) =>
+          a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// 手动构造 /storage 下的子目录列表。
+List<Directory> _storageRootDirs() {
+  final out = <Directory>[];
+  final seen = <String>{};
+
+  void add(String p) {
+    if (seen.contains(p)) return;
+    final dir = Directory(p);
+    if (!dir.existsSync()) return;
+    seen.add(p);
+    out.add(dir);
+  }
+
+  add('/storage/emulated');
+  add('/storage/self');
+
+  final uuidPattern = RegExp(r'([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})');
+  const sources = <String>[
+    '/proc/mounts',
+    '/proc/self/mountinfo',
+    '/proc/self/mounts',
+    '/etc/mtab',
+  ];
+
+  final uuids = <String>{};
+  for (final src in sources) {
+    try {
+      final content = File(src).readAsStringSync();
+      for (final m in uuidPattern.allMatches(content)) {
+        uuids.add(m.group(1)!);
+      }
+      if (uuids.isNotEmpty) break;
+    } catch (_) {}
+  }
+
+  for (final uuid in uuids) {
+    add('/storage/$uuid');
+    add('/mnt/media_rw/$uuid');
+  }
+
+  return out;
+}
