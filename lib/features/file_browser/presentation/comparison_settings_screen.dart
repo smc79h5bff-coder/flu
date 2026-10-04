@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../../core/storage/pref_keys.dart';
 import '../../../../core/storage/persistent_notifier.dart';
 import '../../help/presentation/help_screen.dart';
