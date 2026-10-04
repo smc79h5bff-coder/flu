@@ -244,9 +244,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _horizontalDrag = false;
     _pressDown = true;
 
-    // 记下按下的瞬间有没有选区，然后清掉。
-    // 清掉是为了让"用户想滚动"时不被 _scrollPhysics 锁住。
-    // 但清掉后 pointer up 走 tap 分支时不能翻页 —— 用 _hadSelectionAtDown 拦。
     _hadSelectionAtDown = _hBarVisible || _selStartLine != null;
     if (_hadSelectionAtDown) {
       setState(_clearSelection);
@@ -265,7 +262,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     if (!_pressDown) return;
 
     if (_longPressFired) {
-      // 长按已触发：扩展选区 / 拖动手柄
       _doLongPressMove(e.position);
       return;
     }
@@ -292,21 +288,18 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   void _onPointerUp(PointerUpEvent e) {
     _longPressTimer?.cancel();
 
-    // 拖手柄结束
     if (_draggingHandle != 0) {
       _doDragEnd();
       _pressDown = false;
       return;
     }
 
-    // 长按结束
     if (_longPressFired) {
       _doLongPressEnd();
       _pressDown = false;
       return;
     }
 
-    // 水平滑动结束 → 翻页
     if (_horizontalDrag) {
       final dx = e.position.dx - _downPos.dx;
       final elapsed = DateTime.now().millisecondsSinceEpoch - _downMs;
@@ -327,7 +320,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       return;
     }
 
-    // 点击
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_lastTapUpMs != 0 && now - _lastTapUpMs < _tapDebounceMs) {
       _pressDown = false;
@@ -351,24 +343,20 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   }
 
   void _handleTap() {
-    // 按下的瞬间有选区 → 用户这一下只是想取消选区，不翻页。
     if (_hadSelectionAtDown) {
       _hadSelectionAtDown = false;
       return;
     }
-    // 兜底：走到这里如果还有选区（比如长按后没抬手），也先清选区。
     if (_hBarVisible || _selStartLine != null) {
       setState(_clearSelection);
       return;
     }
-    // 先问父级："点在按钮 / 热区里吗？"
     final handled = widget.onTapOnShell?.call(_downPos) ?? false;
     if (handled) return;
-    // 父级没处理 → 自己翻页。
     jumpByScreen(1);
   }
 
-  // ==================== 长按逻辑（原 GestureDetector 版本改过来的）====================
+  // ==================== 长按逻辑 ====================
 
   void _doLongPressStart(Offset pos) {
     final hit = _hitTest(pos);
@@ -457,7 +445,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   // ==================== 选区计算 ====================
 
   /// 返回归一化后的选区：start 永远是物理位置更早的，end 更晚。
-  /// 用户反方向拖手柄时，状态里 start/end 可能是反的，渲染前要用这个。
   ({int startLine, int startOffset, int endLine, int endOffset})?
       _normSel() {
     final sL = _selStartLine;
@@ -548,10 +535,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     return sb.toString();
   }
 
-  // ==================== 手柄拖动（抄分页模式：偏移 + 判定点）====================
+  // ==================== 手柄拖动 ====================
 
   void _handleDragStartInternal(int which, Offset fingerPos) {
-    // 手柄的逻辑位置 = 文字左上角（左）或右上角（右），和分页模式一致。
     Offset? handleLogic;
     if (which == 1) {
       handleLogic = _posOfCharLeft(_selStartLine!, _selStartOffset ?? 0);
@@ -574,17 +560,13 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
   void _doDragUpdate(Offset fingerPos) {
     if (_draggingHandle == 0) return;
 
-    // 抄分页模式：handleLogic = 手指位置 - 按下时的偏移 = 文字左上角新位置。
     final offset = _dragHandleOffset ?? Offset.zero;
     final handleLogic = fingerPos - offset;
     _dragHandlePos = handleLogic;
     _loupePos = fingerPos;
 
-    // 判定点从"文字左上角"往文字方向推 fontSize - lineHeight/3。
-    // 手指按在手柄上（手柄贴在文字下方），但用户心里想选的是那一行文字；
-    // 判定点往文字中间推一点，手感才贴着字。
     final fontSize = widget.settings.fontSize;
-    final lineHeight = fontSize * 1.1; // 与 baseStyle.height 保持一致
+    final lineHeight = fontSize * 1.1;
     final judge = Offset(
       handleLogic.dx,
       handleLogic.dy + fontSize - lineHeight / 3,
@@ -659,7 +641,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
                           ? searchState.hits[searchState.currentPos]
                           : null;
 
-                  // 用归一化选区渲染：反方向拖手柄时选区也要正确显示。
                   final norm = _normSel();
                   return _ScrollLineRow(
                     lineKey: key,
@@ -798,8 +779,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     Widget buildHandle(Offset globalPos, bool isLeft) {
       final local = stackBox.globalToLocal(globalPos);
 
-      // 文字底部 + 手柄高度 + 4 超过可视高度 → 手柄翻到文字上方。
-      // 避免选中屏幕最底那一行时，手柄飘到屏幕外点不到。
       final textBottomY = local.dy + fontSize;
       final bottomOverflow = textBottomY + trapH + 4 > stackHeight;
       final double top = bottomOverflow ? local.dy - trapH : textBottomY;
@@ -817,8 +796,6 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       );
     }
 
-    // 拖动中：被拖动的手柄跟随手指；另一端用归一化位置，保证手柄不会乱跳。
-    // 不拖动：两端都用归一化位置（左在左，右在右）。
     Offset? leftGlobal;
     Offset? rightGlobal;
     if (_draggingHandle == 1 && _dragHandlePos != null) {
@@ -1168,6 +1145,9 @@ class _ReaderScrollPhysics extends ScrollPhysics {
 
 // ==================== 行 Widget ====================
 
+/// 一条渐变高亮在本行内的起止范围。
+typedef _GradSpan = ({int start, int end, HighlightEntry entry});
+
 class _ScrollLineRow extends StatelessWidget {
   const _ScrollLineRow({
     required this.lineKey,
@@ -1201,70 +1181,76 @@ class _ScrollLineRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final spans = _buildSpansWithSelection();
+    final result = _buildSpansWithSelection();
+    final spans = result.spans;
+    final gradientSpans = result.gradientSpans;
 
-    final gradientEntries = <HighlightEntry>[];
-    for (final h in highlights) {
-      if (h.keyword.isEmpty) continue;
-      if (h.colors.length <= 1) continue;
-      gradientEntries.add(h);
-    }
-
-    if (gradientEntries.isEmpty || text.isEmpty) {
+    if (gradientSpans.isEmpty || text.isEmpty) {
       return Text.rich(
         TextSpan(children: spans),
         style: style,
         softWrap: true,
+        textAlign: TextAlign.left,
         key: lineKey,
       );
     }
 
     return LayoutBuilder(builder: (ctx, constraints) {
-      final gradRects = _measureGradientRects(
+      final gradRects = _measureGradientRectsFromSpans(
         text: text,
         style: style,
         maxWidth: constraints.maxWidth,
-        entries: gradientEntries,
+        spans: gradientSpans,
       );
 
-      return Stack(
-        children: [
-          for (final g in gradRects)
-            Positioned(
-              left: g.rect.left,
-              top: g.rect.top,
-              width: g.rect.width,
-              height: g.rect.height,
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: g.colors,
-                      stops: g.stops,
+      return SizedBox(
+        width: double.infinity,
+        child: Stack(
+          children: [
+            for (final g in gradRects)
+              Positioned(
+                left: g.rect.left,
+                top: g.rect.top,
+                width: g.rect.width,
+                height: g.rect.height,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: g.colors,
+                        stops: g.stops,
+                      ),
                     ),
                   ),
                 ),
               ),
+            Text.rich(
+              TextSpan(children: spans),
+              style: style,
+              softWrap: true,
+              textAlign: TextAlign.left,
+              key: lineKey,
             ),
-          Text.rich(
-            TextSpan(children: spans),
-            style: style,
-            softWrap: true,
-            key: lineKey,
-          ),
-        ],
+          ],
+        ),
       );
     });
   }
 
-  List<InlineSpan> _buildSpansWithSelection() {
-    if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
+  ({List<InlineSpan> spans, List<_GradSpan> gradientSpans})
+      _buildSpansWithSelection() {
+    if (text.isEmpty) {
+      return (
+        spans: [TextSpan(text: ' ', style: style)],
+        gradientSpans: const <_GradSpan>[],
+      );
+    }
 
-    final baseSpans = _buildSpans();
+    final base = _buildSpans();
 
-    if (!inSelection) return baseSpans;
+    if (!inSelection) return base;
 
     final n = text.length;
     int sFrom;
@@ -1282,9 +1268,12 @@ class _ScrollLineRow extends StatelessWidget {
       sFrom = 0;
       sTo = n;
     }
-    if (sTo <= sFrom) return baseSpans;
+    if (sTo <= sFrom) return base;
 
-    return _applySelectionToSpans(baseSpans, sFrom, sTo);
+    return (
+      spans: _applySelectionToSpans(base.spans, sFrom, sTo),
+      gradientSpans: base.gradientSpans,
+    );
   }
 
   List<InlineSpan> _applySelectionToSpans(
@@ -1336,12 +1325,18 @@ class _ScrollLineRow extends StatelessWidget {
     return out;
   }
 
-  List<InlineSpan> _buildSpans() {
-    if (text.isEmpty) return [TextSpan(text: ' ', style: style)];
+  ({List<InlineSpan> spans, List<_GradSpan> gradientSpans}) _buildSpans() {
+    if (text.isEmpty) {
+      return (
+        spans: [TextSpan(text: ' ', style: style)],
+        gradientSpans: const <_GradSpan>[],
+      );
+    }
 
     final n = text.length;
     final bgColors = List<Color?>.filled(n, null);
     final fgColors = List<Color?>.filled(n, null);
+    final gradientSpans = <_GradSpan>[];
 
     final regexEntries = <HighlightEntry>[];
     for (final h in highlights) {
@@ -1356,6 +1351,9 @@ class _ScrollLineRow extends StatelessWidget {
         final idx = text.indexOf(h.keyword, from);
         if (idx < 0) break;
         final end = idx + h.keyword.length;
+        if (isGradient) {
+          gradientSpans.add((start: idx, end: end, entry: h));
+        }
         for (var j = idx; j < end && j < n; j++) {
           if (!isGradient) {
             bgColors[j] = Color(h.colors.first);
@@ -1375,6 +1373,10 @@ class _ScrollLineRow extends StatelessWidget {
         final entry = s.entry;
         final isGradient = entry.colors.length > 1;
         final end = s.endInLine < n ? s.endInLine : n;
+        if (isGradient) {
+          gradientSpans
+              .add((start: s.startInLine, end: end, entry: entry));
+        }
         for (var j = s.startInLine; j < end; j++) {
           if (!isGradient) {
             bgColors[j] = Color(entry.colors.first);
@@ -1416,7 +1418,7 @@ class _ScrollLineRow extends StatelessWidget {
       }
       i = j;
     }
-    return spans;
+    return (spans: spans, gradientSpans: gradientSpans);
   }
 }
 
@@ -1432,72 +1434,72 @@ class _GradRect {
 final Map<String, List<_GradRect>> _gradRectCache = {};
 const int _gradRectCacheCap = 256;
 
-List<_GradRect> _measureGradientRects({
+/// 从"已经算好的字符区间"测量渐变背景矩形。
+///
+/// spans 由 _ScrollLineRow._buildSpans() 在一次遍历里产出（字面 + 正则），
+/// 这里不再做 keyword 匹配 —— 避免正则高亮因 indexOf 找不到位置而不显示渐变。
+List<_GradRect> _measureGradientRectsFromSpans({
   required String text,
   required TextStyle style,
   required double maxWidth,
-  required List<HighlightEntry> entries,
+  required List<_GradSpan> spans,
 }) {
-  if (text.isEmpty || maxWidth <= 0 || entries.isEmpty) return const [];
+  if (text.isEmpty || maxWidth <= 0 || spans.isEmpty) return const [];
 
   final key = '${text.length}:$text\u0000'
       '${style.fontSize}\u0000${style.fontWeight?.index}\u0000'
       '${maxWidth.round()}\u0000'
-      '${entries.map((e) => '${e.keyword}:${e.colors.join(",")}').join("|")}';
+      '${spans.map((s) => '${s.start}:${s.end}:${s.entry.colors.join(",")}').join("|")}';
 
   final hit = _gradRectCache[key];
   if (hit != null) return hit;
 
+  // 不显式指定 locale，与 Text.rich 渲染时保持一致（否则中文标点宽度会差几像素）。
   final tp = TextPainter(
     text: TextSpan(text: text, style: style),
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.left,
-    locale: const Locale('zh', 'CN'),
   )..layout(maxWidth: maxWidth);
 
   final rects = <_GradRect>[];
-  for (final h in entries) {
-    var from = 0;
-    while (from <= text.length - h.keyword.length) {
-      final idx = text.indexOf(h.keyword, from);
-      if (idx < 0) break;
-      final end = idx + h.keyword.length;
+  for (final s in spans) {
+    final hs = s.start.clamp(0, text.length);
+    final he = s.end.clamp(0, text.length);
+    if (hs >= he) continue;
 
-      final boxes = tp.getBoxesForSelection(
-        TextSelection(baseOffset: idx, extentOffset: end),
-      );
+    final boxes = tp.getBoxesForSelection(
+      TextSelection(baseOffset: hs, extentOffset: he),
+    );
 
-      List<double>? stops;
-      if (h.stops.length == h.colors.length && h.stops.length > 1) {
-        var ok = true;
-        for (var i = 1; i < h.stops.length; i++) {
-          if (h.stops[i] <= h.stops[i - 1]) {
-            ok = false;
-            break;
-          }
+    List<double>? stops;
+    if (s.entry.stops.length == s.entry.colors.length &&
+        s.entry.stops.length > 1) {
+      var ok = true;
+      for (var i = 1; i < s.entry.stops.length; i++) {
+        if (s.entry.stops[i] <= s.entry.stops[i - 1]) {
+          ok = false;
+          break;
         }
-        if (ok) stops = List<double>.from(h.stops);
       }
+      if (ok) stops = List<double>.from(s.entry.stops);
+    }
 
-      final caretAtEnd = tp.getOffsetForCaret(
-        TextPosition(offset: end),
-        Rect.zero,
-      );
+    final caretAtEnd = tp.getOffsetForCaret(
+      TextPosition(offset: he),
+      Rect.zero,
+    );
 
-      for (var bi = 0; bi < boxes.length; bi++) {
-        final box = boxes[bi];
-        var right = box.right;
-        if (bi == boxes.length - 1 && caretAtEnd.dx < right) {
-          right = caretAtEnd.dx;
-        }
-        rects.add(_GradRect(
-          rect: Rect.fromLTRB(box.left, box.top, right, box.bottom),
-          colors: h.colors.map((c) => Color(c)).toList(),
-          stops: stops,
-        ));
+    for (var bi = 0; bi < boxes.length; bi++) {
+      final box = boxes[bi];
+      var right = box.right;
+      if (bi == boxes.length - 1 && caretAtEnd.dx < right) {
+        right = caretAtEnd.dx;
       }
-
-      from = end;
+      rects.add(_GradRect(
+        rect: Rect.fromLTRB(box.left, box.top, right, box.bottom),
+        colors: s.entry.colors.map((c) => Color(c)).toList(),
+        stops: stops,
+      ));
     }
   }
 
@@ -1532,10 +1534,6 @@ class _DragHandle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
-    // 用 Listener 而非 GestureDetector：
-    // GestureDetector 的 pan 手势会和下方 Scrollable 的 drag 手势竞争，
-    // Scrollable 的 kTouchSlop 只有 18px，比 pan 先赢，导致拖手柄时内容也滚。
-    // Listener 直接接管指针事件，Scrollable 收不到 down，就不会竞争。
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: (e) => onDragStart(e.position),
@@ -1577,7 +1575,6 @@ class _HandlePainter extends CustomPainter {
     final mid = h / 2;
 
     if (!flip) {
-      // 手柄在文字下方：尖角朝上（指向文字）
       if (isLeft) {
         path.moveTo(w, 0);
         path.lineTo(w, h);
@@ -1592,7 +1589,6 @@ class _HandlePainter extends CustomPainter {
         path.close();
       }
     } else {
-      // 手柄在文字上方：尖角朝下（指向文字）
       if (isLeft) {
         path.moveTo(w, h);
         path.lineTo(w, 0);
