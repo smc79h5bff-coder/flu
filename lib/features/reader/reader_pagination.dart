@@ -11,9 +11,9 @@ import 'reader_models.dart';
 // ==================== 固定排版常量 ====================
 
 
-const double kReaderHorizontalPadding = 4.0;
+const double kReaderHorizontalPadding = 2.0;
 const double kReaderVerticalPadding = 2.0;
-const double kReaderLineHeightFactor = 1.1;
+const double kReaderLineHeightFactor = 1.0;
 const double kReaderParaSpacing = 4.0;
 
 // ==================== 分页调度器 ====================
