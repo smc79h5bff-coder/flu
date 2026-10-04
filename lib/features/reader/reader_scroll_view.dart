@@ -8,6 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'reader_pagination.dart';   // ← 加
+import 'reader_panels.dart';        // ← 加
+import 'reader_repository.dart';    // ← 加
+
 import 'reader_loupe.dart';
 import 'reader_models.dart';
 import 'regex_highlight.dart';
