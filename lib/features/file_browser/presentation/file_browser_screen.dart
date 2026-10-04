@@ -4,6 +4,7 @@ import 'browser_settings_screen.dart';
 import '../../../core/constants/app_colors.dart';
 import 'line_editor_screen.dart';
 import 'dart:convert';
+import '../../reader/reader_repository.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../reader/reader_screen.dart';
