@@ -1,10 +1,11 @@
-
 // reader_screen.dart
 import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../preprocessing/application/aho_corasick.dart';
 import '../preprocessing/application/encoding_detector.dart';
 import '../preprocessing/domain/encoding_type.dart';
+import 'reader_load_log.dart';
 import 'reader_loupe.dart';
 import 'reader_models.dart';
 import 'reader_pagination.dart';
@@ -577,9 +579,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_lastLoadedKey == key) return;
     _lastLoadedKey = key;
 
+    final log = ReaderLoadLog.instance;
+    log.start('阅读器加载');
+    log.info('path = $path');
+    log.info(
+        'viewport = ${_viewportSize.width.toStringAsFixed(1)} × ${_viewportSize.height.toStringAsFixed(1)}');
+
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     _paginator = null;
+    log.mark('dispose 旧分页器');
 
     setState(() {
       _loading = true;
@@ -592,56 +601,85 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _sel = null;
       _hBarVisible = false;
     });
+    log.mark('setState(loading=true)');
+
     _invalidateAllCaches();
+    log.mark('清空缓存');
 
     try {
       final bytes = await File(path).readAsBytes();
+      log.mark('File.readAsBytes');
+      log.info(
+          'bytes = ${bytes.length}  (${(bytes.length / 1024).toStringAsFixed(1)} KB)');
+
       final encoding = _manualEncoding ?? EncodingDetector.detect(bytes);
       _currentEncoding = encoding;
+      log.mark('EncodingDetector.detect');
+      log.info('encoding = ${encoding.label}');
+
       final rawText = EncodingDetector.decodeChunked(bytes, encoding);
+      log.mark('decodeChunked');
+      log.info('rawText chars = ${rawText.length}');
+
       final text = _normalizeForReading(rawText);
-      if (!mounted) return;
-      if (_lastLoadedKey != key) return;
+      log.mark('_normalizeForReading');
+      log.info('normalized chars = ${text.length}');
+
+      if (!mounted) {
+        log.info('❌ unmounted，中止');
+        return;
+      }
+      if (_lastLoadedKey != key) {
+        log.info('❌ key 变了，中止');
+        return;
+      }
 
       final settings = ref.read(readerSettingsProvider);
+      log.mark('读 readerSettings');
+      log.info(
+          'fontSize=${settings.fontSize} fontWeight=${settings.fontWeight} pageBottomSafePx=${settings.pageBottomSafePx}');
 
+      final paginator = ReaderPaginator(
+        text: text,
+        viewportWidth: _viewportSize.width,
+        viewportHeight: _viewportSize.height,
+        fontSize: settings.fontSize,
+        fontWeight: settings.fontWeight,
+        pageBottomSafePx: settings.pageBottomSafePx,
+      );
+      log.mark('new ReaderPaginator');
 
-      
-     final paginator = ReaderPaginator(
-  text: text,
-  viewportWidth: _viewportSize.width,
-  viewportHeight: _viewportSize.height,
-  fontSize: settings.fontSize,
-  fontWeight: settings.fontWeight,
-  pageBottomSafePx: settings.pageBottomSafePx,
-);
-
-
-      
       paginator.addListener(_onPaginatorChanged);
+      log.mark('addListener');
+
       paginator.start();
+      log.mark('paginator.start() 返回');
+      log.info('pages = ${paginator.result?.pageCount}');
+      log.info('renderUnits = ${paginator.result?.renderUnits.length}');
 
+      final split = splitLinesWithOffsets(text);
+      log.mark('splitLinesWithOffsets');
+      log.info('lines = ${split.lines.length}');
 
+      final fileKey = readerFileKey(path);
+      ref.read(readerHighlightsProvider.notifier).ensureLoaded(fileKey);
+      log.mark('readerHighlights.ensureLoaded');
 
+      final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
+      final global = ref.read(readerGlobalHighlightsProvider);
+      final highlights = [...local, ...global];
+      log.mark('读高亮');
+      log.info('local=${local.length} global=${global.length}');
 
-
-
-      
-final split = splitLinesWithOffsets(text);
-final fileKey = readerFileKey(path);
-// 按需加载这本书的高亮（内存缓存）
-ref.read(readerHighlightsProvider.notifier).ensureLoaded(fileKey);
-final local = ref.read(readerHighlightsProvider)[fileKey] ?? const [];
-final global = ref.read(readerGlobalHighlightsProvider);
-final highlights = [...local, ...global];
-
-
-      
       final progress = ref.read(readerProgressProvider)[fileKey];
+      log.mark('读 readerProgress');
+
       final startPage = progress != null
           ? findPageForOffset(paginator.result!, progress.charOffset)
               .clamp(0, paginator.result!.pageCount - 1)
           : 0;
+      log.mark('findPageForOffset');
+      log.info('startPage=$startPage  progress=${progress?.charOffset}');
 
       setState(() {
         _text = text;
@@ -655,18 +693,30 @@ final highlights = [...local, ...global];
         _sel = null;
         _hBarVisible = false;
       });
+      log.mark('setState(loading=false)');
 
-      // 文件切换后，如果搜索状态属于旧文件，清掉它。
       final searchState = ref.read(readerSearchProvider);
       if (searchState.fileKey.isNotEmpty &&
           searchState.fileKey != readerFileKey(path)) {
         ref.read(readerSearchProvider.notifier).clear();
       }
+      log.mark('清搜索状态（如果需要）');
 
       _rebuildHighlightAc();
+      log.mark('_rebuildHighlightAc');
+
       paginator.notifyVisiblePage(startPage);
+      log.mark('notifyVisiblePage');
+
       _syncPagePreview();
-    } catch (e) {
+      log.mark('_syncPagePreview');
+
+      log.end('阅读器加载');
+    } catch (e, st) {
+      log.mark('❌ 异常');
+      log.info('error = $e');
+      log.info('stack = $st');
+      log.end('阅读器加载（失败）');
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -1121,6 +1171,50 @@ final highlights = [...local, ...global];
     });
   }
 
+  /// 导出阅读器加载日志。
+  Future<void> _exportLoadLog() async {
+    final log = ReaderLoadLog.instance;
+    if (log.isEmpty) {
+      _showToast('暂无日志');
+      return;
+    }
+
+    final path = _filePaths.isEmpty ? '' : _filePaths[_fileIndex];
+    final fileName = path.split('/').last;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    final header = StringBuffer()
+      ..writeln('═══════════════════════════════════════════════════════')
+      ..writeln('阅读器加载日志')
+      ..writeln('═══════════════════════════════════════════════════════')
+      ..writeln('文件：$fileName')
+      ..writeln('路径：$path')
+      ..writeln('导出时间：${DateTime.now().toIso8601String()}')
+      ..writeln('总条数：${log.entries.length}')
+      ..writeln('═══════════════════════════════════════════════════════')
+      ..writeln();
+
+    final bytes = Uint8List.fromList(
+      utf8.encode(header.toString() + log.dump()),
+    );
+
+    try {
+      final out = await FilePicker.saveFile(
+        fileName: 'reader-log-$ts.txt',
+        bytes: bytes,
+        mimeType: 'text/plain',
+        dialogTitle: '保存阅读器日志',
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+      );
+      if (out != null && mounted) {
+        _showToast('日志已导出');
+      }
+    } catch (e) {
+      if (mounted) _showToast('导出失败：$e');
+    }
+  }
+
   /// 删除当前正在阅读的文件。
   Future<void> _deleteCurrentFile() async {
     if (_filePaths.isEmpty) return;
@@ -1414,7 +1508,23 @@ Row(
 
 
 
-            
+            // ---------- 导出加载日志 ----------
+            Row(
+              children: [
+                Expanded(
+                  child: menuButton(
+                    icon: Icons.article_outlined,
+                    label: '导出加载日志',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _exportLoadLog();
+                    },
+                  ),
+                ),
+                const Expanded(child: SizedBox.shrink()),
+              ],
+            ),
+            const Divider(height: 1),
 
             // ---------- 设置 / 关闭 ----------
             Row(
@@ -3626,4 +3736,3 @@ void _applyHighlight(String word, HighlightPalette palette) {
 
   
 }
-
