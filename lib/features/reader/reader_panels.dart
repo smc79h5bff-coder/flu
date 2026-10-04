@@ -2822,7 +2822,7 @@ class _BookmarkHighlightManagerState
         crossAxisCount: 3,
         mainAxisSpacing: 2,
         crossAxisSpacing: 2,
-        childAspectRatio: 1.7,
+        childAspectRatio: 1.4,
       ),
       itemCount: highlights.length,
       itemBuilder: (_, i) {
