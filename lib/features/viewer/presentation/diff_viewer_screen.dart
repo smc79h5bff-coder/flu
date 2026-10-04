@@ -2621,264 +2621,295 @@ const PopupMenuItem<String>(
 
   // ==================== 查找栏 UI ====================
 
-  Widget _buildFindBar() {
-    final total = _matchEntries.length;
-    final pendingCount =
-        _pendingOrigChanges.length + _pendingModChanges.length;
 
-    Widget toggle({
-      required String label,
-      required bool value,
-      required VoidCallback onTap,
-      VoidCallback? onLongPress,
-    }) {
-      return InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: value ? FontWeight.bold : FontWeight.normal,
-              color: value
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      );
-    }
 
-    Widget sideToggle({
-      required String label,
-      required bool value,
-      required VoidCallback onTap,
-    }) {
-      return InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                value ? Icons.check_box : Icons.check_box_outline_blank,
-                size: 16,
-                color: value
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: value
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
 
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
+
+Widget _buildFindBar() {
+  final total = _matchEntries.length;
+  final pendingCount =
+      _pendingOrigChanges.length + _pendingModChanges.length;
+
+  Widget toggle({
+    required String label,
+    required bool value,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Column(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: value ? FontWeight.bold : FontWeight.normal,
+            color: value
+                ? AppColors.accentPurple
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget sideToggle({
+    required String label,
+    required bool value,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  tooltip: '关闭查找',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _closeFindBar,
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _findController,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: '查找',
-                      isDense: true,
-                      border: InputBorder.none,
-                    ),
-                    onChanged: _onFindInput,
-                    onSubmitted: (_) => _nextMatch(),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.history),
-                  tooltip: '查找历史',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _showFindHistory,
-                ),
-              ],
+            Icon(
+              value ? Icons.check_box : Icons.check_box_outline_blank,
+              size: 16,
+              color: value
+                  ? AppColors.accentPurple
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            if (_noResultHint != null)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(top: 4, bottom: 4),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  border: Border.all(color: Colors.orange.shade200),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline,
-                        size: 14, color: Colors.orange.shade800),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _noResultHint!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: value
+                    ? AppColors.accentPurple
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-            Row(
-              children: [
-                const SizedBox(width: 48),
-                Expanded(
-                  child: TextField(
-                    controller: _replaceController,
-                    decoration: const InputDecoration(
-                      hintText: '替换为（留空 = 删掉）',
-                      isDense: true,
-                      border: InputBorder.none,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: total == 0 ? null : _replaceCurrentInline,
-                  child: const Text('替换当前'),
-                ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: total == 0 ? null : _replaceAllInline,
-                  child: const Text('全部替换'),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                const SizedBox(width: 8),
-                sideToggle(
-                  label: '查左侧',
-                  value: _searchLeft,
-                  onTap: () {
-                    if (_searchLeft && !_searchRight) {
-                      _toast('至少要开一个（左/右）');
-                      return;
-                    }
-                    setState(() => _searchLeft = !_searchLeft);
-                    _findChanged(_findController.text);
-                  },
-                ),
-                sideToggle(
-                  label: '查右侧',
-                  value: _searchRight,
-                  onTap: () {
-                    if (_searchRight && !_searchLeft) {
-                      _toast('至少要开一个（左/右）');
-                      return;
-                    }
-                    setState(() => _searchRight = !_searchRight);
-                    _findChanged(_findController.text);
-                  },
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.arrow_upward),
-                  tooltip: '上一个',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: total == 0 ? null : _prevMatch,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.arrow_downward),
-                  tooltip: '下一个',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: total == 0 ? null : _nextMatch,
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                const SizedBox(width: 8),
-                toggle(
-                  label: '正则',
-                  value: _regexEnable,
-                  onTap: () => setState(() {
-                    _regexEnable = !_regexEnable;
-                    _findChanged(_findController.text);
-                  }),
-                  onLongPress: _openRegexHelp,
-                ),
-                toggle(
-                  label: '忽略大小写',
-                  value: _caseInsensitive,
-                  onTap: () => setState(() {
-                    _caseInsensitive = !_caseInsensitive;
-                    _findChanged(_findController.text);
-                  }),
-                  onLongPress: () => _toast('开启后 A 和 a 视为相同'),
-                ),
-                toggle(
-                  label: '整词',
-                  value: _wholeWord,
-                  onTap: () => setState(() {
-                    _wholeWord = !_wholeWord;
-                    _findChanged(_findController.text);
-                  }),
-                  onLongPress: () => _toast('只匹配完整单词，对中文无效'),
-                ),
-                if (pendingCount > 0) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '待应用 $pendingCount',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.orange.shade800,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-                const Spacer(),
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: pendingCount > 0
-                        ? Colors.orange.shade800
-                        : null,
-                  ),
-                  onPressed: pendingCount > 0 ? _applyPendingChanges : null,
-                  icon: const Icon(Icons.done_all, size: 16),
-                  label: const Text('应用并刷新'),
-                ),
-              ],
             ),
           ],
         ),
       ),
     );
   }
+
+  return Material(
+    color: Theme.of(context).colorScheme.surface,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: '关闭查找',
+                visualDensity: VisualDensity.compact,
+                onPressed: _closeFindBar,
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _findController,
+                  autofocus: true,
+                  cursorColor: AppColors.accentPurple,
+                  decoration: const InputDecoration(
+                    hintText: '查找',
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
+                  onChanged: _onFindInput,
+                  onSubmitted: (_) => _nextMatch(),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.history),
+                tooltip: '查找历史',
+                visualDensity: VisualDensity.compact,
+                onPressed: _showFindHistory,
+              ),
+            ],
+          ),
+          if (_noResultHint != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: 4, bottom: 4),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                border: Border.all(color: Colors.orange.shade200),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline,
+                      size: 14, color: Colors.orange.shade800),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _noResultHint!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Row(
+            children: [
+              const SizedBox(width: 48),
+              Expanded(
+                child: TextField(
+                  controller: _replaceController,
+                  cursorColor: AppColors.accentPurple,
+                  decoration: const InputDecoration(
+                    hintText: '替换为（留空 = 删掉）',
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: AppColors.accentPurple,
+                ),
+                onPressed: total == 0 ? null : _replaceCurrentInline,
+                child: const Text('替换当前'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: AppColors.accentPurple,
+                ),
+                onPressed: total == 0 ? null : _replaceAllInline,
+                child: const Text('全部替换'),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              const SizedBox(width: 8),
+              sideToggle(
+                label: '查左侧',
+                value: _searchLeft,
+                onTap: () {
+                  if (_searchLeft && !_searchRight) {
+                    _toast('至少要开一个（左/右）');
+                    return;
+                  }
+                  setState(() => _searchLeft = !_searchLeft);
+                  _findChanged(_findController.text);
+                },
+              ),
+              sideToggle(
+                label: '查右侧',
+                value: _searchRight,
+                onTap: () {
+                  if (_searchRight && !_searchLeft) {
+                    _toast('至少要开一个（左/右）');
+                    return;
+                  }
+                  setState(() => _searchRight = !_searchRight);
+                  _findChanged(_findController.text);
+                },
+              ),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.arrow_upward),
+                color: AppColors.accentPurple,
+                tooltip: '上一个',
+                visualDensity: VisualDensity.compact,
+                onPressed: total == 0 ? null : _prevMatch,
+              ),
+              IconButton(
+                icon: const Icon(Icons.arrow_downward),
+                color: AppColors.accentPurple,
+                tooltip: '下一个',
+                visualDensity: VisualDensity.compact,
+                onPressed: total == 0 ? null : _nextMatch,
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              const SizedBox(width: 8),
+              toggle(
+                label: '正则',
+                value: _regexEnable,
+                onTap: () => setState(() {
+                  _regexEnable = !_regexEnable;
+                  _findChanged(_findController.text);
+                }),
+                onLongPress: _openRegexHelp,
+              ),
+              toggle(
+                label: '忽略大小写',
+                value: _caseInsensitive,
+                onTap: () => setState(() {
+                  _caseInsensitive = !_caseInsensitive;
+                  _findChanged(_findController.text);
+                }),
+                onLongPress: () => _toast('开启后 A 和 a 视为相同'),
+              ),
+              toggle(
+                label: '整词',
+                value: _wholeWord,
+                onTap: () => setState(() {
+                  _wholeWord = !_wholeWord;
+                  _findChanged(_findController.text);
+                }),
+                onLongPress: () => _toast('只匹配完整单词，对中文无效'),
+              ),
+              if (pendingCount > 0) ...[
+                const SizedBox(width: 8),
+                Text(
+                  '待应用 $pendingCount',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange.shade800,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+              const Spacer(),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: pendingCount > 0
+                      ? Colors.orange.shade800
+                      : null,
+                ),
+                onPressed: pendingCount > 0 ? _applyPendingChanges : null,
+                icon: const Icon(Icons.done_all, size: 16),
+                label: const Text('应用并刷新'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+
+
+
+
+
+
+
+  
+  
+  
+
+
+
+
+
+
+
+
+
+  
 }
