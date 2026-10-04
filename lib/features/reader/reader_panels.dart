@@ -3013,7 +3013,7 @@ class _HighlightCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? s.primary.withValues(alpha: 0.15) : null,
           borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.black12, width: 0.5),
+          border: Border.all(color: Colors.black54, width: 0.5),
         ),
         padding: const EdgeInsets.fromLTRB(1, 1, 1, 1),
         child: Column(
