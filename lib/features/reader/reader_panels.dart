@@ -3112,13 +3112,13 @@ class _HighlightCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
         child: Text(
           entry.keyword,
-          maxLines: 2,
+          maxLines: 4,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Color(entry.textColor),
             fontSize: 11,
-            height: 1.15,
+            height: 1.05,
           ),
         ),
       ),
