@@ -84,7 +84,7 @@ class _DirectoryPickerDialogState
   void _goUp() {
     if (!_canGoUp) return;
     final parent = Directory(_path).parent.path;
-    if (parent.length < widget.rootPath.length) return;
+    if (!parent.startsWith(widget.rootPath)) return;
     setState(() {
       _path = parent;
       _filterCtrl.clear();
