@@ -362,58 +362,21 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     _notifySelectionActive();
   }
 
-  // ==================== 边缘自动滚 ====================
+  // ==================== 边缘自动滚（已禁用） ====================
 
   void _startEdgeScrollTimer() {
-    _edgeScrollTimer?.cancel();
-    _edgeScrollTimer = Timer.periodic(
-      const Duration(milliseconds: _edgeScrollIntervalMs),
-      (_) => _tickEdgeScroll(),
-    );
+    // 选中模式下禁用边缘自动滚动。
+    // 只能选当前屏幕可见的内容。
+    // 想选跨屏的大段文字，先松开手指、手动滚动、再重新长按。
+    return;
   }
 
   void _tickEdgeScroll() {
-    if (!_longPressActive) return;
-    final pos = _longPressPos;
-    if (pos == null) return;
-    if (!mounted) return;
-
-    final screenH = MediaQuery.of(context).size.height;
-    final dy = pos.dy;
-    if (dy < _edgeThreshold) {
-      _edgeScrollStep(-1);
-    } else if (dy > screenH - _edgeThreshold) {
-      _edgeScrollStep(1);
-    }
+    // 已禁用，保留占位以防将来恢复。
   }
 
   void _edgeScrollStep(int dir) {
-    if (!_scrollCtrl.isAttached) return;
-    final first = _firstVisibleLine();
-    final last = _lastVisibleLine();
-    if (first == null || last == null) return;
-
-    final int target;
-    if (dir < 0) {
-      if (first <= 0) return;
-      target = first - 1;
-    } else {
-      if (last >= widget.lines.length - 1) return;
-      target = last + 1;
-    }
-    _scrollCtrl.jumpTo(index: target);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_longPressActive) return;
-      final p = _longPressPos;
-      if (p == null) return;
-      final hit = _hitTest(p);
-      if (hit == null) return;
-      setState(() {
-        _selEndLine = hit.line;
-        _selEndOffset = hit.offset;
-      });
-    });
+    // 已禁用，保留占位以防将来恢复。
   }
 
   // ==================== 选区计算 ====================
@@ -631,6 +594,86 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     return i >= lo && i <= hi;
   }
 
+  /// 取某一行某个字符的左边缘上角 global 坐标。
+  /// 用于左手柄精确贴到"选中起点"的左边。
+  Offset? _posOfCharLeft(int line, int offset) {
+    final key = _lineKeys[line];
+    final ctx = key?.currentContext;
+    if (ctx == null) return null;
+    final rp = ctx.findRenderObject();
+    if (rp is! RenderParagraph) return null;
+
+    final lineText = widget.lines[line];
+    final off = offset.clamp(0, lineText.length);
+    if (lineText.isEmpty) return rp.localToGlobal(Offset.zero);
+
+    if (off >= lineText.length) {
+      // 末尾：取最后一个字符 box 的 right
+      final boxes = rp.getBoxesForSelection(TextSelection(
+        baseOffset: lineText.length - 1,
+        extentOffset: lineText.length,
+      ));
+      if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
+      final box = boxes.last;
+      return rp.localToGlobal(Offset(box.left, box.bottom));
+    }
+
+    // 正常：取当前字符 box 的 left
+    final boxes = rp.getBoxesForSelection(TextSelection(
+      baseOffset: off,
+      extentOffset: off + 1,
+    ));
+    if (boxes.isEmpty) {
+      final caret = rp.getOffsetForCaret(
+        TextPosition(offset: off),
+        Rect.fromLTWH(0, 0, 1, rp.size.height),
+      );
+      return rp.localToGlobal(caret);
+    }
+    final box = boxes.first;
+    return rp.localToGlobal(Offset(box.left, box.bottom));
+  }
+
+  /// 取某一行某个字符的右边缘上角 global 坐标。
+  /// 用于右手柄精确贴到"选中终点"的右边。
+  Offset? _posOfCharRight(int line, int offset) {
+    final key = _lineKeys[line];
+    final ctx = key?.currentContext;
+    if (ctx == null) return null;
+    final rp = ctx.findRenderObject();
+    if (rp is! RenderParagraph) return null;
+
+    final lineText = widget.lines[line];
+    final off = offset.clamp(0, lineText.length);
+    if (lineText.isEmpty) return rp.localToGlobal(Offset.zero);
+
+    if (off <= 0) {
+      // 开头：取第一个字符 box 的 left
+      final boxes = rp.getBoxesForSelection(const TextSelection(
+        baseOffset: 0,
+        extentOffset: 1,
+      ));
+      if (boxes.isEmpty) return rp.localToGlobal(Offset.zero);
+      final box = boxes.first;
+      return rp.localToGlobal(Offset(box.left, box.bottom));
+    }
+
+    // 正常：取前一个字符 box 的 right
+    final boxes = rp.getBoxesForSelection(TextSelection(
+      baseOffset: off - 1,
+      extentOffset: off,
+    ));
+    if (boxes.isEmpty) {
+      final caret = rp.getOffsetForCaret(
+        TextPosition(offset: off),
+        Rect.fromLTWH(0, 0, 1, rp.size.height),
+      );
+      return rp.localToGlobal(caret);
+    }
+    final box = boxes.last;
+    return rp.localToGlobal(Offset(box.right, box.bottom));
+  }
+
   List<Widget> _buildHandles() {
     if (_selStartLine == null || _selEndLine == null) return const [];
     if (_hBarVisible == false && _draggingHandle == 0 && !_longPressActive) {
@@ -638,60 +681,50 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     }
 
     // 拿 Stack 的 RenderBox，把全局坐标转成 Stack 内局部坐标。
-    // localToGlobal 给出的是全局坐标（含状态栏偏移），Positioned 要的是
-    // Stack 内局部坐标，所以必须再 globalToLocal 转一次。
     final stackBox =
         _stackKey.currentContext?.findRenderObject() as RenderBox?;
     if (stackBox == null) return const [];
 
     final widgets = <Widget>[];
 
-    // 左手柄：放在起点行的左上角外侧。
-    final startKey = _lineKeys[_selStartLine!];
-    final startCtx = startKey?.currentContext;
-    if (startCtx != null) {
-      final box = startCtx.findRenderObject() as RenderBox?;
-      if (box != null) {
-        final localTopLeft =
-            stackBox.globalToLocal(box.localToGlobal(Offset.zero));
-        widgets.add(
-          Positioned(
-            left: math.max(0, localTopLeft.dx - 20),
-            top: localTopLeft.dy,
-            child: _DragHandle(
-              isLeft: true,
-              onDragStart: (pos) => _handleDragStart(1, pos),
-              onDragUpdate: _handleDragUpdate,
-              onDragEnd: _handleDragEnd,
-            ),
+    // 左手柄：贴到"选中起点字符"的左下角。
+    final leftGlobal =
+        _posOfCharLeft(_selStartLine!, _selStartOffset ?? 0);
+    if (leftGlobal != null) {
+      final local = stackBox.globalToLocal(leftGlobal);
+      widgets.add(
+        Positioned(
+          left: math.max(0, local.dx - 22),
+          top: local.dy,
+          child: _DragHandle(
+            isLeft: true,
+            onDragStart: (pos) => _handleDragStart(1, pos),
+            onDragUpdate: _handleDragUpdate,
+            onDragEnd: _handleDragEnd,
           ),
-        );
-      }
+        ),
+      );
     }
 
-    // 右手柄：放在终点行的右下角外侧。
-    final endKey = _lineKeys[_selEndLine!];
-    final endCtx = endKey?.currentContext;
-    if (endCtx != null) {
-      final box = endCtx.findRenderObject() as RenderBox?;
-      if (box != null) {
-        final localTopLeft =
-            stackBox.globalToLocal(box.localToGlobal(Offset.zero));
-        final size = box.size;
-        widgets.add(
-          Positioned(
-            left: localTopLeft.dx + size.width,
-            top: localTopLeft.dy + size.height - 28,
-            child: _DragHandle(
-              isLeft: false,
-              onDragStart: (pos) => _handleDragStart(2, pos),
-              onDragUpdate: _handleDragUpdate,
-              onDragEnd: _handleDragEnd,
-            ),
+    // 右手柄：贴到"选中终点字符"的右下角。
+    final rightGlobal =
+        _posOfCharRight(_selEndLine!, _selEndOffset ?? 0);
+    if (rightGlobal != null) {
+      final local = stackBox.globalToLocal(rightGlobal);
+      widgets.add(
+        Positioned(
+          left: local.dx,
+          top: local.dy,
+          child: _DragHandle(
+            isLeft: false,
+            onDragStart: (pos) => _handleDragStart(2, pos),
+            onDragUpdate: _handleDragUpdate,
+            onDragEnd: _handleDragEnd,
           ),
-        );
-      }
+        ),
+      );
     }
+
     return widgets;
   }
 
