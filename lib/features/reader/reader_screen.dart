@@ -1,3 +1,4 @@
+
 // reader_screen.dart
 import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
@@ -531,16 +532,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _lastSeenMode = ref.read(readerSettingsProvider).readerMode;
   }
 
-
   @override
-void deactivate() {
-  // 在 widget 被从树上移除时调用（比 dispose 早，此时 ref 还有效）。
-  // 在这里保存进度，代替原来 dispose 里那次调用。
-  _saveProgressNow();
-  super.deactivate();
-}
+  void deactivate() {
+    // 在 widget 被从树上移除时调用（比 dispose 早，此时 ref 还有效）。
+    // 在这里保存进度，代替原来 dispose 里那次调用。
+    _saveProgressNow();
+    super.deactivate();
+  }
 
-  
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -550,7 +549,7 @@ void deactivate() {
     _toastTimer?.cancel();
     _toastEntry?.remove();
     _toastEntry = null;
-    
+
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     _selNotifier.dispose();
@@ -572,13 +571,13 @@ void deactivate() {
   // ==================== 加载 ====================
 
   String _loadKeyFor(String path) {
-  final s = ref.read(readerSettingsProvider);
-  return '$path|'
-      '${_viewportSize.width}x${_viewportSize.height}|'
-      '${s.fontSize}|${s.fontWeight}|'
-      '${s.pageBottomSafePx}|'
-      '${_manualEncoding?.name ?? "auto"}';
-}
+    final s = ref.read(readerSettingsProvider);
+    return '$path|'
+        '${_viewportSize.width}x${_viewportSize.height}|'
+        '${s.fontSize}|${s.fontWeight}|'
+        '${s.pageBottomSafePx}|'
+        '${_manualEncoding?.name ?? "auto"}';
+  }
 
   Future<void> _ensureLoaded() async {
     if (_filePaths.isEmpty) return;
@@ -3480,12 +3479,8 @@ Widget _buildFloatButton({
     top: center.dy - loupeH / 2,
     child: IgnorePointer(
       child: RepaintBoundary(
-        child: PhysicalModel(
-          color: Colors.transparent,
-          elevation: 6,
-          shadowColor: Colors.black.withValues(alpha: 0.35),
+        child: ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          clipBehavior: Clip.antiAlias,
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(4),
@@ -3560,17 +3555,17 @@ Widget _buildFloatButton({
     return Positioned(
       left: left,
       top: top,
-      child: Material(
-        elevation: 6,
-        borderRadius: BorderRadius.circular(10),
-        color: Colors.white,
-        child: Container(
-          width: approxW,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      child: Container(
+        width: approxW,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
 
 Row(
   children: [
