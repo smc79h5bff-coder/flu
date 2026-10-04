@@ -256,8 +256,11 @@ class HighlightGroup {
 /// 一个关键词在高亮后生成一条。
 /// 存的是"当时的颜色快照"——改色块配置不影响已有高亮。
 /// 未来加正则高亮，把 keyword 当正则解析。
-
-  class HighlightEntry {
+///
+/// isGlobal = true 表示"应用到所有书"，存到 __global__ key 下。
+/// 只在创建时确定；创建后不能改（想改就删了重建）。
+/// 阅读器里点色块加的高亮永远是 isGlobal = false。
+class HighlightEntry {
   const HighlightEntry({
     required this.id,
     required this.keyword,
@@ -270,6 +273,7 @@ class HighlightGroup {
     this.name = '',
     this.groupId,
     this.groupIndex = 0,
+    this.isGlobal = false,
   });
 
   final String id;
@@ -295,6 +299,9 @@ class HighlightGroup {
   /// 非正则模式忽略此字段。
   final int groupIndex;
 
+  /// 是否是全局高亮（应用到所有书）。
+  final bool isGlobal;
+
   /// 显示用名字
   String get displayName => name.isEmpty ? keyword : name;
 
@@ -310,6 +317,7 @@ class HighlightGroup {
         if (name.isNotEmpty) 'n': name,
         if (groupId != null) 'g': groupId,
         if (groupIndex > 0) 'gi': groupIndex,
+        if (isGlobal) 'gl': true,
       };
 
   factory HighlightEntry.fromJson(Map<String, dynamic> j) {
@@ -328,6 +336,7 @@ class HighlightGroup {
       name: j['n'] as String? ?? '',
       groupId: j['g'] as String?,
       groupIndex: (j['gi'] as num?)?.toInt() ?? 0,
+      isGlobal: j['gl'] as bool? ?? false,
     );
   }
 
@@ -341,6 +350,7 @@ class HighlightGroup {
     String? name,
     String? groupId,
     int? groupIndex,
+    bool? isGlobal,
     bool clearGroup = false,
   }) =>
       HighlightEntry(
@@ -355,6 +365,7 @@ class HighlightGroup {
         name: name ?? this.name,
         groupId: clearGroup ? null : (groupId ?? this.groupId),
         groupIndex: groupIndex ?? this.groupIndex,
+        isGlobal: isGlobal ?? this.isGlobal,
       );
 }
 
