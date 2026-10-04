@@ -655,59 +655,89 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     }
   }
 
-  /// 阅读器打开。返回后自动滚到"刚才看的那一项"。
-  Future<void> _openInReader(String path, String name) async {
-    final log = ReaderLoadLog.instance;
-    final t0 = DateTime.now();
-
-    final textPaths = _collectTextFilePaths();
-    log.info(
-        '[Browser→Reader] 收集文本文件列表  ${textPaths.length} 项  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-
-    var index = textPaths.indexOf(path);
-    if (index < 0) {
-      textPaths.insert(0, path);
-      index = 0;
-    }
-    log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
 
 
 
+    
 
+  
 
-      final tPush = DateTime.now();
-final result = await Navigator.of(context).push<String>(
-  PageRouteBuilder<String>(
-    pageBuilder: (_, __, ___) => ReaderScreen(
-      filePaths: textPaths,
-      initialIndex: index,
+/// 阅读器打开。返回后按"App 内删除名单"过滤列表，并滚到原位置。
+Future<void> _openInReader(String path, String name) async {
+  final log = ReaderLoadLog.instance;
+  final t0 = DateTime.now();
+
+  final textPaths = _collectTextFilePaths();
+  log.info(
+      '[Browser→Reader] 收集文本文件列表  ${textPaths.length} 项  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+
+  var index = textPaths.indexOf(path);
+  if (index < 0) {
+    textPaths.insert(0, path);
+    index = 0;
+  }
+  log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
+
+  final tPush = DateTime.now();
+  final result = await Navigator.of(context).push<String>(
+    PageRouteBuilder<String>(
+      pageBuilder: (_, __, ___) => ReaderScreen(
+        filePaths: textPaths,
+        initialIndex: index,
+      ),
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
     ),
-    transitionDuration: Duration.zero,
-    reverseTransitionDuration: Duration.zero,
-  ),
-);
+  );
+  log.info(
+      '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
 
+  if (!mounted) return;
 
+  // ---------- 按阅读器上报的"已删路径"过滤列表 ----------
+  // 阅读器删文件时会把路径塞进 readerDeletedPathsProvider。
+  // 这里读出来，从 _entries 里移除对应项，然后清空 provider。
+  // 只处理 App 内删除；外部删除不管（用户可下拉刷新 / 菜单刷新）。
+  // 复杂度 O(n)，用 HashSet 查找，1 万项约 0.3ms，无系统调用。
+  final deleted = ref.read(readerDeletedPathsProvider);
+  final tFilter = DateTime.now();
+  if (deleted.isNotEmpty) {
+    // 先清空，防止下次进入时误用旧数据。
+    ref.read(readerDeletedPathsProvider.notifier).state = const [];
 
-
-      
+    final deletedSet = deleted.toSet();
+    final current = _entries ?? const <_EntryInfo>[];
+    final stillThere = <_EntryInfo>[];
+    var removedCount = 0;
+    for (final info in current) {
+      if (deletedSet.contains(info.entity.path)) {
+        removedCount++;
+      } else {
+        stillThere.add(info);
+      }
+    }
     log.info(
-        '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
-
-    if (!mounted) return;
-
-    final tReload = DateTime.now();
-    await _load();
+        '[Browser→Reader] 返回时按已删名单移除 $removedCount 项  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
+    if (removedCount > 0) {
+      setState(() => _entries = stillThere);
+    }
+  } else {
     log.info(
-        '[Browser→Reader] 回来后 _load 耗时=${DateTime.now().difference(tReload).inMilliseconds}ms');
-
-    if (!mounted) return;
-
-    if (result != null) _scrollToPath(result);
-    log.info(
-        '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        '[Browser→Reader] 返回时无已删记录  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
   }
 
+  if (result != null) _scrollToPath(result);
+  log.info(
+      '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+}
+
+
+
+
+
+
+
+    
   /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
   Future<void> _openInEditor(String path, String name) async {
     await Navigator.of(context).push(
