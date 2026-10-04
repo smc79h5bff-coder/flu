@@ -1,9 +1,11 @@
+
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'reader_load_log.dart';
 import 'reader_models.dart';
 
 // ==================== 固定排版常量 ====================
@@ -89,12 +91,20 @@ final int pageBottomSafePx;
   // ==================== 启动 ====================
 
   void start() {
+    final log = ReaderLoadLog.instance;
+    log.mark('paginator.start() 进入');
+
     final split = splitLinesWithOffsets(text);
+    log.mark('paginator: splitLinesWithOffsets');
+    log.info('lines = ${split.lines.length}');
+
     _lines = split.lines;
     _lineStarts = split.lineStarts;
     _preciseHeights = List<double?>.filled(_lines.length, null);
+    log.mark('paginator: 分配 _preciseHeights');
 
     final style = _readerStyle();
+    log.mark('paginator: 构造 _readerStyle');
 
     // 计算基准单行高度。
     // 用中英混合的参考串，取真实 layout 高度。
@@ -104,13 +114,20 @@ final int pageBottomSafePx;
     );
     refTp.layout();
     _singleLineHeight = refTp.height;
+    log.mark('paginator: 测量单行基准高');
+    log.info('singleLineHeight = ${_singleLineHeight.toStringAsFixed(2)}');
 
     // 立即给一个估算 result。
     _result = _buildResult();
+    log.mark('paginator: 首次 _buildResult()');
+    log.info('pages = ${_result?.pageCount}  units = ${_result?.renderUnits.length}');
+
     notifyListeners();
+    log.mark('paginator: notifyListeners');
 
     _precisionCursor = 0;
     _scheduleNextChunk();
+    log.mark('paginator.start() 结束');
   }
 
   @override
@@ -160,6 +177,9 @@ final int pageBottomSafePx;
     if (_disposed || _paused) return;
     if (_precisionCursor >= _lines.length) return;
 
+    final log = ReaderLoadLog.instance;
+    final startCursor = _precisionCursor;
+
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
     final style = _readerStyle();
@@ -186,21 +206,36 @@ final int pageBottomSafePx;
     }
 
     if (_precisionCursor >= _lines.length) {
+      log.mark('precision 完成，总行数 ${_lines.length}');
       _applyPrecision();
       return;
     }
+
+    // 只在每跨过 2000 行时打一次日志，避免刷屏。
+    if ((startCursor ~/ 2000) != (_precisionCursor ~/ 2000)) {
+      log.mark('precision 进度 ${_precisionCursor}/${_lines.length}');
+    }
+
     _scheduleNextChunk();
   }
 
   void _applyPrecision() {
     if (_disposed) return;
+    final log = ReaderLoadLog.instance;
+    log.mark('_applyPrecision 开始');
     _result = _buildResult();
+    log.mark('_applyPrecision 完成，重跑分页');
+    log.info('pages = ${_result?.pageCount}  units = ${_result?.renderUnits.length}');
     notifyListeners();
+    log.mark('_applyPrecision notifyListeners');
   }
 
   // ==================== 核心分页算法 ====================
 
   PaginationResult _buildResult() {
+    final log = ReaderLoadLog.instance;
+    final sw = Stopwatch()..start();
+
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
 
@@ -236,6 +271,10 @@ final usableHeight = math.max(
       rowsInPage += rowCount;
     }
 
+    var longLinesSplit = 0;
+    var preciseLines = 0;
+    var estimatedLines = 0;
+
     for (var i = 0; i < n; i++) {
       final line = _lines[i];
       final h = _preciseHeights[i] ?? _estimatedHeight(line, usableWidth);
@@ -257,7 +296,13 @@ final usableHeight = math.max(
       }
 
       // 多显示行的逻辑行：拆成多个 unit，每个 1 行高。
+      longLinesSplit++;
       final isPrecise = _preciseHeights[i] != null;
+      if (isPrecise) {
+        preciseLines++;
+      } else {
+        estimatedLines++;
+      }
       final units = isPrecise
           ? _splitLongLinePrecise(
               lineIndex: i,
@@ -282,6 +327,9 @@ final usableHeight = math.max(
         place(u, uRows);
       }
     }
+
+    log.mark(
+        '_buildResult 完成 (${sw.elapsedMilliseconds}ms)  lines=$n units=${renderUnits.length} pages=${pageStarts.length} 长行拆分=$longLinesSplit(精确$preciseLines/估算$estimatedLines)');
 
     return PaginationResult(
       pageStarts: pageStarts,
