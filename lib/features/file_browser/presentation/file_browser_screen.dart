@@ -670,15 +670,26 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     }
     log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
 
-    final tPush = DateTime.now();
-    final result = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => ReaderScreen(
-          filePaths: textPaths,
-          initialIndex: index,
-        ),
-      ),
-    );
+
+
+
+
+      final tPush = DateTime.now();
+final result = await Navigator.of(context).push<String>(
+  PageRouteBuilder<String>(
+    pageBuilder: (_, __, ___) => ReaderScreen(
+      filePaths: textPaths,
+      initialIndex: index,
+    ),
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+  ),
+);
+
+
+
+
+      
     log.info(
         '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
 
