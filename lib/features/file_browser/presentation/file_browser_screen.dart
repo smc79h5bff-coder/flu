@@ -24,6 +24,7 @@ import 'dialogs/directory_picker_dialog.dart';
 import 'providers/file_browser_providers.dart';
 import 'text_preview_screen.dart';
 import 'config_io_service.dart';
+import 'dir_loader.dart';
 
 // ==================== 路由观察者 ====================
 
@@ -153,22 +154,6 @@ class FileBrowserScreen extends ConsumerStatefulWidget {
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
 
-class _EntryInfo {
-  _EntryInfo({
-    required this.entity,
-    required this.name,
-    required this.isDir,
-    this.size,
-    this.modified,
-  });
-
-  final FileSystemEntity entity;
-  final String name;
-  final bool isDir;
-  final int? size;
-  final DateTime? modified;
-}
-
 class _SearchHit {
   _SearchHit({
     required this.path,
@@ -194,6 +179,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   static const EdgeInsets _dlgActionsPad =
       EdgeInsets.fromLTRB(4, 0, 4, 4);
   static const int _editSizeThreshold = 200 * 1024;   // 200KB
+
   // ==================== 扩展名 → 图标颜色 ====================
 
   /// 文本类扩展名（与 TextPreviewScreen 保持一致）。
@@ -244,9 +230,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   late String _currentPath;
-  List<_EntryInfo>? _entries;
+  List<EntryInfo>? _entries;
   bool _loading = false;
   String? _error;
+
+  /// 目录加载的取消令牌。用户切目录时打断旧的加载。
+  LoadCancelToken? _loadCancelToken;
 
   final TextEditingController _searchCtrl = TextEditingController();
   final GlobalKey _searchBtnKey = GlobalKey();
@@ -317,97 +306,101 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   /// [restoreScroll] = true 时，会先快照当前视口里的路径列表，
   /// 加载完后跳到"第一个仍存在的路径"那一项——这样删除/移动/复制/
   /// 重命名后，视觉上位置几乎不动，而不是被弹回顶部。
-  Future<void> _load({bool restoreScroll = false}) async {
-    // 关键：必须在 setState(loading) 之前取快照。
-    // loading 会把列表换成菊花，positionsListener 就清空了。
-    final anchor = restoreScroll ? _snapshotVisiblePaths() : const <String>[];
+  ///
+  /// [skipCache] = true 时，强制跳过缓存走一次全新加载（菜单刷新用）。
+  Future<void> _load({
+    bool restoreScroll = false,
+    bool skipCache = false,
+  }) async {
+    // 中断上一次加载
+    _loadCancelToken?.cancel();
+    final token = LoadCancelToken();
+    _loadCancelToken = token;
 
     final log = ReaderLoadLog.instance;
     final t0 = DateTime.now();
-    log.info(
-        '[Dir] _load 开始  path=$_currentPath  restoreScroll=$restoreScroll');
 
+    // 快照滚动锚点（在 setState 之前！）
+    final anchor = restoreScroll ? _snapshotVisiblePaths() : const <String>[];
+    var anchorRestored = false;
+
+    final sortField = ref.read(sortFieldProvider);
+    final sortAsc = ref.read(sortAscProvider);
+    final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
+
+    log.info(
+        '[Dir] _load 开始  path=$_currentPath  restoreScroll=$restoreScroll  skipCache=$skipCache');
+
+    // ---------- 查缓存 ----------
+    if (!skipCache) {
+      final cached = DirCache.instance.get(cacheKey);
+      if (cached != null) {
+        log.info('[DirCache] 命中  $cacheKey  (${cached.length} 项)');
+        setState(() {
+          _entries = cached;
+          _loading = false;
+          _error = null;
+        });
+        if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
+        log.info(
+            '[Dir] _load 缓存命中，总耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        return;
+      }
+      log.info('[DirCache] 未命中  $cacheKey');
+    } else {
+      log.info('[DirCache] 强制跳过缓存  $cacheKey');
+    }
+
+    // ---------- 缓存未命中，走异步加载 ----------
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
-      final dir = Directory(_currentPath);
-
-      final tList = DateTime.now();
-      final raw = await dir.list(followLinks: false).toList();
-      final listMs = DateTime.now().difference(tList).inMilliseconds;
-      log.info('[Dir] Directory.list 返回 ${raw.length} 项  耗时=${listMs}ms');
-
-      raw.removeWhere((e) {
-        final name = e.path.split('/').last;
-        return name.startsWith('.');
-      });
-
-      final tStat = DateTime.now();
-      final infos = await Future.wait(raw.map((e) async {
-        final name = e.path.split('/').last;
-        final isDir = e is Directory;
-        int? size;
-        DateTime? modified;
-        try {
-          final st = await e.stat();
-          modified = st.modified;
-          if (!isDir) size = st.size;
-        } catch (_) {}
-        return _EntryInfo(
-          entity: e,
-          name: name,
-          isDir: isDir,
-          size: size,
-          modified: modified,
-        );
-      }));
-      final statMs = DateTime.now().difference(tStat).inMilliseconds;
-      log.info('[Dir] 全部 stat 完成  耗时=${statMs}ms  (${raw.length} 项)');
-
-      final sortField = ref.read(sortFieldProvider);
-      final sortAsc = ref.read(sortAscProvider);
-
-      final tSort = DateTime.now();
-      infos.sort((a, b) {
-        if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
-        int cmp;
-        switch (sortField) {
-          case SortField.name:
-            cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-          case SortField.modified:
-            final at = a.modified?.millisecondsSinceEpoch ?? 0;
-            final bt = b.modified?.millisecondsSinceEpoch ?? 0;
-            cmp = at.compareTo(bt);
-          case SortField.size:
-            final as = a.size ?? 0;
-            final bs = b.size ?? 0;
-            cmp = as.compareTo(bs);
-        }
-        return sortAsc ? cmp : -cmp;
-      });
-      log.info(
-          '[Dir] 排序完成  耗时=${DateTime.now().difference(tSort).inMilliseconds}ms');
-
-      if (!mounted) return;
-      setState(() {
-        _entries = infos;
-        _loading = false;
-      });
-
-      if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
-
-      final totalMs = DateTime.now().difference(t0).inMilliseconds;
-      log.info('[Dir] _load 结束  总耗时=${totalMs}ms');
+      await loadDirectoryAsync(
+        path: _currentPath,
+        sortField: sortField,
+        sortAsc: sortAsc,
+        cancelToken: token,
+        onUpdate: (list) {
+          if (!mounted || token.isCancelled) return;
+          if (_currentPath != _currentPathForToken(token)) return;
+          setState(() {
+            _entries = list;
+            _loading = false;
+          });
+          if (anchor.isNotEmpty && !anchorRestored) {
+            _restoreScrollAnchor(anchor);
+            anchorRestored = true;
+          }
+        },
+        onComplete: (list) {
+          if (!mounted || token.isCancelled) return;
+          setState(() {
+            _entries = list;
+          });
+          DirCache.instance.put(cacheKey, list);
+          log.info('[DirCache] 写入  $cacheKey  (${list.length} 项)');
+          log.info(
+              '[Dir] _load 完成，总耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        },
+      );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || token.isCancelled) return;
       log.info('[Dir] ❌ _load 失败  $e');
       setState(() {
         _error = e.toString();
         _loading = false;
       });
     }
+  }
+
+  /// 检查 token 对应的加载是不是当前目录的。
+  /// 简单实现：比较 token 是否还是最新的。
+  String _currentPathForToken(LoadCancelToken token) {
+    if (!identical(token, _loadCancelToken)) return '__stale__';
+    return _currentPath;
   }
 
   // ==================== 滚动锚点 ====================
@@ -548,7 +541,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     if (_searchActive) {
       return _searchResults.map((h) => h.path).toList();
     }
-    return (_entries ?? const <_EntryInfo>[])
+    return (_entries ?? const <EntryInfo>[])
         .map((e) => e.entity.path)
         .toList();
   }
@@ -655,89 +648,80 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     }
   }
 
+  /// 阅读器打开。返回后按"App 内删除名单"过滤列表，并滚到原位置。
+  Future<void> _openInReader(String path, String name) async {
+    final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
 
+    final textPaths = _collectTextFilePaths();
+    log.info(
+        '[Browser→Reader] 收集文本文件列表  ${textPaths.length} 项  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
 
+    var index = textPaths.indexOf(path);
+    if (index < 0) {
+      textPaths.insert(0, path);
+      index = 0;
+    }
+    log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
 
-    
-
-  
-
-/// 阅读器打开。返回后按"App 内删除名单"过滤列表，并滚到原位置。
-Future<void> _openInReader(String path, String name) async {
-  final log = ReaderLoadLog.instance;
-  final t0 = DateTime.now();
-
-  final textPaths = _collectTextFilePaths();
-  log.info(
-      '[Browser→Reader] 收集文本文件列表  ${textPaths.length} 项  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-
-  var index = textPaths.indexOf(path);
-  if (index < 0) {
-    textPaths.insert(0, path);
-    index = 0;
-  }
-  log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
-
-  final tPush = DateTime.now();
-  final result = await Navigator.of(context).push<String>(
-    PageRouteBuilder<String>(
-      pageBuilder: (_, __, ___) => ReaderScreen(
-        filePaths: textPaths,
-        initialIndex: index,
+    final tPush = DateTime.now();
+    final result = await Navigator.of(context).push<String>(
+      PageRouteBuilder<String>(
+        pageBuilder: (_, __, ___) => ReaderScreen(
+          filePaths: textPaths,
+          initialIndex: index,
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
-      transitionDuration: Duration.zero,
-      reverseTransitionDuration: Duration.zero,
-    ),
-  );
-  log.info(
-      '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
+    );
+    log.info(
+        '[Browser→Reader] 阅读器返回  用户停留=${DateTime.now().difference(tPush).inMilliseconds}ms  result=$result');
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  // ---------- 按阅读器上报的"已删路径"过滤列表 ----------
-  // 阅读器删文件时会把路径塞进 readerDeletedPathsProvider。
-  // 这里读出来，从 _entries 里移除对应项，然后清空 provider。
-  // 只处理 App 内删除；外部删除不管（用户可下拉刷新 / 菜单刷新）。
-  // 复杂度 O(n)，用 HashSet 查找，1 万项约 0.3ms，无系统调用。
-  final deleted = ref.read(readerDeletedPathsProvider);
-  final tFilter = DateTime.now();
-  if (deleted.isNotEmpty) {
-    // 先清空，防止下次进入时误用旧数据。
-    ref.read(readerDeletedPathsProvider.notifier).state = const [];
+    // ---------- 按阅读器上报的"已删路径"过滤列表 ----------
+    // 阅读器删文件时会把路径塞进 readerDeletedPathsProvider。
+    // 这里读出来，从 _entries 里移除对应项，然后清空 provider。
+    // 只处理 App 内删除；外部删除不管（用户可下拉刷新 / 菜单刷新）。
+    // 复杂度 O(n)，用 HashSet 查找，1 万项约 0.3ms，无系统调用。
+    final deleted = ref.read(readerDeletedPathsProvider);
+    final tFilter = DateTime.now();
+    if (deleted.isNotEmpty) {
+      // 先清空，防止下次进入时误用旧数据。
+      ref.read(readerDeletedPathsProvider.notifier).state = const [];
 
-    final deletedSet = deleted.toSet();
-    final current = _entries ?? const <_EntryInfo>[];
-    final stillThere = <_EntryInfo>[];
-    var removedCount = 0;
-    for (final info in current) {
-      if (deletedSet.contains(info.entity.path)) {
-        removedCount++;
-      } else {
-        stillThere.add(info);
+      final deletedSet = deleted.toSet();
+      final current = _entries ?? const <EntryInfo>[];
+      final stillThere = <EntryInfo>[];
+      var removedCount = 0;
+      for (final info in current) {
+        if (deletedSet.contains(info.entity.path)) {
+          removedCount++;
+        } else {
+          stillThere.add(info);
+        }
       }
+      log.info(
+          '[Browser→Reader] 返回时按已删名单移除 $removedCount 项  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
+      if (removedCount > 0) {
+        setState(() => _entries = stillThere);
+        // ★ 新增：同步到缓存（所有排序方式）
+        DirCache.instance.applyToAll(
+          _currentPath,
+          (list) => list.where((e) => !deletedSet.contains(e.path)).toList(),
+        );
+      }
+    } else {
+      log.info(
+          '[Browser→Reader] 返回时无已删记录  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
     }
+
+    if (result != null) _scrollToPath(result);
     log.info(
-        '[Browser→Reader] 返回时按已删名单移除 $removedCount 项  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
-    if (removedCount > 0) {
-      setState(() => _entries = stillThere);
-    }
-  } else {
-    log.info(
-        '[Browser→Reader] 返回时无已删记录  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
+        '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
   }
 
-  if (result != null) _scrollToPath(result);
-  log.info(
-      '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-}
-
-
-
-
-
-
-
-    
   /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
   Future<void> _openInEditor(String path, String name) async {
     await Navigator.of(context).push(
@@ -749,6 +733,7 @@ Future<void> _openInReader(String path, String name) async {
       ),
     );
     if (!mounted) return;
+    DirCache.instance.invalidate(_currentPath);
     _load();
   }
 
@@ -763,6 +748,7 @@ Future<void> _openInReader(String path, String name) async {
       ),
     );
     if (!mounted) return;
+    DirCache.instance.invalidate(_currentPath);
     _load();
   }
 
@@ -851,7 +837,7 @@ Future<void> _openInReader(String path, String name) async {
     if (_searchActive) {
       index = _searchResults.indexWhere((h) => h.path == path);
     } else {
-      index = (_entries ?? const <_EntryInfo>[])
+      index = (_entries ?? const <EntryInfo>[])
           .indexWhere((e) => e.entity.path == path);
     }
     if (index < 0) return;
@@ -876,7 +862,7 @@ Future<void> _openInReader(String path, String name) async {
           if (_textExts.contains(_extOf(hit.name))) hit.path,
       ];
     }
-    final entries = _entries ?? const <_EntryInfo>[];
+    final entries = _entries ?? const <EntryInfo>[];
     return [
       for (final info in entries)
         if (!info.isDir && _textExts.contains(_extOf(info.name)))
@@ -884,7 +870,7 @@ Future<void> _openInReader(String path, String name) async {
     ];
   }
 
-  void _openPreview(_EntryInfo info) {
+  void _openPreview(EntryInfo info) {
     _openFile(info.entity.path, info.name, info.size);
   }
 
@@ -1832,6 +1818,7 @@ Future<void> _openInReader(String path, String name) async {
       } else {
         await File(oldPath).rename(newPath);
       }
+      DirCache.instance.invalidate(_currentPath);
       _clearSelection();
       _load(restoreScroll: true);
       _toast('已重命名为 $trimmed');
@@ -1867,6 +1854,10 @@ Future<void> _openInReader(String path, String name) async {
       ref.read(recentMoveTargetsProvider.notifier).add(target);
     }
 
+    if (ok > 0) {
+      DirCache.instance.invalidate(_currentPath);
+      DirCache.instance.invalidate(target);
+    }
     _clearSelection();
     _load(restoreScroll: true);
     _toast('已移动 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
@@ -1897,6 +1888,9 @@ Future<void> _openInReader(String path, String name) async {
 
     if (ok > 0) {
       ref.read(recentMoveTargetsProvider.notifier).add(target);
+    }
+    if (ok > 0) {
+      DirCache.instance.invalidate(target);
     }
     _clearSelection();
     _load(restoreScroll: true);
@@ -1959,6 +1953,7 @@ Future<void> _openInReader(String path, String name) async {
       });
       if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
     } else {
+      DirCache.instance.invalidate(_currentPath);
       _load(restoreScroll: true);
     }
 
@@ -1998,6 +1993,7 @@ Future<void> _openInReader(String path, String name) async {
     }
     try {
       await Directory(path).create();
+      DirCache.instance.invalidate(_currentPath);
       _load();
       _toast('已新建 $trimmed');
     } catch (e) {
@@ -2272,7 +2268,8 @@ Future<void> _openInReader(String path, String name) async {
               case 'importConfig':
                 _importConfig();
               case 'refresh':
-                _load();
+                DirCache.instance.invalidate(_currentPath);
+                _load(skipCache: true);
               case 'sort':
                 _showSortDialog();
               case 'favorites':
@@ -2797,7 +2794,7 @@ Future<void> _openInReader(String path, String name) async {
       );
     }
 
-    final entries = _entries ?? const <_EntryInfo>[];
+    final entries = _entries ?? const <EntryInfo>[];
     if (entries.isEmpty) {
       return const Center(child: Text('空目录'));
     }
