@@ -44,23 +44,20 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
 
   void setBgColor(int v) => update(state.copyWith(bgColor: v));
 
-
-  void setReaderMode(int v) =>
-    update(state.copyWith(readerMode: v.clamp(0, 1)));
-
-  
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
 
-/// 分页底部安全边距。范围 -20 ~ +30 像素。
-///
-///   · 正数：底部预留，防裁切。
-///   · 0（默认）：精确，屏幕利用率最高。
-///   · 负数：底部"榨"空间，多显示内容，可能裁切。
-void setPageBottomSafePx(int v) => update(state.copyWith(
-      pageBottomSafePx: v.clamp(-20, 30),
-    ));
-  
+  void setReaderMode(int v) => update(state.copyWith(readerMode: v));
+
+  /// 分页底部安全边距。范围 -20 ~ +30 像素。
+  ///
+  ///   · 正数：底部预留，防裁切。
+  ///   · 0（默认）：精确，屏幕利用率最高。
+  ///   · 负数：底部"榨"空间，多显示内容，可能裁切。
+  void setPageBottomSafePx(int v) => update(state.copyWith(
+        pageBottomSafePx: v.clamp(-20, 30),
+      ));
+
   // ---- 上一文件按钮 ----
 
   void setTopBtnStyle(int v) => update(state.copyWith(topBtnStyle: v));
@@ -592,68 +589,3 @@ class ReaderFindHistoryNotifier
 final readerHotZonePreviewProvider = StateProvider<bool>((ref) => false);
 /// 当前阅读页的纯文本。给设置面板里的按钮位置预览用。
 final readerPagePreviewProvider = StateProvider<String>((ref) => '');
-
-// ==================== 高亮管理页显示设置（持久化） ====================
-//
-// 全部书籍模式 / 本书模式共用同一套设置。
-
-class HighlightViewSettings {
-  const HighlightViewSettings({
-    this.showBookName = false,
-  });
-
-  /// 卡片底部是否显示书名。
-  final bool showBookName;
-
-  HighlightViewSettings copyWith({
-    bool? showBookName,
-  }) =>
-      HighlightViewSettings(
-        showBookName: showBookName ?? this.showBookName,
-      );
-
-  Map<String, dynamic> toJson() => {
-        'showBookName': showBookName,
-      };
-
-  factory HighlightViewSettings.fromJson(Map<String, dynamic> j) =>
-      HighlightViewSettings(
-        showBookName: j['showBookName'] as bool? ?? false,
-      );
-
-  String encode() => jsonEncode(toJson());
-
-  static HighlightViewSettings tryDecode(String? s) {
-    if (s == null || s.isEmpty) return const HighlightViewSettings();
-    try {
-      return HighlightViewSettings.fromJson(
-          jsonDecode(s) as Map<String, dynamic>);
-    } catch (_) {
-      return const HighlightViewSettings();
-    }
-  }
-}
-
-final highlightViewSettingsProvider = NotifierProvider<
-    HighlightViewSettingsNotifier, HighlightViewSettings>(
-  HighlightViewSettingsNotifier.new,
-);
-
-class HighlightViewSettingsNotifier
-    extends PersistentNotifier<HighlightViewSettings> {
-  @override
-  String get key => 'reader.highlightView.v1';
-
-  @override
-  HighlightViewSettings get defaultValue => const HighlightViewSettings();
-
-  @override
-  HighlightViewSettings decode(String raw) =>
-      HighlightViewSettings.tryDecode(raw);
-
-  @override
-  String encode(HighlightViewSettings value) => value.encode();
-
-  void setShowBookName(bool v) =>
-      update(state.copyWith(showBookName: v));
-}
