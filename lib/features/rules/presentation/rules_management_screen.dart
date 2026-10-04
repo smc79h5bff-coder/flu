@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 
@@ -123,34 +124,93 @@ class _RuleEditorDialogState extends State<_RuleEditorDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // ========== 改动（B25）：规则名输入框 ==========
             TextField(
               controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: '规则名'),
+              cursorColor: AppColors.accentPurple,
+              decoration: const InputDecoration(
+                labelText: '规则名',
+                border: OutlineInputBorder(),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: AppColors.accentPurple,
+                    width: 2,
+                  ),
+                ),
+              ),
             ),
+            const SizedBox(height: 8),
+
+            // ========== 改动（B25）：查找正则输入框 ==========
             TextField(
               controller: _findCtrl,
+              cursorColor: AppColors.accentPurple,
               decoration: const InputDecoration(
                 labelText: '查找正则',
                 hintText: r'\d{4}-\d{2}-\d{2}',
+                border: OutlineInputBorder(),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: AppColors.accentPurple,
+                    width: 2,
+                  ),
+                ),
               ),
             ),
+            const SizedBox(height: 8),
+
+            // ========== 改动（B25）：替换串输入框 ==========
             TextField(
               controller: _replaceCtrl,
+              cursorColor: AppColors.accentPurple,
               decoration: const InputDecoration(
                 labelText: '替换串',
                 hintText: '<DATE>',
+                border: OutlineInputBorder(),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: AppColors.accentPurple,
+                    width: 2,
+                  ),
+                ),
               ),
             ),
-            DropdownButton<RuleScope>(
+            const SizedBox(height: 8),
+
+            // ========== 改动（B25）：作用范围下拉框 ==========
+            // 原来用的是 DropdownButton（无边框），换成 DropdownButtonFormField
+            // 以便使用边框 / 聚焦变紫等属性。行为和原来完全一样。
+            DropdownButtonFormField<RuleScope>(
               value: _scope,
               isExpanded: true,
+              style: const TextStyle(color: AppColors.accentPurple),
+              iconEnabledColor: AppColors.accentPurple,
+              decoration: const InputDecoration(
+                labelText: '作用范围',
+                border: OutlineInputBorder(),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: AppColors.accentPurple,
+                    width: 2,
+                  ),
+                ),
+              ),
               items: const [
                 DropdownMenuItem(
-                    value: RuleScope.both, child: Text('两份文档')),
+                  value: RuleScope.both,
+                  child: Text('两份文档',
+                      style: TextStyle(color: AppColors.accentPurple)),
+                ),
                 DropdownMenuItem(
-                    value: RuleScope.originalOnly, child: Text('仅原文')),
+                  value: RuleScope.originalOnly,
+                  child: Text('仅原文',
+                      style: TextStyle(color: AppColors.accentPurple)),
+                ),
                 DropdownMenuItem(
-                    value: RuleScope.modifiedOnly, child: Text('仅修改版')),
+                  value: RuleScope.modifiedOnly,
+                  child: Text('仅修改版',
+                      style: TextStyle(color: AppColors.accentPurple)),
+                ),
               ],
               onChanged: (v) => setState(() => _scope = v ?? RuleScope.both),
             ),
