@@ -44,6 +44,11 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
 
   void setBgColor(int v) => update(state.copyWith(bgColor: v));
 
+
+  void setReaderMode(int v) =>
+    update(state.copyWith(readerMode: v.clamp(0, 1)));
+
+  
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
 
