@@ -47,17 +47,15 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
 
-  void setReaderMode(int v) => update(state.copyWith(readerMode: v));
-
-  /// 分页底部安全边距。范围 -20 ~ +30 像素。
-  ///
-  ///   · 正数：底部预留，防裁切。
-  ///   · 0（默认）：精确，屏幕利用率最高。
-  ///   · 负数：底部"榨"空间，多显示内容，可能裁切。
-  void setPageBottomSafePx(int v) => update(state.copyWith(
-        pageBottomSafePx: v.clamp(-20, 30),
-      ));
-
+/// 分页底部安全边距。范围 -20 ~ +30 像素。
+///
+///   · 正数：底部预留，防裁切。
+///   · 0（默认）：精确，屏幕利用率最高。
+///   · 负数：底部"榨"空间，多显示内容，可能裁切。
+void setPageBottomSafePx(int v) => update(state.copyWith(
+      pageBottomSafePx: v.clamp(-20, 30),
+    ));
+  
   // ---- 上一文件按钮 ----
 
   void setTopBtnStyle(int v) => update(state.copyWith(topBtnStyle: v));
@@ -589,7 +587,6 @@ class ReaderFindHistoryNotifier
 final readerHotZonePreviewProvider = StateProvider<bool>((ref) => false);
 /// 当前阅读页的纯文本。给设置面板里的按钮位置预览用。
 final readerPagePreviewProvider = StateProvider<String>((ref) => '');
-
 
 // ==================== 高亮管理页显示设置（持久化） ====================
 //
