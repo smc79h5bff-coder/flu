@@ -126,7 +126,20 @@ final int pageBottomSafePx;
     log.mark('paginator: notifyListeners');
 
     _precisionCursor = 0;
-    _scheduleNextChunk();
+    
+
+// ⚠️ 精修（precision）已停用。停用原因：
+//   · 首次分页已经用估算值给出了结果
+//   · 精修只在屏幕有新帧时推进，静止看书几乎不跑
+//   · 每次翻页会偷偷跑 2ms，长期耗电
+//   · 对纯中文小说，估算和精确值差异 < 1 行
+//
+// 🔄 如需恢复：取消下面 _scheduleNextChunk() 的注释即可。
+//    历史上曾因"底部空白过多/行被裁切"等问题开启精修；
+//    恢复前先确认那些问题是否还会复现。
+//
+// _scheduleNextChunk();
+    
     log.mark('paginator.start() 结束');
   }
 
