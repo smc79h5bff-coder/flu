@@ -171,6 +171,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     with RouteAware {
   static const String _rootPath = '/storage/emulated/0';
 
+  /// 允许浏览的最顶层。`/storage` 下有内置存储、双开、SD 卡、U 盘等。
+  /// 从 `/storage` 开始能访问所有卷，但 `/data`、`/system` 等系统分区仍被挡。
+  static const String _topPath = '/storage';
+
   // 弹窗统一参数：几乎铺满屏，间距最小
   static const EdgeInsets _dlgInset = EdgeInsets.all(4);
   static const EdgeInsets _dlgTitlePad =
@@ -272,10 +276,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     _load();
   }
 
-  /// 启动时决定的初始路径：无效/空/超范围 → 回到根目录。
+  /// 启动时决定的初始路径：无效/空/超范围 → 回到默认起始目录。
+  /// 允许 /storage 下任意路径（含 SD 卡、双开、U 盘）。
   String _resolveInitialPath(String saved) {
     if (saved.isEmpty) return _rootPath;
-    if (!saved.startsWith(_rootPath)) return _rootPath;
+    if (!saved.startsWith(_topPath)) return _rootPath;
     if (!Directory(saved).existsSync()) return _rootPath;
     return saved;
   }
@@ -503,12 +508,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     _load();
   }
 
-  bool get _canGoUp => _currentPath != _rootPath;
+  /// 是否还能往上一级。到 /storage 就到底。
+  bool get _canGoUp => _currentPath != _topPath;
 
   void _goUp() {
     if (!_canGoUp) return;
     final parent = Directory(_currentPath).parent.path;
-    if (parent.length < _rootPath.length) return;
+    if (!parent.startsWith(_topPath)) return;
     _navigateTo(parent);
   }
 
@@ -1246,7 +1252,7 @@ final result = await Navigator.of(context).push<String>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _SearchFolderPickerDialog(
-        rootPath: _rootPath,
+        rootPath: _topPath,
         initialPath: _currentPath,
         initialSelected: current,
       ),
@@ -2128,8 +2134,8 @@ final result = await Navigator.of(context).push<String>(
       _toast('目录不存在：$target');
       return;
     }
-    if (!target.startsWith(_rootPath)) {
-      _toast('只能跳到内部存储（$_rootPath）以内');
+    if (!target.startsWith(_topPath)) {
+      _toast('只能跳到 $_topPath 以内');
       return;
     }
     _navigateTo(target);
@@ -2140,7 +2146,7 @@ final result = await Navigator.of(context).push<String>(
       context: context,
       builder: (_) => DirectoryPickerDialog(
         title: title,
-        rootPath: _rootPath,
+        rootPath: _topPath,
         initialPath: _currentPath,
       ),
     );
@@ -2149,18 +2155,65 @@ final result = await Navigator.of(context).push<String>(
   // ==================== 面包屑 ====================
 
   List<({String label, String path})> get _crumbs {
-    final relative = _currentPath.substring(_rootPath.length);
-    final segments = relative.split('/').where((s) => s.isNotEmpty).toList();
+    // 在 /storage 顶层：只有一个"存储"面包屑
+    if (_currentPath == _topPath) {
+      return [(label: '存储', path: _topPath)];
+    }
 
+    // 在内部存储下：从"内部存储"开始
+    if (_currentPath == _rootPath ||
+        _currentPath.startsWith('$_rootPath/')) {
+      final out = <({String label, String path})>[
+        (label: '内部存储', path: _rootPath),
+      ];
+      final relative = _currentPath.substring(_rootPath.length);
+      final segments =
+          relative.split('/').where((s) => s.isNotEmpty).toList();
+      var acc = _rootPath;
+      for (final seg in segments) {
+        acc = '$acc/$seg';
+        out.add((label: seg, path: acc));
+      }
+      return out;
+    }
+
+    // 其它 /storage 下的路径（emulated/999、SD 卡、U 盘等）
     final out = <({String label, String path})>[
-      (label: '内部存储', path: _rootPath),
+      (label: '存储', path: _topPath),
     ];
-    var acc = _rootPath;
+    if (!_currentPath.startsWith('$_topPath/')) return out;
+    final relative = _currentPath.substring(_topPath.length);
+    final segments =
+        relative.split('/').where((s) => s.isNotEmpty).toList();
+    var acc = _topPath;
     for (final seg in segments) {
       acc = '$acc/$seg';
-      out.add((label: seg, path: acc));
+      out.add((label: _crumbLabelFor(acc, seg), path: acc));
     }
     return out;
+  }
+
+  /// 生成某一级面包屑的显示名。对特殊路径做美化：
+  ///   · /storage/emulated/0        → 内部存储
+  ///   · /storage/emulated/<其他数字> → 双开(<数字>)
+  ///   · /storage/XXXX-XXXX         → 外部存储(XXXX-XXXX)
+  /// 其它情况直接返回目录名。
+  String _crumbLabelFor(String fullPath, String segment) {
+    if (segment == 'emulated') return 'emulated';
+    if (segment == 'self') return 'self';
+
+    if (fullPath == _rootPath) return '内部存储';
+
+    if (fullPath.startsWith('$_topPath/emulated/')) {
+      return '双开($segment)';
+    }
+
+    // UUID 卷名格式：4 位十六进制 + 短横 + 4 位十六进制
+    if (RegExp(r'^[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}$').hasMatch(segment)) {
+      return '外部存储($segment)';
+    }
+
+    return segment;
   }
 
   Widget _buildBreadcrumbs() {
@@ -2221,13 +2274,14 @@ final result = await Navigator.of(context).push<String>(
   }
 
   String get _title {
+    if (_currentPath == _topPath) return '存储';
     if (_currentPath == _rootPath) return '内部存储';
     return _currentPath.split('/').last;
   }
 
   String _relPath(String fullPath) {
     if (fullPath == _rootPath) return '~/';
-    if (fullPath.startsWith(_rootPath)) {
+    if (fullPath.startsWith('$_rootPath/')) {
       return '~${fullPath.substring(_rootPath.length)}';
     }
     return fullPath;
@@ -3026,6 +3080,9 @@ class _SearchFolderPickerDialog extends StatefulWidget {
 }
 
 class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
+  /// 内部存储根路径（用于相对路径显示）。
+  static const String _internalRoot = '/storage/emulated/0';
+
   late String _path;
   late List<String> _selected;
   List<Directory> _dirs = const [];
@@ -3068,9 +3125,22 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
   void _goUp() {
     if (!_canGoUp) return;
     final parent = Directory(_path).parent.path;
-    if (parent.length < widget.rootPath.length) return;
+    if (!parent.startsWith(widget.rootPath)) return;
     setState(() => _path = parent);
     _load();
+  }
+
+  /// 相对路径显示：
+  /// - 就在 rootPath（/storage）：显示 "~/"
+  /// - 在内部存储（/storage/emulated/0）下：显示 "~" + 相对内部存储的路径
+  /// - 其他情况：显示完整路径
+  String get _relPath {
+    if (_path == widget.rootPath) return '~/';
+    if (_path == _internalRoot || _path.startsWith('$_internalRoot/')) {
+      final sub = _path.substring(_internalRoot.length);
+      return sub.isEmpty ? '~' : '~$sub';
+    }
+    return _path;
   }
 
   void _toggle(String path) {
@@ -3135,10 +3205,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final relPath = _path == widget.rootPath
-        ? '~/'
-        : '~${_path.substring(widget.rootPath.length)}';
-
     return AlertDialog(
       insetPadding: _dlgInsetG,
       titlePadding: _dlgTitlePadG,
@@ -3165,7 +3231,7 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                     child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Text(
-                        relPath,
+                        _relPath,
                         style: Theme.of(context).textTheme.labelSmall,
                         maxLines: 1,
                       ),
