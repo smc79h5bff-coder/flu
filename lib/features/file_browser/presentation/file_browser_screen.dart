@@ -3074,67 +3074,72 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           metaLine = [size, time].where((s) => s.isNotEmpty).join(' · ');
         }
 
-        return Container(
-          foregroundDecoration: selected
-              ? BoxDecoration(
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 2,
-                  ),
-                )
-              : null,
-          child: ListTile(
-            dense: true,
-            isThreeLine: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        final tile = ListTile(
+          dense: true,
+          isThreeLine: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+          selected: selected,
+          selectedTileColor: const Color(0xFFFFF3FB),
+          leading: _leading(
+            selectionMode: _selectionMode,
             selected: selected,
-            selectedTileColor: const Color(0xFFFFF3FB),
-            leading: _leading(
-              selectionMode: _selectionMode,
-              selected: selected,
-              isDir: info.isDir,
-              name: info.name,
-              onToggle: () => _toggleSelection(e),
-            ),
-            title: Text(
-              info.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: fontName,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (metaLine.isNotEmpty)
-                  Text(
-                    metaLine,
-                    style: TextStyle(
-                      fontSize: fontMeta,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurfaceVariant,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-            onTap: () {
-              if (_selectionMode) {
-                _toggleSelection(e);
-                return;
-              }
-              if (info.isDir) {
-                _navigateTo(e.path);
-              } else {
-                _openPreview(info);
-              }
-            },
-            onLongPress: () => _onLongPressPath(e.path),
+            isDir: info.isDir,
+            name: info.name,
+            onToggle: () => _toggleSelection(e),
           ),
+          title: Text(
+            info.name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: fontName,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (metaLine.isNotEmpty)
+                Text(
+                  metaLine,
+                  style: TextStyle(
+                    fontSize: fontMeta,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
+          onTap: () {
+            if (_selectionMode) {
+              _toggleSelection(e);
+              return;
+            }
+            if (info.isDir) {
+              _navigateTo(e.path);
+            } else {
+              _openPreview(info);
+            }
+          },
+          onLongPress: () => _onLongPressPath(e.path),
+        );
+
+        return RepaintBoundary(
+          key: ValueKey('rb_list_${e.path}'),
+          child: selected
+              ? Container(
+                  foregroundDecoration: BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2,
+                    ),
+                  ),
+                  child: tile,
+                )
+              : tile,
         );
       },
     );
@@ -3186,18 +3191,21 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         // 行分隔线：整行底部画一条。
         // 竖分隔线：两列之间画一条，贯穿整行高度。
         // 用 IntrinsicHeight 让左右等高于较高者，矮的一侧下方留白。
-        return IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: leftWidget),
-              // 竖分隔线
-              Container(
-                width: _gridDividerThickness,
-                color: _gridDividerColor,
-              ),
-              Expanded(child: rightWidget),
-            ],
+        return RepaintBoundary(
+          key: ValueKey('rb_grid_$rowIdx'),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: leftWidget),
+                // 竖分隔线
+                Container(
+                  width: _gridDividerThickness,
+                  color: _gridDividerColor,
+                ),
+                Expanded(child: rightWidget),
+              ],
+            ),
           ),
         );
       },
