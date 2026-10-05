@@ -2361,8 +2361,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         child: Scaffold(
           backgroundColor: Color(settings.bgColor),
           resizeToAvoidBottomInset: false,
-  body: SafeArea(
-  bottom: settings.respectSystemInsets,
+  body: Padding(
+  padding: EdgeInsets.only(
+    bottom: settings.respectSystemInsets
+        ? MediaQuery.of(context).viewPadding.bottom
+        : 0,
+  ),
   child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final size = Size(constraints.maxWidth, constraints.maxHeight);
