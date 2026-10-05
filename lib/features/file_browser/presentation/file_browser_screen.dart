@@ -1340,48 +1340,62 @@ Archive _parseTarWithGbk(Uint8List bytes) {
   
 
   /// 展开一个 zip。已加载则直接展开；未加载则读盘 + 解码。
-  Future<void> _expandZip(String zipDiskPath) async {
-    if (_expandedZipKeys.contains(zipDiskPath)) return;
-    if (_loadingZipKeys.contains(zipDiskPath)) return;
+ 
 
+Future<void> _expandZip(String zipDiskPath) async {
+  if (_expandedZipKeys.contains(zipDiskPath)) return;
+  if (_loadingZipKeys.contains(zipDiskPath)) return;
+
+  // ① 先看大小。超过上限 → 直接弹系统选择器，不尝试解码。
+  try {
+    final length = await File(zipDiskPath).length();
+    if (length > _maxZipBytes) {
+      if (!mounted) return;
+      await openFileWithSystemPicker(zipDiskPath, context);
+      if (mounted) {
+        _toast('压缩包过大（${_formatSize(length)}），已交给其他 App 打开');
+      }
+      return;
+    }
+  } catch (_) {}
+
+  setState(() {
+    _loadingZipKeys.add(zipDiskPath);
+    _zipErrors.remove(zipDiskPath);
+    _expandedZipKeys.add(zipDiskPath);
+  });
+
+  try {
+    final bytes = await File(zipDiskPath).readAsBytes();
+    final archive = _decodeArchiveBytes(zipDiskPath, bytes);
+
+    if (!mounted) return;
+
+    _zipArchives[zipDiskPath] = archive;
+    _collectNestedZips(zipDiskPath, archive, '', '');
+
+    if (!mounted) return;
     setState(() {
-      _loadingZipKeys.add(zipDiskPath);
-      _zipErrors.remove(zipDiskPath);
-      // 立即把 key 加入 expanded，UI 好显示"正在加载"
-      _expandedZipKeys.add(zipDiskPath);
+      _loadingZipKeys.remove(zipDiskPath);
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    // ② 解码崩了 → 大概率加密或损坏 → 弹系统选择器。
+    setState(() {
+      _loadingZipKeys.remove(zipDiskPath);
+      _expandedZipKeys.remove(zipDiskPath);
     });
 
-    try {
-      final file = File(zipDiskPath);
-      final length = await file.length();
-      if (length > _maxZipBytes) {
-        throw Exception(
-            '压缩包过大（${_formatSize(length)}），暂不支持展开');
-      }
-      final bytes = await file.readAsBytes();
-      // ★修复：主 isolate 解码，不再走 compute（Archive 不可跨 isolate 传回）
-      // ★按后缀选解码器，支持 zip / tar / tar.gz / tgz
-      final archive = _decodeArchiveBytes(zipDiskPath, bytes);
-
-      if (!mounted) return;
-
-      _zipArchives[zipDiskPath] = archive;
-
-      // 递归展开所有嵌套 zip
-      _collectNestedZips(zipDiskPath, archive, '', '');
-
-      if (!mounted) return;
-      setState(() {
-        _loadingZipKeys.remove(zipDiskPath);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loadingZipKeys.remove(zipDiskPath);
-        _zipErrors[zipDiskPath] = e.toString();
-      });
+    await openFileWithSystemPicker(zipDiskPath, context);
+    if (mounted) {
+      _toast('此压缩包无法解压（可能已加密），已交给其他 App 打开');
     }
   }
+}
+
+
+    
 
   /// 递归扫描 archive 里所有嵌套 zip，解码并缓存。
   /// 顶层 zip 的 key = zipDiskPath；嵌套 zip 的 key = _makeZipInnerKey(...)。
