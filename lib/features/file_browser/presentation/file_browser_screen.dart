@@ -22,7 +22,7 @@ import '../../viewer/presentation/diff_viewer_screen.dart';
 import 'comparison_settings_screen.dart';
 import 'dialogs/directory_picker_dialog.dart';
 import 'providers/file_browser_providers.dart';
-import 'text_preview_screen.dart';
+import 'file_open_helper.dart';
 import 'config_io_service.dart';
 import 'dir_loader.dart';
 
@@ -295,12 +295,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== 无动画 route ====================
 
-  /// 无动画 route。跟阅读器一致——用 PageRouteBuilder + Duration.zero。
-  ///
-  /// MaterialPageRoute 即使被 theme 设成无动画 builder，它自身的
-  /// transitionDuration 仍是默认的 300ms。这 300ms 里 navigator 会保留
-  /// 两个页面在 render tree 里，导致从设置页返回时 file_browser 被反复
-  /// 重排，视觉上就是"卡一下"。
   Route<T> _noAnimRoute<T>(Widget page) {
     return PageRouteBuilder<T>(
       pageBuilder: (_, __, ___) => page,
@@ -353,9 +347,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       log.info('[DirCache] 强制跳过缓存  $cacheKey');
     }
 
-    // 特殊路径：/storage 顶层。Android 11+ 禁止 list，走手动构造。
-    // 必须在 setState(_loading=true) 和 loadDirectoryAsync 之前拦截，
-    // 否则会走正常流程直接报错。
     if (_currentPath == _topPath) {
       List<EntryInfo> entries;
       try {
@@ -429,10 +420,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   // ==================== 滚动锚点 ====================
-  //
-  // 列表模式：item 索引 = 文件索引。
-  // 网格模式：item 索引 = 行号；文件索引 = 行号 * 2（或 *2+1）。
-  // 存储的锚点统一是文件索引，跳转时按当前模式转换成行号。
 
   bool get _isGridMode =>
       !_searchActive && ref.read(browserGridModeProvider);
@@ -515,8 +502,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   void _navigateTo(String path) {
-    // 规范化：去掉末尾多余的斜杠（避免 /storage/ 和 /storage 不一致，
-    // 导致降级判断失效）
     while (path.length > 1 && path.endsWith('/')) {
       path = path.substring(0, path.length - 1);
     }
@@ -544,8 +529,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final parent = Directory(_currentPath).parent.path;
     if (!parent.startsWith(_topPath)) return;
 
-    // 跳过 /storage/emulated 这一层：Android 11+ 禁止 list 它。
-    // 从 /storage/emulated/0（或 999 等）上一级，直接退到 /storage。
     if (parent == '/storage/emulated') {
       _navigateTo(_topPath);
       return;
@@ -743,12 +726,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final isText = _textExts.contains(_extOf(name));
 
     if (!isText) {
-      Navigator.of(context).push(
-        _noAnimRoute(TextPreviewScreen(
-          filePath: path,
-          fileName: name,
-        )),
-      );
+      // 非文本文件：弹菜单（打开方式 / 分享）
+      await showOpenOrShareSheet(context, path, name);
       return;
     }
 
@@ -1546,58 +1525,43 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
     if (!mounted) return;
 
-    Widget row(String label, String value) => Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.labelSmall),
-              const SizedBox(height: 2),
-              SelectableText(value),
-            ],
-          ),
-        );
-
     await showDialog<void>(
       context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: _dlgInset,
-        titlePadding: _dlgTitlePad,
-        contentPadding: _dlgContentPad,
-        actionsPadding: _dlgActionsPad,
-        title: const Text('属性'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(context).size.height * 0.7,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                row('名称', name),
-                row('路径', path),
-                row('类型', isDir ? '文件夹' : '文件'),
-                row('大小',
-                    isDir ? '—' : (size == null ? '—' : _formatSize(size))),
-                if (modified != null)
-                  row('修改时间', _formatTimeFull(modified)),
-                if (accessed != null)
-                  row('访问时间', _formatTimeFull(accessed)),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
+      builder: (_) => _PropertiesDialog(
+        name: name,
+        path: path,
+        isDir: isDir,
+        size: size,
+        modified: modified,
+        accessed: accessed,
       ),
     );
   }
 
-  Future<void> _copyPath() async {
+  /// 底栏「打开方式」按钮。
+  Future<void> _openWithApp() async {
+    if (_selectedPaths.length != 1) return;
+    final path = _selectedPaths.first;
+    if (Directory(path).existsSync()) {
+      _toast('文件夹不能"打开方式"');
+      return;
+    }
+    final name = path.split('/').last;
+    await showOpenOrShareSheet(context, path, name);
+  }
+
+  /// 底栏「分享」按钮：把选中的所有文件分享出去。
+  Future<void> _shareSelected() async {
+    final paths = _selectedPaths.toList();
+    if (paths.isEmpty) return;
+    await shareMany(paths, context);
+  }
+
+// ────────────────────────────────────────────────────────────
+// ↓↓↓ 第 1 段到此结束。下面紧接第 2 段（下一条消息）。
+//     合并时，把第 2 段的内容直接接在这行之后即可。
+// ────────────────────────────────────────────────────────────
+      Future<void> _copyPath() async {
     if (_selectedPaths.length != 1) return;
     final path = _selectedPaths.first;
     await Clipboard.setData(ClipboardData(text: path));
@@ -2313,8 +2277,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== 面包屑 ====================
 
-  // 面包屑缓存。_currentPath 不变就复用，避免每次 build 都重新
-  // split 字符串、跑 RegExp、创建 record。
   List<({String label, String path})>? _crumbsCache;
   String? _crumbsCacheForPath;
 
@@ -2349,7 +2311,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       return out;
     }
 
-    // 其它 /storage 下的路径（SD 卡、U 盘、双开等）
     final out = <({String label, String path})>[
       (label: '存储', path: _topPath),
     ];
@@ -2358,7 +2319,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final segments =
         relative.split('/').where((s) => s.isNotEmpty).toList();
 
-    // 跳过 "emulated" 这一级：它是中间目录，用户不需要看到。
     var acc = _topPath;
     for (final seg in segments) {
       acc = '$acc/$seg';
@@ -2446,7 +2406,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         '${two(t.hour)}:${two(t.minute)}';
   }
 
-  /// 网格模式用的短时间格式：`MM-DD HH:mm`。
   static String _formatGridTime(DateTime t) {
     String two(int n) => n < 10 ? '0$n' : '$n';
     return '${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
@@ -2475,13 +2434,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           !_searchActive,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        // 返回键优先级：先取消选中 → 再退搜索 → 再回内部存储 → 最后上一级。
         if (_selectionMode) {
           setState(_clearSelection);
         } else if (_searchActive) {
           _clearSearch();
         } else if (_currentPath == _topPath) {
-          // 在 /storage 顶层按返回 → 回内部存储
           _navigateTo(_rootPath);
         } else if (_canGoUp) {
           _goUp();
@@ -2659,8 +2616,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     );
   }
 
-  /// 小号返回按钮：图标保持常规大小，但**点击热区缩到很小**。
-  /// 用于 /storage 和它的下级——避免误触跳走。
   Widget _smallBackButton({required VoidCallback onPressed}) {
     return Center(
       child: SizedBox(
@@ -2847,112 +2802,153 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final canProps = n == 1;
     final canRename = n == 1;
     final canOps = n >= 1;
+    final canOpenWith = n == 1;
+
+    final s = Theme.of(context).colorScheme;
+
+    // 原来 MD5 / 复制路径 / 导出清单 用的统一样式。
+    // 新加的「打开方式 / 分享」也用它，保证一致。
+    final outlineStyle = FilledButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 1),
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.black,
+      side: BorderSide(color: s.primary),
+    );
+
+    const labelStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+    );
 
     return SafeArea(
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
+          color: s.surface,
           border: Border(
-            top: BorderSide(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
+            top: BorderSide(color: s.outlineVariant),
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.compare_arrows, size: 16),
-                    label: const Text(
-                      '对比',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
+            // ==================== 第一行：可左右滑动 ====================
+            SizedBox(
+              height: 38,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    // ---------- 对比（原样式：实心按钮） ----------
+                    SizedBox(
+                      width: 160,
+                      child: FilledButton.icon(
+                        icon: const Icon(Icons.compare_arrows, size: 16),
+                        label: const Text(
+                          '对比',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        onPressed: canCompare ? _startCompare : null,
                       ),
                     ),
-                    onPressed: canCompare ? _startCompare : null,
-                  ),
+                    const SizedBox(width: 4),
+
+                    // ---------- 复制路径 ----------
+                    SizedBox(
+                      width: 60,
+                      child: FilledButton(
+                        style: outlineStyle,
+                        onPressed: canProps ? _copyPath : null,
+                        child: const Text(
+                          '复制路径',
+                          style: labelStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+
+                    // ---------- 打开方式（新按钮，用原样式） ----------
+                    SizedBox(
+                      width: 60,
+                      child: FilledButton(
+                        style: outlineStyle,
+                        onPressed: canOpenWith ? _openWithApp : null,
+                        child: const Text(
+                          '打开方式',
+                          style: labelStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+
+                    // ---------- 分享（新按钮，用原样式） ----------
+                    SizedBox(
+                      width: 60,
+                      child: FilledButton(
+                        style: outlineStyle,
+                        onPressed: canOps ? _shareSelected : null,
+                        child: const Text(
+                          '分享',
+                          style: labelStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+
+                    // ---------- 分隔条：视觉上区分"常用"和"不常用" ----------
+                    Container(
+                      width: 1,
+                      height: 24,
+                      margin: const EdgeInsets.symmetric(horizontal: 8),
+                      color: s.outlineVariant,
+                    ),
+
+                    // ---------- MD5（滑到右边才看到） ----------
+                    SizedBox(
+                      width: 60,
+                      child: FilledButton(
+                        style: outlineStyle,
+                        onPressed: canMd5 ? _md5Compare : null,
+                        child: const Text(
+                          'MD5',
+                          style: labelStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+
+                    // ---------- 导出清单（滑到右边才看到） ----------
+                    SizedBox(
+                      width: 60,
+                      child: FilledButton(
+                        style: outlineStyle,
+                        onPressed: canProps ? _exportFolderListing : null,
+                        child: const Text(
+                          '导出清单',
+                          style: labelStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 4),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.black,
-                      side: BorderSide(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    onPressed: canMd5 ? _md5Compare : null,
-                    child: const Text(
-                      'MD5',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 3),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.black,
-                      side: BorderSide(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    onPressed: canProps ? _copyPath : null,
-                    child: const Text(
-                      '复制路径',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 3),
-                Expanded(
-                  flex: 1,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.black,
-                      side: BorderSide(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    onPressed: canProps ? _exportFolderListing : null,
-                    child: const Text(
-                      '导出清单',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
+
             const SizedBox(height: 4),
+
+            // ==================== 第二行：完全不动 ====================
             Row(
               children: [
                 Expanded(
@@ -3170,7 +3166,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final fontName = ref.watch(browserFontGridNameProvider);
     final fontMeta = ref.watch(browserFontGridMetaProvider);
 
-    // 行数 = ceil(文件数 / 2)
     final rowCount = (entries.length + 1) ~/ 2;
 
     return ScrollablePositionedList.builder(
@@ -3205,9 +3200,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
                 isFirstCol: false,
               );
 
-        // 行分隔线：整行底部画一条。
-        // 竖分隔线：两列之间画一条，贯穿整行高度。
-        // 用 IntrinsicHeight 让左右等高于较高者，矮的一侧下方留白。
         return RepaintBoundary(
           key: ValueKey('rb_grid_$rowIdx'),
           child: IntrinsicHeight(
@@ -3215,7 +3207,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(child: leftWidget),
-                // 竖分隔线
                 Container(
                   width: _gridDividerThickness,
                   color: _gridDividerColor,
@@ -3241,7 +3232,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final selected = _selectedPaths.contains(e.path);
     final colorScheme = Theme.of(context).colorScheme;
 
-    // 元信息行：大小 + 时间，按开关决定。
     final metaParts = <String>[];
     if (showSize && !info.isDir && info.size != null) {
       metaParts.add(_formatSize(info.size));
@@ -3264,51 +3254,33 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         }
       },
       onLongPress: () => _onLongPressPath(e.path),
-   
-        
-        
-        
-        
-        
-        
-
-        
-child: Container(
-  decoration: BoxDecoration(
-    color: selected
-        ? _gridSelectedBg
-        : (info.isDir
-            ? null
-            : (_textExts.contains(_extOf(info.name))
-                ? null
-                : const Color(0xFFF0F0F0))),
-  ),
-  foregroundDecoration: BoxDecoration(                    // ← 新加一行
-    border: selected                                      //   border 放这里
-        ? Border.all(
-            color: colorScheme.primary,
-            width: 2,
-          )
-        : Border(
-            bottom: BorderSide(
-              color: _gridDividerColor,
-              width: _gridDividerThickness,
-            ),
-          ),
-  ),                                                       // ← 闭合
-  padding: EdgeInsets.symmetric(
-
-
-
-
-
-
-            
+      child: Container(
+        decoration: BoxDecoration(
+          color: selected
+              ? _gridSelectedBg
+              : (info.isDir
+                  ? null
+                  : (_textExts.contains(_extOf(info.name))
+                      ? null
+                      : const Color(0xFFF0F0F0))),
+        ),
+        foregroundDecoration: BoxDecoration(
+          border: selected
+              ? Border.all(
+                  color: colorScheme.primary,
+                  width: 2,
+                )
+              : Border(
+                  bottom: BorderSide(
+                    color: _gridDividerColor,
+                    width: _gridDividerThickness,
+                  ),
+                ),
+        ),
+        padding: EdgeInsets.symmetric(
           horizontal: _gridCellPadH,
           vertical: _gridCellPadV,
         ),
-        // 用 IntrinsicHeight（外层）已经保证了左右等高，
-        // 这里用 Column + mainAxisSize.min，内容顶对齐，矮的下面留白。
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -3332,14 +3304,7 @@ child: Container(
     );
   }
 
-  /// 网格模式的文件名。
-  ///
-  /// 规则：
-  ///   · 文件夹：黑色加粗，前后加 `/`
-  ///   · 大文本（能打开 且 >3MB）：主体黑加粗，后缀灰 + 正常字重
-  ///   · 其它：黑色加粗
   Widget _buildGridName(EntryInfo info, double fontSize) {
-    // 文件夹：前后加斜杠
     if (info.isDir) {
       return Text(
         '/${info.name}/',
@@ -3354,17 +3319,14 @@ child: Container(
 
     final name = info.name;
 
-    // 是否"大文本"：能打开的文本 + > 3 MiB
     final isText = _textExts.contains(_extOf(name));
     final isLarge = isText &&
         info.size != null &&
         info.size! > 3 * 1024 * 1024;
 
-    // 找后缀位置（含点）
     final dotIdx = name.lastIndexOf('.');
     final hasExt = dotIdx > 0 && dotIdx < name.length - 1;
 
-    // 非大文件，或没有后缀：整体黑加粗
     if (!isLarge || !hasExt) {
       return Text(
         name,
@@ -3377,7 +3339,6 @@ child: Container(
       );
     }
 
-    // 大文本：主体黑加粗，后缀灰不加粗
     final base = name.substring(0, dotIdx);
     final ext = name.substring(dotIdx);
 
@@ -3552,9 +3513,6 @@ class _TextInputDialogState extends State<_TextInputDialog> {
 }
 
 /// 一行字号设置：标签 + [- 数字 +]。
-///
-/// 值范围 1~38。数字用 TextEditingController 保持同步，用户随时
-/// 可以改数字或按加减。
 class _FontSizeRow extends StatefulWidget {
   const _FontSizeRow({
     super.key,
@@ -3583,7 +3541,6 @@ class _FontSizeRowState extends State<_FontSizeRow> {
   @override
   void didUpdateWidget(covariant _FontSizeRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 外部值变了（比如 +/- 按钮触发），刷新输入框。
     final cur = widget.value.round().toString();
     if (_ctrl.text != cur) {
       _ctrl.text = cur;
@@ -3650,15 +3607,6 @@ class _FontSizeRowState extends State<_FontSizeRow> {
 }
 
 /// 自定义搜索文件夹的勾选器。
-///
-/// 顶部有路径跳转输入框（抄自 DirectoryPickerDialog，高度略矮）。
-/// 底部工具条有"全选"chip 和"区间"chip。
-///
-/// 区间模式：
-///   - 点"区间"chip 进入。标题栏替换为提示文字，字号 16→14，颜色转蓝。
-///   - 点第一行 → 记起点（行加浅蓝背景）。标题变成"再点一行设为终点"。
-///   - 点第二行 → 两端之间（含两端）全部勾上；自动退出区间模式。
-///   - 期间点右侧 `>` 箭头仍可进子目录，并退出区间模式。
 class _SearchFolderPickerDialog extends StatefulWidget {
   const _SearchFolderPickerDialog({
     required this.rootPath,
@@ -3676,13 +3624,10 @@ class _SearchFolderPickerDialog extends StatefulWidget {
 }
 
 class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
-  /// 内部存储根路径（用于相对路径显示）。
   static const String _internalRoot = '/storage/emulated/0';
 
-  /// 区间色（蓝）。
   static const Color _rangeBlue = Color(0xFF3D7CFF);
 
-  /// 起点高亮背景（同蓝色 20% 透明）。
   static const Color _rangeHighlight = Color(0x333D7CFF);
 
   late String _path;
@@ -3691,7 +3636,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
   List<Directory> _dirs = const [];
   bool _loading = true;
 
-  // ========== 区间选择 ==========
   bool _rangeMode = false;
   String? _rangeAnchorPath;
 
@@ -3741,10 +3685,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     _load();
   }
 
-  /// 相对路径显示：
-  /// - 就在 rootPath（/storage）：显示 "~/"
-  /// - 在内部存储（/storage/emulated/0）下：显示 "~" + 相对内部存储的路径
-  /// - 其他情况：显示完整路径
   String get _relPath {
     if (_path == widget.rootPath) return '~/';
     if (_path == _internalRoot || _path.startsWith('$_internalRoot/')) {
@@ -3753,8 +3693,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     }
     return _path;
   }
-
-  // ==================== 路径跳转 ====================
 
   void _jumpToPath(String path) {
     if (path.isEmpty) return;
@@ -3781,8 +3719,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     _load();
   }
 
-  // ==================== 勾选 ====================
-
   void _toggle(String path) {
     setState(() {
       if (_selected.contains(path)) {
@@ -3793,9 +3729,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     });
   }
 
-  // ==================== 全选 ====================
-
-  /// 当前视图是否"全部已勾选"。空视图返回 false。
   bool get _allVisibleSelected {
     if (_dirs.isEmpty) return false;
     for (final d in _dirs) {
@@ -3818,8 +3751,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     });
   }
 
-  // ==================== 区间选择 ====================
-
   void _toggleRangeMode() {
     setState(() {
       _rangeMode = !_rangeMode;
@@ -3827,7 +3758,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     });
   }
 
-  /// 区间模式下点某一行：第一次设锚点，第二次把区间内全勾上，自动退出。
   void _handleRangeTap(String path) {
     final anchor = _rangeAnchorPath;
     if (anchor == null) {
@@ -3839,7 +3769,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     final from = visible.indexOf(anchor);
     final to = visible.indexOf(path);
     if (from < 0 || to < 0) {
-      // 锚点被换目录冲掉了 → 重设
       setState(() => _rangeAnchorPath = path);
       return;
     }
@@ -3850,13 +3779,10 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
       for (var i = lo; i <= hi; i++) {
         _selected.add(visible[i]);
       }
-      // 自动退出区间模式
       _rangeMode = false;
       _rangeAnchorPath = null;
     });
   }
-
-  // ==================== 已勾选查看 ====================
 
   Future<void> _showSelected() async {
     await showDialog<void>(
@@ -3908,8 +3834,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     );
   }
 
-  // ==================== 标题 ====================
-
   String get _titleText {
     if (_rangeMode) {
       return _rangeAnchorPath == null ? '点一行内容为起点' : '再点一行内容为终点';
@@ -3920,8 +3844,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
   double get _titleSize => _rangeMode ? 14.0 : 16.0;
 
   Color? get _titleColor => _rangeMode ? _rangeBlue : null;
-
-  // ==================== build ====================
 
   @override
   Widget build(BuildContext context) {
@@ -3944,7 +3866,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ---------- 路径跳转 ----------
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
               child: Row(
@@ -3984,7 +3905,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
               ),
             ),
 
-            // ---------- 上一级 + 当前路径 ----------
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
               child: Row(
@@ -4011,7 +3931,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
 
             const Divider(height: 1),
 
-            // ---------- 列表 ----------
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
@@ -4069,7 +3988,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                                 title: Text(name),
                                 trailing: InkWell(
                                   onTap: () {
-                                    // 进子目录：同时退出区间模式
                                     setState(() {
                                       _path = d.path;
                                       _rangeMode = false;
@@ -4101,12 +4019,10 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
 
             const Divider(height: 1),
 
-            // ---------- 工具条 ----------
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
               child: Row(
                 children: [
-                  // 全选 chip（白底黑字）
                   FilterChip(
                     label: const Text('全选'),
                     selected: _allVisibleSelected,
@@ -4134,14 +4050,12 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
 
                   const SizedBox(width: 24),
 
-                  // 区间 chip（白底黑字）
                   FilterChip(
                     label: const Text('区间'),
                     selected: _rangeMode,
                     onSelected: (_) => _toggleRangeMode(),
                     backgroundColor: Colors.white,
-                selectedColor: const Color(0xFFE3F2FD),
-                      
+                    selectedColor: const Color(0xFFE3F2FD),
                     surfaceTintColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     elevation: 0,
@@ -4163,7 +4077,6 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
 
                   const Spacer(),
 
-                  // 已勾选计数 + 查看
                   Text(
                     '已勾选 ${_selected.length} 个',
                     style: Theme.of(context).textTheme.labelMedium,
@@ -4203,4 +4116,201 @@ class ParsedDocumentResult {
   final String fileName;
   final String plainText;
   final String encodingLabel;
+}
+
+// ==================== 属性弹窗（含手动计算 MD5） ====================
+
+class _PropertiesDialog extends StatefulWidget {
+  const _PropertiesDialog({
+    required this.name,
+    required this.path,
+    required this.isDir,
+    required this.size,
+    required this.modified,
+    required this.accessed,
+  });
+
+  final String name;
+  final String path;
+  final bool isDir;
+  final int? size;
+  final DateTime? modified;
+  final DateTime? accessed;
+
+  @override
+  State<_PropertiesDialog> createState() => _PropertiesDialogState();
+}
+
+class _PropertiesDialogState extends State<_PropertiesDialog> {
+  String? _md5;
+  bool _md5Loading = false;
+  String? _md5Error;
+
+  Future<void> _computeMd5() async {
+    if (widget.isDir) return;
+    setState(() {
+      _md5Loading = true;
+      _md5Error = null;
+    });
+    try {
+      final bytes = await File(widget.path).readAsBytes();
+      final hash = await compute(
+        _FileBrowserScreenState._md5Worker,
+        bytes,
+      );
+      if (!mounted) return;
+      setState(() {
+        _md5 = hash;
+        _md5Loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _md5Error = e.toString();
+        _md5Loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget row(String label, String value) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 2),
+              SelectableText(value),
+            ],
+          ),
+        );
+
+    return AlertDialog(
+      insetPadding: _dlgInset,
+      titlePadding: _dlgTitlePad,
+      contentPadding: _dlgContentPad,
+      actionsPadding: _dlgActionsPad,
+      title: const Text('属性'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              row('名称', widget.name),
+              row('路径', widget.path),
+              row('类型', widget.isDir ? '文件夹' : '文件'),
+              row(
+                '大小',
+                widget.isDir
+                    ? '—'
+                    : (widget.size == null
+                        ? '—'
+                        : _FileBrowserScreenState._formatSize(widget.size)),
+              ),
+              if (widget.modified != null)
+                row(
+                  '修改时间',
+                  _FileBrowserScreenState._formatTimeFull(widget.modified!),
+                ),
+              if (widget.accessed != null)
+                row(
+                  '访问时间',
+                  _FileBrowserScreenState._formatTimeFull(widget.accessed!),
+                ),
+
+              // ========== MD5 ==========
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'MD5',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    _buildMd5Area(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMd5Area() {
+    if (widget.isDir) {
+      return const Text(
+        '文件夹不支持计算 MD5',
+        style: TextStyle(fontSize: 13, color: Colors.grey),
+      );
+    }
+
+    if (_md5Loading) {
+      return const Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text('计算中…', style: TextStyle(fontSize: 13)),
+        ],
+      );
+    }
+
+    if (_md5 != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  _md5!,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18),
+                tooltip: '重新计算',
+                visualDensity: VisualDensity.compact,
+                onPressed: _computeMd5,
+              ),
+            ],
+          ),
+          if (_md5Error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '计算失败：$_md5Error',
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              ),
+            ),
+        ],
+      );
+    }
+
+    return OutlinedButton.icon(
+      onPressed: _computeMd5,
+      icon: const Icon(Icons.fingerprint, size: 16),
+      label: const Text('点击计算 MD5'),
+    );
+  }
 }
