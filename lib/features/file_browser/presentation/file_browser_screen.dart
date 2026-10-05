@@ -1138,9 +1138,9 @@ Archive _decodeArchiveBytes(String name, Uint8List bytes) {
     return ZipDecoder().decodeBytes(bytes);
   }
   if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-    final gunzipped = GZipDecoder().decodeBytes(bytes);
-    return _parseTarWithGbk(gunzipped);
-  }
+  final gunzipped = GZipDecoder().decodeBytes(bytes);
+  return _parseTarWithGbk(Uint8List.fromList(gunzipped));
+}
   if (lower.endsWith('.tar')) {
     return _parseTarWithGbk(bytes);
   }
