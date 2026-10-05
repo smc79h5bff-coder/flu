@@ -3747,8 +3747,9 @@ Widget _buildExpandedZipBar() {
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
     child: Row(
       children: [
-        Icon(Icons.folder_zip, size: 16, color: Colors.blue.shade700),
-        const SizedBox(width: 8),
+       
+    Icon(Icons.folder_zip_outlined, size: 16, color: Colors.blue.shade700),
+              const SizedBox(width: 8),
         Expanded(
           child: Text(
             '已展开 $topLevelCount 个压缩包',
