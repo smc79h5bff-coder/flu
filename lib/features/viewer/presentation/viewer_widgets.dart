@@ -55,16 +55,17 @@ class DisplaySettingsSheet extends ConsumerWidget {
     final showLine = ref.watch(showLineNumbersProvider);
     final bodySize = ref.watch(bodyFontSizeProvider);
     final gutterSize = ref.watch(gutterFontSizeProvider);
+    final contextSize = ref.watch(contextFontSizeProvider);
 
-final contextSize = ref.watch(contextFontSizeProvider);
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.of(context).size.height * 0.85,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: Column(
-            children: [
-              Center(
+        child: Column(
+          children: [
+            // ---------- 顶部抓手（固定） ----------
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Center(
                 child: Container(
                   width: 40,
                   height: 4,
@@ -74,120 +75,164 @@ final contextSize = ref.watch(contextFontSizeProvider);
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              Text(
-  '正文字号：${bodySize.toStringAsFixed(0)}',
-  style: Theme.of(context).textTheme.labelMedium,
-),
-Row(
-  children: [
-    IconButton(
-      icon: const Icon(Icons.remove),
-      tooltip: '减 1',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final v = (bodySize - 1).clamp(1.0, 60.0);
-        ref.read(bodyFontSizeProvider.notifier).update(v);
-      },
-    ),
-    Expanded(
-      child: Slider(
-        min: 1,
-        max: 60,
-        divisions: 59,
-        value: bodySize.clamp(1.0, 60.0),
-        label: bodySize.toStringAsFixed(0),
-        onChanged: (v) =>
-            ref.read(bodyFontSizeProvider.notifier).update(v),
-      ),
-    ),
-    IconButton(
-      icon: const Icon(Icons.add),
-      tooltip: '加 1',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final v = (bodySize + 1).clamp(1.0, 60.0);
-        ref.read(bodyFontSizeProvider.notifier).update(v);
-      },
-    ),
-  ],
-),
-Text(
-  '行号字号：${gutterSize.toStringAsFixed(0)}',
-  style: Theme.of(context).textTheme.labelMedium,
-),
-Row(
-  children: [
-    IconButton(
-      icon: const Icon(Icons.remove),
-      tooltip: '减 1',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final v = (gutterSize - 1).clamp(1.0, 60.0);
-        ref.read(gutterFontSizeProvider.notifier).update(v);
-      },
-    ),
-    Expanded(
-      child: Slider(
-        min: 1,
-        max: 60,
-        divisions: 59,
-        value: gutterSize.clamp(1.0, 60.0),
-        label: gutterSize.toStringAsFixed(0),
-        onChanged: (v) => ref
-            .read(gutterFontSizeProvider.notifier)
-            .update(v),
-      ),
-    ),
-    IconButton(
-      icon: const Icon(Icons.add),
-      tooltip: '加 1',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final v = (gutterSize + 1).clamp(1.0, 60.0);
-        ref.read(gutterFontSizeProvider.notifier).update(v);
-      },
-    ),
-  ],
-),
-Text(
-  '差异上下文视图的相同行的字号：${contextSize.toStringAsFixed(0)}',
-  style: Theme.of(context).textTheme.labelMedium,
-),
-Row(
-  children: [
-    IconButton(
-      icon: const Icon(Icons.remove),
-      tooltip: '减 1',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final v = (contextSize - 1).clamp(1.0, 60.0);
-        ref.read(contextFontSizeProvider.notifier).update(v);
-      },
-    ),
-    Expanded(
-      child: Slider(
-        min: 1,
-        max: 60,
-        divisions: 59,
-        value: contextSize.clamp(1.0, 60.0),
-        label: contextSize.toStringAsFixed(0),
-        onChanged: (v) => ref
-            .read(contextFontSizeProvider.notifier)
-            .update(v),
-      ),
-    ),
-    IconButton(
-      icon: const Icon(Icons.add),
-      tooltip: '加 1',
-      visualDensity: VisualDensity.compact,
-      onPressed: () {
-        final v = (contextSize + 1).clamp(1.0, 60.0);
-        ref.read(contextFontSizeProvider.notifier).update(v);
-      },
-    ),
-  ],
-),
+            ),
+            const SizedBox(height: 12),
+
+            // ---------- 可滚动的内容区 ----------
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ========== 显示行号 ==========
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('显示行号'),
+                      subtitle: const Text(
+                        '在每行左侧显示行号',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      value: showLine,
+                      onChanged: (v) => ref
+                          .read(showLineNumbersProvider.notifier)
+                          .update(v),
+                    ),
+                    const Divider(height: 1),
+
+                    // ========== 正文字号 ==========
+                    const SizedBox(height: 8),
+                    Text(
+                      '正文字号：${bodySize.toStringAsFixed(0)}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove),
+                          tooltip: '减 1',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final v = (bodySize - 1).clamp(1.0, 60.0);
+                            ref
+                                .read(bodyFontSizeProvider.notifier)
+                                .update(v);
+                          },
+                        ),
+                        Expanded(
+                          child: Slider(
+                            min: 1,
+                            max: 60,
+                            divisions: 59,
+                            value: bodySize.clamp(1.0, 60.0),
+                            label: bodySize.toStringAsFixed(0),
+                            onChanged: (v) =>
+                                ref.read(bodyFontSizeProvider.notifier).update(v),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          tooltip: '加 1',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final v = (bodySize + 1).clamp(1.0, 60.0);
+                            ref
+                                .read(bodyFontSizeProvider.notifier)
+                                .update(v);
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // ========== 行号字号 ==========
+                    Text(
+                      '行号字号：${gutterSize.toStringAsFixed(0)}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove),
+                          tooltip: '减 1',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final v = (gutterSize - 1).clamp(1.0, 60.0);
+                            ref
+                                .read(gutterFontSizeProvider.notifier)
+                                .update(v);
+                          },
+                        ),
+                        Expanded(
+                          child: Slider(
+                            min: 1,
+                            max: 60,
+                            divisions: 59,
+                            value: gutterSize.clamp(1.0, 60.0),
+                            label: gutterSize.toStringAsFixed(0),
+                            onChanged: (v) => ref
+                                .read(gutterFontSizeProvider.notifier)
+                                .update(v),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          tooltip: '加 1',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final v = (gutterSize + 1).clamp(1.0, 60.0);
+                            ref
+                                .read(gutterFontSizeProvider.notifier)
+                                .update(v);
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // ========== 上下文行字号 ==========
+                    Text(
+                      '差异上下文视图的相同行的字号：${contextSize.toStringAsFixed(0)}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove),
+                          tooltip: '减 1',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final v = (contextSize - 1).clamp(1.0, 60.0);
+                            ref
+                                .read(contextFontSizeProvider.notifier)
+                                .update(v);
+                          },
+                        ),
+                        Expanded(
+                          child: Slider(
+                            min: 1,
+                            max: 60,
+                            divisions: 59,
+                            value: contextSize.clamp(1.0, 60.0),
+                            label: contextSize.toStringAsFixed(0),
+                            onChanged: (v) => ref
+                                .read(contextFontSizeProvider.notifier)
+                                .update(v),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          tooltip: '加 1',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final v = (contextSize + 1).clamp(1.0, 60.0);
+                            ref
+                                .read(contextFontSizeProvider.notifier)
+                                .update(v);
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // ========== 差异颜色 ==========
                     const Divider(height: 32),
                     Text(
                       '差异颜色',
@@ -219,11 +264,11 @@ Row(
                     _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
                         charInsertFgProvider),
                     const SizedBox(height: 24),
-                  
-                
-              
-            ],
-          ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
