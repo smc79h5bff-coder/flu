@@ -1129,14 +1129,65 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== zip 展开 / 收起 ====================
 
+
+/// 修复 zip 里的乱码文件名。
+///
+/// 老 Windows / WinRAR 打的 zip，文件名是 GBK 字节，但没设 UTF-8 标记位。
+/// archive 包遇到没标记位的 zip，一律按 latin1 解，就成乱码了。
+///
+/// 判断逻辑：
+///   · 文件名字符里有 > 0xFF 的字符 → 说明已经正确解码（UTF-8/中文），不动
+///   · 全是 ASCII → 不动
+///   · 有 0x80~0xFF 的字符 → 按 latin1 反推回字节，再试 UTF-8、GBK
+Archive _fixZipNames(Archive archive) {
+  var anyChanged = false;
+  final newArchive = Archive();
+  for (final f in archive.files) {
+    final fixed = _fixZipName(f.name);
+    if (fixed != f.name) anyChanged = true;
+    newArchive.addFile(ArchiveFile(fixed, f.size, f.content));
+  }
+  return anyChanged ? newArchive : archive;
+}
+
+String _fixZipName(String name) {
+  if (name.isEmpty) return name;
+
+  var hasHigh = false;
+  for (final r in name.runes) {
+    if (r > 0xFF) return name; // 有非 latin1 字符，说明已正确解码
+    if (r >= 0x80) hasHigh = true;
+  }
+  if (!hasHigh) return name; // 纯 ASCII
+
+  // 有 0x80~0xFF 的字符，可能是 latin1 解出的 GBK/UTF-8 字节
+  final bytes = Uint8List.fromList(name.codeUnits);
+
+  // 先试 UTF-8
+  try {
+    final utf8Name = utf8.decode(bytes);
+    if (utf8Name != name) return utf8Name;
+  } catch (_) {}
+
+  // 再试 GBK
+  try {
+    final gbkName = gbk.decode(bytes);
+    if (gbkName != name) return gbkName;
+  } catch (_) {}
+
+  return name;
+}
+
+    
   /// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
   
 /// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
 Archive _decodeArchiveBytes(String name, Uint8List bytes) {
   final lower = name.toLowerCase();
-  if (lower.endsWith('.zip')) {
-    return ZipDecoder().decodeBytes(bytes);
-  }
+ if (lower.endsWith('.zip')) {
+  final archive = ZipDecoder().decodeBytes(bytes);
+  return _fixZipNames(archive);
+}
   if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
   final gunzipped = GZipDecoder().decodeBytes(bytes);
   return _parseTarWithGbk(Uint8List.fromList(gunzipped));
