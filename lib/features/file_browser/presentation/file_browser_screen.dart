@@ -3960,7 +3960,7 @@ child: Row(
     ),
     const SizedBox(width: 4),
     SizedBox(
-      width: 65,
+      width: 68,
       child: FilledButton(
         style: outlineStyle,
         onPressed: canCopyPath ? _copyPath : null,
@@ -3974,7 +3974,7 @@ child: Row(
     ),
     const SizedBox(width: 3),
     SizedBox(
-      width: 65,
+      width: 68,
       child: FilledButton(
         style: outlineStyle,
         onPressed: canOpenWith ? _openWithApp : null,
@@ -3988,7 +3988,7 @@ child: Row(
     ),
     const SizedBox(width: 3),
     SizedBox(
-      width: 65,
+      width: 68,
       child: FilledButton(
         style: outlineStyle,
         onPressed: canShare ? _shareSelected : null,
@@ -4002,12 +4002,12 @@ child: Row(
     ),
     const SizedBox(width: 3),
     SizedBox(
-      width: 65,
+      width: 68,
       child: FilledButton(
         style: outlineStyle,
         onPressed: canMd5 ? _md5Compare : null,
         child: const Text(
-          'MD5',
+          'MD5对比',
           style: labelStyle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -4016,7 +4016,7 @@ child: Row(
     ),
     const SizedBox(width: 3),
     SizedBox(
-      width: 65,
+      width: 68,
       child: FilledButton(
         style: outlineStyle,
         onPressed:
