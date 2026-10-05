@@ -4217,8 +4217,8 @@ if (item.isZip) {
   // 嵌套压缩包始终空心。
   final isTopLevel = item.ownerZipKey == null;
   final zipIcon = (isTopLevel && isExpanded)
-      ? Icons.folder_zip
-      : Icons.folder_zip_outlined;
+    ? Icons.folder_zip_outlined
+    : Icons.folder_zip;
   final metaLine = _buildItemMetaLine(item);
 
   return Container(
