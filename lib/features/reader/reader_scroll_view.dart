@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -1207,6 +1206,7 @@ class _ScrollLineRow extends StatelessWidget {
         maxWidth: constraints.maxWidth,
         spans: gradientSpans,
         locale: locale,
+        builtSpans: spans, // ← 新增：和 Text.rich 用的完全一样的 spans
       );
 
       return SizedBox(
@@ -1449,12 +1449,16 @@ const int _gradRectCacheCap = 256;
 /// [locale] 必须和 Text.rich 渲染时用的 locale 一致，否则中英混排下标点挤压
 /// 行为不同，测量出的 boxes 会和实际渲染的字位置差几像素，导致渐变偏到旁边
 /// 的字上。
+///
+/// [builtSpans] 必须和 Text.rich 用的 spans 完全一致。单 span 和多 span 的
+/// shaping 断点不同，中文字符位置能差 1~3 像素 —— 用整段单 span 测会偏移。
 List<_GradRect> _measureGradientRectsFromSpans({
   required String text,
   required TextStyle style,
   required double maxWidth,
   required List<_GradSpan> spans,
   required Locale? locale,
+  required List<InlineSpan> builtSpans,
 }) {
   if (text.isEmpty || maxWidth <= 0 || spans.isEmpty) return const [];
 
@@ -1467,10 +1471,11 @@ List<_GradRect> _measureGradientRectsFromSpans({
   final hit = _gradRectCache[key];
   if (hit != null) return hit;
 
-  // 显式传入 locale，与 Text.rich 渲染时保持一致
-  // （否则中英混排下 boxes 会有几像素偏移）。
+  // ⚠️ 关键：用和 Text.rich 完全相同的 spans 结构。
+  // 单 span 和多 span 的 shaping 断点不同，中文字符位置能差 1~3 像素，
+  // 导致渐变矩形偏移到旁边的字上。
   final tp = TextPainter(
-    text: TextSpan(text: text, style: style),
+    text: TextSpan(style: style, children: builtSpans),
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.left,
     locale: locale,
@@ -1625,4 +1630,3 @@ class _HandlePainter extends CustomPainter {
   bool shouldRepaint(_HandlePainter old) =>
       old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
-
