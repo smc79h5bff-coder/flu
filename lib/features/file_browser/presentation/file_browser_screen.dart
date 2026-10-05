@@ -184,18 +184,12 @@ class _DisplayItem {
     this.modified,
     this.diskEntry,
     this.searchHit,
-    this.innerPath,
-this.innerPathForDisplay,
-this.innerArchive,
     this.ownerZipKey,
     this.innerPath,
+    this.innerPathForDisplay,
     this.innerArchive,
   });
-/// 显示用的完整嵌套路径（可能带 '>' 前缀）。
-/// 跟 [innerPath] 的区别：
-///   · innerPath          = 当前层 archive 内的实际路径，用于 findFile
-///   · innerPathForDisplay = 带嵌套前缀的完整路径，用于显示
-final String? innerPathForDisplay;
+
   final String key;
   final String displayName;
   final int depth;
@@ -217,6 +211,12 @@ final String? innerPathForDisplay;
   /// 若此项来自嵌套 zip，用 'inner.zip>readme.txt' 这种形式。
   final String? innerPath;
 
+  /// 显示用的完整嵌套路径（可能带 '>' 前缀）。
+  /// 跟 [innerPath] 的区别：
+  ///   · innerPath          = 当前层 archive 内的实际路径，用于 findFile
+  ///   · innerPathForDisplay = 带嵌套前缀的完整路径，用于显示
+  final String? innerPathForDisplay;
+
   /// 此项所在层的 archive。用于读取内容。只有 zip 内项才有。
   final Archive? innerArchive;
 
@@ -231,11 +231,11 @@ final String? innerPathForDisplay;
 
   /// 加 prefix 得到显示路径（面包屑样）。
   String get fullDisplayPath {
-  if (ownerZipKey == null) return displayName;
-  final zipName = ownerZipKey!.split('/').last;
-  final inner = innerPathForDisplay ?? displayName;
-  return '$zipName > $inner';
-}
+    if (ownerZipKey == null) return displayName;
+    final zipName = ownerZipKey!.split('/').last;
+    final inner = innerPathForDisplay ?? displayName;
+    return '$zipName > $inner';
+  }
 }
 
 // ==================== 虚拟 key 工具 ====================
@@ -434,7 +434,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   int _searchTaskId = 0;
   DateTime _lastUiRefresh = DateTime.now();
 
-  // ==================== zip 展开状态（新增） ====================
+  // ==================== zip 展开状态 ====================
 
   /// 已展开的 zip 的 key（磁盘路径）。
   final Set<String> _expandedZipKeys = <String>{};
@@ -455,13 +455,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   List<_DisplayItem>? _cachedDisplayItems;
 
   /// 缓存：每个 index 对应的 ownerZipKey（用于粘性头部判定）。
-  /// null 表示这个 index 不属于任何 zip。
   List<String?>? _cachedOwnerZipPerIndex;
 
   /// 单次打开 zip 的大小上限。
   static const int _maxZipBytes = 100 * 1024 * 1024;
 
-  // ──────────────────────────────────────────────────────────────────
   // ==================== 生命周期 ====================
 
   @override
@@ -535,7 +533,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       return;
     }
 
-    // 找顶部可见行的 index（leadingEdge <= 0 的最靠上那行）
     int topIdx = 1 << 30;
     for (final p in positions) {
       if (p.itemLeadingEdge <= 0.0 && p.index < topIdx) {
@@ -543,7 +540,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       }
     }
     if (topIdx == 1 << 30) {
-      // 所有可见行都在屏幕内，没有粘性
       if (_stickyZipKey != null) {
         setState(() => _stickyZipKey = null);
       }
@@ -557,19 +553,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   /// 判断在 topIdx 这个滚动位置，哪个 zip 应该变粘性。
-  ///
-  /// 规则：
-  ///   · 顶部行本身是 zip 头部 → 不粘（它已经在屏幕上了）
-  ///   · 顶部行属于某个 zip → 那个 zip 粘住
-  ///   · 顶部行不属于任何 zip → 不粘
   String? _computeStickyZipForIndex(int topIdx, List<_DisplayItem> items) {
     if (topIdx < 0 || topIdx >= items.length) return null;
     final item = items[topIdx];
-    // 如果顶部行本身是 zip 头部，不粘
     if (item.isZip && item.ownerZipKey == null) return null;
     final owner = item.ownerZipKey;
     if (owner == null) return null;
-    // owner 头部必须已经滚出屏幕上方（headerIdx < topIdx）
     for (var i = 0; i < items.length; i++) {
       final it = items[i];
       if (it.isZip && it.key == owner && it.ownerZipKey == null) {
@@ -577,8 +566,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         return null;
       }
     }
-    // 嵌套 zip 的 owner 头部在 items 里也是 zip 类型，但它的 ownerZipKey 非 null，
-    // 上面循环找不到。这里再补一次：找任何 key == owner 的 zip。
     for (var i = 0; i < items.length; i++) {
       final it = items[i];
       if (it.isZip && it.key == owner) {
@@ -592,14 +579,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   // ==================== 显示列表构建 ====================
 
   /// 把磁盘条目 + zip 展开内容合并成一个扁平列表，供列表 UI 渲染。
-  ///
-  /// 每次 build 都会重算（因为要跟上搜索/展开状态）。
-  /// 结果缓存在 _cachedDisplayItems，给粘性头部和长按回调用。
   List<_DisplayItem> _buildDisplayItems() {
     final out = <_DisplayItem>[];
 
     if (_searchActive) {
-      // 搜索结果模式：每个 hit 是顶层项
       for (final hit in _searchResults) {
         final isZip = _isExpandableArchiveName(hit.name);
         final key = hit.path;
@@ -618,6 +601,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
             zipDiskPath: key,
             zipArchive: _zipArchives[key],
             at: '',
+            innerPrefix: '',
             parentOwnerKey: null,
             depth: 1,
             error: _zipErrors[key],
@@ -649,6 +633,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           zipDiskPath: key,
           zipArchive: _zipArchives[key],
           at: '',
+          innerPrefix: '',
           parentOwnerKey: null,
           depth: 1,
           error: _zipErrors[key],
@@ -661,22 +646,98 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   /// 把某个 zip 内 `at` 路径下的子节点（递归）加到 out 里。
   ///
-  /// [parentOwnerKey] 是父 zip 的 key（嵌套用），顶层传 null。
-  
-  
+  /// [zipDiskPath] 是最外层 zip 的磁盘路径（用于拼 key）。
+  /// [innerPrefix] 是"已经走过的 zip 内路径"，顶层 zip 直接子节点传 ''。
+  /// [parentOwnerKey] 是此项归属的 zip key（粘性头部用）。
+  void _appendZipChildren({
+    required List<_DisplayItem> out,
+    required String zipDiskPath,
+    required Archive? zipArchive,
+    required String at,
+    required String innerPrefix,
+    required String? parentOwnerKey,
+    required int depth,
+    String? error,
+    bool loading = false,
+  }) {
+    if (depth == 1) {
+      if (loading) {
+        out.add(_DisplayItem(
+          key: '__loading__$zipDiskPath',
+          displayName: '正在加载…',
+          depth: depth,
+          ownerZipKey: zipDiskPath,
+          isZipInner: true,
+        ));
+        return;
+      }
+      if (error != null) {
+        out.add(_DisplayItem(
+          key: '__error__$zipDiskPath',
+          displayName: '加载失败：$error',
+          depth: depth,
+          ownerZipKey: zipDiskPath,
+          isZipInner: true,
+        ));
+        return;
+      }
+    }
+    if (zipArchive == null) return;
 
-  /// 生成嵌套 zip 里的 innerPath：
-  ///   · 顶层 zip 内：直接是 innerFullPath
-  ///   · 嵌套 zip 内：'inner.zip>' + innerFullPath
-  String _nestPath(String? parentOwnerKey, String at, String innerFullPath) {
-    if (parentOwnerKey == null) return innerFullPath;
-    if (at.isEmpty) return innerFullPath;
-    return '$at>$innerFullPath';
+    final children = _directZipChildren(zipArchive, at);
+    for (final c in children) {
+      // 显示用的完整路径（带嵌套前缀）
+      final innerFullForDisplay = innerPrefix.isEmpty
+          ? c.fullPath
+          : '$innerPrefix>${c.fullPath}';
+
+      final nodeKey = _makeZipInnerKey(zipDiskPath, innerFullForDisplay);
+      final ownerKey = parentOwnerKey ?? zipDiskPath;
+
+      out.add(_DisplayItem(
+        key: nodeKey,
+        displayName: c.name,
+        depth: depth,
+        isDir: c.isDir,
+        isZip: c.isZip,
+        isZipInner: true,
+        size: c.size,
+        ownerZipKey: ownerKey,
+        innerPath: c.fullPath,
+        innerPathForDisplay: innerFullForDisplay,
+        innerArchive: zipArchive,
+      ));
+
+      if (c.isDir) {
+        _appendZipChildren(
+          out: out,
+          zipDiskPath: zipDiskPath,
+          zipArchive: zipArchive,
+          at: c.fullPath,
+          innerPrefix: innerPrefix,
+          parentOwnerKey: ownerKey,
+          depth: depth + 1,
+        );
+      } else if (c.isZip) {
+        final nestedKey =
+            _makeZipInnerKey(zipDiskPath, innerFullForDisplay);
+        final nestedArchive = _zipArchives[nestedKey];
+        if (nestedArchive != null) {
+          _appendZipChildren(
+            out: out,
+            zipDiskPath: zipDiskPath,
+            zipArchive: nestedArchive,
+            at: '',
+            innerPrefix: innerFullForDisplay,
+            parentOwnerKey: nestedKey,
+            depth: depth + 1,
+          );
+        }
+      }
+    }
   }
 
-  // ────────────────────────────────────────────────
-
-
+// ===== 第 1/3 条结束，接第 2/3 条 =====
   // ==================== 加载目录 ====================
 
   Future<void> _load({
@@ -799,7 +860,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final out = <String>[];
     for (final p in sorted) {
       if (grid) {
-        // 网格模式下不再支持 zip 展开（保持简单），走老逻辑
         final i1 = p.index * 2;
         final i2 = i1 + 1;
         if (i1 >= 0 && i1 < allItems.length) out.add(allItems[i1].key);
@@ -1062,10 +1122,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   /// 展开一个 zip。已加载则直接展开；未加载则读盘 + 解码。
   Future<void> _expandZip(String zipDiskPath) async {
-    // 已展开 → 不做（这次点击应走收起逻辑，调用方判断）
     if (_expandedZipKeys.contains(zipDiskPath)) return;
-
-    // 已经在加载中 → 忽略重复点击
     if (_loadingZipKeys.contains(zipDiskPath)) return;
 
     setState(() {
@@ -1083,7 +1140,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
             '压缩包过大（${_formatSize(length)}），暂不支持展开');
       }
       final bytes = await file.readAsBytes();
-      final archive = await compute(_decodeArchiveInWorker, bytes);
+      // ★修复：主 isolate 解码，不再走 compute（Archive 不可跨 isolate 传回）
+      final archive = ZipDecoder().decodeBytes(bytes);
 
       if (!mounted) return;
 
@@ -1106,46 +1164,45 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   /// 递归扫描 archive 里所有嵌套 zip，解码并缓存。
-  /// 顶层 zip 的 key = zipDiskPath；嵌套 zip 的 key = _makeZipInnerKey(zipDiskPath, innerPath)。
-/// 递归扫描 archive 里所有嵌套 zip，解码并缓存。
-/// [innerPrefix] 是"已经走过的嵌套路径"（顶层传空字符串）。
-void _collectNestedZips(
-  String ownerZipDiskPath,
-  Archive archive,
-  String at,
-  String innerPrefix,
-) {
-  final children = _directZipChildren(archive, at);
-  for (final c in children) {
-    if (c.isDir) {
-      _collectNestedZips(ownerZipDiskPath, archive, c.fullPath, innerPrefix);
-    } else if (c.isZip) {
-      try {
-        final f = archive.findFile(c.fullPath);
-        if (f == null) continue;
-        final content = f.content;
-        final Uint8List bytes;
-        if (content is Uint8List) {
-          bytes = content;
-        } else if (content is List<int>) {
-          bytes = Uint8List.fromList(content);
-        } else {
-          continue;
+  /// 顶层 zip 的 key = zipDiskPath；嵌套 zip 的 key = _makeZipInnerKey(...)。
+  /// [innerPrefix] 是"已经走过的嵌套路径"（顶层传空字符串）。
+  void _collectNestedZips(
+    String ownerZipDiskPath,
+    Archive archive,
+    String at,
+    String innerPrefix,
+  ) {
+    final children = _directZipChildren(archive, at);
+    for (final c in children) {
+      if (c.isDir) {
+        _collectNestedZips(ownerZipDiskPath, archive, c.fullPath, innerPrefix);
+      } else if (c.isZip) {
+        try {
+          final f = archive.findFile(c.fullPath);
+          if (f == null) continue;
+          final content = f.content;
+          final Uint8List bytes;
+          if (content is Uint8List) {
+            bytes = content;
+          } else if (content is List<int>) {
+            bytes = Uint8List.fromList(content);
+          } else {
+            continue;
+          }
+          final inner = ZipDecoder().decodeBytes(bytes);
+          final innerFull = innerPrefix.isEmpty
+              ? c.fullPath
+              : '$innerPrefix>${c.fullPath}';
+          final nestedKey = _makeZipInnerKey(ownerZipDiskPath, innerFull);
+          _zipArchives[nestedKey] = inner;
+          _expandedZipKeys.add(nestedKey);
+          _collectNestedZips(ownerZipDiskPath, inner, '', innerFull);
+        } catch (_) {
+          // 打不开的嵌套 zip 忽略
         }
-        final inner = ZipDecoder().decodeBytes(bytes);
-        final innerFull = innerPrefix.isEmpty
-            ? c.fullPath
-            : '$innerPrefix>${c.fullPath}';
-        final nestedKey = _makeZipInnerKey(ownerZipDiskPath, innerFull);
-        _zipArchives[nestedKey] = inner;
-        _expandedZipKeys.add(nestedKey);
-        _collectNestedZips(ownerZipDiskPath, inner, '', innerFull);
-      } catch (_) {
-        // 打不开的嵌套 zip 忽略
       }
     }
   }
-}
 
   /// 收起一个 zip（顶层）。只清顶层 key，嵌套的顺带清掉。
   void _collapseZip(String zipDiskPath) {
@@ -1201,9 +1258,7 @@ void _collectNestedZips(
       return;
     }
 
-    // zip 内目录：点 = 展开/收起（由于我们默认展开到最深，
-    // 这里再点其实是收起该目录。但我们没实现单目录收起——
-    // 简单起见：点 zip 内目录什么都不做）
+    // zip 内目录：点 = 什么都不做（默认展开到最深）
     if (item.isZipInner && item.isDir) {
       return;
     }
@@ -1229,8 +1284,6 @@ void _collectNestedZips(
   }
 
   /// 打开 zip 内文件。
-  /// · 文本类 → 阅读器/编辑器（把内容写到临时文件，走现成打开流程）
-  /// · 非文本类 → 弹打开方式/分享菜单（同样需要临时文件）
   Future<void> _openZipInnerFile(_DisplayItem item) async {
     final ext = _extOf(item.displayName);
     final isText = _textExts.contains(ext);
@@ -1242,9 +1295,7 @@ void _collectNestedZips(
     }
 
     if (isText) {
-      // 文本：走阅读器/编辑器。用内存内容暂存到 provider。
-      // 简单做法：临时写到 App 缓存目录，走正常文件打开流程。
-      // 复杂但更干净：直接走 ReaderScreen。为简化，这里用临时文件。
+      // 文本：写到临时文件，走正常文件打开流程
       final tmp = await _writeTempFile(bytes, item.displayName);
       if (tmp == null) {
         _toast('无法创建临时文件');
@@ -1315,7 +1366,7 @@ void _collectNestedZips(
     }
   }
 
-  // ==================== 打开磁盘文件（原有逻辑改造） ====================
+  // ==================== 打开磁盘文件 ====================
 
   Future<void> _openFile(String path, String name, int? size) async {
     final isText = _textExts.contains(_extOf(name));
@@ -1552,117 +1603,6 @@ void _collectNestedZips(
       child: Icon(icon, color: color),
     );
   }
-
-  // ────────────────────────────
-  // ────────────────────────────────────────────────
-
-  /// 把某个 zip 内 `at` 路径下的子节点（递归）加到 out 里。
-  ///
-  /// [zipDiskPath] 是最外层 zip 的磁盘路径（用于拼 key）。
-  /// [innerPrefix] 是"已经走过的 zip 内路径"，顶层 zip 直接子节点传 ''。
-  /// [parentOwnerKey] 是此项归属的 zip key（粘性头部用）。
-void _appendZipChildren({
-  required List<_DisplayItem> out,
-  required String zipDiskPath,
-  required Archive? zipArchive,
-  required String at,
-  required String innerPrefix,
-  required String? parentOwnerKey,
-  required int depth,
-  String? error,
-  bool loading = false,
-}) {
-  if (depth == 1) {
-    if (loading) {
-      out.add(_DisplayItem(
-        key: '__loading__$zipDiskPath',
-        displayName: '正在加载…',
-        depth: depth,
-        ownerZipKey: zipDiskPath,
-        isZipInner: true,
-      ));
-      return;
-    }
-    if (error != null) {
-      out.add(_DisplayItem(
-        key: '__error__$zipDiskPath',
-        displayName: '加载失败：$error',
-        depth: depth,
-        ownerZipKey: zipDiskPath,
-        isZipInner: true,
-      ));
-      return;
-    }
-  }
-  if (zipArchive == null) return;
-
-  final children = _directZipChildren(zipArchive, at);
-  for (final c in children) {
-    // 显示用的完整路径（带嵌套前缀）
-    final innerFullForDisplay = innerPrefix.isEmpty
-        ? c.fullPath
-        : '$innerPrefix>${c.fullPath}';
-
-    final nodeKey = _makeZipInnerKey(zipDiskPath, innerFullForDisplay);
-    final ownerKey = parentOwnerKey ?? zipDiskPath;
-
-    out.add(_DisplayItem(
-      key: nodeKey,
-      displayName: c.name,
-      depth: depth,
-      isDir: c.isDir,
-      isZip: c.isZip,
-      isZipInner: true,
-      size: c.size,
-      ownerZipKey: ownerKey,
-      innerPath: c.fullPath,                    // 当前 archive 内实际路径
-      innerPathForDisplay: innerFullForDisplay, // 带嵌套前缀的显示路径
-      innerArchive: zipArchive,
-    ));
-
-    if (c.isDir) {
-      _appendZipChildren(
-        out: out,
-        zipDiskPath: zipDiskPath,
-        zipArchive: zipArchive,
-        at: c.fullPath,
-        innerPrefix: innerPrefix,               // ← 目录下钻保持原前缀
-        parentOwnerKey: ownerKey,
-        depth: depth + 1,
-      );
-    } else if (c.isZip) {
-      // 嵌套 zip：从缓存里查
-      final nestedKey =
-          _makeZipInnerKey(zipDiskPath, innerFullForDisplay);
-      final nestedArchive = _zipArchives[nestedKey];
-      if (nestedArchive != null) {
-        _appendZipChildren(
-          out: out,
-          zipDiskPath: zipDiskPath,
-          zipArchive: nestedArchive,
-          at: '',
-          innerPrefix: innerFullForDisplay,     // ← 嵌套下钻才叠加前缀
-          parentOwnerKey: nestedKey,
-          depth: depth + 1,
-        );
-      }
-    }
-  }
-}
-
-        if (isZip && _expandedZipKeys.contains(key)) {
-          _appendZipChildren(
-            out: out,
-            zipDiskPath: key,
-            zipArchive: _zipArchives[key],
-            at: '',
-            innerPrefix: '',
-            parentOwnerKey: null,
-            depth: 1,
-            error: _zipErrors[key],
-            loading: _loadingZipKeys.contains(key),
-          );
-        }
 
   // ==================== 搜索 ====================
 
@@ -1984,7 +1924,6 @@ void _appendZipChildren({
     final items = _resolveSelectedItems();
     if (items.length != 2) return;
 
-    // 检查：都不允许是目录
     for (final it in items) {
       if (it.isDir) {
         _toast('对比只支持文件，请勿选中文件夹');
@@ -1996,7 +1935,6 @@ void _appendZipChildren({
       }
     }
 
-    // 读两侧内容
     String? leftText;
     String? rightText;
     String? leftName;
@@ -2063,7 +2001,6 @@ void _appendZipChildren({
   }
 
   /// 从一个 DisplayItem 读原始字节。
-  /// 磁盘项 → 直接读文件；zip 内项 → 从内存 archive 读。
   Future<Uint8List?> _readBytesOfItem(_DisplayItem item) async {
     if (item.isZipInner) {
       return _readZipInnerBytes(item);
@@ -2334,7 +2271,6 @@ void _appendZipChildren({
       return;
     }
     if (it.isZipInner) {
-      // zip 内文件：先提取到临时目录再打开
       final bytes = _readZipInnerBytes(it);
       if (bytes == null) {
         _toast('读取失败');
@@ -2359,7 +2295,6 @@ void _appendZipChildren({
     if (_selectedPaths.isEmpty) return;
     final items = _resolveSelectedItems();
 
-    // 磁盘项直接分享；zip 内项先提取到临时目录
     final diskPaths = <String>[];
     final tempPaths = <String>[];
     for (final it in items) {
@@ -3261,11 +3196,12 @@ void _appendZipChildren({
     return fullPath;
   }
 
+// ===== 第 2/3 条结束，接第 3/3 条 =====
+
   // ==================== build ====================
 
   @override
   Widget build(BuildContext context) {
-    // 每次 build 前把 display items 算好并缓存（粘性头部和长按回调都用它）
     _cachedDisplayItems = _buildDisplayItems();
 
     return PopScope(
@@ -3280,7 +3216,6 @@ void _appendZipChildren({
         } else if (_searchActive) {
           _clearSearch();
         } else if (_expandedZipKeys.isNotEmpty) {
-          // 有 zip 展开着，先全部收起
           setState(() {
             _expandedZipKeys.clear();
             _stickyZipKey = null;
@@ -3669,13 +3604,11 @@ void _appendZipChildren({
     final canShare = n >= 1;
     final allDisk = _selectionAllDisk;
 
-    // 需要磁盘路径的操作
     final canCopyPath = n == 1;
     final canRename = n == 1 && allDisk;
     final canMove = n >= 1 && allDisk;
     final canCopy = n >= 1 && allDisk;
     final canDelete = n >= 1 && allDisk;
-    // 导出清单：只允许选 1 个磁盘目录
     final canExportListing = n == 1 && allDisk;
 
     final s = Theme.of(context).colorScheme;
@@ -3704,7 +3637,7 @@ void _appendZipChildren({
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ==================== 第一行：可左右滑动 ====================
+            // 第一行：可左右滑动
             SizedBox(
               height: 38,
               child: SingleChildScrollView(
@@ -3791,7 +3724,8 @@ void _appendZipChildren({
                       width: 60,
                       child: FilledButton(
                         style: outlineStyle,
-                        onPressed: canExportListing ? _exportFolderListing : null,
+                        onPressed:
+                            canExportListing ? _exportFolderListing : null,
                         child: const Text(
                           '导出清单',
                           style: labelStyle,
@@ -3805,7 +3739,7 @@ void _appendZipChildren({
               ),
             ),
             const SizedBox(height: 4),
-            // ==================== 第二行 ====================
+            // 第二行
             Row(
               children: [
                 Expanded(
@@ -4099,7 +4033,7 @@ void _appendZipChildren({
                   color: Colors.grey.shade700,
                 ),
                 Icon(
-                  item.isZipInner ? Icons.folder_zip : Icons.folder_zip,
+                  Icons.folder_zip,
                   size: 20,
                   color: Colors.purple.shade400,
                 ),
@@ -4263,7 +4197,6 @@ void _appendZipChildren({
           showTime: showTime,
           fontName: fontName,
           fontMeta: fontMeta,
-          isFirstCol: true,
         );
 
         final rightWidget = rightInfo == null
@@ -4274,7 +4207,6 @@ void _appendZipChildren({
                 showTime: showTime,
                 fontName: fontName,
                 fontMeta: fontMeta,
-                isFirstCol: false,
               );
 
         return RepaintBoundary(
@@ -4303,7 +4235,6 @@ void _appendZipChildren({
     required bool showTime,
     required double fontName,
     required double fontMeta,
-    required bool isFirstCol,
   }) {
     final e = info.entity;
     final selected = _selectedPaths.contains(e.path);
@@ -4550,17 +4481,14 @@ void _appendZipChildren({
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
     }
 
-    // zip 头
     if (item.isZip && !item.isZipInner) {
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
     }
 
-    // zip 内目录
     if (item.isZipInner && item.isDir) {
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
     }
 
-    // 通用文件行（含路径副标题）
     final selected = _selectedPaths.contains(item.key);
     final isZipInner = item.isZipInner;
     final metaLine = _buildItemMetaLine(item);
@@ -4641,19 +4569,6 @@ void _appendZipChildren({
       ),
     );
   }
-}
-
-// ==================== 顶层：后台解码 archive ====================
-
-Uint8List _decodeArchiveInWorker(Uint8List bytes) {
-  // 这里其实不需要做"解码"，只需要确认能解压，
-  // 并且把 Archive 对象解析出来。但 compute() 只能传 primitive / 可
-  // 传输对象，Archive 不是。
-  //
-  // 解决方式：这里只做一次"能解码"的校验，然后原样返回 bytes。
-  // 真正的 Archive 对象在主 isolate 里构造。
-  ZipDecoder().decodeBytes(bytes);
-  return bytes;
 }
 
 // ==================== 辅助 Widget ====================
@@ -5336,6 +5251,14 @@ class _PropertiesDialog extends StatefulWidget {
 }
 
 class _PropertiesDialogState extends State<_PropertiesDialog> {
+  // ★修复：_PropertiesDialogState 不能访问 _FileBrowserScreenState 的
+  // private static 常量，这里本地补一份（文件底部还有 _dlgInsetG 等全局常量，
+  // 直接使用也可以）。
+  static const EdgeInsets _dlgInset = EdgeInsets.all(4);
+  static const EdgeInsets _dlgTitlePad = EdgeInsets.fromLTRB(12, 8, 12, 0);
+  static const EdgeInsets _dlgContentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
+  static const EdgeInsets _dlgActionsPad = EdgeInsets.fromLTRB(4, 0, 4, 4);
+
   String? _md5;
   bool _md5Loading = false;
   String? _md5Error;
@@ -5506,8 +5429,3 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
     );
   }
 }
-
-
-
-
-
