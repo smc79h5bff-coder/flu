@@ -4136,8 +4136,8 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                     selected: _rangeMode,
                     onSelected: (_) => _toggleRangeMode(),
                     backgroundColor: Colors.white,
-                
-                      selectedColor: _rangeBlue.withOpacity(0.12),
+                selectedColor: const Color(0xFFE3F2FD),
+                      
                     surfaceTintColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     elevation: 0,
