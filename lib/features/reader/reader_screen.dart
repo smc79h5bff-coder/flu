@@ -2856,6 +2856,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           style: effectiveStyle,
           textAlign: TextAlign.left,
           softWrap: true,
+          
+  overflow: TextOverflow.visible,
           key: _unitKeys[unitIdx],
         ),
       );
@@ -2904,6 +2906,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 style: effectiveStyle,
                 textAlign: TextAlign.left,
                 softWrap: true,
+                
+  overflow: TextOverflow.visible,
                 key: _unitKeys[unitIdx],
               ),
             ],
