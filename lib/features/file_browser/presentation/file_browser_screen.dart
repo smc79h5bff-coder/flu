@@ -2307,7 +2307,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== 面包屑 ====================
 
+  // 面包屑缓存。_currentPath 不变就复用，避免每次 build 都重新
+  // split 字符串、跑 RegExp、创建 record。
+  List<({String label, String path})>? _crumbsCache;
+  String? _crumbsCacheForPath;
+
   List<({String label, String path})> get _crumbs {
+    if (_crumbsCacheForPath == _currentPath && _crumbsCache != null) {
+      return _crumbsCache!;
+    }
+    final out = _computeCrumbs();
+    _crumbsCacheForPath = _currentPath;
+    _crumbsCache = out;
+    return out;
+  }
+
+  List<({String label, String path})> _computeCrumbs() {
     if (_currentPath == _topPath) {
       return [(label: '存储', path: _topPath)];
     }
@@ -2775,6 +2790,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   Widget _buildSearchStatusBar() {
+    final textTheme = Theme.of(context).textTheme;
     if (_searching) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -2789,7 +2805,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
             Expanded(
               child: Text(
                 '扫描中... 已找到 ${_searchResults.length} 个',
-                style: Theme.of(context).textTheme.labelSmall,
+                style: textTheme.labelSmall,
               ),
             ),
             TextButton(
@@ -2812,7 +2828,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
               _searchResults.length >= 500
                   ? '已达上限，只显示前 500 个'
                   : '共找到 ${_searchResults.length} 个',
-              style: Theme.of(context).textTheme.labelSmall,
+              style: textTheme.labelSmall,
             ),
           ),
         ],
@@ -3055,6 +3071,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   Widget _buildListBody(List<EntryInfo> entries) {
     final fontName = ref.watch(browserFontListNameProvider);
     final fontMeta = ref.watch(browserFontListMetaProvider);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
@@ -3104,9 +3121,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
                   metaLine,
                   style: TextStyle(
                     fontSize: fontMeta,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurfaceVariant,
+                    color: colorScheme.onSurfaceVariant,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -3222,6 +3237,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }) {
     final e = info.entity;
     final selected = _selectedPaths.contains(e.path);
+    final colorScheme = Theme.of(context).colorScheme;
 
     // 元信息行：大小 + 时间，按开关决定。
     final metaParts = <String>[];
@@ -3268,7 +3284,7 @@ child: Container(
                 : const Color(0xFFF0F0F0))),
     border: selected
         ? Border.all(
-            color: Theme.of(context).colorScheme.primary,
+            color: colorScheme.primary,
             width: 2,
           )
         : Border(
@@ -3302,8 +3318,7 @@ child: Container(
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: fontMeta,
-                  color:
-                      Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -3395,6 +3410,8 @@ child: Container(
         child: Text(_searching ? '正在扫描...' : '未找到匹配'),
       );
     }
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
@@ -3411,7 +3428,7 @@ child: Container(
           foregroundDecoration: selected
               ? BoxDecoration(
                   border: Border.all(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: colorScheme.primary,
                     width: 2,
                   ),
                 )
@@ -3441,16 +3458,13 @@ child: Container(
                 if (metaLine.isNotEmpty)
                   Text(
                     metaLine,
-                    style: Theme.of(context).textTheme.labelSmall,
+                    style: textTheme.labelSmall,
                   ),
                 Text(
                   hit.path,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
+                  style: textTheme.labelSmall?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
                   softWrap: true,
                 ),
               ],
