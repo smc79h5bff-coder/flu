@@ -47,7 +47,6 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
         height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
           children: [
-            // ==================== 顶部把手 + 标题 ====================
             const SizedBox(height: 8),
             Center(
               child: Container(
@@ -65,7 +64,6 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
 
-            // ==================== 固定预览区 ====================
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -97,7 +95,6 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
             const SizedBox(height: 4),
             const Divider(height: 1),
 
-            // ==================== 滚动设置区 ====================
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -208,7 +205,7 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                       ),
                     ),
 
-                    // ---------- 分页底部安全边距（仅分页模式显示） ----------
+                    // ---------- 分页底部安全边距 ----------
                     if (s.readerMode == 0) ...[
                       _sliderHeader(
                         '分页底部安全边距',
@@ -1421,7 +1418,6 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     });
   }
 
-  // ========== 改动：全局高亮单独存到 readerGlobalHighlightsProvider ==========
   Future<void> _createRegexHighlight() async {
     final entry = await showNewHighlightDialog(
       context: context,
@@ -1431,14 +1427,12 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
     );
     if (entry == null || !mounted) return;
     if (entry.isGlobal) {
-      // 全局高亮：色块页也能存，不依赖具体某本书。
       ref.read(readerGlobalHighlightsProvider.notifier).addOrReplace(entry);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已添加到全局高亮')),
       );
     } else {
-      // 本书高亮：色块页不知道是哪本书，只能提示去阅读器里用。
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('已记录配置。请到阅读器里选中文字、点该色块，即可生效。'),
@@ -1823,14 +1817,12 @@ class _GradientEditor extends StatefulWidget {
 }
 
 class _GradientEditorState extends State<_GradientEditor> {
-  /// 正在拖的圆点索引。交换后自动换成新的索引。
   int? _draggingIndex;
 
   static const double _barWidth = 60;
   static const double _barHeight = 240;
   static const double _dotSize = 26;
 
-  // 单一数据源：全部读写 widget 上的，内部不再存副本。
   List<Color> get _colors => widget.colors;
   List<double> get _stops => widget.stops;
 
@@ -1854,7 +1846,6 @@ class _GradientEditorState extends State<_GradientEditor> {
     return bestI;
   }
 
-  /// 越过相邻点就交换。返回新索引。
   int _swapIfCrossed(
       List<Color> newColors, List<double> newStops, int i) {
     if (i > 0 && newStops[i] < newStops[i - 1]) {
@@ -1877,8 +1868,6 @@ class _GradientEditorState extends State<_GradientEditor> {
     }
     return i;
   }
-
-  // ==================== 拖动色条 ====================
 
   void _onPanStart(DragStartDetails d) {
     final i = _nearestDot(d.localPosition.dy);
@@ -1915,8 +1904,6 @@ class _GradientEditorState extends State<_GradientEditor> {
     }
   }
 
-  // ==================== 操作 ====================
-
   Future<void> _pickColor(int i) async {
     final picked = await showDialog<Color>(
       context: context,
@@ -1940,7 +1927,6 @@ class _GradientEditorState extends State<_GradientEditor> {
   void _addColor() {
     if (_colors.length >= widget.maxColors) return;
 
-    // 找最大间隔
     var bestI = 0;
     var bestGap = 0.0;
     for (var i = 0; i < _stops.length - 1; i++) {
@@ -1971,8 +1957,6 @@ class _GradientEditorState extends State<_GradientEditor> {
     newStops.removeAt(i);
     _emit(newColors, newStops);
   }
-
-  // ==================== 渲染 ====================
 
   @override
   Widget build(BuildContext context) {
@@ -2080,7 +2064,6 @@ class _GradientEditorState extends State<_GradientEditor> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 第一行：序号 + 色块（点改色）+ 删除
           Row(
             children: [
               SizedBox(
@@ -2116,8 +2099,6 @@ class _GradientEditorState extends State<_GradientEditor> {
                 ),
             ],
           ),
-
-          // 第二行：Slider + 百分比输入
           Padding(
             padding: const EdgeInsets.only(left: 20),
             child: Row(
@@ -2170,10 +2151,7 @@ class _GradientEditorState extends State<_GradientEditor> {
 
 // ==================== 高亮管理页 ====================
 
-/// 一条高亮 + 它所属的文件路径。
 typedef _HighlightItem = ({String fileKey, HighlightEntry entry});
-
-/// 选中集合的 key：(fileKey, entryId)。
 typedef _HighlightKey = (String fileKey, String entryId);
 
 Future<int?> openBookmarkHighlightManager(
@@ -2215,20 +2193,16 @@ class _BookmarkHighlightManagerState
 
   bool _selectionMode = false;
 
-  /// 区间选择锚点（书签用 id，高亮用 (fileKey,id)）。
   String? _anchorBookmarkId;
   _HighlightKey? _anchorHighlightKey;
 
-  /// 筛选：显示哪些分组。空集 = 全部显示。
   Set<String?> _visibleGroupIds = <String?>{};
 
-  /// 筛选：是否显示全部书籍。false = 仅本书。
   bool _allBooksMode = false;
 
   @override
   void initState() {
     super.initState();
-    // Tab 顺序：0 = 高亮（默认显示），1 = 书签
     _tab = TabController(length: 2, vsync: this);
     _tab.addListener(() => setState(() {
           _selectionMode = false;
@@ -2267,8 +2241,6 @@ class _BookmarkHighlightManagerState
     final groups = ref.watch(readerHighlightGroupsProvider);
     final viewSettings = ref.watch(highlightViewSettingsProvider);
 
-    // 高亮：先按范围（本书 / 全部），再按分组过滤
-    // 全局高亮在两种模式下都显示（因为对所有书生效）。
     final highlightsRaw = _allBooksMode
         ? <_HighlightItem>[
             for (final e in allMap.entries)
@@ -2323,12 +2295,6 @@ class _BookmarkHighlightManagerState
           ),
 
           actions: [
-            // 固定 3 个槽位，每个 52px，总宽 156px。
-            // 无论切 tab 或进出选中模式，actions 宽度恒定，TabBar 位置不动。
-            //
-            // 槽 1：选中 + 高亮 → 移入分组；其它情况空
-            // 槽 2：非选中 + 高亮 → 筛选；选中 → 全选；其它情况空
-            // 槽 3：非选中 → 批量选择；选中 → 删除
             SizedBox(
               width: 52,
               height: kToolbarHeight,
@@ -2517,7 +2483,6 @@ class _BookmarkHighlightManagerState
         _visibleGroupIds = result.groups;
       }
     });
-    // 切到"全部书籍"模式时，把没加载过的书也读进来
     if (result.allBooks) {
       ref.read(readerHighlightsProvider.notifier).loadAll();
     }
@@ -2538,7 +2503,6 @@ class _BookmarkHighlightManagerState
       });
     } else {
       if (_selectedHighlights.isEmpty) return;
-      // 按 bookKey 分组；全局的单独处理
       final byBook = <String, Set<String>>{};
       final globalIds = <String>{};
       for (final (fileKey, id) in _selectedHighlights) {
@@ -2658,7 +2622,6 @@ class _BookmarkHighlightManagerState
       groupId = picked;
     }
 
-    // 按 bookKey 分组处理；全局的单独处理
     final byBook = <String, Set<String>>{};
     final globalIds = <String>{};
     for (final (fileKey, id) in _selectedHighlights) {
@@ -2816,67 +2779,94 @@ class _BookmarkHighlightManagerState
     if (highlights.isEmpty) {
       return const Center(child: Text('还没有高亮'));
     }
-    return GridView.builder(
-      padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 2,
-        crossAxisSpacing: 2,
-        childAspectRatio: 1.4,
-      ),
-      itemCount: highlights.length,
-      itemBuilder: (_, i) {
-        final item = highlights[i];
-        final h = item.entry;
-        final key = (item.fileKey, h.id);
-        final selected = _selectedHighlights.contains(key);
-        // 全局高亮的"书名"显示为"全部书籍"
-        final bookName = item.fileKey == kGlobalHighlightsKey
-            ? '全部书籍'
-            : item.fileKey.split('/').last;
 
-        return _HighlightCard(
-          entry: h,
-          bookName: bookName,
-          showBookName: viewSettings.showBookName,
-          selected: selected,
-          selectionMode: _selectionMode,
-          onTap: _selectionMode
-              ? () => _toggleHighlight(key)
-              : () async {
-                  final r = await openHighlightEdit(
-                    context,
-                    h,
-                    fileKey: item.fileKey,
-                  );
-                  if (r != null && mounted) {
-                    if (r.action == 'delete') {
-                      if (item.fileKey == kGlobalHighlightsKey) {
-                        ref
-                            .read(readerGlobalHighlightsProvider.notifier)
-                            .remove(h.id);
-                      } else {
-                        ref
-                            .read(readerHighlightsProvider.notifier)
-                            .remove(item.fileKey, h.id);
-                      }
-                    } else if (r.action == 'save' && r.entry != null) {
-                      if (item.fileKey == kGlobalHighlightsKey) {
-                        ref
-                            .read(readerGlobalHighlightsProvider.notifier)
-                            .updateOne(r.entry!);
-                      } else {
-                        ref
-                            .read(readerHighlightsProvider.notifier)
-                            .updateOne(item.fileKey, r.entry!);
-                      }
-                    }
-                  }
-                },
-          onLongPress: () => _onLongPressHighlight(key, highlights),
-          onDelete: () => _confirmDeleteHighlight(item),
+    const crossAxisCount = 3;
+    const spacing = 2.0;
+    final totalRows =
+        (highlights.length + crossAxisCount - 1) ~/ crossAxisCount;
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(4),
+      itemCount: totalRows,
+      itemBuilder: (ctx, rowIdx) {
+        final rowChildren = <Widget>[];
+        for (var col = 0; col < crossAxisCount; col++) {
+          final idx = rowIdx * crossAxisCount + col;
+          if (col > 0) rowChildren.add(const SizedBox(width: spacing));
+          if (idx < highlights.length) {
+            rowChildren.add(Expanded(
+              child: _buildHighlightCard(highlights[idx], viewSettings),
+            ));
+          } else {
+            rowChildren.add(const Expanded(child: SizedBox.shrink()));
+          }
+        }
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: rowIdx < totalRows - 1 ? spacing : 0,
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: rowChildren,
+            ),
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildHighlightCard(
+    _HighlightItem item,
+    HighlightViewSettings viewSettings,
+  ) {
+    final h = item.entry;
+    final key = (item.fileKey, h.id);
+    final selected = _selectedHighlights.contains(key);
+    final bookName = item.fileKey == kGlobalHighlightsKey
+        ? '全部书籍'
+        : item.fileKey.split('/').last;
+
+    return _HighlightCard(
+      entry: h,
+      bookName: bookName,
+      showBookName: viewSettings.showBookName,
+      selected: selected,
+      selectionMode: _selectionMode,
+      onTap: _selectionMode
+          ? () => _toggleHighlight(key)
+          : () async {
+              final r = await openHighlightEdit(
+                context,
+                h,
+                fileKey: item.fileKey,
+              );
+              if (r != null && mounted) {
+                if (r.action == 'delete') {
+                  if (item.fileKey == kGlobalHighlightsKey) {
+                    ref
+                        .read(readerGlobalHighlightsProvider.notifier)
+                        .remove(h.id);
+                  } else {
+                    ref
+                        .read(readerHighlightsProvider.notifier)
+                        .remove(item.fileKey, h.id);
+                  }
+                } else if (r.action == 'save' && r.entry != null) {
+                  if (item.fileKey == kGlobalHighlightsKey) {
+                    ref
+                        .read(readerGlobalHighlightsProvider.notifier)
+                        .updateOne(r.entry!);
+                  } else {
+                    ref
+                        .read(readerHighlightsProvider.notifier)
+                        .updateOne(item.fileKey, r.entry!);
+                  }
+                }
+              }
+            },
+      onLongPress: () => _onLongPressHighlight(key, highlights),
+      onDelete: () => _confirmDeleteHighlight(item),
     );
   }
 
@@ -2980,8 +2970,10 @@ class _BookmarkHighlightManagerState
 
 /// 网格里一个高亮卡片。
 /// 上块：名字 + 删除按钮（选中模式下换成右上角的对勾，删除按钮隐藏）。
-/// 中块：高亮样式的预览（只有文字本身带背景色）。
-/// 下块：书名（可选，受 highlightViewSettings.showBookName 控制）。
+/// 中块：高亮样式的预览（最多 5 行）。
+/// 下块：书名（可选，开了 showBookName 才有）。
+///
+/// 卡片高度随内容变，不再固定。同一行的多个卡片会互相拉平到等高。
 class _HighlightCard extends StatelessWidget {
   const _HighlightCard({
     required this.entry,
@@ -3005,19 +2997,26 @@ class _HighlightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = Theme.of(context).colorScheme;
+    const selectedBg = Color(0xFFFFE1EC);
+    const selectedBorder = Color(0xFFAA00FF);
+    const normalBorder = Color(0xFFB39DDB);
+
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
         decoration: BoxDecoration(
-          color: selected ? s.primary.withValues(alpha: 0.15) : null,
+          color: selected ? selectedBg : null,
           borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.black54, width: 0.5),
+          border: Border.all(
+            color: selected ? selectedBorder : normalBorder,
+            width: 0.5,
+          ),
         ),
-        padding: const EdgeInsets.fromLTRB(1, 1, 1, 1),
+        padding: const EdgeInsets.fromLTRB(2, 1, 1, 1),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // 上块：名字 + 删除/对勾
             SizedBox(
@@ -3031,7 +3030,7 @@ class _HighlightCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -3041,10 +3040,10 @@ class _HighlightCard extends StatelessWidget {
                       width: 22,
                       height: 22,
                       child: selected
-                          ? Icon(
+                          ? const Icon(
                               Icons.check_circle,
                               size: 18,
-                              color: s.primary,
+                              color: selectedBorder,
                             )
                           : null,
                     )
@@ -3066,9 +3065,9 @@ class _HighlightCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            // 中块：预览（占满剩余空间）
-            Expanded(child: _preview()),
-            // 下块：书名（可选，接在卡片底部）
+            // 中块：预览（随内容变高，最多 5 行）
+            _preview(),
+            // 下块：书名（可选，有才占空间）
             if (showBookName) ...[
               const SizedBox(height: 2),
               Text(
@@ -3076,8 +3075,9 @@ class _HighlightCard extends StatelessWidget {
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 11,
+                  fontWeight: FontWeight.bold,
                   color: Colors.black,
                 ),
               ),
@@ -3088,132 +3088,119 @@ class _HighlightCard extends StatelessWidget {
     );
   }
 
+  /// 把关键词按渲染时的实际换行位置切成多行。
+  /// 最多切 5 行，多余部分丢弃。
+  List<String> _splitKeywordIntoLines(
+    String text,
+    TextStyle style,
+    double maxWidth,
+  ) {
+    if (text.isEmpty || maxWidth <= 0) return [text];
 
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.left,
+      maxLines: 5,
+    )..layout(maxWidth: maxWidth);
 
+    final metrics = tp.computeLineMetrics();
+    if (metrics.length <= 1) return [text];
 
+    final ranges = <({int start, int end})>[];
+    for (final m in metrics) {
+      final yMid = m.baseline + (m.descent - m.ascent) / 2;
+      final pStart = tp.getPositionForOffset(Offset(0, yMid));
+      final pEnd = tp.getPositionForOffset(Offset(maxWidth, yMid));
+      var s = pStart.offset;
+      var e = pEnd.offset;
+      if (s < 0) s = 0;
+      if (e > text.length) e = text.length;
+      if (e <= s) e = s + 1;
+      ranges.add((start: s, end: e));
+    }
 
-/// 把关键词按渲染时的实际换行位置切成多行。
-/// 最多切 2 行，多余部分丢弃。
-List<String> _splitKeywordIntoLines(
-  String text,
-  TextStyle style,
-  double maxWidth,
-) {
-  if (text.isEmpty || maxWidth <= 0) return [text];
+    ranges[0] = (start: 0, end: ranges[0].end);
+    for (var i = 1; i < ranges.length; i++) {
+      final prevEnd = ranges[i - 1].end;
+      var s = ranges[i].start;
+      var e = ranges[i].end;
+      if (s < prevEnd) s = prevEnd;
+      if (e <= s) e = s + 1;
+      if (e > text.length) e = text.length;
+      ranges[i] = (start: s, end: e);
+    }
+    ranges[ranges.length - 1] = (
+      start: ranges[ranges.length - 1].start,
+      end: text.length,
+    );
 
-  final tp = TextPainter(
-    text: TextSpan(text: text, style: style),
-    textDirection: TextDirection.ltr,
-    textAlign: TextAlign.left,
-    maxLines: 2,
-  )..layout(maxWidth: maxWidth);
-
-  final metrics = tp.computeLineMetrics();
-  if (metrics.length <= 1) return [text];
-
-  final ranges = <({int start, int end})>[];
-  for (final m in metrics) {
-    final yMid = m.baseline + (m.descent - m.ascent) / 2;
-    final pStart = tp.getPositionForOffset(Offset(0, yMid));
-    final pEnd = tp.getPositionForOffset(Offset(maxWidth, yMid));
-    var s = pStart.offset;
-    var e = pEnd.offset;
-    if (s < 0) s = 0;
-    if (e > text.length) e = text.length;
-    if (e <= s) e = s + 1;
-    ranges.add((start: s, end: e));
+    return [for (final r in ranges) text.substring(r.start, r.end)];
   }
 
-  // 首行起点强制 0，相邻行衔接，末行终点强制到末尾
-  ranges[0] = (start: 0, end: ranges[0].end);
-  for (var i = 1; i < ranges.length; i++) {
-    final prevEnd = ranges[i - 1].end;
-    var s = ranges[i].start;
-    var e = ranges[i].end;
-    if (s < prevEnd) s = prevEnd;
-    if (e <= s) e = s + 1;
-    if (e > text.length) e = text.length;
-    ranges[i] = (start: s, end: e);
-  }
-  ranges[ranges.length - 1] = (
-    start: ranges[ranges.length - 1].start,
-    end: text.length,
-  );
+  Widget _preview() {
+    final colors = entry.colors.map((c) => Color(c)).toList();
+    final stops = entry.stops.length == colors.length ? entry.stops : null;
+    final isGradient = colors.length > 1;
+    final textColor = Color(entry.textColor);
 
-  return [for (final r in ranges) text.substring(r.start, r.end)];
-}
-  
+    final textStyle = TextStyle(
+      color: textColor,
+      fontSize: 14,
+      height: 1.15,
+    );
 
-
-Widget _preview() {
-  final colors = entry.colors.map((c) => Color(c)).toList();
-  final stops = entry.stops.length == colors.length ? entry.stops : null;
-  final isGradient = colors.length > 1;
-  final textColor = Color(entry.textColor);
-
-  final textStyle = TextStyle(
-    color: textColor,
-    fontSize: 11,
-    height: 1.15,
-  );
-
-  // 纯色：保持原样（一行搞定）
-  if (!isGradient) {
-    return Center(
-      child: Container(
-        decoration: BoxDecoration(color: colors.first),
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-        child: Text(
-          entry.keyword,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: textStyle,
+    // 纯色
+    if (!isGradient) {
+      return Center(
+        child: Container(
+          decoration: BoxDecoration(color: colors.first),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          child: Text(
+            entry.keyword,
+            maxLines: 5,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: textStyle,
+          ),
         ),
-      ),
+      );
+    }
+
+    // 渐变：按实际换行拆成多段，每段独立渐变
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final maxW = constraints.maxWidth;
+        final lines = _splitKeywordIntoLines(
+          entry.keyword,
+          textStyle,
+          maxW,
+        );
+
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final line in lines)
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: colors,
+                      stops: stops,
+                    ),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  child: Text(line, maxLines: 1, style: textStyle),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
-
-  // 渐变：按实际换行拆成多段，每段独立渐变
-  return LayoutBuilder(
-    builder: (ctx, constraints) {
-      final maxW = constraints.maxWidth;
-      final lines = _splitKeywordIntoLines(
-        entry.keyword,
-        textStyle,
-        maxW,
-      );
-
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final line in lines)
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: colors,
-                    stops: stops,
-                  ),
-                ),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                child: Text(line, maxLines: 1, style: textStyle),
-              ),
-          ],
-        ),
-      );
-    },
-  );
-}
-
-
-
-
-
-  
 }
 
 // ==================== 高亮筛选面板（范围 + 分组） ====================
@@ -3523,7 +3510,6 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
     final highlightsNotifier = ref.read(readerHighlightsProvider.notifier);
     final globalNotifier = ref.read(readerGlobalHighlightsProvider.notifier);
     if (choice == 'detach') {
-      // 从各书的本地高亮里摘掉该分组
       final all = ref.read(readerHighlightsProvider);
       for (final entry in all.entries) {
         for (final h in entry.value) {
@@ -3535,7 +3521,6 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
           }
         }
       }
-      // 从全局高亮里摘掉该分组
       for (final h in ref.read(readerGlobalHighlightsProvider)) {
         if (h.groupId == g.id) {
           globalNotifier.updateOne(h.copyWith(clearGroup: true));
@@ -3621,7 +3606,7 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
 
 class HighlightEditResult {
   const HighlightEditResult({required this.action, this.entry});
-  final String action; // 'save' | 'delete'
+  final String action;
   final HighlightEntry? entry;
 }
 
@@ -3702,7 +3687,6 @@ class _HighlightEditScreenState
     final kw = _kwCtrl.text.trim();
     if (kw.isEmpty) return;
 
-    // 正则模式：先校验
     if (_isRegex) {
       try {
         RegExp(kw);
@@ -3720,7 +3704,6 @@ class _HighlightEditScreenState
         : <int>[_colors.first.toARGB32()];
     final stops = _isGradient ? List<double>.from(_stops) : <double>[0.0];
 
-    // isGlobal 在编辑页不改动，copyWith 默认保留原值。
     final updated = widget.entry.copyWith(
       keyword: kw,
       colors: colors,
@@ -3733,7 +3716,6 @@ class _HighlightEditScreenState
       groupIndex: _isRegex ? _groupIndex : 0,
     );
 
-    // 清一次编译缓存，避免旧 pattern 残留（可选，防内存增长）。
     invalidateRegexCache();
 
     Navigator.pop(context, HighlightEditResult(action: 'save', entry: updated));
@@ -3750,7 +3732,6 @@ class _HighlightEditScreenState
       groups: ref.read(readerHighlightGroupsProvider),
     );
     if (newEntry == null || !mounted) return;
-    // 根据 isGlobal 决定存哪
     if (newEntry.isGlobal) {
       ref.read(readerGlobalHighlightsProvider.notifier).addOrReplace(newEntry);
     } else {
@@ -3759,7 +3740,6 @@ class _HighlightEditScreenState
           .addOrReplace(widget.fileKey, newEntry);
     }
     if (!mounted) return;
-    // 返回管理页并标记"内容有变化"
     Navigator.pop(
       context,
       HighlightEditResult(action: 'save', entry: widget.entry),
@@ -3786,7 +3766,6 @@ class _HighlightEditScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ---------- 作用文件信息 ----------
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -3915,7 +3894,6 @@ class _HighlightEditScreenState
               ),
             ),
 
-          // ---------- 应用到所有书籍（只读） ----------
           Row(
             children: [
               const Text('应用到所有书籍',
@@ -4157,7 +4135,7 @@ class _HighlightEditScreenState
 
 class BookmarkEditResult {
   const BookmarkEditResult({required this.action, this.bookmark});
-  final String action; // 'save' | 'delete' | 'jump'
+  final String action;
   final ReaderBookmark? bookmark;
 }
 
@@ -4302,10 +4280,6 @@ Future<void> openEditorAndReturn(
 
 // ==================== 新建高亮弹窗 ====================
 
-/// 弹出"新建高亮"表单。返回用户创建的 HighlightEntry，取消返回 null。
-///
-/// [presetColor] 可选。从"色块编辑页"进来时传当前色块的主色，
-/// 表单会预选这个色块作为起点色。其他入口传 null，默认用第一个色块。
 Future<HighlightEntry?> showNewHighlightDialog({
   required BuildContext context,
   required List<HighlightPalette> palettes,
@@ -4346,16 +4320,13 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
   String? _groupId;
   String? _regexError;
 
-  // ---- 颜色状态（和编辑高亮页结构一致）----
   bool _isGradient = false;
   List<Color> _colors = const [Color(0xFFFFEB3B)];
   List<double> _stops = const [0.0];
   Color _textColor = const Color(0xFF000000);
 
-  /// 换风格 / 换模板时用它强制重建 _GradientEditor。
   int _editorKey = 0;
 
-  /// 当前选中的模板下标（-1 = 用户已手动改过颜色）。
   int _selectedTemplateIdx = -1;
 
   @override
@@ -4384,7 +4355,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     super.dispose();
   }
 
-  /// 把一个模板色块的颜色 / 文字色套到当前颜色状态上。
   void _applyTemplate(int idx) {
     if (idx < 0 || idx >= widget.palettes.length) return;
     final p = widget.palettes[idx];
@@ -4519,7 +4489,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               ),
               const SizedBox(height: 8),
 
-              // ---------- 使用正则开关 ----------
               Row(
                 children: [
                   const Text('使用正则', style: TextStyle(fontSize: 13)),
@@ -4549,7 +4518,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   ),
                 ),
 
-              // ---------- 应用到所有书籍 ----------
               Row(
                 children: [
                   const Text('应用到所有书籍',
@@ -4613,7 +4581,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const Divider(),
               const SizedBox(height: 8),
 
-              // ---------- 快捷模板（只作为起点） ----------
               Row(
                 children: [
                   const Text('快捷模板',
@@ -4694,7 +4661,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const Divider(),
               const SizedBox(height: 8),
 
-              // ---------- 样式 + 颜色 ----------
               Row(
                 children: [
                   const Text('样式：'),
@@ -4816,7 +4782,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const Divider(),
               const SizedBox(height: 8),
 
-              // ---------- 分组 ----------
               const Text('分组',
                   style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
@@ -4866,7 +4831,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     );
   }
 
-  /// 一行：标签 + hex + 色块。点色块调取色器。
   Widget _colorRow(
     String label,
     Color color,
@@ -4902,8 +4866,3 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     );
   }
 }
-
-
-
-
-
