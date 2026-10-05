@@ -1,4 +1,3 @@
-
 // reader_screen.dart
 import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
@@ -2932,6 +2931,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             settings,
             constraints.maxWidth,
             highlights,
+            spans, // ← 新增：和 Text.rich 用的完全一样的 spans
           );
           return Stack(
             children: [
@@ -2987,6 +2987,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     ReaderSettings settings,
     double maxWidth,
     List<HighlightSpan> highlights,
+    List<InlineSpan> spans, // ← 新增：和 Text.rich 用的完全一样的 spans
   ) {
     if (sub.isEmpty) return const [];
 
@@ -3018,7 +3019,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     final style = _baseStyle(settings);
     final tp = _gradTP;
-    tp.text = TextSpan(text: sub, style: style);
+
+    // ⚠️ 关键：用和 Text.rich 完全相同的 spans 结构。
+    // 单 span 和多 span 的 shaping 断点不同，中文字符位置能差 1~3 像素，
+    // 导致渐变矩形偏移到旁边的字上。
+    tp.text = TextSpan(style: style, children: spans);
     tp.layout(maxWidth: maxWidth);
 
     final rects = <_GradRect>[];
@@ -3681,4 +3686,3 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     });
   }
 }
-
