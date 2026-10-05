@@ -3485,9 +3485,11 @@ if (!allowExpand) {
       child: Scaffold(
         appBar:
             _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
-        body: Column(
-          children: [
-            _buildBreadcrumbs(),
+       body: SafeArea(
+  top: false,
+  child: Column(
+    children: [
+      _buildBreadcrumbs(),
             IgnorePointer(
               ignoring: _selectionMode,
               child: _buildSearchBar(),
@@ -3497,9 +3499,10 @@ if (!_searchActive &&
     !_selectionMode &&
     _expandedZipKeys.isNotEmpty)
   _buildExpandedZipBar(),
-Expanded(child: _buildBody()),
-          ],
-        ),
+      Expanded(child: _buildBody()),
+    ],
+  ),
+),
         bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
         floatingActionButton: null,
       ),
