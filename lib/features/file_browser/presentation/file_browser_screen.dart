@@ -3264,8 +3264,8 @@ child: Container(
             ? null
             : (_textExts.contains(_extOf(info.name))
                 ? null
-                // 打不开的文件：很浅的灰背景
-                : const Color(0xFFFAFAFA))),
+                // 打不开的文件：浅一点的灰背景（比白色深一档）
+                : const Color(0xFFF0F0F0))),
     border: selected
         ? Border.all(
             color: Theme.of(context).colorScheme.primary,
@@ -3896,7 +3896,7 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     if (_rangeMode) {
       return _rangeAnchorPath == null ? '点一行内容为起点' : '再点一行内容为终点';
     }
-    return '勾选要搜索的文件夹';
+    return '点击左侧方框勾选对应文件夹';
   }
 
   double get _titleSize => _rangeMode ? 14.0 : 16.0;
@@ -4088,26 +4088,21 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
               padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
               child: Row(
                 children: [
-                  // 全选 chip
+                  // 全选 chip（白底黑字）
                   FilterChip(
                     label: const Text('全选'),
                     selected: _allVisibleSelected,
                     onSelected: (_) => _toggleSelectAll(),
-                    backgroundColor: Colors.transparent,
-                    selectedColor:
-                        AppColors.accentPurple.withOpacity(0.15),
+                    backgroundColor: Colors.white,
+                    selectedColor: Colors.white,
                     surfaceTintColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     elevation: 0,
                     checkmarkColor: AppColors.accentPurple,
-                    labelStyle: TextStyle(
+                    labelStyle: const TextStyle(
                       fontSize: 12,
-                      color: _allVisibleSelected
-                          ? AppColors.accentPurple
-                          : Colors.black,
-                      fontWeight: _allVisibleSelected
-                          ? FontWeight.bold
-                          : FontWeight.normal,
+                      color: Colors.black,
+                      fontWeight: FontWeight.normal,
                     ),
                     side: BorderSide(
                       color: _allVisibleSelected
@@ -4121,23 +4116,21 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
 
                   const SizedBox(width: 24),
 
-                  // 区间 chip
+                  // 区间 chip（白底黑字）
                   FilterChip(
                     label: const Text('区间'),
                     selected: _rangeMode,
                     onSelected: (_) => _toggleRangeMode(),
-                    backgroundColor: Colors.transparent,
-                    selectedColor: _rangeBlue.withOpacity(0.15),
+                    backgroundColor: Colors.white,
+                    selectedColor: Colors.white,
                     surfaceTintColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     elevation: 0,
                     checkmarkColor: _rangeBlue,
-                    labelStyle: TextStyle(
+                    labelStyle: const TextStyle(
                       fontSize: 12,
-                      color: _rangeMode ? _rangeBlue : Colors.black,
-                      fontWeight: _rangeMode
-                          ? FontWeight.bold
-                          : FontWeight.normal,
+                      color: Colors.black,
+                      fontWeight: FontWeight.normal,
                     ),
                     side: BorderSide(
                       color: _rangeMode
