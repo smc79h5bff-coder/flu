@@ -216,10 +216,9 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
     final idx = first.index;
     if (idx < 0 || idx >= widget.lineStarts.length) return;
     final offset = widget.lineStarts[idx];
-    if (offset != _lastReportedOffset) {
-      _lastReportedOffset = offset;
-      widget.onProgressChanged(offset);
-    }
+    if (offset == _lastReportedOffset) return;   // ★ 早退：同一个 offset 不重复处理
+    _lastReportedOffset = offset;
+    widget.onProgressChanged(offset);
   }
 
   // ==================== 选区状态通知 ====================
@@ -1147,7 +1146,8 @@ class _ReaderScrollPhysics extends ScrollPhysics {
 /// 一条渐变高亮在本行内的起止范围。
 typedef _GradSpan = ({int start, int end, HighlightEntry entry});
 
-class _ScrollLineRow extends StatelessWidget {
+/// 单行 Widget。StatefulWidget 版本：内部缓存 spans，输入不变不重算。
+class _ScrollLineRow extends StatefulWidget {
   const _ScrollLineRow({
     required this.lineKey,
     required this.lineIndex,
@@ -1176,37 +1176,78 @@ class _ScrollLineRow extends StatelessWidget {
 
   final ({int start, int end})? searchHit;
 
+  @override
+  State<_ScrollLineRow> createState() => _ScrollLineRowState();
+}
+
+class _ScrollLineRowState extends State<_ScrollLineRow> {
   static const Color _selectionBg = Color(0x553D7CFF);
+
+  late List<InlineSpan> _spans;
+  late List<_GradSpan> _gradientSpans;
+
+  @override
+  void initState() {
+    super.initState();
+    _recompute();
+  }
+
+  @override
+  void didUpdateWidget(_ScrollLineRow old) {
+    super.didUpdateWidget(old);
+    if (_inputChanged(old)) _recompute();
+  }
+
+  /// 判断"影响 spans 的输入"是否变了。字体 / 主题变化走 build 里的 merged 检查。
+  bool _inputChanged(_ScrollLineRow old) {
+    return old.text != widget.text ||
+        !identical(old.highlights, widget.highlights) ||
+        old.searchHit?.start != widget.searchHit?.start ||
+        old.searchHit?.end != widget.searchHit?.end ||
+        old.inSelection != widget.inSelection ||
+        old.isSelStartLine != widget.isSelStartLine ||
+        old.isSelEndLine != widget.isSelEndLine ||
+        old.selStartOffset != widget.selStartOffset ||
+        old.selEndOffset != widget.selEndOffset;
+  }
+
+  void _recompute() {
+    final result = _buildSpansWithSelection();
+    _spans = result.spans;
+    _gradientSpans = result.gradientSpans;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final result = _buildSpansWithSelection();
-    final spans = result.spans;
-    final gradientSpans = result.gradientSpans;
+    final spans = _spans;
+    final gradientSpans = _gradientSpans;
 
-    // 关键：测量和渲染必须用同一个 locale，否则中英混排时
-    // 标点挤压行为不一致，渐变矩形会偏移到旁边的字上。
+    // ★ 关键：让测量和渲染走同一个样式。
+    final effectiveStyle =
+        DefaultTextStyle.of(context).style.merge(widget.style);
+    final textScaler = MediaQuery.textScalerOf(context);
     final locale = Localizations.maybeLocaleOf(context);
 
-    if (gradientSpans.isEmpty || text.isEmpty) {
+    if (gradientSpans.isEmpty || widget.text.isEmpty) {
       return Text.rich(
         TextSpan(children: spans),
-        style: style,
+        style: effectiveStyle,
         softWrap: true,
         textAlign: TextAlign.left,
         locale: locale,
-        key: lineKey,
+        key: widget.lineKey,
       );
     }
 
     return LayoutBuilder(builder: (ctx, constraints) {
       final gradRects = _measureGradientRectsFromSpans(
-        text: text,
-        style: style,
+        text: widget.text,
+        style: effectiveStyle,
         maxWidth: constraints.maxWidth,
         spans: gradientSpans,
         locale: locale,
-        builtSpans: spans, // ← 新增：和 Text.rich 用的完全一样的 spans
+        builtSpans: spans,
+        textScaler: textScaler,
       );
 
       return SizedBox(
@@ -1234,11 +1275,11 @@ class _ScrollLineRow extends StatelessWidget {
               ),
             Text.rich(
               TextSpan(children: spans),
-              style: style,
+              style: effectiveStyle,
               softWrap: true,
               textAlign: TextAlign.left,
               locale: locale,
-              key: lineKey,
+              key: widget.lineKey,
             ),
           ],
         ),
@@ -1246,31 +1287,33 @@ class _ScrollLineRow extends StatelessWidget {
     });
   }
 
+  // ==================== spans 构建（从原 StatelessWidget 搬过来）====================
+
   ({List<InlineSpan> spans, List<_GradSpan> gradientSpans})
       _buildSpansWithSelection() {
-    if (text.isEmpty) {
+    if (widget.text.isEmpty) {
       return (
-        spans: [TextSpan(text: ' ', style: style)],
+        spans: [TextSpan(text: ' ', style: widget.style)],
         gradientSpans: const <_GradSpan>[],
       );
     }
 
     final base = _buildSpans();
 
-    if (!inSelection) return base;
+    if (!widget.inSelection) return base;
 
-    final n = text.length;
+    final n = widget.text.length;
     int sFrom;
     int sTo;
-    if (isSelStartLine && isSelEndLine) {
-      sFrom = selStartOffset.clamp(0, n);
-      sTo = selEndOffset.clamp(0, n);
-    } else if (isSelStartLine) {
-      sFrom = selStartOffset.clamp(0, n);
+    if (widget.isSelStartLine && widget.isSelEndLine) {
+      sFrom = widget.selStartOffset.clamp(0, n);
+      sTo = widget.selEndOffset.clamp(0, n);
+    } else if (widget.isSelStartLine) {
+      sFrom = widget.selStartOffset.clamp(0, n);
       sTo = n;
-    } else if (isSelEndLine) {
+    } else if (widget.isSelEndLine) {
       sFrom = 0;
-      sTo = selEndOffset.clamp(0, n);
+      sTo = widget.selEndOffset.clamp(0, n);
     } else {
       sFrom = 0;
       sTo = n;
@@ -1315,17 +1358,18 @@ class _ScrollLineRow extends StatelessWidget {
       if (lo > spanStart) {
         out.add(TextSpan(
           text: t.substring(0, lo - spanStart),
-          style: span.style ?? style,
+          style: span.style ?? widget.style,
         ));
       }
       out.add(TextSpan(
         text: t.substring(lo - spanStart, hi - spanStart),
-        style: (span.style ?? style).copyWith(backgroundColor: _selectionBg),
+        style: (span.style ?? widget.style)
+            .copyWith(backgroundColor: _selectionBg),
       ));
       if (hi < spanEnd) {
         out.add(TextSpan(
           text: t.substring(hi - spanStart),
-          style: span.style ?? style,
+          style: span.style ?? widget.style,
         ));
       }
     }
@@ -1333,9 +1377,10 @@ class _ScrollLineRow extends StatelessWidget {
   }
 
   ({List<InlineSpan> spans, List<_GradSpan> gradientSpans}) _buildSpans() {
+    final text = widget.text;
     if (text.isEmpty) {
       return (
-        spans: [TextSpan(text: ' ', style: style)],
+        spans: [TextSpan(text: ' ', style: widget.style)],
         gradientSpans: const <_GradSpan>[],
       );
     }
@@ -1346,7 +1391,7 @@ class _ScrollLineRow extends StatelessWidget {
     final gradientSpans = <_GradSpan>[];
 
     final regexEntries = <HighlightEntry>[];
-    for (final h in highlights) {
+    for (final h in widget.highlights) {
       if (h.keyword.isEmpty) continue;
       if (h.isRegex) {
         regexEntries.add(h);
@@ -1393,9 +1438,9 @@ class _ScrollLineRow extends StatelessWidget {
       }
     }
 
-    if (searchHit != null) {
-      final s = searchHit!.start.clamp(0, n);
-      final e = searchHit!.end.clamp(0, n);
+    if (widget.searchHit != null) {
+      final s = widget.searchHit!.start.clamp(0, n);
+      final e = widget.searchHit!.end.clamp(0, n);
       for (var j = s; j < e; j++) {
         bgColors[j] = const Color(0xFFFF4081);
         fgColors[j] = const Color(0xFFFFFFFF);
@@ -1413,12 +1458,12 @@ class _ScrollLineRow extends StatelessWidget {
       }
       final seg = text.substring(i, j);
       if (bg == null && fg == null) {
-        spans.add(TextSpan(text: seg, style: style));
+        spans.add(TextSpan(text: seg, style: widget.style));
       } else {
         spans.add(TextSpan(
           text: seg,
-          style: style.copyWith(
-            color: fg ?? style.color,
+          style: widget.style.copyWith(
+            color: fg ?? widget.style.color,
             backgroundColor: bg,
           ),
         ));
@@ -1443,12 +1488,11 @@ const int _gradRectCacheCap = 256;
 
 /// 从"已经算好的字符区间"测量渐变背景矩形。
 ///
-/// spans 由 _ScrollLineRow._buildSpans() 在一次遍历里产出（字面 + 正则），
+/// spans 由 _ScrollLineRowState._buildSpans() 在一次遍历里产出（字面 + 正则），
 /// 这里不再做 keyword 匹配 —— 避免正则高亮因 indexOf 找不到位置而不显示渐变。
 ///
-/// [locale] 必须和 Text.rich 渲染时用的 locale 一致，否则中英混排下标点挤压
-/// 行为不同，测量出的 boxes 会和实际渲染的字位置差几像素，导致渐变偏到旁边
-/// 的字上。
+/// [style] 必须是"渲染端实际使用的样式"（merged DefaultTextStyle）。
+/// [textScaler] 同理。两个都对上，测量结果才和渲染一致，渐变才不偏。
 ///
 /// [builtSpans] 必须和 Text.rich 用的 spans 完全一致。单 span 和多 span 的
 /// shaping 断点不同，中文字符位置能差 1~3 像素 —— 用整段单 span 测会偏移。
@@ -1459,17 +1503,26 @@ List<_GradRect> _measureGradientRectsFromSpans({
   required List<_GradSpan> spans,
   required Locale? locale,
   required List<InlineSpan> builtSpans,
+  required TextScaler textScaler,
 }) {
   if (text.isEmpty || maxWidth <= 0 || spans.isEmpty) return const [];
 
   final localeKey = locale?.toString() ?? 'null';
+  final fontFamilyKey = style.fontFamily ?? 'null';
+  final scalerKey = textScaler.scale(10).toStringAsFixed(4);
   final key = '${text.length}:$text\u0000'
       '${style.fontSize}\u0000${style.fontWeight?.index}\u0000'
+      '${fontFamilyKey}\u0000'
       '${maxWidth.round()}\u0000$localeKey\u0000'
+      '${scalerKey}\u0000'
       '${spans.map((s) => '${s.start}:${s.end}:${s.entry.colors.join(",")}').join("|")}';
 
-  final hit = _gradRectCache[key];
-  if (hit != null) return hit;
+  // LRU：命中先移出再重插，把它挪到 Map 末尾
+  final hit = _gradRectCache.remove(key);
+  if (hit != null) {
+    _gradRectCache[key] = hit;
+    return hit;
+  }
 
   // ⚠️ 关键：用和 Text.rich 完全相同的 spans 结构。
   // 单 span 和多 span 的 shaping 断点不同，中文字符位置能差 1~3 像素，
@@ -1479,6 +1532,7 @@ List<_GradRect> _measureGradientRectsFromSpans({
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.left,
     locale: locale,
+    textScaler: textScaler,
   )..layout(maxWidth: maxWidth);
 
   final rects = <_GradRect>[];
@@ -1523,8 +1577,9 @@ List<_GradRect> _measureGradientRectsFromSpans({
     }
   }
 
+  // LRU 淘汰：满了删最旧的一条，不整表清空
   if (_gradRectCache.length >= _gradRectCacheCap) {
-    _gradRectCache.clear();
+    _gradRectCache.remove(_gradRectCache.keys.first);
   }
   _gradRectCache[key] = rects;
   return rects;
