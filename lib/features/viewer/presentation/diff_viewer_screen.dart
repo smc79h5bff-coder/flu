@@ -2039,6 +2039,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        
+  toolbarHeight: 43,   // ★ 新增
+        
         titleSpacing: 32,
         title: Row(
           mainAxisSize: MainAxisSize.min,
@@ -2423,7 +2426,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return GestureDetector(
       onTap: () => _switchView(value),
       child: Container(
-        height: 36,
+        height: 28,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           border: Border(
