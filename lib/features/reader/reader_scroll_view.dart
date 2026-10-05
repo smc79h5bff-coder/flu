@@ -194,6 +194,14 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
       }
       if (bottomRow == null) return;
       final fullyVisible = bottomTrailing <= 1.0 + 1e-3;
+      
+
+// ★ 已经在底部（最后一行完整可见）→ 不滚动
+if (bottomRow == widget.lines.length - 1 && fullyVisible) {
+  return;
+}
+
+
       final target = fullyVisible ? bottomRow + 1 : bottomRow;
       final clamped = target.clamp(0, widget.lines.length - 1);
       _scrollCtrl.jumpTo(index: clamped);
