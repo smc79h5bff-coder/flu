@@ -1185,12 +1185,17 @@ class _ScrollLineRow extends StatelessWidget {
     final spans = result.spans;
     final gradientSpans = result.gradientSpans;
 
+    // 关键：测量和渲染必须用同一个 locale，否则中英混排时
+    // 标点挤压行为不一致，渐变矩形会偏移到旁边的字上。
+    final locale = Localizations.maybeLocaleOf(context);
+
     if (gradientSpans.isEmpty || text.isEmpty) {
       return Text.rich(
         TextSpan(children: spans),
         style: style,
         softWrap: true,
         textAlign: TextAlign.left,
+        locale: locale,
         key: lineKey,
       );
     }
@@ -1201,6 +1206,7 @@ class _ScrollLineRow extends StatelessWidget {
         style: style,
         maxWidth: constraints.maxWidth,
         spans: gradientSpans,
+        locale: locale,
       );
 
       return SizedBox(
@@ -1231,6 +1237,7 @@ class _ScrollLineRow extends StatelessWidget {
               style: style,
               softWrap: true,
               textAlign: TextAlign.left,
+              locale: locale,
               key: lineKey,
             ),
           ],
@@ -1438,27 +1445,35 @@ const int _gradRectCacheCap = 256;
 ///
 /// spans 由 _ScrollLineRow._buildSpans() 在一次遍历里产出（字面 + 正则），
 /// 这里不再做 keyword 匹配 —— 避免正则高亮因 indexOf 找不到位置而不显示渐变。
+///
+/// [locale] 必须和 Text.rich 渲染时用的 locale 一致，否则中英混排下标点挤压
+/// 行为不同，测量出的 boxes 会和实际渲染的字位置差几像素，导致渐变偏到旁边
+/// 的字上。
 List<_GradRect> _measureGradientRectsFromSpans({
   required String text,
   required TextStyle style,
   required double maxWidth,
   required List<_GradSpan> spans,
+  required Locale? locale,
 }) {
   if (text.isEmpty || maxWidth <= 0 || spans.isEmpty) return const [];
 
+  final localeKey = locale?.toString() ?? 'null';
   final key = '${text.length}:$text\u0000'
       '${style.fontSize}\u0000${style.fontWeight?.index}\u0000'
-      '${maxWidth.round()}\u0000'
+      '${maxWidth.round()}\u0000$localeKey\u0000'
       '${spans.map((s) => '${s.start}:${s.end}:${s.entry.colors.join(",")}').join("|")}';
 
   final hit = _gradRectCache[key];
   if (hit != null) return hit;
 
-  // 不显式指定 locale，与 Text.rich 渲染时保持一致（否则中文标点宽度会差几像素）。
+  // 显式传入 locale，与 Text.rich 渲染时保持一致
+  // （否则中英混排下 boxes 会有几像素偏移）。
   final tp = TextPainter(
     text: TextSpan(text: text, style: style),
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.left,
+    locale: locale,
   )..layout(maxWidth: maxWidth);
 
   final rects = <_GradRect>[];
