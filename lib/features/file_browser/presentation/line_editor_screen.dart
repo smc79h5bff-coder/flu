@@ -960,17 +960,29 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
             ),
           ],
         ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  _buildToolbar(),
-                  if (_processing) _buildProcessingBanner(),
-                  if (_showFind) _buildFindBar(),
-                  Expanded(child: _buildLineList()),
-                  _buildStatusBar(),
-                ],
-              ),
+
+
+
+          
+body: SafeArea(
+  top: false,
+  child: _loading
+      ? const Center(child: CircularProgressIndicator())
+      : Column(
+          children: [
+            _buildToolbar(),
+            if (_processing) _buildProcessingBanner(),
+            if (_showFind) _buildFindBar(),
+            Expanded(child: _buildLineList()),
+            _buildStatusBar(),
+          ],
+        ),
+),
+
+
+
+
+          
       ),
     );
   }
