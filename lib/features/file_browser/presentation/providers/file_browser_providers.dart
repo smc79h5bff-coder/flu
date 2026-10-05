@@ -81,7 +81,6 @@ class FavoritesNotifier extends StringListPrefNotifier {
   }
 }
 
-
 /// 最近移动/复制到的目录（持久化）。
 final recentMoveTargetsProvider =
     NotifierProvider<RecentMoveTargetsNotifier, List<String>>(
@@ -164,4 +163,98 @@ class BrowserSearchHistoryNotifier extends StringListPrefNotifier {
   void remove(String q) {
     update(state.where((s) => s != q).toList());
   }
+}
+
+// ==================== 视图 · 网格模式（持久化） ====================
+
+/// 是否网格模式。false = 列表（默认），true = 网格。
+final browserGridModeProvider =
+    NotifierProvider<BrowserGridModeNotifier, bool>(
+  BrowserGridModeNotifier.new,
+);
+
+class BrowserGridModeNotifier extends BoolPrefNotifier {
+  BrowserGridModeNotifier()
+      : super(key: PrefKeys.browserGridMode, initial: false);
+}
+
+// ==================== 视图 · 网格显示内容（持久化） ====================
+
+/// 网格模式是否显示文件大小。
+final browserGridShowSizeProvider =
+    NotifierProvider<BrowserGridShowSizeNotifier, bool>(
+  BrowserGridShowSizeNotifier.new,
+);
+
+class BrowserGridShowSizeNotifier extends BoolPrefNotifier {
+  BrowserGridShowSizeNotifier()
+      : super(key: PrefKeys.browserGridShowSize, initial: true);
+}
+
+/// 网格模式是否显示修改时间。
+final browserGridShowTimeProvider =
+    NotifierProvider<BrowserGridShowTimeNotifier, bool>(
+  BrowserGridShowTimeNotifier.new,
+);
+
+class BrowserGridShowTimeNotifier extends BoolPrefNotifier {
+  BrowserGridShowTimeNotifier()
+      : super(key: PrefKeys.browserGridShowTime, initial: true);
+}
+
+// ==================== 视图 · 字号（持久化） ====================
+//
+// 全部范围 1~38。写入时 clamp。
+// 用 double 存储（支持将来小数），显示时取整。
+
+/// 列表模式：文件名字号。
+final browserFontListNameProvider =
+    NotifierProvider<BrowserFontListNameNotifier, double>(
+  BrowserFontListNameNotifier.new,
+);
+
+class BrowserFontListNameNotifier extends DoublePrefNotifier {
+  BrowserFontListNameNotifier()
+      : super(key: PrefKeys.browserFontListName, initial: 15);
+
+  void set(double v) => update(v.clamp(1.0, 38.0));
+}
+
+/// 列表模式：大小/时间字号。
+final browserFontListMetaProvider =
+    NotifierProvider<BrowserFontListMetaNotifier, double>(
+  BrowserFontListMetaNotifier.new,
+);
+
+class BrowserFontListMetaNotifier extends DoublePrefNotifier {
+  BrowserFontListMetaNotifier()
+      : super(key: PrefKeys.browserFontListMeta, initial: 11);
+
+  void set(double v) => update(v.clamp(1.0, 38.0));
+}
+
+/// 网格模式：文件名字号。
+final browserFontGridNameProvider =
+    NotifierProvider<BrowserFontGridNameNotifier, double>(
+  BrowserFontGridNameNotifier.new,
+);
+
+class BrowserFontGridNameNotifier extends DoublePrefNotifier {
+  BrowserFontGridNameNotifier()
+      : super(key: PrefKeys.browserFontGridName, initial: 14);
+
+  void set(double v) => update(v.clamp(1.0, 38.0));
+}
+
+/// 网格模式：大小/时间字号。
+final browserFontGridMetaProvider =
+    NotifierProvider<BrowserFontGridMetaNotifier, double>(
+  BrowserFontGridMetaNotifier.new,
+);
+
+class BrowserFontGridMetaNotifier extends DoublePrefNotifier {
+  BrowserFontGridMetaNotifier()
+      : super(key: PrefKeys.browserFontGridMeta, initial: 11);
+
+  void set(double v) => update(v.clamp(1.0, 38.0));
 }
