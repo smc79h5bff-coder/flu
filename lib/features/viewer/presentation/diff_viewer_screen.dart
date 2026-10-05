@@ -2055,7 +2055,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 onLongPress: _jumpToDocTop,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 8),
+                      horizontal: 17, vertical: 8),
                   child: CustomPaint(
                     size: const Size.square(26),
                     painter: _PageUpIconPainter(color: iconColor),
@@ -2072,7 +2072,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 onLongPress: _jumpToDocBottom,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 8),
+                      horizontal: 17, vertical: 8),
                   child: CustomPaint(
                     size: const Size.square(26),
                     painter: _PageDownIconPainter(color: iconColor),
