@@ -1,3 +1,4 @@
+
 // reader_screen.dart
 import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
@@ -144,15 +145,6 @@ class _TrapezoidPainter extends CustomPainter {
 }
 
 // ==================== 垃圾桶图标（自定义绘制） ====================
-//
-// 来源 SVG（viewBox 24×24）：
-//   <path d="M3 5h18" stroke-width="4"/>                       桶盖
-//   <path d="M19 9v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9"/>      桶身
-//   <path d="M8 5V3a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>         把手
-//   <path d="M10 13l4 4M14 13l-4 4"/>                          叉号
-//
-// 用 canvas.scale(size.width / 24) 把 24×24 坐标系映射到实际大小，
-// strokeWidth 保持原始数值，缩放后自动按比例。
 
 class _TrashIconPainter extends CustomPainter {
   _TrashIconPainter({required this.color});
@@ -165,7 +157,6 @@ class _TrashIconPainter extends CustomPainter {
     canvas.save();
     canvas.scale(scale, scale);
 
-    // ---- 普通笔画（stroke-width 2）----
     final stroke = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -173,17 +164,14 @@ class _TrashIconPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
-    // ---- 桶盖（stroke-width 4，单独一个 paint）----
     final thick = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4.0
       ..strokeCap = StrokeCap.round;
 
-    // 桶盖
     canvas.drawLine(const Offset(3, 5), const Offset(21, 5), thick);
 
-    // 桶身：从右上角沿右侧向下 → 圆角 → 底边 → 圆角 → 左侧向上
     final body = Path()
       ..moveTo(19, 9)
       ..lineTo(19, 20)
@@ -201,7 +189,6 @@ class _TrashIconPainter extends CustomPainter {
       ..lineTo(5, 9);
     canvas.drawPath(body, stroke);
 
-    // 把手：从左侧往上 → 圆角 → 顶边 → 圆角 → 右侧往下
     final handle = Path()
       ..moveTo(8, 5)
       ..lineTo(8, 3)
@@ -219,7 +206,6 @@ class _TrashIconPainter extends CustomPainter {
       ..lineTo(16, 5);
     canvas.drawPath(handle, stroke);
 
-    // 叉号
     canvas.drawLine(const Offset(10, 13), const Offset(14, 17), stroke);
     canvas.drawLine(const Offset(14, 13), const Offset(10, 17), stroke);
 
@@ -408,6 +394,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   int _pageHighlightCacheForPage = -1;
   int _pageHighlightCacheForRevision = -1;
 
+  // ★ 改动1：按页码缓存的高亮匹配结果（翻回来直接用）
+  final Map<int, Map<int, List<HighlightSpan>>> _pageHighlightCacheMap = {};
+  int _pageHighlightCacheMapRevision = -1;
+
+  // ★ 改动1：按页码缓存的页面预览文本
+  final Map<int, String> _previewCache = {};
+  int _previewCacheRevision = -1;
+
   /// 更快点 4：`_highlightsForLine` memo。
   int _lastHighlightQueryLine = -1;
   List<HighlightSpan> _lastHighlightQueryResult = const [];
@@ -438,16 +432,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // 渐变矩形缓存
   final Map<String, List<_GradRect>> _gradRectCache = {};
-  double _gradCacheFontSize = 0;
-  int _gradCacheFontWeight = 0;
-  double _gradCacheWidth = 0;
+  // ★ 改动6：删掉了 _gradCacheFontSize / _gradCacheFontWeight / _gradCacheWidth
 
   /// 更快点 3：渐变测量用 TextPainter 单例。
-  /// 显式 textAlign: TextAlign.left，与 Text.rich 渲染保持一致。
-  ///
-  /// ⚠️ 不指定 locale：让 TextPainter 和 Text.rich 都用系统默认 locale，
-  /// 否则系统语言不是 zh_CN 时，中英混排标点挤压行为不一致，
-  /// 渐变矩形会偏移到旁边的字上。
   static final TextPainter _gradTP = TextPainter(
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.left,
@@ -455,11 +442,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // ---- 选区状态：走 ValueNotifier，拖动时不动主内容 ----
 
-  /// 当前选区。null = 无选区。
   final ValueNotifier<_SelectionRange?> _selNotifier =
       ValueNotifier<_SelectionRange?>(null);
 
-  /// 当前拖动状态（手柄 + 放大镜）。null = 不在拖动。
   final ValueNotifier<_DragInfo?> _dragNotifier =
       ValueNotifier<_DragInfo?>(null);
 
@@ -536,8 +521,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   @override
   void deactivate() {
-    // 在 widget 被从树上移除时调用（比 dispose 早，此时 ref 还有效）。
-    // 在这里保存进度，代替原来 dispose 里那次调用。
     _saveProgressNow();
     super.deactivate();
   }
@@ -559,7 +542,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     super.dispose();
   }
 
-  // ==================== 耗电 2：后台/锁屏暂停 ====================
+  // ==================== 后台/锁屏暂停 ====================
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -736,6 +719,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
   }
 
+  // ★ 改动2：_invalidateAllCaches 加清空新缓存
   void _invalidateAllCaches() {
     _unitKeys.clear();
     _lastUnitStart = -1;
@@ -747,23 +731,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pageHighlightCacheForRevision = -1;
     _lastHighlightQueryLine = -1;
     _lastHighlightQueryResult = const [];
+    _pageHighlightCacheMap.clear();
+    _pageHighlightCacheMapRevision = -1;
+    _previewCache.clear();
+    _previewCacheRevision = -1;
   }
 
-  /// 阅读器默认的文本预处理。
-  ///
-  /// 1. 统一换行：\r\n 和 \r 都转成 \n
-  /// 2. 逐行处理：
-  ///    · 空行 / 纯空白行 → 删掉
-  ///    · 非空行 → 去掉原有的行首行尾空白，再统一加上两个全角空格缩进
-  ///
-  /// 效果：每行都是"　　正文内容"，行与行紧挨，中间没有空行。
   static String _normalizeForReading(String text) {
     final t = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final out = <String>[];
     for (final line in t.split('\n')) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
-      // U+3000 全角空格，跟汉字等宽
       out.add('\u3000\u3000$trimmed');
     }
     return out.join('\n');
@@ -821,12 +800,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _highlightEntryByPattern = entryByPattern;
   }
 
+  // ★ 改动3：_ensurePageHighlightCache 按页缓存
   void _ensurePageHighlightCache() {
-    if (_pageHighlightCacheForPage == _currentPage &&
-        _pageHighlightCacheForRevision == _highlightsRevision) {
+    if (_pageHighlightCacheMapRevision != _highlightsRevision) {
+      _pageHighlightCacheMap.clear();
+      _pageHighlightCacheMapRevision = _highlightsRevision;
+    }
+
+    final cached = _pageHighlightCacheMap[_currentPage];
+    if (cached != null) {
+      _pageHighlightCache = cached;
+      _pageHighlightCacheForPage = _currentPage;
+      _pageHighlightCacheForRevision = _highlightsRevision;
       return;
     }
+
     _rebuildPageHighlightCache();
+    _pageHighlightCacheMap[_currentPage] = _pageHighlightCache;
+    if (_pageHighlightCacheMap.length > 32) {
+      _pageHighlightCacheMap.remove(_pageHighlightCacheMap.keys.first);
+    }
   }
 
   void _rebuildPageHighlightCache() {
@@ -866,7 +859,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     final byLine = <int, List<HighlightSpan>>{};
 
-    // ---------- 普通关键词：走 AC 一次扫完 ----------
     if (_highlightAc != null) {
       _highlightAc!.findAllMatches(pageText, (start, end, pi) {
         var lo = 0;
@@ -895,7 +887,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       });
     }
 
-    // ---------- 正则高亮：逐条跑，结果并入 byLine ----------
     if (_regexHighlights.isNotEmpty) {
       final regexByLine = matchRegexOnPage(
         pageText: pageText,
@@ -908,7 +899,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       }
     }
 
-    // ---------- 排序去重叠。正则优先，同类短的优先 ----------
     for (final i in byLine.keys.toList()) {
       final list = byLine[i]!;
       list.sort((a, b) {
@@ -935,7 +925,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _lastHighlightQueryResult = const [];
   }
 
-  /// 更快点 4：加 memo 的查询。会并入"当前搜索命中"作为临时粉色高亮。
   List<HighlightSpan> _highlightsForLine(int lineIdx) {
     final state = ref.read(readerSearchProvider);
     final searchPos = state.currentPos;
@@ -955,7 +944,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return merged;
   }
 
-  /// 把"当前搜索命中"作为临时粉色高亮插进去；用户高亮中与之重叠的被去掉。
   List<HighlightSpan> _mergeWithSearchHit(
     int lineIdx,
     List<HighlightSpan> userHl,
@@ -1019,7 +1007,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     ref.read(readerProgressProvider.notifier).set(fileKey, offset);
   }
 
+  // ★ 改动4：_syncPagePreview 按页缓存
   void _syncPagePreview() {
+    if (_previewCacheRevision != _highlightsRevision) {
+      _previewCache.clear();
+      _previewCacheRevision = _highlightsRevision;
+    }
+
+    final cached = _previewCache[_currentPage];
+    if (cached != null) {
+      ref.read(readerPagePreviewProvider.notifier).state = cached;
+      return;
+    }
+
     final p = _paginator;
     if (p?.result == null || _lines.isEmpty) return;
     final r = pageUnitRange(p!.result!, _currentPage);
@@ -1033,7 +1033,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       if (e > s) buf.write(line.substring(s, e));
       buf.write('\n');
     }
-    ref.read(readerPagePreviewProvider.notifier).state = buf.toString();
+    final text = buf.toString();
+
+    if (_previewCache.length > 64) {
+      _previewCache.remove(_previewCache.keys.first);
+    }
+    _previewCache[_currentPage] = text;
+    ref.read(readerPagePreviewProvider.notifier).state = text;
   }
 
   // ==================== 翻页 ====================
@@ -1081,9 +1087,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _syncPagePreview();
   }
 
+  // ★ 改动8：_invalidatePageCaches 别全清
   void _invalidatePageCaches() {
-    _spansCache.clear();
-    _gradRectCache.clear();
+    // 不再清 _spansCache 和 _gradRectCache，
+    // 它们的 key 里含 unitIdx，翻页时自然用新的 unitIdx，翻回来还能命中。
     _lastHighlightQueryLine = -1;
     _lastHighlightQueryResult = const [];
   }
@@ -1122,7 +1129,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     await _ensureLoaded();
   }
 
-  /// 关闭当前文件：退出整个阅读器，并把"当前在哪个文件"返回给调用方。
   void _closeFile() {
     _saveProgressNow();
     _clearSelection();
@@ -1131,7 +1137,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     Navigator.of(context).pop(path);
   }
 
-  /// 底部悬浮提示。同一时间只显示一条，快速点击实时替换。
   void _showToast(String msg) {
     if (!mounted) return;
     _toastTimer?.cancel();
@@ -1182,7 +1187,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     });
   }
 
-  /// 导出阅读器加载日志。
   Future<void> _exportLoadLog() async {
     final log = ReaderLoadLog.instance;
     if (log.isEmpty) {
@@ -1226,7 +1230,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
   }
 
-  /// 删除当前正在阅读的文件。
   Future<void> _deleteCurrentFile() async {
     if (_filePaths.isEmpty) return;
     final path = _filePaths[_fileIndex];
@@ -1285,8 +1288,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
     if (!mounted) return;
 
-    // ★ 新增：把被删路径暂存起来，供文件浏览器返回时过滤。
-    // 只在删除成功后记录；删除失败会在上面 catch 里 return，不记录。
     ref.read(readerDeletedPathsProvider.notifier).state = [
       ...ref.read(readerDeletedPathsProvider),
       path,
@@ -1296,7 +1297,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _filePaths.removeAt(_fileIndex);
     });
 
-    // 整个目录已删完
     if (_filePaths.isEmpty) {
       _showToast('目录里的文件已删完，返回文件浏览器');
       await Future.delayed(const Duration(milliseconds: 900));
@@ -1305,7 +1305,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return;
     }
 
-    // 删的是最后一个 → 索引越界，退到前一个
     var nextIndex = _fileIndex;
     var hitEnd = false;
     if (nextIndex >= _filePaths.length) {
@@ -1332,8 +1331,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _showTopMenu() {
     _clearSelection();
-    // _menuOpen 只被 _nextPage 用来判断"菜单打开时点屏 = 关菜单"，
-    // 不需要重建 UI，所以不 setState —— 避免触发 LayoutBuilder 重算分页。
     _menuOpen = true;
     showModalBottomSheet<void>(
       context: context,
@@ -1357,7 +1354,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final path = _filePaths.isEmpty ? '' : _filePaths[_fileIndex];
     final fileName = path.split('/').last;
 
-    // 当前编码简称（给"编码"按钮显示用）
     final encodingLabel = _currentEncoding?.label ?? '未识别';
 
     Widget menuButton({
@@ -1412,7 +1408,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               ),
               const SizedBox(height: 8),
 
-              // ---------- 文件名（全宽，长按复制路径） ----------
               ListTile(
                 isThreeLine: true,
                 leading: const Icon(Icons.description_outlined),
@@ -1441,7 +1436,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               ),
               const Divider(height: 1),
 
-              // ---------- 进度 / 查找 ----------
               Row(
                 children: [
                   Expanded(
@@ -1467,7 +1461,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 ],
               ),
 
-              // ---------- 加书签 / 书签与高亮 ----------
               Row(
                 children: [
                   Expanded(
@@ -1494,7 +1487,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               ),
               const Divider(height: 1),
 
-              // ---------- 行编辑 / 编码 ----------
               Row(
                 children: [
                   Expanded(
@@ -1520,7 +1512,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 ],
               ),
 
-              // ---------- 导出加载日志 ----------
               Row(
                 children: [
                   Expanded(
@@ -1538,7 +1529,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               ),
               const Divider(height: 1),
 
-              // ---------- 设置 / 关闭 ----------
               Row(
                 children: [
                   Expanded(
@@ -1571,12 +1561,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         ),
       ),
     );
-  }
-
-  String _encodingSubtitle() {
-    final cur = _currentEncoding?.label ?? '未识别';
-    if (_manualEncoding == null) return '自动检测（$cur）';
-    return '手动：$cur';
   }
 
   Future<void> _showEncodingPicker() async {
@@ -1673,7 +1657,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final fileKey = readerFileKey(path);
     _clearSelection();
 
-    // 同一个文件，沿用之前的查询；换了文件就清空。
     final state = ref.read(readerSearchProvider);
     final sameFile = state.fileKey == fileKey;
     if (!sameFile) {
@@ -1700,6 +1683,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
   }
 
+  // ★ 改动10：_openManager 里同步清新缓存
   Future<void> _openManager() async {
     if (_filePaths.isEmpty) return;
     _clearSelection();
@@ -1726,6 +1710,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         _pageHighlightCache = {};
         _pageHighlightCacheForPage = -1;
         _pageHighlightCacheForRevision = -1;
+        _pageHighlightCacheMap.clear();
+        _pageHighlightCacheMapRevision = -1;
+        _previewCache.clear();
+        _previewCacheRevision = -1;
       });
     }
   }
@@ -1757,7 +1745,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       ),
     );
     if (!mounted) return;
-    // 回来重新加载（文件可能被改过）
     _lastLoadedKey = null;
     _ensureLoaded();
   }
@@ -2183,12 +2170,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   void _handleTap(Offset globalPos) {
-    // 有选中文字 → 只取消选中，不翻页。
     if (_hBarVisible || _sel != null) {
       _clearSelection();
       return;
     }
-    // 点在悬浮按钮里 → 触发按钮。
     final btn = _hitFloatButton(globalPos);
     if (btn == 'prev') {
       _prevFile();
@@ -2202,12 +2187,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _deleteCurrentFile();
       return;
     }
-    // 点在热区内 → 打开菜单。
     if (_isInHotZone(globalPos)) {
       _showTopMenu();
       return;
     }
-    // 其它区域 → 翻下一页。
     _nextPage();
   }
 
@@ -2315,13 +2298,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final settings = ref.watch(readerSettingsProvider);
     final searchState = ref.watch(readerSearchProvider);
 
-    // 搜索位置变了 → spans 缓存必须失效（否则当前命中不重绘）。
     if (_lastSeenSearchPos != searchState.currentPos) {
       _lastSeenSearchPos = searchState.currentPos;
       _spansCache.clear();
     }
 
-    // 检测翻页方式切换。
     if (_lastSeenMode != settings.readerMode) {
       _lastSeenMode = settings.readerMode;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2352,9 +2333,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       });
     }
 
-    // 设置一变（字号 / 字重 / 手动编码）→ 重建分页器。
-    // 不重建的话，_paginator 还按旧字号算"每页几行"，
-    // 正文却按新字号渲染 → 下方留白或溢出。
     if (!_loading &&
         !_filePaths.isEmpty &&
         _fileIndex >= 0 &&
@@ -2368,8 +2346,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       }
     }
 
-    // 系统返回键也要把"当前文件路径"返回给文件浏览器，
-    // 这样返回后列表能滚到当前文件那一项。
     return PopScope<String?>(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -2384,18 +2360,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         ),
         child: Scaffold(
           backgroundColor: Color(settings.bgColor),
-          // 阅读器不需要键盘顶起内容。开着它会导致：
-          // 进搜索页 → 弹键盘 → body 高度变 → viewportSize 变；
-          // 返回 → 收键盘 → body 高度又变 → 又触发 _ensureLoaded，
-          // 于是"卡一会"重新读文件 + 重新分页。
           resizeToAvoidBottomInset: false,
           body: SafeArea(
             child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final size = Size(constraints.maxWidth, constraints.maxHeight);
 
-                // 只在当前路由是活跃路由时处理尺寸变化，
-                // 避免搜索页/其它页 push-pop 动画期间反复重建分页器。
                 final route = ModalRoute.of(context);
                 final routeIsCurrent = route == null || route.isCurrent;
 
@@ -2482,7 +2452,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     return Stack(
       children: [
-        // ---------- 正文 ----------
         Positioned.fill(
           child: Listener(
             behavior: HitTestBehavior.opaque,
@@ -2507,7 +2476,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           ),
         ),
 
-        // ---------- 选区覆盖层（独立监听 _selNotifier） ----------
         Positioned.fill(
           child: IgnorePointer(
             child: ValueListenableBuilder<_SelectionRange?>(
@@ -2517,7 +2485,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           ),
         ),
 
-        // ---------- 手柄 + 放大镜 ----------
         Positioned.fill(
           child: ValueListenableBuilder<_DragInfo?>(
             valueListenable: _dragNotifier,
@@ -2538,10 +2505,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           ),
         ),
 
-        // 注意：分页模式的选区操作栏（_buildHBar）已经挪到
-        // _buildShellOverlays 里，盖在悬浮按钮之上。这里不再画。
-
-        // ---------- 搜索半开条 ----------
         Positioned(
           left: 0,
           right: 0,
@@ -2569,20 +2532,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
-  /// 两种模式共用的"外壳"：菜单热区 + 上下文件悬浮按钮 + 删除文件悬浮按钮
-  /// + 分页模式的选区操作栏。
-  ///
-  /// 层级说明（从下到上）：
-  ///   1. 菜单热区
-  ///   2. 悬浮按钮（滚动模式有选中时禁用 + 淡出）
-  ///   3. 分页模式的选区操作栏
   List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
     return [
       _buildHotZone(settings, size),
-      // 悬浮按钮。滚动模式选中文字时：忽略点击 + 淡出，
-      // 让点击穿透到下面的 hBar，视觉上也不打架。
-      // 注意：这里所有悬浮按钮内部都用 IgnorePointer，
-      // 事件不吃，点击由 _handleTap / onTapOnShell 统一派发。
       if (settings.showButtons)
         Positioned.fill(
           child: IgnorePointer(
@@ -2627,15 +2579,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             ),
           ),
         ),
-
-      // 分页模式的选区操作栏放最顶层，盖在悬浮按钮之上。
-      // 它是 Positioned，直接挂外层 Stack。
       if (settings.readerMode == 0 && _hBarVisible && _sel != null)
         _buildHBar(settings, size),
     ];
   }
 
-  /// 滚动模式渲染。
   Widget _buildScrollReader(ReaderSettings settings) {
     if (_text == null || _lines.isEmpty) {
       return const SizedBox.shrink();
@@ -2668,9 +2616,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         if (!mounted) return;
         setState(() => _scrollSelectionActive = active);
       },
-      // 滚动模式下点击空白：父级先判断是不是按钮 / 热区。
       onTapOnShell: (pos) {
-        // 按钮？
         final btn = _hitFloatButton(pos);
         if (btn == 'prev') {
           _prevFile();
@@ -2684,12 +2630,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           _deleteCurrentFile();
           return true;
         }
-        // 热区？
         if (_isInHotZone(pos)) {
           _showTopMenu();
           return true;
         }
-        // 父级没处理 → 让滚动模式自己翻页。
         return false;
       },
     );
@@ -2697,7 +2641,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   // ==================== 菜单热区绘制 ====================
 
-  /// 判断某个全局坐标是否落在"菜单热区"内。
   bool _isInHotZone(Offset globalPos) {
     final settings = ref.read(readerSettingsProvider);
     final screen = MediaQuery.of(context).size;
@@ -2720,8 +2663,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         globalPos.dy <= bottom;
   }
 
-  /// 判断某个全局坐标是否落在悬浮按钮里。
-  /// 返回：null = 不在；'prev' = 上一文件；'next' = 下一文件；'del' = 删除。
   String? _hitFloatButton(Offset globalPos) {
     final settings = ref.read(readerSettingsProvider);
     if (!settings.showButtons) return null;
@@ -2739,12 +2680,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final cy = contentTop + y * contentH;
       final dx = globalPos.dx - cx;
       final dy = globalPos.dy - cy;
-      // 判定半径比视觉半径大 8 像素，手指按得准一些。
       final r = btnSize / 2 + 8;
       return dx * dx + dy * dy < r * r;
     }
 
-    // 优先顺序：删除 → 上 → 下
     if (inBtn(settings.delBtnX, settings.delBtnY, settings.delBtnScale)) {
       return 'del';
     }
@@ -2771,16 +2710,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     final Widget inner;
     if (!settings.hotZoneVisible) {
-      // 不可见时：纯透明点击层。不画任何东西，但保留点击区域。
       inner = const SizedBox.expand();
     } else {
       final color = Color(settings.hotZoneColor)
           .withValues(alpha: settings.hotZoneOpacity.clamp(0.0, 1.0));
       if (settings.hotZoneStyle == 0) {
-        // 整块填色
         inner = Container(color: color);
       } else {
-        // 分界线：贴屏幕的边不画
         final bw = settings.hotZoneBorderWidth;
         inner = Container(
           decoration: BoxDecoration(
@@ -2803,7 +2739,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       }
     }
 
-    // 只画，不吃事件。点击由 _handleTap 判断（避免挡住长按选字）。
     return Positioned(
       left: left,
       top: top,
@@ -2895,6 +2830,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
+  // ★ 改动5：_buildRenderUnit 用 mergedStyle + textScaler
   Widget _buildRenderUnit(
       int unitIdx, RenderUnit unit, ReaderSettings settings) {
     final line = _lines[unit.lineIndex];
@@ -2905,6 +2841,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final spans = _buildUnitSpans(unitIdx, unit, sub, settings);
     final highlights = _highlightsForLine(unit.lineIndex);
 
+    final effectiveStyle =
+        DefaultTextStyle.of(context).style.merge(_baseStyle(settings));
+    final textScaler = MediaQuery.textScalerOf(context);
+
     final hasGrad = _hasGradientIn(highlights, unit);
 
     if (!hasGrad) {
@@ -2912,7 +2852,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         width: double.infinity,
         child: Text.rich(
           TextSpan(children: spans),
-          style: _baseStyle(settings),
+          style: effectiveStyle,
           textAlign: TextAlign.left,
           softWrap: true,
           key: _unitKeys[unitIdx],
@@ -2931,7 +2871,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             settings,
             constraints.maxWidth,
             highlights,
-            spans, // ← 新增：和 Text.rich 用的完全一样的 spans
+            spans,
+            effectiveStyle,
+            textScaler,
           );
           return Stack(
             children: [
@@ -2958,7 +2900,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 ),
               Text.rich(
                 TextSpan(children: spans),
-                style: _baseStyle(settings),
+                style: effectiveStyle,
                 textAlign: TextAlign.left,
                 softWrap: true,
                 key: _unitKeys[unitIdx],
@@ -2980,6 +2922,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return false;
   }
 
+  // ★ 改动6：_measureGradientRects 加参数 + LRU
   List<_GradRect> _measureGradientRects(
     int unitIdx,
     RenderUnit unit,
@@ -2987,22 +2930,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     ReaderSettings settings,
     double maxWidth,
     List<HighlightSpan> highlights,
-    List<InlineSpan> spans, // ← 新增：和 Text.rich 用的完全一样的 spans
+    List<InlineSpan> spans,
+    TextStyle effectiveStyle,
+    TextScaler textScaler,
   ) {
     if (sub.isEmpty) return const [];
 
-    if (_gradCacheFontSize != settings.fontSize ||
-        _gradCacheFontWeight != settings.fontWeight ||
-        _gradCacheWidth != maxWidth) {
-      _gradRectCache.clear();
-      _gradCacheFontSize = settings.fontSize;
-      _gradCacheFontWeight = settings.fontWeight;
-      _gradCacheWidth = maxWidth;
-    }
+    final fontFamilyKey = effectiveStyle.fontFamily ?? 'null';
+    final scalerKey = textScaler.scale(10).toStringAsFixed(4);
+    final key = '$unitIdx|${maxWidth.round()}'
+        '|f${effectiveStyle.fontSize}'
+        '|w${effectiveStyle.fontWeight?.index}'
+        '|ff$fontFamilyKey'
+        '|sc$scalerKey';
 
-    final key = '$unitIdx|${maxWidth.round()}';
-    final hit = _gradRectCache[key];
-    if (hit != null) return hit;
+    final hit = _gradRectCache.remove(key);
+    if (hit != null) {
+      _gradRectCache[key] = hit;
+      return hit;
+    }
 
     final gradientHighlights = <HighlightSpan>[];
     for (final h in highlights) {
@@ -3017,13 +2963,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return const [];
     }
 
-    final style = _baseStyle(settings);
     final tp = _gradTP;
-
-    // ⚠️ 关键：用和 Text.rich 完全相同的 spans 结构。
-    // 单 span 和多 span 的 shaping 断点不同，中文字符位置能差 1~3 像素，
-    // 导致渐变矩形偏移到旁边的字上。
-    tp.text = TextSpan(style: style, children: spans);
+    tp.text = TextSpan(style: effectiveStyle, children: spans);
+    tp.textScaler = textScaler;
     tp.layout(maxWidth: maxWidth);
 
     final rects = <_GradRect>[];
@@ -3040,7 +2982,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final colors =
           h.entry.colors.map((c) => Color(c)).toList(growable: false);
 
-      // 计算 stops：要求长度与 colors 一致、单调递增。不合法则均分兜底。
       List<double> stops;
       if (h.entry.stops.length == h.entry.colors.length &&
           h.entry.stops.length > 1) {
@@ -3065,8 +3006,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         ];
       }
 
-      // 修正多行 selection 最后一个 box 的右边界：
-      // Flutter 会把它拉到整行宽，用 caret 精确位置替代。
       final caretAtEnd = tp.getOffsetForCaret(
         TextPosition(offset: he),
         Rect.zero,
@@ -3087,22 +3026,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       }
     }
 
-    if (_gradRectCache.length > 256) _gradRectCache.clear();
+    if (_gradRectCache.length > 256) {
+      _gradRectCache.remove(_gradRectCache.keys.first);
+    }
     _gradRectCache[key] = rects;
     return rects;
   }
 
+  // ★ 改动7：_buildUnitSpans 改 LRU
   List<InlineSpan> _buildUnitSpans(
     int unitIdx,
     RenderUnit unit,
     String sub,
     ReaderSettings settings,
   ) {
-    final hit = _spansCache[unitIdx];
-    if (hit != null) return hit;
+    final hit = _spansCache.remove(unitIdx);
+    if (hit != null) {
+      _spansCache[unitIdx] = hit;
+      return hit;
+    }
 
     final spans = _doBuildUnitSpans(unit, sub, settings);
-    if (_spansCache.length > 256) _spansCache.clear();
+    const cap = 512;
+    if (_spansCache.length >= cap) {
+      _spansCache.remove(_spansCache.keys.first);
+    }
     _spansCache[unitIdx] = spans;
     return spans;
   }
@@ -3207,8 +3155,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       );
     }
 
-    // 用 IgnorePointer 让点击由父级统一派发；透明度直接合进颜色，
-    // 不再包 Opacity（避免 saveLayer，滚动更省电）。
     return Positioned(
       left: left,
       top: top,
@@ -3216,8 +3162,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
-  /// 删除文件悬浮按钮。样式 / 颜色 / 大小 / 位置完全可配，
-  /// 图标用自定义 SVG 形状（_TrashIconPainter）。
   Widget _buildDeleteButton(ReaderSettings settings, Size size) {
     final btnSize = 50.0 * settings.delBtnScale;
     final left = settings.delBtnX * size.width - btnSize / 2;
@@ -3414,7 +3358,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     if (line < 0 || line >= _lines.length) return const SizedBox.shrink();
 
-    // ---- 放大镜参数（长方形，倍数小，看到更多字）----
     const double loupeW = 160;
     const double loupeH = 56;
     const double scale = 1.4;
@@ -3423,7 +3366,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     final h = drag.handlePos;
 
-    // 默认放在手指上方，水平居中在手指上；上方不够就放下方
     final aboveCenter = Offset(h.dx, h.dy - gap - loupeH / 2);
     final belowCenter = Offset(h.dx, h.dy + gap + loupeH / 2);
     var center = aboveCenter;
@@ -3649,6 +3591,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
+  // ★ 改动9：_applyHighlight 里同步清新缓存
   void _applyHighlight(String word, HighlightPalette palette) {
     if (_text == null) return;
     final path = _filePaths[_fileIndex];
@@ -3662,7 +3605,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       textColor: palette.textColor,
       createdAt: DateTime.now().millisecondsSinceEpoch,
       groupId: palette.defaultGroupId,
-      // 阅读器里点色块加的高亮永远是本书高亮，不是全局。
       isGlobal: false,
     );
     ref.read(readerHighlightsProvider.notifier).addOrReplace(fileKey, entry);
@@ -3683,6 +3625,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _pageHighlightCacheForRevision = -1;
       _lastHighlightQueryLine = -1;
       _lastHighlightQueryResult = const [];
+      _pageHighlightCacheMap.clear();
+      _pageHighlightCacheMapRevision = -1;
+      _previewCache.clear();
+      _previewCacheRevision = -1;
     });
   }
 }
+
