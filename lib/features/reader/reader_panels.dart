@@ -253,6 +253,34 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     const SizedBox(height: 20),
                     const Divider(),
                     const SizedBox(height: 8),
+// ---------- 避让系统导航栏 ----------
+Row(
+  children: [
+    const Text(
+      '避让底部导航栏',
+      style: TextStyle(
+          fontSize: 14, fontWeight: FontWeight.w600),
+    ),
+    const Spacer(),
+    Switch(
+      value: s.respectSystemInsets,
+      onChanged: (v) => n.setRespectSystemInsets(v),
+    ),
+  ],
+),
+Padding(
+  padding: const EdgeInsets.only(top: 4, bottom: 8),
+  child: Text(
+    '开：分页和滚动模式都会空出手机底部导航栏/手势条的高度，'
+    '最后一个文件、最后一行文字不会被遮住。\n'
+    '关：内容延伸到导航栏下面。\n'
+    '默认开启。',
+    style: TextStyle(
+      fontSize: 11,
+      color: Colors.grey.shade600,
+    ),
+  ),
+),
 
                     // ---------- 悬浮按钮总开关 ----------
                     Row(
