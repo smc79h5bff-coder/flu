@@ -337,44 +337,33 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       log.info('[DirCache] 强制跳过缓存  $cacheKey');
     }
 
+    // 特殊路径：/storage 顶层。Android 11+ 禁止 list，走手动构造。
+    // 必须在 setState(_loading=true) 和 loadDirectoryAsync 之前拦截，
+    // 否则会走正常流程直接报错。
+    if (_currentPath == _topPath) {
+      List<EntryInfo> entries;
+      try {
+        entries = _listStorageRoot();
+      } catch (e) {
+        log.info('[Storage] _listStorageRoot 异常：$e');
+        entries = <EntryInfo>[];
+      }
+      if (!mounted || token.isCancelled) return;
+      setState(() {
+        _entries = entries;
+        _loading = false;
+        _error = null;
+      });
+      DirCache.instance.put(cacheKey, entries);
+      if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
+      log.info('[Dir] /storage 手动构造完成，${entries.length} 项');
+      return;
+    }
+
     setState(() {
       _loading = true;
       _error = null;
     });
-
-    if (_currentPath == _topPath) {
-      List<FileSystemEntity> raw;
-      try {
-        raw = await Directory(_currentPath).list(followLinks: false).toList();
-      } on PathAccessException catch (e) {
-        log.info('[Dir] list 权限拒绝  $_currentPath  $e');
-        raw = <FileSystemEntity>[];
-      } catch (e) {
-        log.info('[Dir] list 失败  $_currentPath  $e');
-        raw = <FileSystemEntity>[];
-      }
-
-      if (raw.isEmpty) {
-        final entries = _listStorageRoot();
-        if (!mounted || token.isCancelled) return;
-        setState(() {
-          _entries = entries;
-          _loading = false;
-          _error = null;
-        });
-        DirCache.instance.put(cacheKey, entries);
-        final hasExternal = entries.any((e) =>
-            !e.name.startsWith('emulated') &&
-            !e.name.startsWith('self'));
-        if (!hasExternal) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            _toast('未检测到外部存储。可长按标题手动输入路径');
-          });
-        }
-        return;
-      }
-    }
 
     try {
       await loadDirectoryAsync(
@@ -510,6 +499,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   void _navigateTo(String path) {
+    // 规范化：去掉末尾多余的斜杠（避免 /storage/ 和 /storage 不一致，
+    // 导致降级判断失效）
+    while (path.length > 1 && path.endsWith('/')) {
+      path = path.substring(0, path.length - 1);
+    }
     if (path == _currentPath) return;
 
     _recordCurrentScroll();
@@ -533,6 +527,14 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     if (!_canGoUp) return;
     final parent = Directory(_currentPath).parent.path;
     if (!parent.startsWith(_topPath)) return;
+
+    // 跳过 /storage/emulated 这一层：Android 11+ 禁止 list 它。
+    // 从 /storage/emulated/0（或 999 等）上一级，直接退到 /storage。
+    if (parent == '/storage/emulated') {
+      _navigateTo(_topPath);
+      return;
+    }
+
     _navigateTo(parent);
   }
 
@@ -2326,6 +2328,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       return out;
     }
 
+    // 其它 /storage 下的路径（SD 卡、U 盘、双开等）
     final out = <({String label, String path})>[
       (label: '存储', path: _topPath),
     ];
@@ -2333,9 +2336,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final relative = _currentPath.substring(_topPath.length);
     final segments =
         relative.split('/').where((s) => s.isNotEmpty).toList();
+
+    // 跳过 "emulated" 这一级：它是中间目录，用户不需要看到。
     var acc = _topPath;
     for (final seg in segments) {
       acc = '$acc/$seg';
+      if (seg == 'emulated') continue;
       out.add((label: _crumbLabelFor(acc, seg), path: acc));
     }
     return out;
@@ -2442,13 +2448,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_canGoUp && !_selectionMode && !_searchActive,
+      canPop: !_canGoUp &&
+          _currentPath != _topPath &&
+          !_selectionMode &&
+          !_searchActive,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
+        // 返回键优先级：先取消选中 → 再退搜索 → 再回内部存储 → 最后上一级。
         if (_selectionMode) {
           setState(_clearSelection);
         } else if (_searchActive) {
           _clearSearch();
+        } else if (_currentPath == _topPath) {
+          // 在 /storage 顶层按返回 → 回内部存储
+          _navigateTo(_rootPath);
         } else if (_canGoUp) {
           _goUp();
         }
@@ -2492,12 +2505,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
               icon: const Icon(Icons.arrow_back),
               onPressed: _clearSearch,
             )
-          : (_canGoUp
-              ? IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: _goUp,
+          : (_currentPath == _topPath
+              ? _smallBackButton(
+                  onPressed: () => _navigateTo(_rootPath),
                 )
-              : null),
+              : (_canGoUp
+                  ? _smallBackButton(onPressed: _goUp)
+                  : null)),
       actions: [
         IconButton(
           icon: Icon(
@@ -2625,6 +2639,29 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           ],
         ),
       ],
+    );
+  }
+
+  /// 小号返回按钮：图标保持常规大小，但**点击热区缩到很小**。
+  /// 用于 /storage 和它的下级——避免误触跳走。
+  Widget _smallBackButton({required VoidCallback onPressed}) {
+    return Center(
+      child: SizedBox(
+        width: 36,
+        height: 36,
+        child: IconButton(
+          icon: const Icon(Icons.arrow_back, size: 20),
+          onPressed: onPressed,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(
+            minWidth: 36,
+            minHeight: 36,
+            maxWidth: 36,
+            maxHeight: 36,
+          ),
+          tooltip: null,
+        ),
+      ),
     );
   }
 
@@ -3213,7 +3250,14 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
 child: Container(
   decoration: BoxDecoration(
-    color: selected ? _gridSelectedBg : null,
+    color: selected
+        ? _gridSelectedBg
+        : (info.isDir
+            ? null
+            : (_textExts.contains(_extOf(info.name))
+                ? null
+                // 打不开的文件：很浅的灰背景
+                : const Color(0xFFFAFAFA))),
     border: selected
         ? Border.all(
             color: Theme.of(context).colorScheme.primary,
@@ -3241,15 +3285,7 @@ child: Container(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              info.name,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: fontName,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            _buildGridName(info, fontName),
             if (metaLine.isNotEmpty) ...[
               const SizedBox(height: 2),
               Text(
@@ -3266,6 +3302,80 @@ child: Container(
           ],
         ),
       ),
+    );
+  }
+
+  /// 网格模式的文件名。
+  ///
+  /// 规则：
+  ///   · 文件夹：黑色加粗，前后加 `/`
+  ///   · 大文本（能打开 且 >3MB）：主体黑加粗，后缀灰 + 正常字重
+  ///   · 其它：黑色加粗
+  Widget _buildGridName(EntryInfo info, double fontSize) {
+    // 文件夹：前后加斜杠
+    if (info.isDir) {
+      return Text(
+        '/${info.name}/',
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+
+    final name = info.name;
+
+    // 是否"大文本"：能打开的文本 + > 3 MiB
+    final isText = _textExts.contains(_extOf(name));
+    final isLarge = isText &&
+        info.size != null &&
+        info.size! > 3 * 1024 * 1024;
+
+    // 找后缀位置（含点）
+    final dotIdx = name.lastIndexOf('.');
+    final hasExt = dotIdx > 0 && dotIdx < name.length - 1;
+
+    // 非大文件，或没有后缀：整体黑加粗
+    if (!isLarge || !hasExt) {
+      return Text(
+        name,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+
+    // 大文本：主体黑加粗，后缀灰不加粗
+    final base = name.substring(0, dotIdx);
+    final ext = name.substring(dotIdx);
+
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: base,
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          TextSpan(
+            text: ext,
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.normal,
+              color: Colors.grey.shade500,
+            ),
+          ),
+        ],
+      ),
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
     );
   }
 
@@ -3776,7 +3886,7 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
 
   String get _titleText {
     if (_rangeMode) {
-      return _rangeAnchorPath == null ? '点第一行设为起点' : '再点一行设为终点';
+      return _rangeAnchorPath == null ? '点一行内容为起点' : '再点一行内容为终点';
     }
     return '勾选要搜索的文件夹';
   }
@@ -3909,11 +4019,13 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                                                 ? Icons.check_box
                                                 : Icons
                                                     .check_box_outline_blank,
-                                            color: selected
-                                                ? Theme.of(context)
-                                                    .colorScheme
-                                                    .primary
-                                                : null,
+                                            color: _rangeMode
+                                                ? Colors.grey.shade300
+                                                : (selected
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .primary
+                                                    : null),
                                           ),
                                         ),
                                       ),
@@ -3973,8 +4085,12 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                     label: const Text('全选'),
                     selected: _allVisibleSelected,
                     onSelected: (_) => _toggleSelectAll(),
+                    backgroundColor: Colors.transparent,
                     selectedColor:
                         AppColors.accentPurple.withOpacity(0.15),
+                    surfaceTintColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    elevation: 0,
                     checkmarkColor: AppColors.accentPurple,
                     labelStyle: TextStyle(
                       fontSize: 12,
@@ -4002,7 +4118,11 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
                     label: const Text('区间'),
                     selected: _rangeMode,
                     onSelected: (_) => _toggleRangeMode(),
+                    backgroundColor: Colors.transparent,
                     selectedColor: _rangeBlue.withOpacity(0.15),
+                    surfaceTintColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    elevation: 0,
                     checkmarkColor: _rangeBlue,
                     labelStyle: TextStyle(
                       fontSize: 12,
