@@ -69,7 +69,9 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
 void setPageBottomSafePx(int v) => update(state.copyWith(
       pageBottomSafePx: v.clamp(-20, 30),
     ));
-  
+  /// 是否避让底部系统导航栏。true = 空出导航栏高度。
+void setRespectSystemInsets(bool v) =>
+    update(state.copyWith(respectSystemInsets: v));
   // ---- 上一文件按钮 ----
 
   void setTopBtnStyle(int v) => update(state.copyWith(topBtnStyle: v));
