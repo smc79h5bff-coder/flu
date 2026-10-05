@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 
-/// 非文本文件：让用户选「打开方式」还是「分享」。
+/// 非文本非压缩包文件：让用户选「打开方式」还是「分享」。
 Future<void> showOpenOrShareSheet(
   BuildContext context,
   String path,
@@ -78,7 +78,95 @@ Future<void> showOpenOrShareSheet(
   }
 }
 
-/// 调系统「打开方式」。
+/// zip / tar 文件：三选一。
+/// 返回 'open' / 'share' / 'expand' / null。
+Future<String?> showOpenOrShareOrExpandSheet(
+  BuildContext context,
+  String path,
+  String name,
+) async {
+  final action = await showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (c) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.folder_zip, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.unfold_more),
+            title: const Text('一键展开'),
+            subtitle: const Text(
+              '在列表里展开压缩包内容，可直接浏览',
+              style: TextStyle(fontSize: 11),
+            ),
+            onTap: () => Navigator.pop(c, 'expand'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.open_in_new),
+            title: const Text('用其他 App 打开'),
+            subtitle: const Text(
+              '交给能处理压缩包的 App',
+              style: TextStyle(fontSize: 11),
+            ),
+            onTap: () => Navigator.pop(c, 'open'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.share),
+            title: const Text('分享到其他 App'),
+            subtitle: const Text(
+              '把压缩包本身发给别人',
+              style: TextStyle(fontSize: 11),
+            ),
+            onTap: () => Navigator.pop(c, 'share'),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.close),
+            title: const Text('取消'),
+            onTap: () => Navigator.pop(c),
+          ),
+          const SizedBox(height: 6),
+        ],
+      ),
+    ),
+  );
+
+  if (!context.mounted) return null;
+  if (action == 'open') {
+    await _openWith(path, context);
+    return 'open';
+  }
+  if (action == 'share') {
+    await _shareFiles([path], context);
+    return 'share';
+  }
+  return action; // 'expand' 或 null
+}
+
 Future<void> _openWith(String path, BuildContext context) async {
   try {
     final result = await OpenFilex.open(path);
@@ -101,7 +189,6 @@ Future<void> _openWith(String path, BuildContext context) async {
   }
 }
 
-/// 调系统「分享」。支持多个文件。
 Future<void> _shareFiles(List<String> paths, BuildContext context) async {
   if (paths.isEmpty) return;
   try {
@@ -116,7 +203,8 @@ Future<void> _shareFiles(List<String> paths, BuildContext context) async {
   }
 }
 
-/// 多选底栏用：直接分享，不弹菜单。
 Future<void> shareMany(List<String> paths, BuildContext context) async {
   await _shareFiles(paths, context);
 }
+
+
