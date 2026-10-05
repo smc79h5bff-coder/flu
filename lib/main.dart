@@ -9,13 +9,21 @@ import 'features/reader/reader_load_log.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 尽早装异常钩子，后面所有未捕获异常都会被记进日志。
-  ReaderLoadLog.instance.installErrorHooks();
+  // ============================================================
+  // 日志系统默认关闭（ReaderLoadLog.enabled = false）。
+  //
+  // 需要排查问题时：
+  //   1. 打开 reader_load_log.dart，把 enabled 改成 true
+  //   2. 取消下面两行注释
+  //   3. 重新编译运行
+  //
+  // 排查完记得都改回去，避免长期记录影响性能。
+  // ============================================================
 
-  // 装帧监控。App 一启动就开始累积慢帧统计。
-  ReaderLoadLog.instance.installFrameMonitor();
+  // ReaderLoadLog.instance.installErrorHooks();
+  // ReaderLoadLog.instance.installFrameMonitor();
 
-  // 记录 SharedPreferences 冷启动耗时（冷启动时可能几百毫秒）。
+  // 记录 SharedPreferences 冷启动耗时（日志关闭时是空操作）。
   final prefsSw = Stopwatch()..start();
   final prefs = await SharedPreferences.getInstance();
   ReaderLoadLog.instance.info(
