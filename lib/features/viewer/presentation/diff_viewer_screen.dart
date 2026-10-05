@@ -921,73 +921,27 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
   }
 
-  // ★ ========== 新增：翻一屏 ==========
+  // ★ ========== 翻一屏（纯像素，95% 重叠）==========
 
-  /// 向下翻一屏。整行对齐：
-  ///   · 底部行完整可见 → 从下一行开始新屏
-  ///   · 底部行被截断   → 让这一行对齐到顶部，重新完整显示
+  /// 向下翻一屏：当前位置 + 屏高 × 0.95。
+  /// 留 5% 重叠，保证上一屏底部被截断的那一行，下一屏顶部能完整看到。
   void _pageDown() {
-    final mode = ref.read(viewModeProvider);
-    final table = _activeTableFor(mode);
-    if (table == null) return;
     if (!_scrollController.hasClients) return;
-    if (table.length == 0) return;
-
     final pos = _scrollController.position;
-    final viewportH = pos.viewportDimension;
-    final topOffset = pos.pixels;
-    final bottomOffset = topOffset + viewportH;
-
-    final topRow = table.indexAt(topOffset);
-    final bottomRow = table.indexAt(bottomOffset);
-
-    final bottomRowEnd = table.offsetOf(bottomRow + 1);
-    final fullyVisible = bottomRowEnd <= bottomOffset + 0.5;
-
-    final target = fullyVisible ? bottomRow + 1 : bottomRow;
-    if (target <= topRow) return;
-
-    if (target >= table.length) {
-      final maxExtent = pos.maxScrollExtent;
-      if ((pos.pixels - maxExtent).abs() < 0.5) return;
-      _scrollController.jumpTo(maxExtent);
-      return;
-    }
-
-    final targetOffset =
-        table.offsetOf(target).clamp(0.0, pos.maxScrollExtent);
-    if ((targetOffset - pos.pixels).abs() < 0.5) return;
-    _scrollController.jumpTo(targetOffset);
+    final target = (pos.pixels + pos.viewportDimension * 0.95)
+        .clamp(0.0, pos.maxScrollExtent);
+    if ((target - pos.pixels).abs() < 0.5) return;
+    _scrollController.jumpTo(target);
   }
 
-  /// 向上翻一屏。估算当前可见行数，往上跳这么多行。
+  /// 向上翻一屏：当前位置 - 屏高 × 0.95。
   void _pageUp() {
-    final mode = ref.read(viewModeProvider);
-    final table = _activeTableFor(mode);
-    if (table == null) return;
     if (!_scrollController.hasClients) return;
-    if (table.length == 0) return;
-
     final pos = _scrollController.position;
-    final viewportH = pos.viewportDimension;
-    final topOffset = pos.pixels;
-
-    final topRow = table.indexAt(topOffset);
-    final bottomRow = table.indexAt(topOffset + viewportH);
-    var visibleCount = bottomRow - topRow + 1;
-    if (visibleCount < 1) visibleCount = 1;
-
-    final target = (topRow - visibleCount).clamp(0, table.length - 1);
-
-    if (target >= topRow) {
-      if (pos.pixels > 0.5) _scrollController.jumpTo(0);
-      return;
-    }
-
-    final targetOffset =
-        table.offsetOf(target).clamp(0.0, pos.maxScrollExtent);
-    if ((targetOffset - pos.pixels).abs() < 0.5) return;
-    _scrollController.jumpTo(targetOffset);
+    final target = (pos.pixels - pos.viewportDimension * 0.95)
+        .clamp(0.0, pos.maxScrollExtent);
+    if ((target - pos.pixels).abs() < 0.5) return;
+    _scrollController.jumpTo(target);
   }
 
   // ★ ========== 翻屏方法结束 ==========
@@ -2073,7 +2027,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     return inner;
   }
 
-  // ★ ========== _buildDiffScaffold 换了 AppBar ==========
   Widget _buildDiffScaffold(
     DiffResult diff,
     ViewMode viewMode,
@@ -2086,13 +2039,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // ★ 返回按钮和翻屏按钮之间空 32px
         titleSpacing: 32,
-        // ★ 原"对比结果"文字换成翻屏按钮
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ========== 翻屏按钮组（自定义 SVG 图标） ==========
             Builder(builder: (ctx) {
               final iconColor =
                   IconTheme.of(ctx).color ?? const Color(0xFF000000);
@@ -2101,8 +2051,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 onTap: _pageUp,
                 onLongPress: _jumpToDocTop,
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 8),
                   child: CustomPaint(
                     size: const Size.square(26),
                     painter: _PageUpIconPainter(color: iconColor),
@@ -2118,8 +2068,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                 onTap: _pageDown,
                 onLongPress: _jumpToDocBottom,
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 8),
                   child: CustomPaint(
                     size: const Size.square(26),
                     painter: _PageDownIconPainter(color: iconColor),
@@ -2130,7 +2080,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           ],
         ),
         actions: [
-          // ★ 翻屏按钮和差异按钮之间空一个按钮宽度
           const SizedBox(width: 48),
           InkWell(
             key: const Key('prev-diff'),
@@ -2369,6 +2318,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       ),
     );
   }
+  
 
   // ==================== 按钮栏 ====================
 
