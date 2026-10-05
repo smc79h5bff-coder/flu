@@ -1,3 +1,4 @@
+
 // reader_screen.dart
 import '../file_browser/presentation/line_editor_screen.dart';
 import 'dart:async';
@@ -444,10 +445,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   /// 更快点 3：渐变测量用 TextPainter 单例。
   /// 显式 textAlign: TextAlign.left，与 Text.rich 渲染保持一致。
+  ///
+  /// ⚠️ 不指定 locale：让 TextPainter 和 Text.rich 都用系统默认 locale，
+  /// 否则系统语言不是 zh_CN 时，中英混排标点挤压行为不一致，
+  /// 渐变矩形会偏移到旁边的字上。
   static final TextPainter _gradTP = TextPainter(
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.left,
-    locale: const Locale('zh', 'CN'),
   );
 
   // ---- 选区状态：走 ValueNotifier，拖动时不动主内容 ----
@@ -3677,3 +3681,4 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     });
   }
 }
+
