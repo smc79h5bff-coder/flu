@@ -2043,45 +2043,63 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   toolbarHeight: 43,   // ★ 新增
         
         titleSpacing: 1,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Builder(builder: (ctx) {
-              final iconColor =
-                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
-              return InkWell(
-                key: const Key('page-up'),
-                onTap: _pageUp,
-                onLongPress: _jumpToDocTop,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 17, vertical: 8),
-                  child: CustomPaint(
-                    size: const Size.square(24),
-                    painter: _PageUpIconPainter(color: iconColor),
-                  ),
-                ),
-              );
-            }),
-            Builder(builder: (ctx) {
-              final iconColor =
-                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
-              return InkWell(
-                key: const Key('page-down'),
-                onTap: _pageDown,
-                onLongPress: _jumpToDocBottom,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 17, vertical: 8),
-                  child: CustomPaint(
-                    size: const Size.square(24),
-                    painter: _PageDownIconPainter(color: iconColor),
-                  ),
-                ),
-              );
-            }),
-          ],
+
+
+
+
+
+
+
+title: Row(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    Builder(builder: (ctx) {
+      final iconColor =
+          IconTheme.of(ctx).color ?? const Color(0xFF000000);
+      return SizedBox(
+        width: 56,
+        height: 42,
+        child: GestureDetector(
+          key: const Key('page-up'),
+          behavior: HitTestBehavior.opaque,
+          onTap: _pageUp,
+          onLongPress: _jumpToDocTop,
+          child: Center(
+            child: CustomPaint(
+              size: const Size.square(24),
+              painter: _PageUpIconPainter(color: iconColor),
+            ),
+          ),
         ),
+      );
+    }),
+    Builder(builder: (ctx) {
+      final iconColor =
+          IconTheme.of(ctx).color ?? const Color(0xFF000000);
+      return SizedBox(
+        width: 56,
+        height: 42,
+        child: GestureDetector(
+          key: const Key('page-down'),
+          behavior: HitTestBehavior.opaque,
+          onTap: _pageDown,
+          onLongPress: _jumpToDocBottom,
+          child: Center(
+            child: CustomPaint(
+              size: const Size.square(24),
+              painter: _PageDownIconPainter(color: iconColor),
+            ),
+          ),
+        ),
+      );
+    }),
+  ],
+),
+
+
+
+
+        
         actions: [
           const SizedBox(width: 48),
           InkWell(
