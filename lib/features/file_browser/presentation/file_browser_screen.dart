@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:archive/archive.dart';
+import 'package:charset/charset.dart';
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show compute;
@@ -1129,20 +1130,131 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   // ==================== zip 展开 / 收起 ====================
 
   /// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
-  Archive _decodeArchiveBytes(String name, Uint8List bytes) {
-    final lower = name.toLowerCase();
-    if (lower.endsWith('.zip')) {
-      return ZipDecoder().decodeBytes(bytes);
-    }
-    if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-      final gunzipped = GZipDecoder().decodeBytes(bytes);
-      return TarDecoder().decodeBytes(gunzipped);
-    }
-    if (lower.endsWith('.tar')) {
-      return TarDecoder().decodeBytes(bytes);
-    }
-    throw Exception('不支持的压缩格式：$name');
+  
+/// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
+Archive _decodeArchiveBytes(String name, Uint8List bytes) {
+  final lower = name.toLowerCase();
+  if (lower.endsWith('.zip')) {
+    return ZipDecoder().decodeBytes(bytes);
   }
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+    final gunzipped = GZipDecoder().decodeBytes(bytes);
+    return _parseTarWithGbk(gunzipped);
+  }
+  if (lower.endsWith('.tar')) {
+    return _parseTarWithGbk(bytes);
+  }
+  throw Exception('不支持的压缩格式：$name');
+}
+
+/// 自己解析 tar。相比 archive 包的 TarDecoder，多了文件名编码回退：
+/// 先严格 UTF-8 解，失败再 GBK 解，最后 latin1 兜底。
+/// 支持 ustar prefix 和 GNU LongName（typeflag 'L'）。
+Archive _parseTarWithGbk(Uint8List bytes) {
+  final archive = Archive();
+  var offset = 0;
+  Uint8List? pendingLongNameBytes;
+
+  // 去掉尾部 \0，然后依次尝试 UTF-8 / GBK / latin1
+  String decodeName(List<int> raw) {
+    var end = raw.length;
+    while (end > 0 && raw[end - 1] == 0) {
+      end--;
+    }
+    if (end <= 0) return '';
+    final slice = raw.sublist(0, end);
+    try {
+      return utf8.decode(slice);
+    } catch (_) {}
+    try {
+      return gbk.decode(slice);
+    } catch (_) {}
+    return String.fromCharCodes(slice);
+  }
+
+  // 读八进制数字（tar header 里 size 是这个格式）
+  int readOctal(Uint8List buf, int start, int len) {
+    var result = 0;
+    for (var i = start; i < start + len; i++) {
+      final b = buf[i];
+      if (b == 0 || b == 0x20) break;
+      if (b < 0x30 || b > 0x37) break;
+      result = result * 8 + (b - 0x30);
+    }
+    return result;
+  }
+
+  int alignTo512(int n) => ((n + 511) ~/ 512) * 512;
+
+  while (offset + 512 <= bytes.length) {
+    final header = Uint8List.sublistView(bytes, offset, offset + 512);
+
+    // 全零 header = 结束标记
+    var allZero = true;
+    for (var i = 0; i < 512; i++) {
+      if (header[i] != 0) {
+        allZero = false;
+        break;
+      }
+    }
+    if (allZero) break;
+
+    var name = decodeName(header.sublist(0, 100));
+    final size = readOctal(header, 124, 12);
+    final type = header[156];
+    // ustar 长路径的 prefix（老格式，路径 > 100 字节时分两段存）
+    final prefix = decodeName(header.sublist(345, 500));
+    if (prefix.isNotEmpty) {
+      name = '$prefix/$name';
+    }
+
+    offset += 512;
+    if (offset + size > bytes.length) break;
+
+    // typeflag 0x4C = 'L'，GNU LongName：下一段内容是真正的文件名
+    if (type == 0x4C) {
+      pendingLongNameBytes =
+          Uint8List.fromList(bytes.sublist(offset, offset + size));
+      offset += alignTo512(size);
+      continue;
+    }
+
+    // typeflag 0x78 = 'x'（pax 扩展头）/ 0x67 = 'g'（全局扩展头）：跳过
+    if (type == 0x78 || type == 0x67) {
+      offset += alignTo512(size);
+      continue;
+    }
+
+    // typeflag '\0'（0x00）/ '0'（0x30）= 普通文件，'5'（0x35）= 目录
+    if (type == 0x00 || type == 0x30 || type == 0x35) {
+      if (pendingLongNameBytes != null) {
+        name = decodeName(pendingLongNameBytes);
+        pendingLongNameBytes = null;
+      }
+
+      final isDir = type == 0x35;
+      final content = isDir
+          ? Uint8List(0)
+          : Uint8List.fromList(bytes.sublist(offset, offset + size));
+
+      // 目录名末尾的 '/' 去掉，与 zip 内目录处理保持一致
+      final cleanName = isDir && name.endsWith('/')
+          ? name.substring(0, name.length - 1)
+          : name;
+
+      if (cleanName.isNotEmpty) {
+        archive.addFile(ArchiveFile(cleanName, content.length, content));
+      }
+      offset += alignTo512(size);
+    } else {
+      // 其它类型（链接等）：跳过内容
+      offset += alignTo512(size);
+    }
+  }
+
+  return archive;
+}
+  
 
   /// 展开一个 zip。已加载则直接展开；未加载则读盘 + 解码。
   Future<void> _expandZip(String zipDiskPath) async {
@@ -3272,8 +3384,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
               ignoring: _selectionMode,
               child: _buildSearchBar(),
             ),
-            if (_searchActive) _buildSearchStatusBar(),
-            Expanded(child: _buildBody()),
+        if (_searchActive) _buildSearchStatusBar(),
+if (!_searchActive &&
+    !_selectionMode &&
+    _expandedZipKeys.isNotEmpty)
+  _buildExpandedZipBar(),
+Expanded(child: _buildBody()),
           ],
         ),
         bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
@@ -3565,6 +3681,54 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       ),
     );
   }
+
+/// 有压缩包展开时，在搜索栏下方固定显示一条提示条。
+/// 无论列表滚到多深都能看到，"全部收起"一键折叠所有展开的压缩包。
+Widget _buildExpandedZipBar() {
+  // 只数顶层（磁盘上的）压缩包，嵌套 zip 的 key 会带前缀，不算。
+  final topLevelCount =
+      _expandedZipKeys.where((k) => !_isZipInnerKey(k)).length;
+  if (topLevelCount == 0) return const SizedBox.shrink();
+
+  return Container(
+    width: double.infinity,
+    color: Colors.blue.shade50,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+    child: Row(
+      children: [
+        Icon(Icons.folder_zip, size: 16, color: Colors.blue.shade700),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '已展开 $topLevelCount 个压缩包',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.blue.shade900,
+            ),
+          ),
+        ),
+        TextButton(
+          style: TextButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            foregroundColor: Colors.blue.shade800,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+          ),
+          onPressed: () {
+            setState(() {
+              _expandedZipKeys.clear();
+              _zipArchives.clear();
+              _zipErrors.clear();
+              _loadingZipKeys.clear();
+              _stickyZipKey = null;
+            });
+          },
+          child: const Text('全部收起'),
+        ),
+      ],
+    ),
+  );
+}
+
 
   Widget _buildSearchStatusBar() {
     final textTheme = Theme.of(context).textTheme;
@@ -3978,65 +4142,73 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
     // zip 头（顶层或嵌套）：和普通文件一样的 ListTile，
     // 只用图标区分展开/折叠（折叠=空心蓝，展开=实心蓝）。
-    if (item.isZip) {
-      final isExpanded = _expandedZipKeys.contains(item.key);
-      final metaLine = _buildItemMetaLine(item);
 
-      return Container(
-        foregroundDecoration: selected
-            ? BoxDecoration(
-                border: Border.all(
-                  color: colorScheme.primary,
-                  width: 2,
-                ),
-              )
-            : null,
-        child: ListTile(
-          dense: true,
-          contentPadding: EdgeInsets.only(
-            left: 8.0 + item.depth * 18.0,
-            right: 8,
-          ),
-          selected: selected,
-          selectedTileColor: const Color(0xFFFFF3FB),
-          leading: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Icon(
-              isExpanded ? Icons.folder_zip : Icons.folder_zip_outlined,
-              color: Colors.blue.shade600,
+// 只用图标区分展开/折叠（折叠=空心蓝，展开=实心蓝）。
+if (item.isZip) {
+  final isExpanded = _expandedZipKeys.contains(item.key);
+  // 只有"顶层压缩包 + 已展开"时用实心图标；
+  // 嵌套压缩包始终空心。
+  final isTopLevel = item.ownerZipKey == null;
+  final zipIcon = (isTopLevel && isExpanded)
+      ? Icons.folder_zip
+      : Icons.folder_zip_outlined;
+  final metaLine = _buildItemMetaLine(item);
+
+  return Container(
+    foregroundDecoration: selected
+        ? BoxDecoration(
+            border: Border.all(
+              color: colorScheme.primary,
+              width: 2,
             ),
-          ),
-          title: Text(
-            item.displayName,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: fontName,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          subtitle: metaLine.isEmpty
-              ? null
-              : Text(
-                  metaLine,
-                  style: TextStyle(
-                    fontSize: fontMeta,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-          onTap: () {
-            if (_selectionMode) {
-              _toggleSelectionByKey(item.key);
-              return;
-            }
-            _handleTapItem(item);
-          },
-          onLongPress: () => _onLongPressItem(item),
+          )
+        : null,
+    child: ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.only(
+        left: 8.0 + item.depth * 18.0,
+        right: 8,
+      ),
+      selected: selected,
+      selectedTileColor: const Color(0xFFFFF3FB),
+      leading: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Icon(
+          zipIcon,
+          color: Colors.blue.shade600,
         ),
-      );
-    }
+      ),
+      title: Text(
+        item.displayName,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: fontName,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      subtitle: metaLine.isEmpty
+          ? null
+          : Text(
+              metaLine,
+              style: TextStyle(
+                fontSize: fontMeta,
+                color: colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+      onTap: () {
+        if (_selectionMode) {
+          _toggleSelectionByKey(item.key);
+          return;
+        }
+        _handleTapItem(item);
+      },
+      onLongPress: () => _onLongPressItem(item),
+    ),
+  );
+}
 
     // zip 内目录
     if (item.isZipInner && item.isDir) {
