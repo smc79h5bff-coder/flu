@@ -1610,11 +1610,13 @@ Future<void> _openFile(
         return;
       }
       // 网格模式不支持展开 → 弹系统选择器
-      if (!allowExpand) {
-        if (!mounted) return;
-        await openFileWithSystemPicker(path, context);
-        return;
-      }
+      // 网格模式：直接弹系统选择器
+if (!allowExpand) {
+  if (!mounted) return;
+  await openFileWithSystemPicker(path, context);
+  return;
+}
+        
       // 列表模式 / 搜索结果页：直接展开
       await _expandZip(path);
       return;
