@@ -3842,100 +3842,116 @@ Widget _buildExpandedZipBar() {
               height: 38,
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 160,
-                      child: FilledButton.icon(
-                        icon: const Icon(Icons.compare_arrows, size: 16),
-                        label: const Text(
-                          '对比',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        onPressed: canCompare ? _startCompare : null,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    SizedBox(
-                      width: 60,
-                      child: FilledButton(
-                        style: outlineStyle,
-                        onPressed: canCopyPath ? _copyPath : null,
-                        child: const Text(
-                          '复制路径',
-                          style: labelStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    SizedBox(
-                      width: 60,
-                      child: FilledButton(
-                        style: outlineStyle,
-                        onPressed: canOpenWith ? _openWithApp : null,
-                        child: const Text(
-                          '打开方式',
-                          style: labelStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    SizedBox(
-                      width: 60,
-                      child: FilledButton(
-                        style: outlineStyle,
-                        onPressed: canShare ? _shareSelected : null,
-                        child: const Text(
-                          '分享',
-                          style: labelStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 24,
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      color: s.outlineVariant,
-                    ),
-                    SizedBox(
-                      width: 60,
-                      child: FilledButton(
-                        style: outlineStyle,
-                        onPressed: canMd5 ? _md5Compare : null,
-                        child: const Text(
-                          'MD5',
-                          style: labelStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    SizedBox(
-                      width: 60,
-                      child: FilledButton(
-                        style: outlineStyle,
-                        onPressed:
-                            canExportListing ? _exportFolderListing : null,
-                        child: const Text(
-                          '导出清单',
-                          style: labelStyle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+
+
+
+
+
+
+
+child: Row(
+  children: [
+    SizedBox(
+      width: 160,
+      child: FilledButton.icon(
+        icon: const Icon(Icons.compare_arrows, size: 16),
+        label: const Text(
+          '对比',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        onPressed: canCompare ? _startCompare : null,
+      ),
+    ),
+    const SizedBox(width: 4),
+    SizedBox(
+      width: 65,
+      child: FilledButton(
+        style: outlineStyle,
+        onPressed: canCopyPath ? _copyPath : null,
+        child: const Text(
+          '复制路径',
+          style: labelStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    SizedBox(
+      width: 65,
+      child: FilledButton(
+        style: outlineStyle,
+        onPressed: canOpenWith ? _openWithApp : null,
+        child: const Text(
+          '打开方式',
+          style: labelStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    SizedBox(
+      width: 65,
+      child: FilledButton(
+        style: outlineStyle,
+        onPressed: canShare ? _shareSelected : null,
+        child: const Text(
+          '分享',
+          style: labelStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    SizedBox(
+      width: 65,
+      child: FilledButton(
+        style: outlineStyle,
+        onPressed: canMd5 ? _md5Compare : null,
+        child: const Text(
+          'MD5',
+          style: labelStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    SizedBox(
+      width: 65,
+      child: FilledButton(
+        style: outlineStyle,
+        onPressed:
+            canExportListing ? _exportFolderListing : null,
+        child: const Text(
+          '导出清单',
+          style: labelStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+  ],
+),
+
+
+
+                  
+                
+
+
+
+
+
+
+
+
+                  
               ),
             ),
             const SizedBox(height: 4),
