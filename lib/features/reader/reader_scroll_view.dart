@@ -400,7 +400,7 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
 
     if (_selStartLine == null || _selEndLine == null) {
       _clearSelection();
-      _handleTap();
+      
       return;
     }
 
@@ -412,7 +412,7 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
 
     if (!hasSelection) {
       setState(_clearSelection);
-      _handleTap();
+      
       return;
     }
 
