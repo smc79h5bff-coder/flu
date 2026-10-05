@@ -2048,8 +2048,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
 
 
-
-
 title: Row(
   mainAxisSize: MainAxisSize.min,
   children: [
@@ -2059,9 +2057,8 @@ title: Row(
       return SizedBox(
         width: 56,
         height: 42,
-        child: GestureDetector(
+        child: InkWell(
           key: const Key('page-up'),
-          behavior: HitTestBehavior.opaque,
           onTap: _pageUp,
           onLongPress: _jumpToDocTop,
           child: Center(
@@ -2079,9 +2076,8 @@ title: Row(
       return SizedBox(
         width: 56,
         height: 42,
-        child: GestureDetector(
+        child: InkWell(
           key: const Key('page-down'),
-          behavior: HitTestBehavior.opaque,
           onTap: _pageDown,
           onLongPress: _jumpToDocBottom,
           child: Center(
