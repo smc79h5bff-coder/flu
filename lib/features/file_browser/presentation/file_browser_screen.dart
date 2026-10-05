@@ -3273,7 +3273,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         
 
         
-
 child: Container(
   decoration: BoxDecoration(
     color: selected
@@ -3282,9 +3281,10 @@ child: Container(
             ? null
             : (_textExts.contains(_extOf(info.name))
                 ? null
-                // 打不开的文件：浅一点的灰背景（比白色深一档）
                 : const Color(0xFFF0F0F0))),
-    border: selected
+  ),
+  foregroundDecoration: BoxDecoration(                    // ← 新加一行
+    border: selected                                      //   border 放这里
         ? Border.all(
             color: colorScheme.primary,
             width: 2,
@@ -3295,13 +3295,15 @@ child: Container(
               width: _gridDividerThickness,
             ),
           ),
-  ),
+  ),                                                       // ← 闭合
+  padding: EdgeInsets.symmetric(
+
+
 
 
 
 
             
-        padding: EdgeInsets.symmetric(
           horizontal: _gridCellPadH,
           vertical: _gridCellPadV,
         ),
