@@ -2794,9 +2794,19 @@ class _BookmarkHighlightManagerState
           final idx = rowIdx * crossAxisCount + col;
           if (col > 0) rowChildren.add(const SizedBox(width: spacing));
           if (idx < highlights.length) {
+
+
             rowChildren.add(Expanded(
-              child: _buildHighlightCard(highlights[idx], viewSettings),
-            ));
+  child: _buildHighlightCard(
+    highlights[idx],
+    viewSettings,
+    highlights,
+  ),
+));
+
+
+
+            
           } else {
             rowChildren.add(const Expanded(child: SizedBox.shrink()));
           }
@@ -2816,10 +2826,19 @@ class _BookmarkHighlightManagerState
     );
   }
 
+
+
+
   Widget _buildHighlightCard(
-    _HighlightItem item,
-    HighlightViewSettings viewSettings,
-  ) {
+  _HighlightItem item,
+  HighlightViewSettings viewSettings,
+  List<_HighlightItem> highlights,
+) {
+
+
+
+
+    
     final h = item.entry;
     final key = (item.fileKey, h.id);
     final selected = _selectedHighlights.contains(key);
