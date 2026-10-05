@@ -15,9 +15,23 @@ import 'package:flutter/scheduler.dart';
 ///
 /// 全部日志驻留内存，不写盘；用户点「导出加载日志」时一次性导出。
 /// 有总量上限，超了丢最旧。
+///
+/// **全局开关 [enabled]**：默认 false，所有方法都是空操作，几乎零开销。
+/// 需要排查问题时改成 true，并同步在 main.dart 里打开
+/// installFrameMonitor / installErrorHooks 的注释。
 class ReaderLoadLog {
   ReaderLoadLog._();
   static final ReaderLoadLog instance = ReaderLoadLog._();
+
+  /// 全局日志开关。
+  ///
+  /// false = 所有 start / mark / info / end / time 都是空操作（no-op），
+  ///         不记录任何内容，不占内存，不影响性能。
+  /// true  = 正常记录。需同时在 main() 里取消 installFrameMonitor /
+  ///         installErrorHooks 的注释，才启用帧监控和异常捕获。
+  ///
+  /// 排查问题时改成 true 再跑，平时保持 false。
+  static const bool enabled = false;
 
   static const int _maxLines = 40000;
   static const int _maxTotalChars = 4 * 1024 * 1024; // 4MB 字符上限
@@ -50,29 +64,31 @@ class ReaderLoadLog {
 
   // ---------------- 加载阶段 ----------------
 
- /// 开始一次新的加载日志。
-/// 不再清空事件日志 —— 保留之前的（比如 [Dir] 目录加载日志），
-/// 只在中间插一条分隔线。
-void start(String label) {
-  _sw.reset();
-  _sw.start();
-  _lastMark = 0;
-  _add('');
-  _add('══════ $label ══════');
-  _add('开始时间：${DateTime.now().toIso8601String()}');
-  _add('会话启动至今：${_sessionSw.elapsedMilliseconds}ms');
-}
+  /// 开始一次新的加载日志。
+  /// 不再清空事件日志 —— 保留之前的（比如 [Dir] 目录加载日志），
+  /// 只在中间插一条分隔线。
+  void start(String label) {
+    if (!enabled) return;
+    _sw.reset();
+    _sw.start();
+    _lastMark = 0;
+    _add('');
+    _add('══════ $label ══════');
+    _add('开始时间：${DateTime.now().toIso8601String()}');
+    _add('会话启动至今：${_sessionSw.elapsedMilliseconds}ms');
+  }
 
-/// 手动清空（导出后想重新开始用）。
-void reset() {
-  _entries.clear();
-  _totalChars = 0;
-  _slowFrameDetails.clear();
-  slowFrameCount = 0;
-}
+  /// 手动清空（导出后想重新开始用）。
+  void reset() {
+    _entries.clear();
+    _totalChars = 0;
+    _slowFrameDetails.clear();
+    slowFrameCount = 0;
+  }
 
   /// 打一个带耗时的节点。自动计算与上一个 mark 的间隔。
   void mark(String msg) {
+    if (!enabled) return;
     final now = _sw.elapsedMilliseconds;
     _add('[+${now - _lastMark}ms] $msg  (累计 ${now}ms)');
     _lastMark = now;
@@ -80,11 +96,13 @@ void reset() {
 
   /// 不带耗时的补充信息。
   void info(String msg) {
+    if (!enabled) return;
     _add('  └ $msg');
   }
 
   /// 记录一次加载的结束。
   void end(String label) {
+    if (!enabled) return;
     _add('══════ $label 结束，总计 ${_sw.elapsedMilliseconds}ms ══════');
   }
 
@@ -98,7 +116,9 @@ void reset() {
       sw.stop();
     }
     final ms = sw.elapsedMilliseconds;
-    _add('[${ms}ms] $label');
+    if (enabled) {
+      _add('[${ms}ms] $label');
+    }
     return ms;
   }
 
@@ -109,11 +129,13 @@ void reset() {
   /// 每帧结束时 Flutter 会回调本方法。>16.67ms 视为卡帧，
   /// >32ms 记一条明细（最多 500 条），并在最后一条明细前面加统计头。
   void installFrameMonitor() {
+    if (!enabled) return;
     SchedulerBinding.instance.addTimingsCallback(_onTimings);
     _add('══════ 帧监控已安装 ══════');
   }
 
   void _onTimings(List<FrameTiming> timings) {
+    if (!enabled) return;
     for (final t in timings) {
       final totalMs = t.totalSpan.inMicroseconds / 1000.0;
       if (totalMs <= 16.67) continue;
@@ -136,6 +158,7 @@ void reset() {
 
   /// 装全局未捕获异常钩子。main() 里调一次。
   void installErrorHooks() {
+    if (!enabled) return;
     final prev = FlutterError.onError;
     FlutterError.onError = (details) {
       _add('❌ FlutterError: ${details.exceptionAsString()}');
@@ -186,6 +209,7 @@ void reset() {
   // ---------------- 内部 ----------------
 
   void _add(String line) {
+    if (!enabled) return;
     _entries.add(line);
     _totalChars += line.length + 1;
     if (_entries.length > _maxLines || _totalChars > _maxTotalChars) {
