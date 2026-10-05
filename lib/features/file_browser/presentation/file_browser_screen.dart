@@ -293,6 +293,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     super.dispose();
   }
 
+  // ==================== 无动画 route ====================
+
+  /// 无动画 route。跟阅读器一致——用 PageRouteBuilder + Duration.zero。
+  ///
+  /// MaterialPageRoute 即使被 theme 设成无动画 builder，它自身的
+  /// transitionDuration 仍是默认的 300ms。这 300ms 里 navigator 会保留
+  /// 两个页面在 render tree 里，导致从设置页返回时 file_browser 被反复
+  /// 重排，视觉上就是"卡一下"。
+  Route<T> _noAnimRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (_, __, ___) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   Future<void> _load({
     bool restoreScroll = false,
     bool skipCache = false,
@@ -728,12 +744,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
     if (!isText) {
       Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => TextPreviewScreen(
-            filePath: path,
-            fileName: name,
-          ),
-        ),
+        _noAnimRoute(TextPreviewScreen(
+          filePath: path,
+          fileName: name,
+        )),
       );
       return;
     }
@@ -833,28 +847,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   Future<void> _openInEditor(String path, String name) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SingleFileEditorScreen(
-          filePath: path,
-          fileName: name,
-        ),
-      ),
-    );
+    await Navigator.of(context).push(_noAnimRoute(SingleFileEditorScreen(
+      filePath: path,
+      fileName: name,
+    )));
     if (!mounted) return;
     DirCache.instance.invalidate(_currentPath);
     _load();
   }
 
   Future<void> _openInLineEditor(String path, String name) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => LineEditorScreen(
-          filePath: path,
-          fileName: name,
-        ),
-      ),
-    );
+    await Navigator.of(context).push(_noAnimRoute(LineEditorScreen(
+      filePath: path,
+      fileName: name,
+    )));
     if (!mounted) return;
     DirCache.instance.invalidate(_currentPath);
     _load();
@@ -2540,11 +2546,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           icon: const Icon(Icons.tune),
           tooltip: '比较设置',
           onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const ComparisonSettingsScreen(),
-              ),
-            );
+            Navigator.of(context).push(_noAnimRoute(
+              const ComparisonSettingsScreen(),
+            ));
           },
         ),
 
@@ -2555,11 +2559,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           onSelected: (v) {
             switch (v) {
               case 'browserSettings':
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const BrowserSettingsScreen(),
-                  ),
-                );
+                Navigator.of(context).push(_noAnimRoute(
+                  const BrowserSettingsScreen(),
+                ));
               case 'exportConfig':
                 _exportConfig();
               case 'importConfig':
