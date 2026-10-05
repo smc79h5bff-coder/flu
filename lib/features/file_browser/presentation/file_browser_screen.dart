@@ -462,6 +462,13 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   /// 单次打开压缩包的大小上限。zip / tar / tar.gz / tgz 一视同仁。
   static const int _maxZipBytes = 50 * 1024 * 1024;
 
+  /// 点击后直接弹系统 App 选择器的后缀。
+  /// 不弹"打开方式 / 分享"两选一，直接出系统列表。
+  static const Set<String> _forceSystemPickerExts = {
+    '.7z', '.rar', '.dzip', '.iso', '.tz', '.gz',
+    '.epub', '.pdf', '.doc', '.docx',
+  };
+
   // ==================== 生命周期 ====================
 
   @override
@@ -747,6 +754,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
 // ===== 第 1/3 条结束，接第 2/3 条 =====
+
   // ==================== 加载目录 ====================
 
   Future<void> _load({
@@ -1178,7 +1186,31 @@ String _fixZipName(String name) {
   return name;
 }
 
-    
+  /// 快速判断 zip 是否加密：读文件头前 8 字节，看通用用途标志位。
+  /// 不完整解压，几毫秒返回。
+  Future<bool> _isEncryptedZip(String path) async {
+    try {
+      final raf = await File(path).open();
+      try {
+        final header = await raf.read(8);
+        if (header.length < 8) return false;
+        // 本地文件头签名：50 4B 03 04 = 'PK\x03\x04'
+        if (header[0] != 0x50 ||
+            header[1] != 0x4B ||
+            header[2] != 0x03 ||
+            header[3] != 0x04) {
+          return false;
+        }
+        // 通用用途位标志的第 0 位 = 加密
+        return (header[6] & 0x01) != 0;
+      } finally {
+        await raf.close();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
   
 /// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
@@ -1558,62 +1590,71 @@ Archive _parseTarWithGbk(Uint8List bytes) {
 
   // ==================== 打开磁盘文件 ====================
 
-  Future<void> _openFile(
-    String path,
-    String name,
-    int? size, {
-    bool allowExpand = true,
-  }) async {
-    final isText = _textExts.contains(_extOf(name));
+Future<void> _openFile(
+  String path,
+  String name,
+  int? size, {
+  bool allowExpand = true,
+}) async {
+  final isText = _textExts.contains(_extOf(name));
 
-    if (!isText) {
-      // 非文本：如果是 zip/tar → 弹三选一菜单（打开方式 / 分享 / 一键展开）
-      if (_isExpandableArchiveName(name)) {
-        if (_searchActive) {
-          // 搜索结果页：点 zip 直接展开
-          await _expandZip(path);
-          return;
-        }
-        // ★ 网格模式不支持展开，只弹"打开方式 / 分享"
-        if (!allowExpand) {
-          await showOpenOrShareSheet(context, path, name);
-          return;
-        }
-        // 列表模式：弹三选一
-        final action = await showOpenOrShareOrExpandSheet(context, path, name);
+  if (!isText) {
+    final lowerName = name.toLowerCase();
+
+    // 可展开压缩包（zip / tar / tar.gz / tgz）
+    if (_isExpandableArchiveName(name)) {
+      // 加密 zip → 直接弹系统选择器
+      if (lowerName.endsWith('.zip') && await _isEncryptedZip(path)) {
         if (!mounted) return;
-        if (action == 'expand') {
-          await _expandZip(path);
-        }
+        await openFileWithSystemPicker(path, context);
         return;
       }
-      // 其它非文本：只弹打开方式 / 分享
-      await showOpenOrShareSheet(context, path, name);
+      // 网格模式不支持展开 → 弹系统选择器
+      if (!allowExpand) {
+        if (!mounted) return;
+        await openFileWithSystemPicker(path, context);
+        return;
+      }
+      // 列表模式 / 搜索结果页：直接展开
+      await _expandZip(path);
       return;
     }
 
-    // 文本文件
-    final configured = ref.read(fileOpenModeProvider);
-    FileOpenMode resolved;
-    if (configured == FileOpenMode.ask) {
-      final picked = await _askOpenMode(name);
-      if (picked == null) return;
-      resolved = picked;
-    } else {
-      resolved = configured;
+    // 强制系统选择器的后缀（7z/rar/dzip/iso/tz/gz
+    // /epub/pdf/doc/docx）：直接弹系统选择器
+    if (_forceSystemPickerExts.any((ext) => lowerName.endsWith(ext))) {
+      if (!mounted) return;
+      await openFileWithSystemPicker(path, context);
+      return;
     }
 
-    switch (resolved) {
-      case FileOpenMode.reader:
-        await _openInReader(path, name);
-      case FileOpenMode.editor:
-        await _openInEditor(path, name);
-      case FileOpenMode.lineEditor:
-        await _openInLineEditor(path, name);
-      case FileOpenMode.ask:
-        break;
-    }
+    // 其它非文本：弹"打开方式 / 分享"两选一
+    await showOpenOrShareSheet(context, path, name);
+    return;
   }
+
+  // 文本文件
+  final configured = ref.read(fileOpenModeProvider);
+  FileOpenMode resolved;
+  if (configured == FileOpenMode.ask) {
+    final picked = await _askOpenMode(name);
+    if (picked == null) return;
+    resolved = picked;
+  } else {
+    resolved = configured;
+  }
+
+  switch (resolved) {
+    case FileOpenMode.reader:
+      await _openInReader(path, name);
+    case FileOpenMode.editor:
+      await _openInEditor(path, name);
+    case FileOpenMode.lineEditor:
+      await _openInLineEditor(path, name);
+    case FileOpenMode.ask:
+      break;
+  }
+}
 
   Future<void> _openInReader(String path, String name) async {
     final textPaths = _collectTextFilePaths();
@@ -2482,12 +2523,12 @@ Archive _parseTarWithGbk(Uint8List bytes) {
         return;
       }
       if (!mounted) return;
-      await showOpenOrShareSheet(context, tmp, it.displayName);
+      await openFileWithSystemPicker(tmp, context);
       return;
     }
     final p = it.diskPath;
     if (p == null) return;
-    await showOpenOrShareSheet(context, p, it.displayName);
+    await openFileWithSystemPicker(p, context);
   }
 
   /// 底栏「分享」。
