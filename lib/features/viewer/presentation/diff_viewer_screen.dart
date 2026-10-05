@@ -111,7 +111,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String? _cachedContentWidthConfig;
 
   int? _pendingJumpEntry;
-  // 【新增】按"原文行号"做跳转锚点。跨重算稳定。
   int? _pendingJumpOrigLine;
   bool _pendingJumpQueued = false;
 
@@ -125,10 +124,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-  if (!mounted) return;
-  ref.read(viewModeProvider.notifier).state =
-      ref.read(defaultViewModeProvider);
-});
+      if (!mounted) return;
+      ref.read(viewModeProvider.notifier).state =
+          ref.read(defaultViewModeProvider);
+    });
   }
 
   @override
@@ -776,26 +775,23 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 滚动 / 跳转 ====================
 
-/// 【新增】在新 diff 里按"原文行号"反查最接近的 entry 索引。
-/// **只在当前视图可见的 entries 里找**，否则反查出来的 entry
-/// 可能在 _entryToRowMapOf 里不存在，导致 _scrollToEntry 静默失败。
-int? _findEntryByOrigLine(DiffResult diff, int origLine) {
-  final mode = ref.read(viewModeProvider);
-  final visible = _visibleEntriesFor(mode, diff);
-  final meta = _computeLineMeta(diff);
-  int? best;
-  var bestDist = 1 << 30;
-  for (final i in visible) {
-    final o = meta[i].orig;
-    if (o < 0) continue;
-    final d = (o - origLine).abs();
-    if (d < bestDist) {
-      bestDist = d;
-      best = i;
+  int? _findEntryByOrigLine(DiffResult diff, int origLine) {
+    final mode = ref.read(viewModeProvider);
+    final visible = _visibleEntriesFor(mode, diff);
+    final meta = _computeLineMeta(diff);
+    int? best;
+    var bestDist = 1 << 30;
+    for (final i in visible) {
+      final o = meta[i].orig;
+      if (o < 0) continue;
+      final d = (o - origLine).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
     }
+    return best;
   }
-  return best;
-}
 
   void _scrollToEntry(int entryIndex) {
     final diff = _diff;
@@ -925,6 +921,77 @@ int? _findEntryByOrigLine(DiffResult diff, int origLine) {
     _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
   }
 
+  // ★ ========== 新增：翻一屏 ==========
+
+  /// 向下翻一屏。整行对齐：
+  ///   · 底部行完整可见 → 从下一行开始新屏
+  ///   · 底部行被截断   → 让这一行对齐到顶部，重新完整显示
+  void _pageDown() {
+    final mode = ref.read(viewModeProvider);
+    final table = _activeTableFor(mode);
+    if (table == null) return;
+    if (!_scrollController.hasClients) return;
+    if (table.length == 0) return;
+
+    final pos = _scrollController.position;
+    final viewportH = pos.viewportDimension;
+    final topOffset = pos.pixels;
+    final bottomOffset = topOffset + viewportH;
+
+    final topRow = table.indexAt(topOffset);
+    final bottomRow = table.indexAt(bottomOffset);
+
+    final bottomRowEnd = table.offsetOf(bottomRow + 1);
+    final fullyVisible = bottomRowEnd <= bottomOffset + 0.5;
+
+    final target = fullyVisible ? bottomRow + 1 : bottomRow;
+    if (target <= topRow) return;
+
+    if (target >= table.length) {
+      final maxExtent = pos.maxScrollExtent;
+      if ((pos.pixels - maxExtent).abs() < 0.5) return;
+      _scrollController.jumpTo(maxExtent);
+      return;
+    }
+
+    final targetOffset =
+        table.offsetOf(target).clamp(0.0, pos.maxScrollExtent);
+    if ((targetOffset - pos.pixels).abs() < 0.5) return;
+    _scrollController.jumpTo(targetOffset);
+  }
+
+  /// 向上翻一屏。估算当前可见行数，往上跳这么多行。
+  void _pageUp() {
+    final mode = ref.read(viewModeProvider);
+    final table = _activeTableFor(mode);
+    if (table == null) return;
+    if (!_scrollController.hasClients) return;
+    if (table.length == 0) return;
+
+    final pos = _scrollController.position;
+    final viewportH = pos.viewportDimension;
+    final topOffset = pos.pixels;
+
+    final topRow = table.indexAt(topOffset);
+    final bottomRow = table.indexAt(topOffset + viewportH);
+    var visibleCount = bottomRow - topRow + 1;
+    if (visibleCount < 1) visibleCount = 1;
+
+    final target = (topRow - visibleCount).clamp(0, table.length - 1);
+
+    if (target >= topRow) {
+      if (pos.pixels > 0.5) _scrollController.jumpTo(0);
+      return;
+    }
+
+    final targetOffset =
+        table.offsetOf(target).clamp(0.0, pos.maxScrollExtent);
+    if ((targetOffset - pos.pixels).abs() < 0.5) return;
+    _scrollController.jumpTo(targetOffset);
+  }
+
+  // ★ ========== 翻屏方法结束 ==========
+
   void _jumpToNextDiff() {
     final diff = _diff;
     if (diff == null) return;
@@ -996,7 +1063,7 @@ int? _findEntryByOrigLine(DiffResult diff, int origLine) {
 
     final target = choice.isTop ? -1 : (choice.targetEntry ?? -1);
     _pendingJumpEntry = target;
-    _pendingJumpOrigLine = null; // 【新增】切视图走 entry 索引，清掉 origLine
+    _pendingJumpOrigLine = null;
     _pendingJumpQueued = false;
     setState(() {});
   }
@@ -1150,28 +1217,30 @@ int? _findEntryByOrigLine(DiffResult diff, int origLine) {
       },
     );
   }
-Future<void> _pickDefaultViewMode() async {
-  final current = ref.read(defaultViewModeProvider);
-  final picked = await showDialog<ViewMode>(
-    context: context,
-    builder: (c) => SimpleDialog(
-      title: const Text('进入对比页时默认显示'),
-      children: [
-        for (final m in ViewMode.values)
-          RadioListTile<ViewMode>(
-            value: m,
-            groupValue: current,
-            title: Text(_viewModeName(m)),
-            onChanged: (v) => Navigator.pop(c, v),
-          ),
-      ],
-    ),
-  );
-  if (picked != null && mounted) {
-    ref.read(defaultViewModeProvider.notifier).update(picked);
-    _toast('默认视图已设为「${_viewModeName(picked)}」');
+
+  Future<void> _pickDefaultViewMode() async {
+    final current = ref.read(defaultViewModeProvider);
+    final picked = await showDialog<ViewMode>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('进入对比页时默认显示'),
+        children: [
+          for (final m in ViewMode.values)
+            RadioListTile<ViewMode>(
+              value: m,
+              groupValue: current,
+              title: Text(_viewModeName(m)),
+              onChanged: (v) => Navigator.pop(c, v),
+            ),
+        ],
+      ),
+    );
+    if (picked != null && mounted) {
+      ref.read(defaultViewModeProvider.notifier).update(picked);
+      _toast('默认视图已设为「${_viewModeName(picked)}」');
+    }
   }
-}
+
   Future<void> _toggleOrientation() async {
     setState(() => _landscape = !_landscape);
     await SystemChrome.setPreferredOrientations(_landscape
@@ -1212,60 +1281,58 @@ Future<void> _pickDefaultViewMode() async {
 
   // ==================== 导出差异 ====================
 
-({List<String> left, List<String> right}) _collectDiffParts(
-    DiffResult diff) {
-  final leftParts = <String>[];
-  final rightParts = <String>[];
+  ({List<String> left, List<String> right}) _collectDiffParts(
+      DiffResult diff) {
+    final leftParts = <String>[];
+    final rightParts = <String>[];
 
-  final entries = diff.entries;
-  var i = 0;
-  while (i < entries.length) {
-    if (entries[i].operation == DiffOperation.equal) {
-      i++;
-      continue;
-    }
-    final delLines = <String>[];
-    while (i < entries.length &&
-        entries[i].operation == DiffOperation.delete) {
-      delLines.add(entries[i].text);
-      i++;
-    }
-    final insLines = <String>[];
-    while (i < entries.length &&
-        entries[i].operation == DiffOperation.insert) {
-      insLines.add(entries[i].text);
-      i++;
-    }
+    final entries = diff.entries;
+    var i = 0;
+    while (i < entries.length) {
+      if (entries[i].operation == DiffOperation.equal) {
+        i++;
+        continue;
+      }
+      final delLines = <String>[];
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.delete) {
+        delLines.add(entries[i].text);
+        i++;
+      }
+      final insLines = <String>[];
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.insert) {
+        insLines.add(entries[i].text);
+        i++;
+      }
 
-    final pairs = delLines.length < insLines.length
-        ? delLines.length
-        : insLines.length;
+      final pairs = delLines.length < insLines.length
+          ? delLines.length
+          : insLines.length;
 
-    // 成对的行：做字符级 diff，各取独有片段
-    for (var k = 0; k < pairs; k++) {
-      final segs =
-          DiffCache.instance.charSegments(delLines[k], insLines[k]);
-      for (final (op, text) in segs) {
-        if (text.isEmpty) continue;
-        if (op == -1) {
-          leftParts.add(text);
-        } else if (op == 1) {
-          rightParts.add(text);
+      for (var k = 0; k < pairs; k++) {
+        final segs =
+            DiffCache.instance.charSegments(delLines[k], insLines[k]);
+        for (final (op, text) in segs) {
+          if (text.isEmpty) continue;
+          if (op == -1) {
+            leftParts.add(text);
+          } else if (op == 1) {
+            rightParts.add(text);
+          }
         }
       }
-    }   // ← D 在这里关闭
 
-    // 多出来的行：整行加入对应侧（只跑一次，不在 D 里）
-    for (var k = pairs; k < delLines.length; k++) {
-      leftParts.add(delLines[k]);
+      for (var k = pairs; k < delLines.length; k++) {
+        leftParts.add(delLines[k]);
+      }
+      for (var k = pairs; k < insLines.length; k++) {
+        rightParts.add(insLines[k]);
+      }
     }
-    for (var k = pairs; k < insLines.length; k++) {
-      rightParts.add(insLines[k]);
-    }
-  }   // ← while 在这里关闭
 
-  return (left: leftParts, right: rightParts);
-}
+    return (left: leftParts, right: rightParts);
+  }
 
   Future<void> _exportDiff() async {
     final diff = _diff;
@@ -1315,71 +1382,68 @@ Future<void> _pickDefaultViewMode() async {
     }
 
     final fileName = isLeft
-    ? ref.read(originalFileNameProvider)
-    : ref.read(modifiedFileNameProvider);
-final hasEdit = ref.read(
-      isLeft ? editedOriginalProvider : editedModifiedProvider,
-    ) !=
-    null;
+        ? ref.read(originalFileNameProvider)
+        : ref.read(modifiedFileNameProvider);
+    final hasEdit = ref.read(
+          isLeft ? editedOriginalProvider : editedModifiedProvider,
+        ) !=
+        null;
 
-final buf = StringBuffer();
+    final buf = StringBuffer();
 
-// ---------- 头部说明 ----------
-buf.writeln('# ============================================================');
-buf.writeln('# DocDiff 差异导出');
-buf.writeln('# ============================================================');
-buf.writeln('#');
-buf.writeln('# 导出侧：${isLeft ? "左边（原文件）" : "右边（修改版）"}');
-if (fileName != null && fileName.isNotEmpty) {
-  buf.writeln('# 文件：$fileName');
-}
-buf.writeln('# 内容来源：对比页当前显示的内容'
-    '${hasEdit ? "（含你在对比页上的编辑）" : ""}，');
-buf.writeln('#           已套用当前所有生效的比较规则。');
-buf.writeln('# 导出时间：${DateTime.now()}');
-buf.writeln('#');
-buf.writeln('# ------------------------------------------------------------');
-buf.writeln('# 【本文件导出的是什么】');
-buf.writeln('# ------------------------------------------------------------');
-buf.writeln('#');
-buf.writeln('# 只包含「这一侧独有的差异字符片段」，相同内容一律不导出。');
-buf.writeln('# 每个片段单独占一行。');
-buf.writeln('#');
-buf.writeln('# 因为做了字符级比对，一个词、一句话可能被切开，');
-buf.writeln('# 只把"变化的那几个字"拿出来。脱离原句单看可能难以理解，');
-buf.writeln('# 这是正常现象。');
-buf.writeln('#');
-buf.writeln('# 举例一：');
-buf.writeln('#   左边：今天我回来是要吃饭的。');
-buf.writeln('#   右边：明天我回来是要吃饭的。');
-buf.writeln('#   本侧导出：明');
-buf.writeln('#   （意思是这句里"今"被改成了"明"）');
-buf.writeln('#');
-buf.writeln('# 举例二：');
-buf.writeln('#   左边：2024-01-01');
-buf.writeln('#   右边：2024-02-02');
-buf.writeln('#   本侧导出：');
-buf.writeln('#     2');
-buf.writeln('#     2');
-buf.writeln('#   （意思是这行有两处数字变了：月份、日期各一处）');
-buf.writeln('#');
-buf.writeln('# 想看完整句子的对照？请回到对比页，');
-buf.writeln('# 用「并排」或「合并」视图查看。');
-buf.writeln('#');
-buf.writeln('# 下面的说明行以 # 开头，删除它们不影响正文内容。');
-buf.writeln('# ------------------------------------------------------------');
-buf.writeln('# 以下为差异片段正文');
-buf.writeln('# ------------------------------------------------------------');
-buf.writeln();
+    buf.writeln('# ============================================================');
+    buf.writeln('# DocDiff 差异导出');
+    buf.writeln('# ============================================================');
+    buf.writeln('#');
+    buf.writeln('# 导出侧：${isLeft ? "左边（原文件）" : "右边（修改版）"}');
+    if (fileName != null && fileName.isNotEmpty) {
+      buf.writeln('# 文件：$fileName');
+    }
+    buf.writeln('# 内容来源：对比页当前显示的内容'
+        '${hasEdit ? "（含你在对比页上的编辑）" : ""}，');
+    buf.writeln('#           已套用当前所有生效的比较规则。');
+    buf.writeln('# 导出时间：${DateTime.now()}');
+    buf.writeln('#');
+    buf.writeln('# ------------------------------------------------------------');
+    buf.writeln('# 【本文件导出的是什么】');
+    buf.writeln('# ------------------------------------------------------------');
+    buf.writeln('#');
+    buf.writeln('# 只包含「这一侧独有的差异字符片段」，相同内容一律不导出。');
+    buf.writeln('# 每个片段单独占一行。');
+    buf.writeln('#');
+    buf.writeln('# 因为做了字符级比对，一个词、一句话可能被切开，');
+    buf.writeln('# 只把"变化的那几个字"拿出来。脱离原句单看可能难以理解，');
+    buf.writeln('# 这是正常现象。');
+    buf.writeln('#');
+    buf.writeln('# 举例一：');
+    buf.writeln('#   左边：今天我回来是要吃饭的。');
+    buf.writeln('#   右边：明天我回来是要吃饭的。');
+    buf.writeln('#   本侧导出：明');
+    buf.writeln('#   （意思是这句里"今"被改成了"明"）');
+    buf.writeln('#');
+    buf.writeln('# 举例二：');
+    buf.writeln('#   左边：2024-01-01');
+    buf.writeln('#   右边：2024-02-02');
+    buf.writeln('#   本侧导出：');
+    buf.writeln('#     2');
+    buf.writeln('#     2');
+    buf.writeln('#   （意思是这行有两处数字变了：月份、日期各一处）');
+    buf.writeln('#');
+    buf.writeln('# 想看完整句子的对照？请回到对比页，');
+    buf.writeln('# 用「并排」或「合并」视图查看。');
+    buf.writeln('#');
+    buf.writeln('# 下面的说明行以 # 开头，删除它们不影响正文内容。');
+    buf.writeln('# ------------------------------------------------------------');
+    buf.writeln('# 以下为差异片段正文');
+    buf.writeln('# ------------------------------------------------------------');
+    buf.writeln();
 
-// ---------- 正文 ----------
-for (final p in list) {
-  buf.writeln(p);
-}
+    for (final p in list) {
+      buf.writeln(p);
+    }
 
-final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
-    
-    
+    final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
+
     final out = await FilePicker.saveFile(
       fileName:
           'docdiff-${isLeft ? "left" : "right"}-${DateTime.now().millisecondsSinceEpoch}.txt',
@@ -1504,7 +1568,6 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
 
     _log('编辑行（重算中）');
     ref.read(importRevisionProvider.notifier).state++;
-    // 【新增】用"原文行号"当锚点，跨重算稳定
     _pendingJumpEntry = null;
     _pendingJumpOrigLine = origLine ?? modLine;
     _pendingJumpQueued = false;
@@ -1597,8 +1660,6 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
     return (orig: origCtrl.text, mod: modCtrl.text);
   }
 
-  /// 把"当前视图顶部所在的行"记进 _pendingJumpOrigLine，
-  /// 让重算后跳回原位，而不是被打回文档开头。
   void _rememberCurrentRowForReset() {
     final diff = _diff;
     if (diff == null) return;
@@ -1606,7 +1667,6 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
     if (topRow == null) return;
     final mode = ref.read(viewModeProvider);
     final map = _entryToRowMapOf(diff, mode);
-    // 反查：当前顶行对应哪个 entry。
     int? bestEntry;
     var bestDist = 1 << 30;
     for (final e in map.entries) {
@@ -1617,7 +1677,6 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
       }
     }
     if (bestEntry != null) {
-      // 【新增】entry 索引转成原文行号存下来，跨重算稳定。
       final meta = _computeLineMeta(diff);
       final o = meta[bestEntry].orig;
       final m = meta[bestEntry].mod;
@@ -1826,7 +1885,6 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
         final heights = snapshot.data!;
         _activeHeights = heights;
 
-        // 【新增】兼容 entry 索引和 origLine 两种锚点。
         if ((_pendingJumpEntry != null || _pendingJumpOrigLine != null) &&
             !_pendingJumpQueued) {
           _pendingJumpQueued = true;
@@ -2015,6 +2073,7 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
     return inner;
   }
 
+  // ★ ========== _buildDiffScaffold 换了 AppBar ==========
   Widget _buildDiffScaffold(
     DiffResult diff,
     ViewMode viewMode,
@@ -2027,11 +2086,52 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          '对比结果',
-          style: TextStyle(fontSize: 11),
+        // ★ 返回按钮和翻屏按钮之间空 32px
+        titleSpacing: 32,
+        // ★ 原"对比结果"文字换成翻屏按钮
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ========== 翻屏按钮组（自定义 SVG 图标） ==========
+            Builder(builder: (ctx) {
+              final iconColor =
+                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
+              return InkWell(
+                key: const Key('page-up'),
+                onTap: _pageUp,
+                onLongPress: _jumpToDocTop,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: CustomPaint(
+                    size: const Size.square(26),
+                    painter: _PageUpIconPainter(color: iconColor),
+                  ),
+                ),
+              );
+            }),
+            Builder(builder: (ctx) {
+              final iconColor =
+                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
+              return InkWell(
+                key: const Key('page-down'),
+                onTap: _pageDown,
+                onLongPress: _jumpToDocBottom,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: CustomPaint(
+                    size: const Size.square(26),
+                    painter: _PageDownIconPainter(color: iconColor),
+                  ),
+                ),
+              );
+            }),
+          ],
         ),
         actions: [
+          // ★ 翻屏按钮和差异按钮之间空一个按钮宽度
+          const SizedBox(width: 48),
           InkWell(
             key: const Key('prev-diff'),
             onTap: _jumpToPrevDiff,
@@ -2083,8 +2183,8 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
                 _openComparisonSettings();
               } else if (v == 'diagnostic') {
                 _openDiagnostic();
-              }else if (v == 'defaultView') {
-  _pickDefaultViewMode();
+              } else if (v == 'defaultView') {
+                _pickDefaultViewMode();
               }
             },
             itemBuilder: (context) => [
@@ -2192,16 +2292,16 @@ final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
                 ),
               ),
               const PopupMenuDivider(),
-const PopupMenuItem<String>(
-  value: 'defaultView',
-  child: Row(
-    children: [
-      Icon(Icons.visibility),
-      SizedBox(width: 10),
-      Text('默认打开视图'),
-    ],
-  ),
-),
+              const PopupMenuItem<String>(
+                value: 'defaultView',
+                child: Row(
+                  children: [
+                    Icon(Icons.visibility),
+                    SizedBox(width: 10),
+                    Text('默认打开视图'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -2621,295 +2721,372 @@ const PopupMenuItem<String>(
 
   // ==================== 查找栏 UI ====================
 
+  Widget _buildFindBar() {
+    final total = _matchEntries.length;
+    final pendingCount =
+        _pendingOrigChanges.length + _pendingModChanges.length;
 
-
-
-
-Widget _buildFindBar() {
-  final total = _matchEntries.length;
-  final pendingCount =
-      _pendingOrigChanges.length + _pendingModChanges.length;
-
-  Widget toggle({
-    required String label,
-    required bool value,
-    required VoidCallback onTap,
-    VoidCallback? onLongPress,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: value ? FontWeight.bold : FontWeight.normal,
-            color: value
-                ? AppColors.accentPurple
-                : Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget sideToggle({
-    required String label,
-    required bool value,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              value ? Icons.check_box : Icons.check_box_outline_blank,
-              size: 16,
+    Widget toggle({
+      required String label,
+      required bool value,
+      required VoidCallback onTap,
+      VoidCallback? onLongPress,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: value ? FontWeight.bold : FontWeight.normal,
               color: value
                   ? AppColors.accentPurple
                   : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
+          ),
+        ),
+      );
+    }
+
+    Widget sideToggle({
+      required String label,
+      required bool value,
+      required VoidCallback onTap,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                value ? Icons.check_box : Icons.check_box_outline_blank,
+                size: 16,
                 color: value
                     ? AppColors.accentPurple
                     : Theme.of(context).colorScheme.onSurfaceVariant,
               ),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: value
+                      ? AppColors.accentPurple
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: '关闭查找',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _closeFindBar,
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _findController,
+                    autofocus: true,
+                    cursorColor: AppColors.accentPurple,
+                    decoration: const InputDecoration(
+                      hintText: '查找',
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
+                    onChanged: _onFindInput,
+                    onSubmitted: (_) => _nextMatch(),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.history),
+                  tooltip: '查找历史',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _showFindHistory,
+                ),
+              ],
+            ),
+            if (_noResultHint != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 4, bottom: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  border: Border.all(color: Colors.orange.shade200),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 14, color: Colors.orange.shade800),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _noResultHint!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Row(
+              children: [
+                const SizedBox(width: 48),
+                Expanded(
+                  child: TextField(
+                    controller: _replaceController,
+                    cursorColor: AppColors.accentPurple,
+                    decoration: const InputDecoration(
+                      hintText: '替换为（留空 = 删掉）',
+                      isDense: true,
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.accentPurple,
+                  ),
+                  onPressed: total == 0 ? null : _replaceCurrentInline,
+                  child: const Text('替换当前'),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.accentPurple,
+                  ),
+                  onPressed: total == 0 ? null : _replaceAllInline,
+                  child: const Text('全部替换'),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 8),
+                sideToggle(
+                  label: '查左侧',
+                  value: _searchLeft,
+                  onTap: () {
+                    if (_searchLeft && !_searchRight) {
+                      _toast('至少要开一个（左/右）');
+                      return;
+                    }
+                    setState(() => _searchLeft = !_searchLeft);
+                    _findChanged(_findController.text);
+                  },
+                ),
+                sideToggle(
+                  label: '查右侧',
+                  value: _searchRight,
+                  onTap: () {
+                    if (_searchRight && !_searchLeft) {
+                      _toast('至少要开一个（左/右）');
+                      return;
+                    }
+                    setState(() => _searchRight = !_searchRight);
+                    _findChanged(_findController.text);
+                  },
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.arrow_upward),
+                  color: AppColors.accentPurple,
+                  tooltip: '上一个',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: total == 0 ? null : _prevMatch,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_downward),
+                  color: AppColors.accentPurple,
+                  tooltip: '下一个',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: total == 0 ? null : _nextMatch,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 8),
+                toggle(
+                  label: '正则',
+                  value: _regexEnable,
+                  onTap: () => setState(() {
+                    _regexEnable = !_regexEnable;
+                    _findChanged(_findController.text);
+                  }),
+                  onLongPress: _openRegexHelp,
+                ),
+                toggle(
+                  label: '忽略大小写',
+                  value: _caseInsensitive,
+                  onTap: () => setState(() {
+                    _caseInsensitive = !_caseInsensitive;
+                    _findChanged(_findController.text);
+                  }),
+                  onLongPress: () => _toast('开启后 A 和 a 视为相同'),
+                ),
+                toggle(
+                  label: '整词',
+                  value: _wholeWord,
+                  onTap: () => setState(() {
+                    _wholeWord = !_wholeWord;
+                    _findChanged(_findController.text);
+                  }),
+                  onLongPress: () => _toast('只匹配完整单词，对中文无效'),
+                ),
+                if (pendingCount > 0) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '待应用 $pendingCount',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange.shade800,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: pendingCount > 0
+                        ? Colors.orange.shade800
+                        : null,
+                  ),
+                  onPressed: pendingCount > 0 ? _applyPendingChanges : null,
+                  icon: const Icon(Icons.done_all, size: 16),
+                  label: const Text('应用并刷新'),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
   }
-
-  return Material(
-    color: Theme.of(context).colorScheme.surface,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: '关闭查找',
-                visualDensity: VisualDensity.compact,
-                onPressed: _closeFindBar,
-              ),
-              Expanded(
-                child: TextField(
-                  controller: _findController,
-                  autofocus: true,
-                  cursorColor: AppColors.accentPurple,
-                  decoration: const InputDecoration(
-                    hintText: '查找',
-                    isDense: true,
-                    border: InputBorder.none,
-                  ),
-                  onChanged: _onFindInput,
-                  onSubmitted: (_) => _nextMatch(),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.history),
-                tooltip: '查找历史',
-                visualDensity: VisualDensity.compact,
-                onPressed: _showFindHistory,
-              ),
-            ],
-          ),
-          if (_noResultHint != null)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(top: 4, bottom: 4),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                border: Border.all(color: Colors.orange.shade200),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      size: 14, color: Colors.orange.shade800),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      _noResultHint!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.orange.shade900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          Row(
-            children: [
-              const SizedBox(width: 48),
-              Expanded(
-                child: TextField(
-                  controller: _replaceController,
-                  cursorColor: AppColors.accentPurple,
-                  decoration: const InputDecoration(
-                    hintText: '替换为（留空 = 删掉）',
-                    isDense: true,
-                    border: InputBorder.none,
-                  ),
-                ),
-              ),
-              TextButton(
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  foregroundColor: AppColors.accentPurple,
-                ),
-                onPressed: total == 0 ? null : _replaceCurrentInline,
-                child: const Text('替换当前'),
-              ),
-              TextButton(
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  foregroundColor: AppColors.accentPurple,
-                ),
-                onPressed: total == 0 ? null : _replaceAllInline,
-                child: const Text('全部替换'),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              const SizedBox(width: 8),
-              sideToggle(
-                label: '查左侧',
-                value: _searchLeft,
-                onTap: () {
-                  if (_searchLeft && !_searchRight) {
-                    _toast('至少要开一个（左/右）');
-                    return;
-                  }
-                  setState(() => _searchLeft = !_searchLeft);
-                  _findChanged(_findController.text);
-                },
-              ),
-              sideToggle(
-                label: '查右侧',
-                value: _searchRight,
-                onTap: () {
-                  if (_searchRight && !_searchLeft) {
-                    _toast('至少要开一个（左/右）');
-                    return;
-                  }
-                  setState(() => _searchRight = !_searchRight);
-                  _findChanged(_findController.text);
-                },
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.arrow_upward),
-                color: AppColors.accentPurple,
-                tooltip: '上一个',
-                visualDensity: VisualDensity.compact,
-                onPressed: total == 0 ? null : _prevMatch,
-              ),
-              IconButton(
-                icon: const Icon(Icons.arrow_downward),
-                color: AppColors.accentPurple,
-                tooltip: '下一个',
-                visualDensity: VisualDensity.compact,
-                onPressed: total == 0 ? null : _nextMatch,
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              const SizedBox(width: 8),
-              toggle(
-                label: '正则',
-                value: _regexEnable,
-                onTap: () => setState(() {
-                  _regexEnable = !_regexEnable;
-                  _findChanged(_findController.text);
-                }),
-                onLongPress: _openRegexHelp,
-              ),
-              toggle(
-                label: '忽略大小写',
-                value: _caseInsensitive,
-                onTap: () => setState(() {
-                  _caseInsensitive = !_caseInsensitive;
-                  _findChanged(_findController.text);
-                }),
-                onLongPress: () => _toast('开启后 A 和 a 视为相同'),
-              ),
-              toggle(
-                label: '整词',
-                value: _wholeWord,
-                onTap: () => setState(() {
-                  _wholeWord = !_wholeWord;
-                  _findChanged(_findController.text);
-                }),
-                onLongPress: () => _toast('只匹配完整单词，对中文无效'),
-              ),
-              if (pendingCount > 0) ...[
-                const SizedBox(width: 8),
-                Text(
-                  '待应用 $pendingCount',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.orange.shade800,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-              const Spacer(),
-              TextButton.icon(
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  foregroundColor: pendingCount > 0
-                      ? Colors.orange.shade800
-                      : null,
-                ),
-                onPressed: pendingCount > 0 ? _applyPendingChanges : null,
-                icon: const Icon(Icons.done_all, size: 16),
-                label: const Text('应用并刷新'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
+// ==================== 翻屏图标（自定义绘制） ====================
+//
+// 来源 SVG（viewBox 24×24）：
+//   矩形 = 当前"页"
+//   小折线 = 半透明的辅助箭头
+//   大折线 = 主箭头
+//
+// 用 canvas.scale(size.width / 24) 把 24×24 坐标系映射到实际大小，
+// strokeWidth 保持原始数值，缩放后自动按比例。
 
+class _PageDownIconPainter extends CustomPainter {
+  _PageDownIconPainter({required this.color});
 
+  final Color color;
 
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 24.0;
+    canvas.save();
+    canvas.scale(scale, scale);
 
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
+    final strokeDim = Paint()
+      ..color = color.withValues(alpha: color.a * 0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
+    canvas.drawRect(const Rect.fromLTWH(9, 1, 6, 10), stroke);
 
-  
-  
-  
+    final small = Path()
+      ..moveTo(9.5, 14.5)
+      ..lineTo(12, 16.5)
+      ..lineTo(14.5, 14.5);
+    canvas.drawPath(small, strokeDim);
 
+    final large = Path()
+      ..moveTo(8.5, 18)
+      ..lineTo(12, 20.5)
+      ..lineTo(15.5, 18);
+    canvas.drawPath(large, stroke);
 
+    canvas.restore();
+  }
 
+  @override
+  bool shouldRepaint(_PageDownIconPainter old) => old.color != color;
+}
 
+class _PageUpIconPainter extends CustomPainter {
+  _PageUpIconPainter({required this.color});
 
+  final Color color;
 
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 24.0;
+    canvas.save();
+    canvas.scale(scale, scale);
 
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
+    final strokeDim = Paint()
+      ..color = color.withValues(alpha: color.a * 0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
-  
+    canvas.drawRect(const Rect.fromLTWH(9, 13, 6, 10), stroke);
+
+    final small = Path()
+      ..moveTo(9.5, 9.5)
+      ..lineTo(12, 7.5)
+      ..lineTo(14.5, 9.5);
+    canvas.drawPath(small, strokeDim);
+
+    final large = Path()
+      ..moveTo(8.5, 6)
+      ..lineTo(12, 3.5)
+      ..lineTo(15.5, 6);
+    canvas.drawPath(large, stroke);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_PageUpIconPainter old) => old.color != color;
 }
