@@ -2101,7 +2101,7 @@ title: Row(
 
         
         actions: [
-          const SizedBox(width: 48),
+        
           InkWell(
             key: const Key('prev-diff'),
             onTap: _jumpToPrevDiff,
