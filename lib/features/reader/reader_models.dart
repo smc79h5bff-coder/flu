@@ -380,9 +380,9 @@ class ReaderSettings {
     required this.bgColor,
     required this.showButtons,
     required this.readerMode,
-required this.pageBottomSafePx,
+    required this.pageBottomSafePx,
+    required this.respectSystemInsets,
 
-    
     // ====== 上一文件按钮 ======
     required this.topBtnStyle,
     required this.topBtnBgColor,
@@ -444,19 +444,23 @@ required this.pageBottomSafePx,
   /// 阅读模式：0 = 分页，1 = 滚动。
   final int readerMode;
 
- /// 分页模式：底部安全边距（像素）。范围 -20 ~ +30。
-///
-/// 分页器算"一页能放几行"时，从可用高度里预留这么多像素。
-/// 只对"底部余量本来就小于该值"的页面生效，其它页不受影响。
-///
-///   · 正数：底部预留，防裁切。
-///   · 0（默认）：精确，屏幕利用率最高。
-///   · 负数：底部榨空间，可能多显示一行，也可能裁掉最后一行。
-///
-/// 影响范围：仅分页模式。
-/// 影响范围：仅分页模式。
-final int pageBottomSafePx;
-  
+  /// 分页模式：底部安全边距（像素）。范围 -20 ~ +30。
+  ///
+  /// 分页器算"一页能放几行"时，从可用高度里预留这么多像素。
+  /// 只对"底部余量本来就小于该值"的页面生效，其它页不受影响。
+  ///
+  ///   · 正数：底部预留，防裁切。
+  ///   · 0（默认）：精确，屏幕利用率最高。
+  ///   · 负数：底部榨空间，可能多显示一行，也可能裁掉最后一行。
+  ///
+  /// 影响范围：仅分页模式。
+  final int pageBottomSafePx;
+
+  /// 是否避让底部系统导航栏。
+  /// true（默认）：分页模式和滚动模式都空出底部导航栏的高度。
+  /// false：内容延伸到导航栏下面。
+  final bool respectSystemInsets;
+
   // ==================== 上一文件按钮 ====================
 
   /// 样式：0 = 纯色圆（有箭头），1 = 圆环（无箭头、无填充）。
@@ -528,8 +532,9 @@ final int pageBottomSafePx;
     bgColor: bgCream,
     showButtons: false,
     readerMode: 1,
-pageBottomSafePx: 0,
-    
+    pageBottomSafePx: 0,
+    respectSystemInsets: true,
+
     topBtnStyle: 0,
     topBtnBgColor: 0x59000000, // 黑 35%，接近原来的样子
     topBtnFgColor: 0xFFFFFFFF,
@@ -573,16 +578,16 @@ pageBottomSafePx: 0,
   );
 
   Map<String, dynamic> toJson() => {
-      'fs': fontSize,
-      'fw': fontWeight,
-      'bg': bgColor,
-      'sb': showButtons,
-      'rm': readerMode,
-      'pbsp': pageBottomSafePx,
+        'fs': fontSize,
+        'fw': fontWeight,
+        'bg': bgColor,
+        'sb': showButtons,
+        'rm': readerMode,
+        'pbsp': pageBottomSafePx,
+        'rsi': respectSystemInsets,
 
-      'tbs': topBtnStyle,
+        'tbs': topBtnStyle,
 
-    
         'tbb': topBtnBgColor,
         'tbf': topBtnFgColor,
         'tbr': topBtnRingColor,
@@ -623,18 +628,18 @@ pageBottomSafePx: 0,
         'hh': hotZoneH,
       };
 
-factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
-      fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
-      fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
-      bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
-      showButtons: j['sb'] as bool? ?? true,
-      readerMode: (j['rm'] as num?)?.toInt() ?? 0,
-      pageBottomSafePx: (j['pbsp'] as num?)?.toInt() ?? 0,
+  factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
+        fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
+        fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
+        bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
+        showButtons: j['sb'] as bool? ?? true,
+        readerMode: (j['rm'] as num?)?.toInt() ?? 0,
+        pageBottomSafePx: (j['pbsp'] as num?)?.toInt() ?? 0,
+        respectSystemInsets: j['rsi'] as bool? ?? true,
 
-      topBtnStyle: (j['tbs'] as num?)?.toInt() ?? 0,
+        topBtnStyle: (j['tbs'] as num?)?.toInt() ?? 0,
 
-    
-    topBtnBgColor: (j['tbb'] as num?)?.toInt() ?? 0x59000000,
+        topBtnBgColor: (j['tbb'] as num?)?.toInt() ?? 0x59000000,
         topBtnFgColor: (j['tbf'] as num?)?.toInt() ?? 0xFFFFFFFF,
         topBtnRingColor: (j['tbr'] as num?)?.toInt() ?? 0xFF3D7CFF,
         topBtnRingWidth: (j['tbrw'] as num?)?.toDouble() ?? 2.0,
@@ -674,16 +679,17 @@ factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
         hotZoneH: (j['hh'] as num?)?.toDouble() ?? 0.06,
       );
 
-ReaderSettings copyWith({
-  double? fontSize,
-  int? fontWeight,
-  int? bgColor,
-  bool? showButtons,
-  int? readerMode,
-  int? pageBottomSafePx,
+  ReaderSettings copyWith({
+    double? fontSize,
+    int? fontWeight,
+    int? bgColor,
+    bool? showButtons,
+    int? readerMode,
+    int? pageBottomSafePx,
+    bool? respectSystemInsets,
 
-  int? topBtnStyle,
-    
+    int? topBtnStyle,
+
     int? topBtnBgColor,
     int? topBtnFgColor,
     int? topBtnRingColor,
@@ -723,22 +729,18 @@ ReaderSettings copyWith({
     double? hotZoneW,
     double? hotZoneH,
   }) =>
+      ReaderSettings(
+        fontSize: fontSize ?? this.fontSize,
+        fontWeight: fontWeight ?? this.fontWeight,
+        bgColor: bgColor ?? this.bgColor,
+        showButtons: showButtons ?? this.showButtons,
+        readerMode: readerMode ?? this.readerMode,
+        pageBottomSafePx: pageBottomSafePx ?? this.pageBottomSafePx,
+        respectSystemInsets: respectSystemInsets ?? this.respectSystemInsets,
 
+        topBtnStyle: topBtnStyle ?? this.topBtnStyle,
 
-  
-ReaderSettings(
-  fontSize: fontSize ?? this.fontSize,
-  fontWeight: fontWeight ?? this.fontWeight,
-  bgColor: bgColor ?? this.bgColor,
-  showButtons: showButtons ?? this.showButtons,
-  readerMode: readerMode ?? this.readerMode,
-  pageBottomSafePx: pageBottomSafePx ?? this.pageBottomSafePx,
-
-  topBtnStyle: topBtnStyle ?? this.topBtnStyle,
-  
-  
-  
-  topBtnBgColor: topBtnBgColor ?? this.topBtnBgColor,
+        topBtnBgColor: topBtnBgColor ?? this.topBtnBgColor,
         topBtnFgColor: topBtnFgColor ?? this.topBtnFgColor,
         topBtnRingColor: topBtnRingColor ?? this.topBtnRingColor,
         topBtnRingWidth: topBtnRingWidth ?? this.topBtnRingWidth,
