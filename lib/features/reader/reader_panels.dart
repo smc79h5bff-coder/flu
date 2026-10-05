@@ -2149,6 +2149,7 @@ class _GradientEditorState extends State<_GradientEditor> {
   }
 }
 
+
 // ==================== 高亮管理页 ====================
 
 typedef _HighlightItem = ({String fileKey, HighlightEntry entry});
@@ -2794,19 +2795,13 @@ class _BookmarkHighlightManagerState
           final idx = rowIdx * crossAxisCount + col;
           if (col > 0) rowChildren.add(const SizedBox(width: spacing));
           if (idx < highlights.length) {
-
-
             rowChildren.add(Expanded(
-  child: _buildHighlightCard(
-    highlights[idx],
-    viewSettings,
-    highlights,
-  ),
-));
-
-
-
-            
+              child: _buildHighlightCard(
+                highlights[idx],
+                viewSettings,
+                highlights,
+              ),
+            ));
           } else {
             rowChildren.add(const Expanded(child: SizedBox.shrink()));
           }
@@ -2815,30 +2810,23 @@ class _BookmarkHighlightManagerState
           padding: EdgeInsets.only(
             bottom: rowIdx < totalRows - 1 ? spacing : 0,
           ),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: rowChildren,
-            ),
+          // 用 start 让每张卡片按自身内容自然高度渲染。
+          // 之前用 stretch 让同行等高，但卡片内部的 LayoutBuilder
+          // 在 intrinsic 测量时返回 0，导致卡片高度被算错、内容溢出边框。
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: rowChildren,
           ),
         );
       },
     );
   }
 
-
-
-
   Widget _buildHighlightCard(
-  _HighlightItem item,
-  HighlightViewSettings viewSettings,
-  List<_HighlightItem> highlights,
-) {
-
-
-
-
-    
+    _HighlightItem item,
+    HighlightViewSettings viewSettings,
+    List<_HighlightItem> highlights,
+  ) {
     final h = item.entry;
     final key = (item.fileKey, h.id);
     final selected = _selectedHighlights.contains(key);
@@ -2992,7 +2980,8 @@ class _BookmarkHighlightManagerState
 /// 中块：高亮样式的预览（最多 5 行）。
 /// 下块：书名（可选，开了 showBookName 才有）。
 ///
-/// 卡片高度随内容变，不再固定。同一行的多个卡片会互相拉平到等高。
+/// 卡片高度随内容变，不再固定。同一行的多个卡片不再强制等高
+/// （见 _buildHighlights 的 crossAxisAlignment: start）。
 class _HighlightCard extends StatelessWidget {
   const _HighlightCard({
     required this.entry,
@@ -3016,7 +3005,7 @@ class _HighlightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const selectedBg = Color(0xFFFFE1EC);
+    const selectedBg = Color(0xFFFFF2F7);   // 比之前的 FFE1EC 更浅
     const selectedBorder = Color(0xFFAA00FF);
     const normalBorder = Color(0xFFB39DDB);
 
@@ -3165,7 +3154,7 @@ class _HighlightCard extends StatelessWidget {
 
     final textStyle = TextStyle(
       color: textColor,
-      fontSize: 14,
+      fontSize: 15,        // 从 14 提到 15
       height: 1.15,
     );
 
@@ -4885,3 +4874,5 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     );
   }
 }
+
+
