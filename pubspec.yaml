@@ -15,7 +15,8 @@ dependencies:
   shared_preferences: ^2.3.2
   flutter_colorpicker: ^1.1.0
   scrollable_positioned_list: ^0.3.8
-open_filex: ^4.5.0
+  open_filex: ^4.5.0
+
   # State management
   flutter_riverpod: ^2.4.0
   riverpod_annotation: ^2.3.0
@@ -26,7 +27,7 @@ open_filex: ^4.5.0
   # Document parsing
   archive: ^3.4.0      # zip decode for OOXML (.docx) container
   xml: ^6.3.0          # parse word/document.xml
-  # pdfrx: ^1.0.0       # pdf rendering (P1)
+  # pdfrx: ^1.0.0      # pdf rendering (P1)
 
   # OCR (P1)
   # google_mlkit_text_recognition: ^0.11.0
@@ -41,7 +42,7 @@ open_filex: ^4.5.0
   path: ^1.8.3
   collection: ^1.18.0
   url_launcher: ^6.2.1
-  share_plus: ^13.0.0  # ← 新增，改回 dependencies 内并锁版本
+  share_plus: ^13.0.0
   gbk_codec: ^0.4.0
   enough_convert: ^1.6.0
   charset: ^2.0.1
