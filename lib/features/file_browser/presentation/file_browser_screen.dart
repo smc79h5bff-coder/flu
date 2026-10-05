@@ -3201,29 +3201,36 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         }
       },
       onLongPress: () => _onLongPressPath(e.path),
-      child: Container(
-        decoration: BoxDecoration(
-          color: selected ? _gridSelectedBg : null,
-          border: selected
-              ? Border.all(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 2,
-                )
-              : null,
-          // 底部分隔线（横线）。最后一行的底部还会有一条，可接受。
-          // 想更精确可只在非最后一行画——留给你以后改。
-          border: selected
-              ? Border.all(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 2,
-                )
-              : Border(
-                  bottom: BorderSide(
-                    color: _gridDividerColor,
-                    width: _gridDividerThickness,
-                  ),
-                ),
-        ),
+   
+        
+        
+        
+        
+        
+        
+
+        
+
+child: Container(
+  decoration: BoxDecoration(
+    color: selected ? _gridSelectedBg : null,
+    border: selected
+        ? Border.all(
+            color: Theme.of(context).colorScheme.primary,
+            width: 2,
+          )
+        : Border(
+            bottom: BorderSide(
+              color: _gridDividerColor,
+              width: _gridDividerThickness,
+            ),
+          ),
+  ),
+
+
+
+
+            
         padding: EdgeInsets.symmetric(
           horizontal: _gridCellPadH,
           vertical: _gridCellPadV,
