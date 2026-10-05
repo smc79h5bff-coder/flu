@@ -169,7 +169,10 @@ Future<String?> showOpenOrShareOrExpandSheet(
 
 Future<void> _openWith(String path, BuildContext context) async {
   try {
-    final result = await OpenFilex.open(path);
+    final result = await OpenFilex.open(
+      path,
+      type: 'application/octet-stream',
+    );
     if (result.type == ResultType.done) return;
     if (!context.mounted) return;
     final msg = switch (result.type) {
@@ -207,4 +210,10 @@ Future<void> shareMany(List<String> paths, BuildContext context) async {
   await _shareFiles(paths, context);
 }
 
-
+/// 直接用系统 App 选择器打开。跳过"打开方式 / 分享"两选一菜单。
+Future<void> openFileWithSystemPicker(
+  String path,
+  BuildContext context,
+) async {
+  await _openWith(path, context);
+}
