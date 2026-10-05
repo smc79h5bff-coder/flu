@@ -108,7 +108,13 @@ class ReaderLoadLog {
 
   /// 包一段同步代码，返回耗时（毫秒），并把结果写进日志。
   /// 用于没法在里面插 mark 的短代码块。
+  ///
+  /// 日志关闭时，只执行 body、不做计时（省掉 Stopwatch 的创建开销）。
   int time(String label, void Function() body) {
+    if (!enabled) {
+      body();
+      return 0;
+    }
     final sw = Stopwatch()..start();
     try {
       body();
@@ -116,9 +122,7 @@ class ReaderLoadLog {
       sw.stop();
     }
     final ms = sw.elapsedMilliseconds;
-    if (enabled) {
-      _add('[${ms}ms] $label');
-    }
+    _add('[${ms}ms] $label');
     return ms;
   }
 
