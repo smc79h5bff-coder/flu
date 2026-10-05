@@ -2057,7 +2057,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 17, vertical: 8),
                   child: CustomPaint(
-                    size: const Size.square(26),
+                    size: const Size.square(24),
                     painter: _PageUpIconPainter(color: iconColor),
                   ),
                 ),
@@ -2074,7 +2074,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 17, vertical: 8),
                   child: CustomPaint(
-                    size: const Size.square(26),
+                    size: const Size.square(24),
                     painter: _PageDownIconPainter(color: iconColor),
                   ),
                 ),
