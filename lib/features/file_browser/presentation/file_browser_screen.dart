@@ -401,7 +401,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   static Color _fileColor(String name) {
     final ext = _extOf(name);
     if (_textExts.contains(ext)) return Colors.blue.shade600;
-    if (_isExpandableArchiveName(name)) return Colors.purple.shade400;
+    if (_isExpandableArchiveName(name)) return Colors.blue.shade600;
     if (_binaryExts.contains(ext)) return Colors.orange.shade700;
     return Colors.grey.shade600;
   }
@@ -449,6 +449,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   final Map<String, String> _zipErrors = <String, String>{};
 
   /// 当前固定显示的粘性头部对应的 zip key。null = 不显示。
+  /// ★ 粘性头部已停用，此字段保留但始终为 null。
   String? _stickyZipKey;
 
   /// 缓存：每次 build 后重新计算的 display 列表。
@@ -457,8 +458,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   /// 缓存：每个 index 对应的 ownerZipKey（用于粘性头部判定）。
   List<String?>? _cachedOwnerZipPerIndex;
 
-  /// 单次打开 zip 的大小上限。
-  static const int _maxZipBytes = 100 * 1024 * 1024;
+  /// 单次打开压缩包的大小上限。zip / tar / tar.gz / tgz 一视同仁。
+  static const int _maxZipBytes = 50 * 1024 * 1024;
 
   // ==================== 生命周期 ====================
 
@@ -508,14 +509,19 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     );
   }
 
-  // ==================== 滚动 → 粘性头部 ====================
+  // ==================== 滚动 → 粘性头部（已停用） ====================
 
   void _onPositionsChanged() {
     _recordCurrentScroll();
-    _updateStickyZip();
+    // ★ 粘性头部已停用：改用图标区分展开/折叠，不再调用
+    //   _updateStickyZip()。之前它会在 _stickyZipKey 变化时
+    //   setState 导致 build 里 Stack 结构切换，ScrollablePositionedList
+    //   被销毁重建，滚动位置丢失（表现为"往上滑突然跳回顶端"）。
   }
 
   /// 根据当前可见列表项，更新粘性 zip 头部。
+  /// ★ 已停用，保留方法备查。
+  // ignore: unused_element
   void _updateStickyZip() {
     final items = _cachedDisplayItems;
     if (items == null || items.isEmpty) {
@@ -553,6 +559,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   /// 判断在 topIdx 这个滚动位置，哪个 zip 应该变粘性。
+  /// ★ 已停用，保留方法备查。
+  // ignore: unused_element
   String? _computeStickyZipForIndex(int topIdx, List<_DisplayItem> items) {
     if (topIdx < 0 || topIdx >= items.length) return null;
     final item = items[topIdx];
@@ -1120,6 +1128,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== zip 展开 / 收起 ====================
 
+  /// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
+  Archive _decodeArchiveBytes(String name, Uint8List bytes) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.zip')) {
+      return ZipDecoder().decodeBytes(bytes);
+    }
+    if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+      final gunzipped = GZipDecoder().decodeBytes(bytes);
+      return TarDecoder().decodeBytes(gunzipped);
+    }
+    if (lower.endsWith('.tar')) {
+      return TarDecoder().decodeBytes(bytes);
+    }
+    throw Exception('不支持的压缩格式：$name');
+  }
+
   /// 展开一个 zip。已加载则直接展开；未加载则读盘 + 解码。
   Future<void> _expandZip(String zipDiskPath) async {
     if (_expandedZipKeys.contains(zipDiskPath)) return;
@@ -1141,7 +1165,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       }
       final bytes = await file.readAsBytes();
       // ★修复：主 isolate 解码，不再走 compute（Archive 不可跨 isolate 传回）
-      final archive = ZipDecoder().decodeBytes(bytes);
+      // ★按后缀选解码器，支持 zip / tar / tar.gz / tgz
+      final archive = _decodeArchiveBytes(zipDiskPath, bytes);
 
       if (!mounted) return;
 
@@ -1189,7 +1214,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           } else {
             continue;
           }
-          final inner = ZipDecoder().decodeBytes(bytes);
+          final inner = _decodeArchiveBytes(c.name, bytes);
           final innerFull = innerPrefix.isEmpty
               ? c.fullPath
               : '$innerPrefix>${c.fullPath}';
@@ -1238,6 +1263,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
   /// zip 顶部粘性头点击 = 收起。
+  /// ★ 已停用，保留方法备查。
+  // ignore: unused_element
   void _onStickyZipTap(String zipDiskPath) {
     _collapseZip(zipDiskPath);
   }
@@ -1368,7 +1395,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
   // ==================== 打开磁盘文件 ====================
 
-  Future<void> _openFile(String path, String name, int? size) async {
+  Future<void> _openFile(
+    String path,
+    String name,
+    int? size, {
+    bool allowExpand = true,
+  }) async {
     final isText = _textExts.contains(_extOf(name));
 
     if (!isText) {
@@ -1379,7 +1411,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           await _expandZip(path);
           return;
         }
-        // 文件浏览器页：弹菜单
+        // ★ 网格模式不支持展开，只弹"打开方式 / 分享"
+        if (!allowExpand) {
+          await showOpenOrShareSheet(context, path, name);
+          return;
+        }
+        // 列表模式：弹三选一
         final action = await showOpenOrShareOrExpandSheet(context, path, name);
         if (!mounted) return;
         if (action == 'expand') {
@@ -3197,7 +3234,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   }
 
 // ===== 第 2/3 条结束，接第 3/3 条 =====
-
   // ==================== build ====================
 
   @override
@@ -3855,7 +3891,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         : _buildListBody();
   }
 
-  // ==================== 列表模式（含粘性头部） ====================
+  // ==================== 列表模式（无粘性头部） ====================
 
   Widget _buildListBody() {
     final fontName = ref.watch(browserFontListNameProvider);
@@ -3863,9 +3899,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final colorScheme = Theme.of(context).colorScheme;
 
     final items = _cachedDisplayItems ?? const <_DisplayItem>[];
-    final stickyKey = _stickyZipKey;
 
-    final listWidget = ScrollablePositionedList.builder(
+    // ★ 粘性头部已停用：直接返回列表，结构恒定，
+    //   不会再因为 Stack 结构切换而丢失滚动位置。
+    return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
       itemCount: items.length,
@@ -3876,62 +3913,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           child: _buildDisplayItemTile(item, fontName, fontMeta, colorScheme),
         );
       },
-    );
-
-    if (stickyKey == null) return listWidget;
-
-    // 有粘性头部：叠加一层
-    final zipName = stickyKey.split('/').last;
-    return Stack(
-      children: [
-        Positioned.fill(child: listWidget),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: Material(
-            color: colorScheme.surfaceVariant,
-            elevation: 2,
-            child: InkWell(
-              onTap: () => _onStickyZipTap(stickyKey),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.folder_zip,
-                        size: 18, color: Colors.purple.shade400),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        zipName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    Icon(Icons.unfold_less,
-                        size: 16, color: colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 4),
-                    Text(
-                      '收起',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -3995,10 +3976,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
 
     final selected = _selectedPaths.contains(item.key);
 
-    // zip 头（顶层或嵌套）：带三角，缩进较浅
+    // zip 头（顶层或嵌套）：和普通文件一样的 ListTile，
+    // 只用图标区分展开/折叠（折叠=空心蓝，展开=实心蓝）。
     if (item.isZip) {
       final isExpanded = _expandedZipKeys.contains(item.key);
-      final zipName = item.displayName;
+      final metaLine = _buildItemMetaLine(item);
+
       return Container(
         foregroundDecoration: selected
             ? BoxDecoration(
@@ -4008,8 +3991,41 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
                 ),
               )
             : null,
-        color: selected ? const Color(0xFFFFF3FB) : null,
-        child: InkWell(
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.only(
+            left: 8.0 + item.depth * 18.0,
+            right: 8,
+          ),
+          selected: selected,
+          selectedTileColor: const Color(0xFFFFF3FB),
+          leading: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Icon(
+              isExpanded ? Icons.folder_zip : Icons.folder_zip_outlined,
+              color: Colors.blue.shade600,
+            ),
+          ),
+          title: Text(
+            item.displayName,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: fontName,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          subtitle: metaLine.isEmpty
+              ? null
+              : Text(
+                  metaLine,
+                  style: TextStyle(
+                    fontSize: fontMeta,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
           onTap: () {
             if (_selectionMode) {
               _toggleSelectionByKey(item.key);
@@ -4018,40 +4034,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
             _handleTapItem(item);
           },
           onLongPress: () => _onLongPressItem(item),
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 8.0 + item.depth * 18.0,
-              right: 12,
-              top: 6,
-              bottom: 6,
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  isExpanded ? Icons.arrow_drop_down : Icons.arrow_right,
-                  size: 22,
-                  color: Colors.grey.shade700,
-                ),
-                Icon(
-                  Icons.folder_zip,
-                  size: 20,
-                  color: Colors.purple.shade400,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    zipName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: fontName,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       );
     }
@@ -4258,7 +4240,8 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         if (info.isDir) {
           _navigateTo(e.path);
         } else {
-          _openFile(e.path, info.name, info.size);
+          // ★ 网格模式不支持展开压缩包，只弹"打开方式 / 分享"
+          _openFile(e.path, info.name, info.size, allowExpand: false);
         }
       },
       onLongPress: () {
@@ -4385,7 +4368,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     );
   }
 
-  // ==================== 搜索结果列表（含粘性头部） ====================
+  // ==================== 搜索结果列表（无粘性头部） ====================
 
   Widget _buildSearchResultsList() {
     if (_searchResults.isEmpty) {
@@ -4398,9 +4381,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final fontMeta = ref.watch(browserFontListMetaProvider);
 
     final items = _cachedDisplayItems ?? const <_DisplayItem>[];
-    final stickyKey = _stickyZipKey;
 
-    final listWidget = ScrollablePositionedList.builder(
+    // ★ 粘性头部已停用：直接返回列表。
+    return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
       itemCount: items.length,
@@ -4411,61 +4394,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
           child: _buildSearchResultTile(item, fontName, fontMeta, colorScheme),
         );
       },
-    );
-
-    if (stickyKey == null) return listWidget;
-
-    final zipName = stickyKey.split('/').last;
-    return Stack(
-      children: [
-        Positioned.fill(child: listWidget),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: Material(
-            color: colorScheme.surfaceVariant,
-            elevation: 2,
-            child: InkWell(
-              onTap: () => _onStickyZipTap(stickyKey),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.folder_zip,
-                        size: 18, color: Colors.purple.shade400),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        zipName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    Icon(Icons.unfold_less,
-                        size: 16, color: colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 4),
-                    Text(
-                      '收起',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 
