@@ -2042,7 +2042,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         
   toolbarHeight: 43,   // ★ 新增
         
-        titleSpacing: 32,
+        titleSpacing: 1,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
