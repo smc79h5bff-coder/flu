@@ -28,11 +28,6 @@ import 'dir_loader.dart';
 
 // ==================== 路由观察者 ====================
 
-/// 全局 route observer。
-/// 用于 FileBrowserScreen 感知"被 push 盖住 / 从子页返回"的事件，
-/// 从而自动释放 TextField 焦点、收键盘。
-///
-/// 需要在 MaterialApp 里注册：navigatorObservers: [fileBrowserRouteObserver]。
 final RouteObserver<PageRoute<dynamic>> fileBrowserRouteObserver =
     RouteObserver<PageRoute<dynamic>>();
 
@@ -55,8 +50,6 @@ String _fmtTimeForListing(DateTime t) {
       '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
 }
 
-/// 在后台 isolate 里递归扫描文件夹，生成清单文本。
-/// 返回 UTF-8 编码的字节，直接可写文件。
 Future<Uint8List> _folderListingWorker(String rootPath) async {
   final body = StringBuffer();
   var fileCount = 0;
@@ -69,7 +62,6 @@ Future<Uint8List> _folderListingWorker(String rootPath) async {
     try {
       entities = Directory(dirPath).listSync(followLinks: false);
     } catch (_) {
-      // 无权限等错误，跳过此目录
       return;
     }
 
@@ -172,18 +164,31 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   static const String _rootPath = '/storage/emulated/0';
   static const String _topPath = '/storage';
 
-  // 弹窗统一参数：几乎铺满屏，间距最小
+  // 弹窗统一参数
   static const EdgeInsets _dlgInset = EdgeInsets.all(4);
   static const EdgeInsets _dlgTitlePad =
       EdgeInsets.fromLTRB(12, 8, 12, 0);
   static const EdgeInsets _dlgContentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
   static const EdgeInsets _dlgActionsPad =
       EdgeInsets.fromLTRB(4, 0, 4, 4);
-  static const int _editSizeThreshold = 200 * 1024;   // 200KB
+
+  // ==================== 网格布局常量（可调） ====================
+  //
+  // 网格单元格内边距 —— 想调留白改这里。
+  static const double _gridCellPadH = 8.0;
+  static const double _gridCellPadV = 6.0;
+
+  /// 网格分隔线粗细。
+  static const double _gridDividerThickness = 0.5;
+
+  /// 网格分隔线颜色。
+  static const Color _gridDividerColor = Color(0xFFE0E0E0);
+
+  /// 网格选中背景色。
+  static const Color _gridSelectedBg = Color(0xFFFFF3FB);
 
   // ==================== 扩展名 → 图标颜色 ====================
 
-  /// 文本类扩展名（与 TextPreviewScreen 保持一致）。
   static const Set<String> _textExts = {
     '.txt', '.md', '.markdown', '.log', '.lst', '.diz', '.nfo',
     '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.conf', '.cfg',
@@ -195,24 +200,17 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     '.diff', '.patch',
   };
 
-  /// 已知的非文本扩展名：媒体 / 图片 / 压缩包 / 文档 / 二进制等。
   static const Set<String> _binaryExts = {
-    // 视频
     '.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm', '.m4v',
     '.3gp', '.mpg', '.mpeg', '.rmvb', '.rm', '.vob',
-    // 音频
     '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.ape',
     '.opus',
-    // 图片
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico',
     '.tif', '.tiff', '.heic', '.raw',
-    // 压缩包 / 镜像 / 安装包
     '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', '.iso',
     '.cab', '.lz', '.lzma', '.zst', '.apk', '.apks', '.xapk', '.aab',
-    // 文档
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
     '.odt', '.ods', '.odp', '.epub', '.mobi', '.azw', '.azw3',
-    // 二进制 / 数据库等
     '.exe', '.dll', '.so', '.bin', '.img', '.db', '.sqlite', '.mdb',
   };
 
@@ -222,7 +220,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     return name.substring(i).toLowerCase();
   }
 
-  /// 文本 / 已知非文本 / 未知 → 三种颜色。
   static Color _fileColor(String name) {
     final ext = _extOf(name);
     if (_textExts.contains(ext)) return Colors.blue.shade600;
@@ -235,30 +232,23 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   bool _loading = false;
   String? _error;
 
-  /// 目录加载的取消令牌。用户切目录时打断旧的加载。
   LoadCancelToken? _loadCancelToken;
 
   final TextEditingController _searchCtrl = TextEditingController();
   final GlobalKey _searchBtnKey = GlobalKey();
 
-  /// 列表滚动控制器。用来从阅读器返回时滚到"当前文件"那一项。
   final ItemScrollController _itemScrollController = ItemScrollController();
 
-  /// 滚动位置监听器。删除/移动/复制后用来还原滚动锚点。
   final ItemPositionsListener _positionsListener =
       ItemPositionsListener.create();
 
-  /// 每个目录的滚动位置（可见的第一项索引）。切换目录时用。
-  /// key = 目录路径，value = 索引。
   final Map<String, int> _dirScrollPositions = {};
 
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
 
-  /// 区间选择锚点。长按某项后记住，再长按另一项时从锚点到它整段选中。
   String? _anchorPath;
 
-  // 搜索运行时状态（不持久化）
   List<_SearchHit> _searchResults = <_SearchHit>[];
   bool _searching = false;
   bool _searchActive = false;
@@ -273,8 +263,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     _load();
   }
 
-  /// 启动时决定的初始路径：无效/空/超范围 → 回到默认起始目录。
-  /// 允许 /storage 下任意路径（含 SD 卡、双开、U 盘）。
   String _resolveInitialPath(String saved) {
     if (saved.isEmpty) return _rootPath;
     if (!saved.startsWith(_topPath)) return _rootPath;
@@ -282,7 +270,7 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     return saved;
   }
 
-  // ==================== 路由感知：离开本页时自动收键盘 ====================
+  // ==================== 路由感知 ====================
 
   @override
   void didChangeDependencies() {
@@ -293,8 +281,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     }
   }
 
-  /// 本页被另一个页面 push 盖住时触发。
-  /// 释放搜索框焦点 → 键盘收起；返回本页时不会自动弹出。
   @override
   void didPushNext() {
     FocusManager.instance.primaryFocus?.unfocus();
@@ -307,18 +293,10 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     super.dispose();
   }
 
-  /// 加载当前目录。
-  ///
-  /// [restoreScroll] = true 时，会先快照当前视口里的路径列表，
-  /// 加载完后跳到"第一个仍存在的路径"那一项——这样删除/移动/复制/
-  /// 重命名后，视觉上位置几乎不动，而不是被弹回顶部。
-  ///
-  /// [skipCache] = true 时，强制跳过缓存走一次全新加载（菜单刷新用）。
   Future<void> _load({
     bool restoreScroll = false,
     bool skipCache = false,
   }) async {
-    // 中断上一次加载
     _loadCancelToken?.cancel();
     final token = LoadCancelToken();
     _loadCancelToken = token;
@@ -326,7 +304,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final log = ReaderLoadLog.instance;
     final t0 = DateTime.now();
 
-    // 快照滚动锚点（在 setState 之前！）
     final anchor = restoreScroll ? _snapshotVisiblePaths() : const <String>[];
     var anchorRestored = false;
 
@@ -337,7 +314,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     log.info(
         '[Dir] _load 开始  path=$_currentPath  restoreScroll=$restoreScroll  skipCache=$skipCache');
 
-    // ---------- 查缓存 ----------
     if (!skipCache) {
       final cached = DirCache.instance.get(cacheKey);
       if (cached != null) {
@@ -361,16 +337,11 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       log.info('[DirCache] 强制跳过缓存  $cacheKey');
     }
 
-    // ---------- 缓存未命中，走异步加载 ----------
     setState(() {
       _loading = true;
       _error = null;
     });
 
-    // ---------- /storage 特判 ----------
-    // Android 11+ 直接 list /storage 可能返回空（受分区沙箱限制），
-    // 这时用手动拼卷的方式兜底，列出 /storage/emulated、self、
-    // 以及从 /proc/mounts 里扫到的 SD 卡 / U 盘 UUID。
     if (_currentPath == _topPath) {
       List<FileSystemEntity> raw;
       try {
@@ -403,7 +374,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
         }
         return;
       }
-      // raw 非空：走正常加载流程
     }
 
     try {
@@ -448,17 +418,20 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     }
   }
 
-  /// 检查 token 对应的加载是不是当前目录的。
-  /// 简单实现：比较 token 是否还是最新的。
   String _currentPathForToken(LoadCancelToken token) {
     if (!identical(token, _loadCancelToken)) return '__stale__';
     return _currentPath;
   }
 
   // ==================== 滚动锚点 ====================
+  //
+  // 列表模式：item 索引 = 文件索引。
+  // 网格模式：item 索引 = 行号；文件索引 = 行号 * 2（或 *2+1）。
+  // 存储的锚点统一是文件索引，跳转时按当前模式转换成行号。
 
-  /// 快照当前视口内所有项的路径（按索引排序）。
-  /// 删除/移动/复制前的锚点来源。
+  bool get _isGridMode =>
+      !_searchActive && ref.read(browserGridModeProvider);
+
   List<String> _snapshotVisiblePaths() {
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return const <String>[];
@@ -469,16 +442,22 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final sorted = positions.toList()
       ..sort((a, b) => a.index.compareTo(b.index));
 
+    final grid = _isGridMode;
     final out = <String>[];
     for (final p in sorted) {
-      if (p.index < 0 || p.index >= allPaths.length) continue;
-      out.add(allPaths[p.index]);
+      if (grid) {
+        final i1 = p.index * 2;
+        final i2 = i1 + 1;
+        if (i1 >= 0 && i1 < allPaths.length) out.add(allPaths[i1]);
+        if (i2 >= 0 && i2 < allPaths.length) out.add(allPaths[i2]);
+      } else {
+        if (p.index < 0 || p.index >= allPaths.length) continue;
+        out.add(allPaths[p.index]);
+      }
     }
     return out;
   }
 
-  /// 加载完新列表后，跳到锚点里第一个仍存在的路径。
-  /// 全部找不到（比如整个目录被删空）→ 退回顶部。
   void _restoreScrollAnchor(List<String> anchorPaths) {
     if (anchorPaths.isEmpty) return;
     final allPaths = _currentDisplayedPaths;
@@ -494,14 +473,16 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     }
     if (targetIdx < 0) targetIdx = 0;
 
+    final grid = _isGridMode;
+    final jumpIdx = grid ? targetIdx ~/ 2 : targetIdx;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!_itemScrollController.isAttached) return;
-      _itemScrollController.jumpTo(index: targetIdx);
+      _itemScrollController.jumpTo(index: jumpIdx);
     });
   }
 
-  /// 记录当前目录的滚动位置。离开当前目录前调用。
   void _recordCurrentScroll() {
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return;
@@ -510,25 +491,27 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
       if (p.index < minIdx) minIdx = p.index;
     }
     if (minIdx < (1 << 30)) {
-      _dirScrollPositions[_currentPath] = minIdx;
+      final grid = _isGridMode;
+      final fileIdx = grid ? minIdx * 2 : minIdx;
+      _dirScrollPositions[_currentPath] = fileIdx;
     }
   }
 
-  /// 加载完成后，根据当前目录的滚动记录决定：恢复 or 跳顶。
   void _restoreDirScroll() {
     final saved = _dirScrollPositions[_currentPath];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!_itemScrollController.isAttached) return;
-      final target = (saved != null && saved > 0) ? saved : 0;
-      _itemScrollController.jumpTo(index: target);
+      final fileIdx = (saved != null && saved > 0) ? saved : 0;
+      final grid = _isGridMode;
+      final jumpIdx = grid ? fileIdx ~/ 2 : fileIdx;
+      _itemScrollController.jumpTo(index: jumpIdx);
     });
   }
 
   void _navigateTo(String path) {
     if (path == _currentPath) return;
 
-    // ★ 记录离开前的滚动位置，供以后回到这个目录时恢复。
     _recordCurrentScroll();
 
     _clearSelection();
@@ -544,7 +527,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     _load();
   }
 
-  /// 是否还能往上一级。到 /storage 就到底。
   bool get _canGoUp => _currentPath != _topPath;
 
   void _goUp() {
@@ -554,76 +536,71 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     _navigateTo(parent);
   }
 
-  /// 列出 /storage 下能访问的存储卷。
-List<EntryInfo> _listStorageRoot() {
-  final log = ReaderLoadLog.instance;
-  log.info('[Storage] 手动构造 /storage 条目');
+  List<EntryInfo> _listStorageRoot() {
+    final log = ReaderLoadLog.instance;
+    log.info('[Storage] 手动构造 /storage 条目');
 
-  final out = <EntryInfo>[];
-  final seen = <String>{};
+    final out = <EntryInfo>[];
+    final seen = <String>{};
 
-  void addDir(String path, String name) {
-    if (seen.contains(path)) return;
-    final dir = Directory(path);
-    if (!dir.existsSync()) return;
-    seen.add(path);
-    out.add(EntryInfo(entity: dir, name: name, isDir: true));
-  }
-
-  // 1. 内部存储：直接指向 /storage/emulated/0，显示"内部存储"。
-  //    不显示 /storage/emulated 本身（它是中间目录，list 会报错）。
-  addDir('/storage/emulated/0', '内部存储');
-
-  // 2. 双开空间：/storage/emulated/10、999 等数字目录。
-  try {
-    final raw = Directory('/storage/emulated').listSync(followLinks: false);
-    for (final e in raw) {
-      if (e is! Directory) continue;
-      final name = e.path.split('/').last;
-      if (name == '0' || name == 'self') continue;
-      if (!RegExp(r'^\d+$').hasMatch(name)) continue;
-      addDir(e.path, '双开($name)');
+    void addDir(String path, String name) {
+      if (seen.contains(path)) return;
+      final dir = Directory(path);
+      if (!dir.existsSync()) return;
+      seen.add(path);
+      out.add(EntryInfo(entity: dir, name: name, isDir: true));
     }
-  } catch (_) {}
 
-  // 3. SD 卡 / U 盘：从 /proc/mounts 找 UUID，优先 /storage/UUID。
-  final uuidPattern = RegExp(r'([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})');
-  const sources = <String>[
-    '/proc/mounts',
-    '/proc/self/mountinfo',
-    '/proc/self/mounts',
-    '/etc/mtab',
-  ];
+    addDir('/storage/emulated/0', '内部存储');
 
-  final uuids = <String>{};
-  for (final src in sources) {
     try {
-      final content = File(src).readAsStringSync();
-      for (final m in uuidPattern.allMatches(content)) {
-        uuids.add(m.group(1)!);
+      final raw =
+          Directory('/storage/emulated').listSync(followLinks: false);
+      for (final e in raw) {
+        if (e is! Directory) continue;
+        final name = e.path.split('/').last;
+        if (name == '0' || name == 'self') continue;
+        if (!RegExp(r'^\d+$').hasMatch(name)) continue;
+        addDir(e.path, '双开($name)');
       }
-      if (uuids.isNotEmpty) {
-        log.info('[Storage] 从 $src 找到 ${uuids.length} 个 UUID');
-        break;
+    } catch (_) {}
+
+    final uuidPattern = RegExp(r'([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})');
+    const sources = <String>[
+      '/proc/mounts',
+      '/proc/self/mountinfo',
+      '/proc/self/mounts',
+      '/etc/mtab',
+    ];
+
+    final uuids = <String>{};
+    for (final src in sources) {
+      try {
+        final content = File(src).readAsStringSync();
+        for (final m in uuidPattern.allMatches(content)) {
+          uuids.add(m.group(1)!);
+        }
+        if (uuids.isNotEmpty) {
+          log.info('[Storage] 从 $src 找到 ${uuids.length} 个 UUID');
+          break;
+        }
+      } catch (e) {
+        log.info('[Storage] 读 $src 失败：$e');
       }
-    } catch (e) {
-      log.info('[Storage] 读 $src 失败：$e');
     }
-  }
 
-  for (final uuid in uuids) {
-    // 优先 /storage/UUID，不存在才 fallback 到 /mnt/media_rw/UUID。
-    if (Directory('/storage/$uuid').existsSync()) {
-      addDir('/storage/$uuid', '外部存储($uuid)');
-    } else if (Directory('/mnt/media_rw/$uuid').existsSync()) {
-      addDir('/mnt/media_rw/$uuid', '外部存储($uuid)');
+    for (final uuid in uuids) {
+      if (Directory('/storage/$uuid').existsSync()) {
+        addDir('/storage/$uuid', '外部存储($uuid)');
+      } else if (Directory('/mnt/media_rw/$uuid').existsSync()) {
+        addDir('/mnt/media_rw/$uuid', '外部存储($uuid)');
+      }
     }
-  }
 
-  log.info(
-      '[Storage] 共找到 ${out.length} 个条目：${out.map((e) => e.name).join(", ")}');
-  return out;
-}
+    log.info(
+        '[Storage] 共找到 ${out.length} 个条目：${out.map((e) => e.name).join(", ")}');
+    return out;
+  }
 
   void _clearSelection() {
     _selectionMode = false;
@@ -631,9 +608,6 @@ List<EntryInfo> _listStorageRoot() {
     _anchorPath = null;
   }
 
-  /// 检查搜索结果，把磁盘上已经不存在的条目剔除。
-  /// 对比页删文件后返回、或外部改动后调用。
-  /// **自身不调用 setState**，调用方负责在合适的时机刷新 UI。
   void _pruneSearchResults() {
     if (_searchResults.isEmpty) return;
     final still = <_SearchHit>[];
@@ -687,8 +661,6 @@ List<EntryInfo> _listStorageRoot() {
     });
   }
 
-  /// 当前屏幕上显示的路径列表（按显示顺序）。
-  /// 目录模式 = 目录里的文件/文件夹；搜索模式 = 搜索结果。
   List<String> get _currentDisplayedPaths {
     if (_searchActive) {
       return _searchResults.map((h) => h.path).toList();
@@ -698,9 +670,6 @@ List<EntryInfo> _listStorageRoot() {
         .toList();
   }
 
-  /// 长按某一项。
-  /// - 不在选中模式 → 进入选中模式、选中该项、记锚点。
-  /// - 已在选中模式 + 有锚点 → 从锚点到该项整段选中（区间选择）。
   void _onLongPressPath(String path) {
     if (!_selectionMode) {
       setState(() {
@@ -732,7 +701,6 @@ List<EntryInfo> _listStorageRoot() {
     });
   }
 
-  /// 全选 / 全不选当前屏幕上显示的项。
   void _toggleSelectAll() {
     final all = _currentDisplayedPaths;
     final allSelected =
@@ -749,10 +717,6 @@ List<EntryInfo> _listStorageRoot() {
     });
   }
 
-  /// 点击文件的统一入口。
-  ///
-  /// 非文本文件 → 预览页。
-  /// 文本文件 → 按 [fileOpenModeProvider] 分流到 阅读器 / 旧编辑器 / 行编辑器 / 询问。
   Future<void> _openFile(String path, String name, int? size) async {
     final log = ReaderLoadLog.instance;
     log.info('[Browser] 点击文件 name=$name  size=$size');
@@ -760,7 +724,6 @@ List<EntryInfo> _listStorageRoot() {
 
     final isText = _textExts.contains(_extOf(name));
 
-    // 非文本文件：走预览页，不需要返回定位。
     if (!isText) {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -773,7 +736,6 @@ List<EntryInfo> _listStorageRoot() {
       return;
     }
 
-    // 文本文件：先确定用哪种方式。
     final configured = ref.read(fileOpenModeProvider);
     FileOpenMode resolved;
     if (configured == FileOpenMode.ask) {
@@ -795,12 +757,10 @@ List<EntryInfo> _listStorageRoot() {
       case FileOpenMode.lineEditor:
         await _openInLineEditor(path, name);
       case FileOpenMode.ask:
-        // 不会到这里（上面已消化）
         break;
     }
   }
 
-  /// 阅读器打开。返回后按"App 内删除名单"过滤列表，并滚到原位置。
   Future<void> _openInReader(String path, String name) async {
     final log = ReaderLoadLog.instance;
     final t0 = DateTime.now();
@@ -814,7 +774,6 @@ List<EntryInfo> _listStorageRoot() {
       textPaths.insert(0, path);
       index = 0;
     }
-    log.info('[Browser→Reader] 目标 index=$index  文件名=$name');
 
     final tPush = DateTime.now();
     final openedPath = path;
@@ -834,7 +793,6 @@ List<EntryInfo> _listStorageRoot() {
 
     if (!mounted) return;
 
-    // ---------- 按阅读器上报的"已删路径"过滤列表 ----------
     final deleted = ref.read(readerDeletedPathsProvider);
     final tFilter = DateTime.now();
     if (deleted.isNotEmpty) {
@@ -860,12 +818,8 @@ List<EntryInfo> _listStorageRoot() {
           (list) => list.where((e) => !deletedSet.contains(e.path)).toList(),
         );
       }
-    } else {
-      log.info(
-          '[Browser→Reader] 返回时无已删记录  耗时=${DateTime.now().difference(tFilter).inMilliseconds}ms');
     }
 
-    // 只在用户换了文件时才滚动。
     if (result != null && result != openedPath) {
       _scrollToPath(result);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -876,7 +830,6 @@ List<EntryInfo> _listStorageRoot() {
         '[Browser→Reader] 全流程耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
   }
 
-  /// 旧编辑器打开。返回后刷新列表（文件可能被改过）。
   Future<void> _openInEditor(String path, String name) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -891,7 +844,6 @@ List<EntryInfo> _listStorageRoot() {
     _load();
   }
 
-  /// 行编辑器打开。返回后刷新列表。
   Future<void> _openInLineEditor(String path, String name) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -906,7 +858,6 @@ List<EntryInfo> _listStorageRoot() {
     _load();
   }
 
-  /// "每次询问"模式：弹底部 sheet 让用户选，可以勾"记住"。
   Future<FileOpenMode?> _askOpenMode(String fileName) async {
     final remember = ValueNotifier<bool>(false);
     final picked = await showModalBottomSheet<FileOpenMode>(
@@ -984,8 +935,6 @@ List<EntryInfo> _listStorageRoot() {
     return picked;
   }
 
-  /// 把列表滚到指定路径那一项。
-  /// 路径不在当前列表里就什么都不做（比如搜索词改了、目录变了）。
   void _scrollToPath(String path) {
     int index = -1;
     if (_searchActive) {
@@ -996,14 +945,16 @@ List<EntryInfo> _listStorageRoot() {
     }
     if (index < 0) return;
 
+    final grid = _isGridMode;
+    final jumpIdx = grid ? index ~/ 2 : index;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!_itemScrollController.isAttached) return;
-      _itemScrollController.jumpTo(index: index);
+      _itemScrollController.jumpTo(index: jumpIdx);
     });
   }
 
-  /// 收集"当前视图里所有文本文件的路径"。
   List<String> _collectTextFilePaths() {
     if (_searchActive) {
       return [
@@ -1651,6 +1602,212 @@ List<EntryInfo> _listStorageRoot() {
         '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
   }
 
+  // ==================== 视图弹窗（替代原来的排序弹窗） ====================
+
+  Future<void> _showViewDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (c) => Consumer(
+        builder: (c, ref, _) {
+          final gridMode = ref.watch(browserGridModeProvider);
+          final gridShowSize = ref.watch(browserGridShowSizeProvider);
+          final gridShowTime = ref.watch(browserGridShowTimeProvider);
+          final fontListName = ref.watch(browserFontListNameProvider);
+          final fontListMeta = ref.watch(browserFontListMetaProvider);
+          final fontGridName = ref.watch(browserFontGridNameProvider);
+          final fontGridMeta = ref.watch(browserFontGridMetaProvider);
+          final sortField = ref.watch(sortFieldProvider);
+          final sortAsc = ref.watch(sortAscProvider);
+
+          return AlertDialog(
+            insetPadding: _dlgInset,
+            titlePadding: _dlgTitlePad,
+            contentPadding: _dlgContentPad,
+            actionsPadding: _dlgActionsPad,
+            title: const Text('视图'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.of(c).size.height * 0.75,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ---------- 显示方式 ----------
+                    _viewSectionTitle('显示方式'),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('列表'),
+                          selected: !gridMode,
+                          onSelected: (_) {
+                            ref
+                                .read(browserGridModeProvider.notifier)
+                                .update(false);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: const Text('网格'),
+                          selected: gridMode,
+                          onSelected: (_) {
+                            ref
+                                .read(browserGridModeProvider.notifier)
+                                .update(true);
+                          },
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 8),
+
+                    // ---------- 网格显示内容（仅网格） ----------
+                    if (gridMode) ...[
+                      _viewSectionTitle('网格显示内容'),
+                      Row(
+                        children: [
+                          const Text('显示大小',
+                              style: TextStyle(fontSize: 13)),
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: gridShowSize,
+                            onChanged: (v) => ref
+                                .read(browserGridShowSizeProvider.notifier)
+                                .update(v),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          const Text('显示时间',
+                              style: TextStyle(fontSize: 13)),
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: gridShowTime,
+                            onChanged: (v) => ref
+                                .read(browserGridShowTimeProvider.notifier)
+                                .update(v),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // ---------- 字号（按当前模式显示对应两项） ----------
+                    _viewSectionTitle('字号'),
+                    const SizedBox(height: 4),
+                    if (!gridMode) ...[
+                      _FontSizeRow(
+                        key: const ValueKey('fontListName'),
+                        label: '文件名',
+                        value: fontListName,
+                        onChanged: (v) => ref
+                            .read(browserFontListNameProvider.notifier)
+                            .set(v),
+                      ),
+                      _FontSizeRow(
+                        key: const ValueKey('fontListMeta'),
+                        label: '大小 / 时间',
+                        value: fontListMeta,
+                        onChanged: (v) => ref
+                            .read(browserFontListMetaProvider.notifier)
+                            .set(v),
+                      ),
+                    ] else ...[
+                      _FontSizeRow(
+                        key: const ValueKey('fontGridName'),
+                        label: '文件名',
+                        value: fontGridName,
+                        onChanged: (v) => ref
+                            .read(browserFontGridNameProvider.notifier)
+                            .set(v),
+                      ),
+                      _FontSizeRow(
+                        key: const ValueKey('fontGridMeta'),
+                        label: '大小 / 时间',
+                        value: fontGridMeta,
+                        onChanged: (v) => ref
+                            .read(browserFontGridMetaProvider.notifier)
+                            .set(v),
+                      ),
+                    ],
+
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 8),
+
+                    // ---------- 排序方式 ----------
+                    _viewSectionTitle('排序方式'),
+                    for (final f in SortField.values)
+                      RadioListTile<SortField>(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(_sortLabel(f)),
+                        value: f,
+                        groupValue: sortField,
+                        onChanged: (v) {
+                          if (v == null) return;
+                          ref.read(sortFieldProvider.notifier).update(v);
+                          _load();
+                        },
+                      ),
+                    const Divider(),
+                    RadioListTile<bool>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('升序'),
+                      value: true,
+                      groupValue: sortAsc,
+                      onChanged: (_) {
+                        ref.read(sortAscProvider.notifier).update(true);
+                        _load();
+                      },
+                    ),
+                    RadioListTile<bool>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('降序'),
+                      value: false,
+                      groupValue: sortAsc,
+                      onChanged: (_) {
+                        ref.read(sortAscProvider.notifier).update(false);
+                        _load();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('关闭'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _viewSectionTitle(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 2),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
   // ==================== 排序 / 收藏 ====================
 
   String _sortLabel(SortField f) {
@@ -1661,76 +1818,6 @@ List<EntryInfo> _listStorageRoot() {
         return '修改时间';
       case SortField.size:
         return '大小';
-    }
-  }
-
-  Future<void> _showSortDialog() async {
-    var tmpField = ref.read(sortFieldProvider);
-    var tmpAsc = ref.read(sortAscProvider);
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (c, setState) => AlertDialog(
-          insetPadding: _dlgInset,
-          titlePadding: _dlgTitlePad,
-          contentPadding: _dlgContentPad,
-          actionsPadding: _dlgActionsPad,
-          title: const Text('排序方式'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final f in SortField.values)
-                    RadioListTile<SortField>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(_sortLabel(f)),
-                      value: f,
-                      groupValue: tmpField,
-                      onChanged: (v) =>
-                          setState(() => tmpField = v ?? tmpField),
-                    ),
-                  const Divider(),
-                  RadioListTile<bool>(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('升序'),
-                    value: true,
-                    groupValue: tmpAsc,
-                    onChanged: (_) => setState(() => tmpAsc = true),
-                  ),
-                  RadioListTile<bool>(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('降序'),
-                    value: false,
-                    groupValue: tmpAsc,
-                    onChanged: (_) => setState(() => tmpAsc = false),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (result == true && mounted) {
-      ref.read(sortFieldProvider.notifier).update(tmpField);
-      ref.read(sortAscProvider.notifier).update(tmpAsc);
-      _load();
     }
   }
 
@@ -2275,18 +2362,26 @@ List<EntryInfo> _listStorageRoot() {
       final c = crumbs[i];
       final isLast = i == crumbs.length - 1;
       if (i > 0) {
-        widgets.add(Icon(Icons.chevron_right, size: 16, color: s.outline));
+        widgets.add(Icon(
+          Icons.chevron_right,
+          size: 16,
+          color: _selectionMode ? Colors.grey.shade300 : s.outline,
+        ));
       }
       widgets.add(
         GestureDetector(
-          onTap: isLast ? null : () => _navigateTo(c.path),
+          onTap: (_selectionMode || isLast)
+              ? null
+              : () => _navigateTo(c.path),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: Text(
               c.label,
               style: TextStyle(
                 fontSize: 12,
-                color: isLast ? Colors.black : Colors.black54,
+                color: _selectionMode
+                    ? Colors.grey.shade400
+                    : (isLast ? Colors.black : Colors.black54),
                 fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
               ),
             ),
@@ -2324,6 +2419,12 @@ List<EntryInfo> _listStorageRoot() {
         '${two(t.hour)}:${two(t.minute)}';
   }
 
+  /// 网格模式用的短时间格式：`MM-DD HH:mm`。
+  static String _formatGridTime(DateTime t) {
+    String two(int n) => n < 10 ? '0$n' : '$n';
+    return '${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
+  }
+
   String get _title {
     if (_currentPath == _topPath) return '存储';
     if (_currentPath == _rootPath) return '内部存储';
@@ -2357,7 +2458,7 @@ List<EntryInfo> _listStorageRoot() {
             _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
         body: Column(
           children: [
-            if (!_selectionMode) _buildBreadcrumbs(),
+            _buildBreadcrumbs(),
             IgnorePointer(
               ignoring: _selectionMode,
               child: _buildSearchBar(),
@@ -2437,8 +2538,8 @@ List<EntryInfo> _listStorageRoot() {
               case 'refresh':
                 DirCache.instance.invalidate(_currentPath);
                 _load(skipCache: true);
-              case 'sort':
-                _showSortDialog();
+              case 'view':
+                _showViewDialog();
               case 'favorites':
                 _showFavorites();
               case 'newFolder':
@@ -2490,12 +2591,12 @@ List<EntryInfo> _listStorageRoot() {
               ),
             ),
             const PopupMenuItem<String>(
-              value: 'sort',
+              value: 'view',
               child: Row(
                 children: [
-                  Icon(Icons.sort),
+                  Icon(Icons.grid_view),
                   SizedBox(width: 10),
-                  Text('排序方式'),
+                  Text('视图'),
                 ],
               ),
             ),
@@ -2532,7 +2633,6 @@ List<EntryInfo> _listStorageRoot() {
     final allSelected =
         all.isNotEmpty && all.every((p) => _selectedPaths.contains(p));
     return AppBar(
-      toolbarHeight: kToolbarHeight + 28,
       leading: IconButton(
         icon: const Icon(Icons.close),
         onPressed: () => setState(_clearSelection),
@@ -2713,7 +2813,13 @@ List<EntryInfo> _listStorageRoot() {
                   flex: 3,
                   child: FilledButton.icon(
                     icon: const Icon(Icons.compare_arrows, size: 16),
-                    label: const Text('对比'),
+                    label: const Text(
+                      '对比',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     onPressed: canCompare ? _startCompare : null,
                   ),
                 ),
@@ -2729,10 +2835,13 @@ List<EntryInfo> _listStorageRoot() {
                         color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
-                    onPressed: canProps ? _showProperties : null,
+                    onPressed: canMd5 ? _md5Compare : null,
                     child: const Text(
-                      '属性',
-                      style: TextStyle(fontSize: 11),
+                      'MD5',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -2753,7 +2862,10 @@ List<EntryInfo> _listStorageRoot() {
                     onPressed: canProps ? _copyPath : null,
                     child: const Text(
                       '复制路径',
-                      style: TextStyle(fontSize: 11),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -2774,7 +2886,10 @@ List<EntryInfo> _listStorageRoot() {
                     onPressed: canProps ? _exportFolderListing : null,
                     child: const Text(
                       '导出清单',
-                      style: TextStyle(fontSize: 11),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -2787,9 +2902,9 @@ List<EntryInfo> _listStorageRoot() {
               children: [
                 Expanded(
                   child: _wideAction(
-                    icon: Icons.fingerprint,
-                    label: 'MD5',
-                    onPressed: canMd5 ? _md5Compare : null,
+                    icon: Icons.info_outline,
+                    label: '属性',
+                    onPressed: canProps ? _showProperties : null,
                   ),
                 ),
                 Expanded(
@@ -2817,7 +2932,6 @@ List<EntryInfo> _listStorageRoot() {
                   child: _wideAction(
                     icon: Icons.delete_outline,
                     label: '删除',
-                    color: Colors.red,
                     onPressed: canOps ? _delete : null,
                   ),
                 ),
@@ -2848,7 +2962,14 @@ List<EntryInfo> _listStorageRoot() {
           children: [
             Icon(icon, size: 22, color: c),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 11, color: c)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: c,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ],
         ),
       ),
@@ -2858,88 +2979,9 @@ List<EntryInfo> _listStorageRoot() {
   // ==================== 主体 ====================
 
   Widget _buildBody() {
-    // 搜索模式
     if (_searchActive) {
-      if (_searchResults.isEmpty) {
-        return Center(
-          child: Text(_searching ? '正在扫描...' : '未找到匹配'),
-        );
-      }
-      return ScrollablePositionedList.builder(
-        itemScrollController: _itemScrollController,
-        itemPositionsListener: _positionsListener,
-        itemCount: _searchResults.length,
-        itemBuilder: (ctx, i) {
-          final hit = _searchResults[i];
-          final selected = _selectedPaths.contains(hit.path);
-          final metaLine = [
-            _formatSize(hit.size),
-            _formatTime(hit.modified),
-          ].where((s) => s.isNotEmpty).join(' · ');
-
-          return Container(
-            foregroundDecoration: selected
-                ? BoxDecoration(
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 2,
-                    ),
-                  )
-                : null,
-            child: ListTile(
-              dense: true,
-              isThreeLine: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-              selected: selected,
-              selectedTileColor: const Color(0xFFFFF3FB),
-              leading: _leading(
-                selectionMode: _selectionMode,
-                selected: selected,
-                isDir: false,
-                name: hit.name,
-                onToggle: () => _toggleSelectionPath(hit.path),
-              ),
-              title: Text(
-                hit.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (metaLine.isNotEmpty)
-                    Text(
-                      metaLine,
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  Text(
-                    hit.path,
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
-                        ?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                    softWrap: true,
-                  ),
-                ],
-              ),
-              onTap: () {
-                if (_selectionMode) {
-                  _toggleSelectionPath(hit.path);
-                  return;
-                }
-                _openFile(hit.path, hit.name, hit.size);
-              },
-              onLongPress: () => _onLongPressPath(hit.path),
-            ),
-          );
-        },
-      );
+      return _buildSearchResultsList();
     }
-
-    // 普通目录模式
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -2965,6 +3007,17 @@ List<EntryInfo> _listStorageRoot() {
     if (entries.isEmpty) {
       return const Center(child: Text('空目录'));
     }
+
+    return ref.watch(browserGridModeProvider)
+        ? _buildGridBody(entries)
+        : _buildListBody(entries);
+  }
+
+  // ==================== 列表模式 ====================
+
+  Widget _buildListBody(List<EntryInfo> entries) {
+    final fontName = ref.watch(browserFontListNameProvider);
+    final fontMeta = ref.watch(browserFontListMetaProvider);
 
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
@@ -3010,8 +3063,8 @@ List<EntryInfo> _listStorageRoot() {
               info.name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 15,
+              style: TextStyle(
+                fontSize: fontName,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -3021,7 +3074,12 @@ List<EntryInfo> _listStorageRoot() {
                 if (metaLine.isNotEmpty)
                   Text(
                     metaLine,
-                    style: Theme.of(context).textTheme.labelSmall,
+                    style: TextStyle(
+                      fontSize: fontMeta,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -3039,6 +3097,247 @@ List<EntryInfo> _listStorageRoot() {
               }
             },
             onLongPress: () => _onLongPressPath(e.path),
+          ),
+        );
+      },
+    );
+  }
+
+  // ==================== 网格模式 ====================
+
+  Widget _buildGridBody(List<EntryInfo> entries) {
+    final showSize = ref.watch(browserGridShowSizeProvider);
+    final showTime = ref.watch(browserGridShowTimeProvider);
+    final fontName = ref.watch(browserFontGridNameProvider);
+    final fontMeta = ref.watch(browserFontGridMetaProvider);
+
+    // 行数 = ceil(文件数 / 2)
+    final rowCount = (entries.length + 1) ~/ 2;
+
+    return ScrollablePositionedList.builder(
+      itemScrollController: _itemScrollController,
+      itemPositionsListener: _positionsListener,
+      itemCount: rowCount,
+      itemBuilder: (ctx, rowIdx) {
+        final leftIdx = rowIdx * 2;
+        final rightIdx = leftIdx + 1;
+
+        final leftInfo = entries[leftIdx];
+        final rightInfo =
+            rightIdx < entries.length ? entries[rightIdx] : null;
+
+        final leftWidget = _buildGridCell(
+          info: leftInfo,
+          showSize: showSize,
+          showTime: showTime,
+          fontName: fontName,
+          fontMeta: fontMeta,
+          isFirstCol: true,
+        );
+
+        final rightWidget = rightInfo == null
+            ? const SizedBox.shrink()
+            : _buildGridCell(
+                info: rightInfo,
+                showSize: showSize,
+                showTime: showTime,
+                fontName: fontName,
+                fontMeta: fontMeta,
+                isFirstCol: false,
+              );
+
+        // 行分隔线：整行底部画一条。
+        // 竖分隔线：两列之间画一条，贯穿整行高度。
+        // 用 IntrinsicHeight 让左右等高于较高者，矮的一侧下方留白。
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: leftWidget),
+              // 竖分隔线
+              Container(
+                width: _gridDividerThickness,
+                color: _gridDividerColor,
+              ),
+              Expanded(child: rightWidget),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGridCell({
+    required EntryInfo info,
+    required bool showSize,
+    required bool showTime,
+    required double fontName,
+    required double fontMeta,
+    required bool isFirstCol,
+  }) {
+    final e = info.entity;
+    final selected = _selectedPaths.contains(e.path);
+
+    // 元信息行：大小 + 时间，按开关决定。
+    final metaParts = <String>[];
+    if (showSize && !info.isDir && info.size != null) {
+      metaParts.add(_formatSize(info.size));
+    }
+    if (showTime && info.modified != null) {
+      metaParts.add(_formatGridTime(info.modified!));
+    }
+    final metaLine = metaParts.join(' · ');
+
+    return GestureDetector(
+      onTap: () {
+        if (_selectionMode) {
+          _toggleSelection(e);
+          return;
+        }
+        if (info.isDir) {
+          _navigateTo(e.path);
+        } else {
+          _openPreview(info);
+        }
+      },
+      onLongPress: () => _onLongPressPath(e.path),
+      child: Container(
+        decoration: BoxDecoration(
+          color: selected ? _gridSelectedBg : null,
+          border: selected
+              ? Border.all(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 2,
+                )
+              : null,
+          // 底部分隔线（横线）。最后一行的底部还会有一条，可接受。
+          // 想更精确可只在非最后一行画——留给你以后改。
+          border: selected
+              ? Border.all(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 2,
+                )
+              : Border(
+                  bottom: BorderSide(
+                    color: _gridDividerColor,
+                    width: _gridDividerThickness,
+                  ),
+                ),
+        ),
+        padding: EdgeInsets.symmetric(
+          horizontal: _gridCellPadH,
+          vertical: _gridCellPadV,
+        ),
+        // 用 IntrinsicHeight（外层）已经保证了左右等高，
+        // 这里用 Column + mainAxisSize.min，内容顶对齐，矮的下面留白。
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              info.name,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: fontName,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (metaLine.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                metaLine,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: fontMeta,
+                  color:
+                      Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== 搜索模式列表 ====================
+
+  Widget _buildSearchResultsList() {
+    if (_searchResults.isEmpty) {
+      return Center(
+        child: Text(_searching ? '正在扫描...' : '未找到匹配'),
+      );
+    }
+    return ScrollablePositionedList.builder(
+      itemScrollController: _itemScrollController,
+      itemPositionsListener: _positionsListener,
+      itemCount: _searchResults.length,
+      itemBuilder: (ctx, i) {
+        final hit = _searchResults[i];
+        final selected = _selectedPaths.contains(hit.path);
+        final metaLine = [
+          _formatSize(hit.size),
+          _formatTime(hit.modified),
+        ].where((s) => s.isNotEmpty).join(' · ');
+
+        return Container(
+          foregroundDecoration: selected
+              ? BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2,
+                  ),
+                )
+              : null,
+          child: ListTile(
+            dense: true,
+            isThreeLine: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            selected: selected,
+            selectedTileColor: const Color(0xFFFFF3FB),
+            leading: _leading(
+              selectionMode: _selectionMode,
+              selected: selected,
+              isDir: false,
+              name: hit.name,
+              onToggle: () => _toggleSelectionPath(hit.path),
+            ),
+            title: Text(
+              hit.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (metaLine.isNotEmpty)
+                  Text(
+                    metaLine,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                Text(
+                  hit.path,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                  softWrap: true,
+                ),
+              ],
+            ),
+            onTap: () {
+              if (_selectionMode) {
+                _toggleSelectionPath(hit.path);
+                return;
+              }
+              _openFile(hit.path, hit.name, hit.size);
+            },
+            onLongPress: () => _onLongPressPath(hit.path),
           ),
         );
       },
@@ -3105,6 +3404,104 @@ class _TextInputDialogState extends State<_TextInputDialog> {
           child: const Text('确定'),
         ),
       ],
+    );
+  }
+}
+
+/// 一行字号设置：标签 + [- 数字 +]。
+///
+/// 值范围 1~38。数字用 TextEditingController 保持同步，用户随时
+/// 可以改数字或按加减。
+class _FontSizeRow extends StatefulWidget {
+  const _FontSizeRow({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<_FontSizeRow> createState() => _FontSizeRowState();
+}
+
+class _FontSizeRowState extends State<_FontSizeRow> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.value.round().toString());
+  }
+
+  @override
+  void didUpdateWidget(covariant _FontSizeRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 外部值变了（比如 +/- 按钮触发），刷新输入框。
+    final cur = widget.value.round().toString();
+    if (_ctrl.text != cur) {
+      _ctrl.text = cur;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _step(int delta) {
+    final next = (widget.value.round() + delta).clamp(1, 38).toDouble();
+    widget.onChanged(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(widget.label, style: const TextStyle(fontSize: 13)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.remove),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _step(-1),
+          ),
+          SizedBox(
+            width: 56,
+            child: TextFormField(
+              controller: _ctrl,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(
+                isDense: true,
+                border: OutlineInputBorder(),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              ),
+              onFieldSubmitted: (v) {
+                final n = int.tryParse(v.trim());
+                if (n == null) {
+                  _ctrl.text = widget.value.round().toString();
+                  return;
+                }
+                final clamped = n.clamp(1, 38).toDouble();
+                widget.onChanged(clamped);
+              },
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _step(1),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -3299,7 +3696,7 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     final from = visible.indexOf(anchor);
     final to = visible.indexOf(path);
     if (from < 0 || to < 0) {
-      // 锚点被换目录/换过滤冲掉了 → 重设
+      // 锚点被换目录冲掉了 → 重设
       setState(() => _rangeAnchorPath = path);
       return;
     }
