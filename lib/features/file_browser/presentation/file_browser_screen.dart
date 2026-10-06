@@ -4305,12 +4305,11 @@ if (item.isZip) {
       ),
       selected: selected,
       selectedTileColor: const Color(0xFFFFF3FB),
-      leading: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Icon(
-          zipIcon,
+      
+        leading: Icon(
+  zipIcon,
           color: Colors.blue.shade600,
-        ),
+        
       ),
       title: Text(
         item.displayName,
@@ -4398,10 +4397,8 @@ if (item.isZip) {
         ),
         selected: selected,
         selectedTileColor: const Color(0xFFFFF3FB),
-        leading: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Icon(
-            isZipInner
+        leading: Icon(
+  isZipInner
                 ? Icons.insert_drive_file_outlined
                 : (item.isDir
                     ? Icons.folder
@@ -4411,7 +4408,7 @@ if (item.isZip) {
                 : (item.isDir
                     ? Colors.amber.shade600
                     : _fileColor(item.displayName)),
-          ),
+          
         ),
         title: Text(
           item.displayName,
@@ -4737,8 +4734,9 @@ if (item.isZip) {
       foregroundDecoration: selected
           ? BoxDecoration(
               border: Border.all(
-                color: colorScheme.primary,
-                width: 2,
+                
+                  color: const Color(0xFFFF00C3),   // 紫色
+                width: 1,
               ),
             )
           : null,
