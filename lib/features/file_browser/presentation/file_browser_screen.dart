@@ -4282,16 +4282,39 @@ if (item.isZip) {
     : Icons.folder_zip;
   final metaLine = _buildItemMetaLine(item);
 
-  return Container(
-    foregroundDecoration: selected
-        ? BoxDecoration(
-            border: Border.all(
+
+
+
+    
+return Container(
+  foregroundDecoration: selected
+      ? BoxDecoration(
+          border: Border(
+            top: BorderSide(
               color: colorScheme.primary,
               width: 2,
             ),
-          )
-        : null,
-    child: ListTile(
+            bottom: BorderSide(
+              color: colorScheme.primary,
+              width: 1,
+            ),
+            left: BorderSide(
+              color: colorScheme.primary,
+              width: 2,
+            ),
+            right: BorderSide(
+              color: colorScheme.primary,
+              width: 2,
+            ),
+          ),
+        )
+      : null,
+  child: ListTile(
+
+
+
+
+        
       dense: true,
 
          minVerticalPadding: 0,                                              // ← 加这行
@@ -4377,19 +4400,38 @@ if (item.isZip) {
     final isZipInner = item.isZipInner;
     final metaLine = _buildItemMetaLine(item);
 
-    return Container(
-      foregroundDecoration: selected
-          ? BoxDecoration(
-              border: Border.all(
-                color: colorScheme.primary,
-                width: 2,
-              ),
-            )
-          : null,
 
 
-        
-child: ListTile(
+      return Container(
+  foregroundDecoration: selected
+      ? BoxDecoration(
+          border: Border(
+            top: BorderSide(
+              color: colorScheme.primary,
+              width: 2,
+            ),
+            bottom: BorderSide(
+              color: colorScheme.primary,
+              width: 1,
+            ),
+            left: BorderSide(
+              color: colorScheme.primary,
+              width: 2,
+            ),
+            right: BorderSide(
+              color: colorScheme.primary,
+              width: 2,
+            ),
+          ),
+        )
+      : null,
+  child: ListTile(
+
+
+
+
+
+    
   dense: true,
   minVerticalPadding: 0,
   visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
