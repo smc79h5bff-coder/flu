@@ -2306,27 +2306,43 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _spansCache.clear();
     }
 
+
+
+
+
+    
     if (_lastSeenMode != settings.readerMode) {
-      _lastSeenMode = settings.readerMode;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _saveProgressNow();
-        if (settings.readerMode == 0 && _paginator?.result != null) {
-          final path = _filePaths[_fileIndex];
-          final fileKey = readerFileKey(path);
-          final progress = ref.read(readerProgressProvider)[fileKey];
-          if (progress != null) {
-            final targetPage = findPageForOffset(
-              _paginator!.result!,
-              progress.charOffset,
-            );
-            if (targetPage != _currentPage) {
-              setState(() => _currentPage = targetPage);
-            }
-          }
-        }
-      });
+  final oldMode = _lastSeenMode;
+  final newMode = settings.readerMode;
+  _lastSeenMode = newMode;
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+
+    // 只在"分页 → 滚动"时保存分页当前页的位置。
+    // "滚动 → 分页"不保存——滚动模式自己会实时更新进度，
+    // 保存反而会用它旧的分页器 _currentPage 覆盖掉。
+    if (oldMode == 0 && newMode == 1) {
+      _saveProgressNow();
     }
+
+    // 从滚动切到分页：读进度跳到对应页
+    if (newMode == 0 && _paginator?.result != null) {
+      final path = _filePaths[_fileIndex];
+      final fileKey = readerFileKey(path);
+      final progress = ref.read(readerProgressProvider)[fileKey];
+      if (progress != null) {
+        final targetPage = findPageForOffset(
+          _paginator!.result!,
+          progress.charOffset,
+        );
+        if (targetPage != _currentPage) {
+          setState(() => _currentPage = targetPage);
+        }
+      }
+    }
+  });
+}
 
     if (_sel != null && _selVersion != _lastOverlayVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
