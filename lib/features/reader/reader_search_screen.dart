@@ -498,11 +498,16 @@ class ReaderSearchMinibar extends ConsumerWidget {
     final pos = state.currentPos;
     final total = state.hits.length;
 
-    return Material(
-      color: Colors.white.withValues(alpha: 0.2),
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.10,
-        child: Row(
+return Container(
+  decoration: BoxDecoration(
+    color: Colors.white.withValues(alpha: 0.85),
+    border: Border(
+      top: BorderSide(color: Colors.grey.shade300, width: 1),
+    ),
+  ),
+  child: SizedBox(
+    height: MediaQuery.of(context).size.height * 0.10,
+    child: Row(
           children: [
             const SizedBox(width: 4),
             IconButton(
