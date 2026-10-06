@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -616,6 +617,14 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
       color: const Color(0xFF222222),
     );
 
+    // 滚动模式的安全边距：正数才生效，负数按 0 处理。
+    final topPad = s.scrollTopSafePx > 0
+        ? s.scrollTopSafePx.toDouble()
+        : 0.0;
+    final bottomPad = s.scrollBottomSafePx > 0
+        ? s.scrollBottomSafePx.toDouble()
+        : 0.0;
+
     return ColoredBox(
       color: bgColor,
       child: Stack(
@@ -633,9 +642,11 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
                 itemPositionsListener: _positions,
                 physics: _scrollPhysics,
                 itemCount: widget.lines.length,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 2,
+                padding: EdgeInsets.only(
+                  left: 4,
+                  right: 4,
+                  top: 2 + topPad,
+                  bottom: 2 + bottomPad,
                 ),
                 itemBuilder: (ctx, i) {
                   final key = _lineKeys.putIfAbsent(i, () => GlobalKey());
@@ -1693,3 +1704,4 @@ class _HandlePainter extends CustomPainter {
   bool shouldRepaint(_HandlePainter old) =>
       old.color != color || old.isLeft != isLeft || old.flip != flip;
 }
+
