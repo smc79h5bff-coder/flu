@@ -3264,9 +3264,8 @@ final effectiveStyle = _baseStyle(settings);
       }
     }
 
-    final safeTop = MediaQuery.of(context).padding.top;
-    final screenH = MediaQuery.of(context).size.height;
 
+    final screenH = _lastContentSize.height;
     Widget handle(Offset globalPos, int which) {
       final isLeft = which == 1;
       final textTopY = globalPos.dy;
@@ -3386,7 +3385,13 @@ if (bottomOverflow) {
     const double gap = 18;
     const double margin = 8;
 
-    final h = drag.handlePos;
+
+
+    final contentCtx = _contentKey.currentContext;
+if (contentCtx == null) return const SizedBox.shrink();
+final contentBox = contentCtx.findRenderObject() as RenderBox?;
+if (contentBox == null) return const SizedBox.shrink();
+final h = contentBox.globalToLocal(drag.handlePos);
 
     final aboveCenter = Offset(h.dx, h.dy - gap - loupeH / 2);
     final belowCenter = Offset(h.dx, h.dy + gap + loupeH / 2);
