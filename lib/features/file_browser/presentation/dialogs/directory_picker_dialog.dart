@@ -476,17 +476,19 @@ class _DirectoryPickerDialogState
 
   // ========== 全部页：上 70% 收藏 + 下 30% 最近，无标题无分界 ==========
   Widget _buildAllPage(List<String> favorites, List<String> recents) {
-    return Column(
-      children: [
-        Expanded(
-          flex: 7,
-          child: ListView.builder(
-            padding: EdgeInsets.zero,
-            itemCount: favorites.length,
-            itemBuilder: (ctx, i) =>
-                _shortcutTile(favorites[i], isFavorite: true),
+  return Column(
+    children: [
+      Expanded(
+        flex: 7,
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          itemCount: favorites.length,
+          itemBuilder: (ctx, i) => _shortcutTile(
+            favorites[favorites.length - 1 - i],
+            isFavorite: true,
           ),
         ),
+      ),
         Expanded(
           flex: 3,
           child: ListView.builder(
