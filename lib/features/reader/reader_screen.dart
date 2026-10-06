@@ -346,6 +346,7 @@ class ReaderScreen extends ConsumerStatefulWidget {
 class _ReaderScreenState extends ConsumerState<ReaderScreen>
     with WidgetsBindingObserver {
   Size _viewportSize = Size.zero;
+  Size _lastContentSize = Size.zero;   // ← 加这行
 
   late int _fileIndex;
 
@@ -2372,6 +2373,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   child: LayoutBuilder(
               builder: (ctx, constraints) {
                 final size = Size(constraints.maxWidth, constraints.maxHeight);
+                _lastContentSize = size;   // ← 加这行
 
                 final route = ModalRoute.of(context);
                 final routeIsCurrent = route == null || route.isCurrent;
@@ -2660,19 +2662,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   bool _isInHotZone(Offset globalPos) {
     final settings = ref.read(readerSettingsProvider);
-    final screen = MediaQuery.of(context).size;
-    final safe = MediaQuery.of(context).padding;
-    final contentLeft = safe.left;
-    final contentTop = safe.top;
-    final contentW = screen.width - safe.left - safe.right;
-    final contentH = screen.height - safe.top - safe.bottom;
+    final size = _lastContentSize;
+    if (size.width < 10 || size.height < 10) return false;
 
     final left =
-        contentLeft + (settings.hotZoneX - settings.hotZoneW / 2) * contentW;
+        (settings.hotZoneX - settings.hotZoneW / 2) * size.width;
     final top =
-        contentTop + (settings.hotZoneY - settings.hotZoneH / 2) * contentH;
-    final right = left + settings.hotZoneW * contentW;
-    final bottom = top + settings.hotZoneH * contentH;
+        (settings.hotZoneY - settings.hotZoneH / 2) * size.height;
+    final right = left + settings.hotZoneW * size.width;
+    final bottom = top + settings.hotZoneH * size.height;
 
     return globalPos.dx >= left &&
         globalPos.dx <= right &&
@@ -2684,17 +2682,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final settings = ref.read(readerSettingsProvider);
     if (!settings.showButtons) return null;
 
-    final screen = MediaQuery.of(context).size;
-    final safe = MediaQuery.of(context).padding;
-    final contentLeft = safe.left;
-    final contentTop = safe.top;
-    final contentW = screen.width - safe.left - safe.right;
-    final contentH = screen.height - safe.top - safe.bottom;
+    final size = _lastContentSize;
+    if (size.width < 10 || size.height < 10) return null;
 
     bool inBtn(double x, double y, double scale) {
       final btnSize = 50.0 * scale;
-      final cx = contentLeft + x * contentW;
-      final cy = contentTop + y * contentH;
+      final cx = x * size.width;
+      final cy = y * size.height;
       final dx = globalPos.dx - cx;
       final dy = globalPos.dy - cy;
       final r = btnSize / 2 + 8;
@@ -3651,4 +3645,3 @@ final effectiveStyle = _baseStyle(settings);
     });
   }
 }
-
