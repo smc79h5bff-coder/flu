@@ -87,6 +87,8 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
       setState(() {});
       return;
     }
+     ref.read(readerFindHistoryProvider.notifier).add(query);   // ← 加这一行
+    
     setState(() => _searching = true);
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
