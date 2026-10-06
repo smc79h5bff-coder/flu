@@ -560,6 +560,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return '$path|'
         '${_viewportSize.width}x${_viewportSize.height}|'
         '${s.fontSize}|${s.fontWeight}|'
+        '${s.pageTopSafePx}|'
         '${s.pageBottomSafePx}|'
         '${_manualEncoding?.name ?? "auto"}';
   }
@@ -631,7 +632,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final settings = ref.read(readerSettingsProvider);
       log.mark('读 readerSettings');
       log.info(
-          'fontSize=${settings.fontSize} fontWeight=${settings.fontWeight} pageBottomSafePx=${settings.pageBottomSafePx}');
+          'fontSize=${settings.fontSize} fontWeight=${settings.fontWeight} pageTopSafePx=${settings.pageTopSafePx} pageBottomSafePx=${settings.pageBottomSafePx}');
 
       final paginator = ReaderPaginator(
         text: text,
@@ -639,6 +640,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         viewportHeight: _viewportSize.height,
         fontSize: settings.fontSize,
         fontWeight: settings.fontWeight,
+        pageTopSafePx: settings.pageTopSafePx,
         pageBottomSafePx: settings.pageBottomSafePx,
       );
       log.mark('new ReaderPaginator');
@@ -2455,6 +2457,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _lastUnitEnd = range.endUnit;
     }
 
+    // 顶部/底部安全边距：正数才加 padding，负数在分页器里已经"榨"过高度。
+    final topExtra = settings.pageTopSafePx > 0
+        ? settings.pageTopSafePx.toDouble()
+        : 0.0;
+    final bottomExtra = settings.pageBottomSafePx > 0
+        ? settings.pageBottomSafePx.toDouble()
+        : 0.0;
+
     return Stack(
       children: [
         Positioned.fill(
@@ -2466,9 +2476,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             onPointerCancel: _onPointerCancel,
             child: Container(
               key: _contentKey,
-              padding: const EdgeInsets.symmetric(
-                horizontal: kReaderHorizontalPadding,
-                vertical: kReaderVerticalPadding,
+              padding: EdgeInsets.only(
+                left: kReaderHorizontalPadding,
+                right: kReaderHorizontalPadding,
+                top: kReaderVerticalPadding + topExtra,
+                bottom: kReaderVerticalPadding + bottomExtra,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
