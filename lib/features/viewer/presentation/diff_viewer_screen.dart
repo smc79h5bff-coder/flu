@@ -2613,18 +2613,18 @@ title: Row(
     if (_modifiedDeleted) parts.add('右边文件');
     return Container(
       width: double.infinity,
-      color: Colors.red.shade100,
+      color: Colors.red.shade900,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         children: [
-          Icon(Icons.warning_amber, size: 16, color: Colors.red.shade900),
+          Icon(Icons.warning_amber, size: 16, color: Colors.white),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               '${parts.join(" / ")} 已从磁盘删除（下方内容仅内存保留）',
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.red.shade900,
+                color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
             ),
