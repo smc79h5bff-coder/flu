@@ -4291,19 +4291,23 @@ return Container(
       ? BoxDecoration(
           border: Border(
             top: BorderSide(
-              color: colorScheme.primary,
+  
+              color: const Color(0xFFB000FF),   // 紫色
               width: 2,
             ),
             bottom: BorderSide(
-              color: colorScheme.primary,
+   
+              color: const Color(0xFFB000FF),   // 紫色
               width: 1,
             ),
             left: BorderSide(
-              color: colorScheme.primary,
+   
+              color: const Color(0xFFB000FF),   // 紫色
               width: 2,
             ),
             right: BorderSide(
-              color: colorScheme.primary,
+   
+              color: const Color(0xFFB000FF),   // 紫色
               width: 2,
             ),
           ),
