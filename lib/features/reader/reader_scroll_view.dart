@@ -971,14 +971,19 @@ Positioned.fill(
     final screenMid = stackSize.height / 2;
     final showBelow = midY < screenMid;
 
-    double top;
-    if (showBelow) {
-      top = selBottom + 8;
-    } else {
-      top = selTop - approxH - 8;
-    }
-    top = top.clamp(4.0, stackSize.height - approxH - 4);
 
+
+    
+double top;
+if (showBelow) {
+  top = selBottom + 40;
+} else {
+  top = selTop - approxH - 40;
+}
+top = top.clamp(4.0, stackSize.height - approxH - 4);
+
+
+    
     double left = startPos.dx - 8;
     if (left + approxW > stackSize.width - 4) {
       left = stackSize.width - approxW - 4;
