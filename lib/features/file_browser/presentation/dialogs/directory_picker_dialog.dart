@@ -339,7 +339,7 @@ class _DirectoryPickerDialogState
                                   horizontal: 8),
                               
                               leading: Icon(Icons.folder,
-    color: Colors.amber.shade300),
+    color: Colors.amber.shade200),
                               
                               title: Text(
                                 name,
@@ -457,11 +457,12 @@ class _DirectoryPickerDialogState
       color: isFavorite ? Colors.amber : null,
     ),
     title: Text(
-      relPath,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 14),
-    ),
+  relPath,
+  style: const TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.bold,
+  ),
+),
     onTap: () => _selectShortcut(path),
 
     onLongPress: () async{
