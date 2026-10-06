@@ -153,12 +153,19 @@ class _DirectoryPickerDialogState
   }
 
   String _relPath(String fullPath) {
-    if (fullPath == widget.rootPath) return '/';
-    if (fullPath.startsWith('${widget.rootPath}/')) {
-      return fullPath.substring(widget.rootPath.length);
+  if (fullPath == widget.rootPath) return '/';
+  if (fullPath.startsWith('${widget.rootPath}/')) {
+    var rel = fullPath.substring(widget.rootPath.length);
+    // 隐藏 emulated 前缀
+    if (rel.startsWith('/emulated/')) {
+      rel = rel.substring('/emulated'.length);
+    } else if (rel == '/emulated') {
+      rel = '/';
     }
-    return fullPath;
+    return rel;
   }
+  return fullPath;
+}
 
   @override
   Widget build(BuildContext context) {
@@ -431,38 +438,33 @@ class _DirectoryPickerDialogState
     );
   }
 
+
+
+
+
+
+
   Widget _shortcutTile(String path, {required bool isFavorite}) {
-    final name = path.split('/').last;
-    final displayName = path == widget.rootPath ? '/' : name;
+  final relPath = _relPath(path);
 
-    final relPath = _relPath(path);
+  return ListTile(
+    dense: true,
+    horizontalTitleGap: 2,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+    leading: Icon(
+      isFavorite ? Icons.star : Icons.history,
+      size: 18,
+      color: isFavorite ? Colors.amber : null,
+    ),
+    title: Text(
+      relPath,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 14),
+    ),
+    onTap: () => _selectShortcut(path),
 
-    return ListTile(
-      dense: true,
-      horizontalTitleGap: 2,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      leading: Icon(
-        isFavorite ? Icons.star : Icons.history,
-        size: 18,
-        color: isFavorite ? Colors.amber : null,
-      ),
-      title: Text(
-        displayName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 13),
-      ),
-      subtitle: Text(
-        relPath,
-        style: TextStyle(
-          fontSize: 11,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-        softWrap: true,
-      ),
-      onTap: () => _selectShortcut(path),
-
-      onLongPress: () async {
+    onLongPress: () async{
         final ok = await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
