@@ -330,8 +330,10 @@ class _DirectoryPickerDialogState
                               horizontalTitleGap: 2,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8),
-                              leading: const Icon(Icons.folder,
-                                  color: Colors.amber),
+                              
+                              leading: Icon(Icons.folder,
+    color: Colors.amber.shade300),
+                              
                               title: Text(
                                 name,
                                 softWrap: true,
