@@ -4800,9 +4800,7 @@ return Container(
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
     }
 
-    if (item.isZip && !item.isZipInner) {
-      return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
-    }
+    
 
     if (item.isZipInner && item.isDir) {
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
@@ -4837,14 +4835,16 @@ return Container(
         selected: selected,
         selectedTileColor: const Color(0xFFF4FFF5),
         leading: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Icon(
-            Icons.insert_drive_file_outlined,
-            color: isZipInner
-                ? Colors.blueGrey.shade300
-                : _fileColor(item.displayName),
-          ),
-        ),
+  padding: const EdgeInsets.only(top: 4),
+  child: Icon(
+    item.isZip
+        ? Icons.folder_zip
+        : Icons.insert_drive_file_outlined,
+    color: isZipInner
+        ? Colors.blueGrey.shade300
+        : _fileColor(item.displayName),
+  ),
+),
         title: Text(
           item.displayName,
           maxLines: 2,
