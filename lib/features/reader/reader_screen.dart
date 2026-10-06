@@ -1078,16 +1078,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   void _jumpToPage(int page) {
-    final p = _paginator;
-    if (p == null || p.result == null) return;
-    final maxPage = p.result!.pageCount - 1;
-    final pg = page.clamp(0, maxPage);
-    _clearSelection();
-    setState(() => _currentPage = pg);
-    _invalidatePageCaches();
-    p.notifyVisiblePage(pg);
-    _saveProgress();
-    _syncPagePreview();
+  // ★ 新加：滚动模式下，换算成字符偏移，交给滚动视图
+  final settings = ref.read(readerSettingsProvider);
+  if (settings.readerMode == 1) {
+    final pr = _paginator?.result;
+    if (pr == null) return;
+    final offset = pageStartOffset(pr, page);
+    _scrollViewKey.currentState?.jumpToOffset(offset);
+    return;
+  }
+
+  // ↓↓↓ 以下原封不动 ↓↓↓
+  final p = _paginator;
+  if (p == null || p.result == null) return;
+  final maxPage = p.result!.pageCount - 1;
+  final pg = page.clamp(0, maxPage);
+  _clearSelection();
+  setState(() => _currentPage = pg);
+  _invalidatePageCaches();
+  p.notifyVisiblePage(pg);
+  _saveProgress();
+  _syncPagePreview();
   }
 
   // ★ 改动8：_invalidatePageCaches 别全清
