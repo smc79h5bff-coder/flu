@@ -4745,6 +4745,8 @@ if (item.isZip) {
       child: ListTile(
         dense: true,
         isThreeLine: true,
+          minVerticalPadding: 0,                                              // ← 加这行
+  visualDensity: const VisualDensity(horizontal: 0, vertical: -4),   // ← 加这行
         contentPadding: EdgeInsets.only(
           left: 8.0 + item.depth * 18.0,
           right: 8,
