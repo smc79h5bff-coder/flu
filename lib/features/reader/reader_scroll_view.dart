@@ -630,25 +630,41 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
       child: Stack(
         key: _stackKey,
         children: [
-          Positioned.fill(
-            child: Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: _onPointerDown,
-              onPointerMove: _onPointerMove,
-              onPointerUp: _onPointerUp,
-              onPointerCancel: _onPointerCancel,
-              child: ScrollablePositionedList.builder(
-                itemScrollController: _scrollCtrl,
-                itemPositionsListener: _positions,
-                physics: _scrollPhysics,
-                itemCount: widget.lines.length,
-                padding: EdgeInsets.only(
-                  left: 4,
-                  right: 4,
-                  top: 2 + topPad,
-                  bottom: 2 + bottomPad,
-                ),
-                itemBuilder: (ctx, i) {
+
+
+
+
+
+
+Positioned.fill(
+  child: Padding(                                   // ← 新增外层
+    padding: EdgeInsets.only(
+      top: topPad,
+      bottom: bottomPad,
+    ),
+    child: Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _onPointerDown,
+      onPointerMove: _onPointerMove,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
+      child: ScrollablePositionedList.builder(
+        itemScrollController: _scrollCtrl,
+        itemPositionsListener: _positions,
+        physics: _scrollPhysics,
+        itemCount: widget.lines.length,
+        padding: const EdgeInsets.only(          // ← 恢复默认
+          left: 4,
+          right: 4,
+          top: 2,
+          bottom: 2,
+        ),
+        itemBuilder: (ctx, i) {
+
+
+
+
+                  
                   final key = _lineKeys.putIfAbsent(i, () => GlobalKey());
                   final searchState = ref.watch(readerSearchProvider);
                   final searchHit =
@@ -681,6 +697,7 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
                 },
               ),
             ),
+    ),
           ),
 
           ..._buildHandles(),
