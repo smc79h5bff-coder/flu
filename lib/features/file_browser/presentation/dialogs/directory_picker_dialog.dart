@@ -342,9 +342,13 @@ class _DirectoryPickerDialogState
     color: Colors.amber.shade200),
                               
                               title: Text(
-                                name,
-                                softWrap: true,
-                              ),
+  name,
+  softWrap: true,
+  style: const TextStyle(
+    color: Colors.black,
+  ),
+),
+                              
                               onTap: () {
                                 setState(() {
                                   _path = d.path;
