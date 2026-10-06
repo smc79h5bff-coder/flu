@@ -474,7 +474,7 @@ class _DirectoryPickerDialogState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(displayName),
+                Text(relPath),
                 const SizedBox(height: 6),
                 Text(
                   path,
