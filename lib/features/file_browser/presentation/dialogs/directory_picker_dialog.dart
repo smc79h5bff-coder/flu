@@ -45,7 +45,7 @@ class _DirectoryPickerDialogState
 
   // ========== Tab 颜色（改颜色改这里）==========
   static const int _kTabSelectedText = 0xFF6F00C7;   // 亮紫字
-  static const int _kTabSelectedBg = 0xFFF3E5F5;     // 浅紫底
+  static const int _kTabSelectedBg = 0xFFEDECFF;     // 浅紫底
   static const int _kTabUnselectedText = 0xFF757575; // 未选中灰字
 
   @override
