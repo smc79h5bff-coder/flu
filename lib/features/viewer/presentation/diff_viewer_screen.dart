@@ -2660,31 +2660,35 @@ title: Row(
     );
   }
 
-  Widget _buildFewDiffsBanner(int blocks) {
-    return Container(
-      width: double.infinity,
-      color: Colors.pink.shade50,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle_outline,
-              size: 14, color: Colors.pink.shade900),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              blocks == 0
-                  ? '两份文档完全相同'
-                  : '共 $blocks 处差异，已全部显示',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.pink.shade900,
-              ),
+Widget _buildFewDiffsBanner(int blocks) {
+  return Container(
+    width: double.infinity,
+    color: Colors.green.shade800,
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    child: Row(
+      children: [
+        const Icon(
+          Icons.check_circle_outline,
+          size: 20,
+          color: Colors.white,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            blocks == 0
+                ? '两份文档完全相同'
+                : '共 $blocks 处差异，已全部显示',
+            style: const TextStyle(
+              fontSize: 15,
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   // ==================== 查找栏 UI ====================
 
