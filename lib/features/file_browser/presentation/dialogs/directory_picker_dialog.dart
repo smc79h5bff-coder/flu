@@ -341,11 +341,12 @@ class _DirectoryPickerDialogState
                               leading: Icon(Icons.folder,
     color: Colors.amber.shade200),
                               
-                              title: Text(
+  title: Text(
   name,
   softWrap: true,
   style: const TextStyle(
     color: Colors.black,
+    fontWeight: FontWeight.bold,
   ),
 ),
                               
