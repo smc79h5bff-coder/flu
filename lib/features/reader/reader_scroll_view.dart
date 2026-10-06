@@ -1255,9 +1255,12 @@ class _ScrollLineRowState extends State<_ScrollLineRow> {
         old.inSelection != widget.inSelection ||
         old.isSelStartLine != widget.isSelStartLine ||
         old.isSelEndLine != widget.isSelEndLine ||
-        old.selStartOffset != widget.selStartOffset ||
-        old.selEndOffset != widget.selEndOffset;
-  }
+    old.selStartOffset != widget.selStartOffset ||
+      old.selEndOffset != widget.selEndOffset ||
+      old.style.fontSize != widget.style.fontSize ||        // ← 加
+      old.style.fontWeight != widget.style.fontWeight ||    // ← 加
+      old.style.height != widget.style.height;              // ← 加
+}
 
   void _recompute() {
     final result = _buildSpansWithSelection();
@@ -1612,11 +1615,13 @@ List<_GradRect> _measureGradientRectsFromSpans({
     );
 
     for (var bi = 0; bi < boxes.length; bi++) {
-      final box = boxes[bi];
-      var right = box.right;
-      if (bi == boxes.length - 1 && caretAtEnd.dx < right) {
-        right = caretAtEnd.dx;
-      }
+  final box = boxes[bi];
+  var right = box.right;
+  if (bi == boxes.length - 1 &&
+      caretAtEnd.dx > box.left &&
+      caretAtEnd.dx < right) {
+    right = caretAtEnd.dx;
+  }
       rects.add(_GradRect(
         rect: Rect.fromLTRB(box.left, box.top, right, box.bottom),
         colors: s.entry.colors.map((c) => Color(c)).toList(),
