@@ -544,12 +544,14 @@ class _DirectoryPickerDialogState
 
     return ListTile(
   dense: true,
-  horizontalTitleGap: 0,
+      
+  minVerticalPadding: 1,        // ← 加这行
+  horizontalTitleGap: 1,
   minLeadingWidth: 0,
   contentPadding: const EdgeInsets.symmetric(horizontal: 1),
   leading: Icon(
     isFavorite ? Icons.star : Icons.history,
-    size: 18,
+    size: 14,
     color: isFavorite ? Colors.amber : null,
   
 
