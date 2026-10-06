@@ -541,14 +541,21 @@ class _DirectoryPickerDialogState
   Widget _shortcutTile(String path, {required bool isFavorite}) {
     final relPath = _relPath(path);
 
+
     return ListTile(
-      dense: true,
-      horizontalTitleGap: 2,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      leading: Icon(
-        isFavorite ? Icons.star : Icons.history,
-        size: 18,
-        color: isFavorite ? Colors.amber : null,
+  dense: true,
+  horizontalTitleGap: 0,
+  minLeadingWidth: 0,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 1),
+  leading: Icon(
+    isFavorite ? Icons.star : Icons.history,
+    size: 18,
+    color: isFavorite ? Colors.amber : null,
+  
+
+
+
+        
       ),
       title: Text(
         relPath,
