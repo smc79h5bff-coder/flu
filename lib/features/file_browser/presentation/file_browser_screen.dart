@@ -770,10 +770,9 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     final anchor = restoreScroll ? _snapshotVisiblePaths() : const <String>[];
     var anchorRestored = false;
 
-final sortField = ref.read(searchSortFieldProvider);
-final sortAsc = ref.read(searchSortAscProvider);
-    final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
-
+final sortField = ref.read(sortFieldProvider);
+final sortAsc = ref.read(sortAscProvider);
+final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
     // 换目录时收起所有 zip
     if (_expandedZipKeys.isNotEmpty) {
       _expandedZipKeys.clear();
@@ -3950,8 +3949,9 @@ Future<void> _showSearchSettings() async {
 void _resortSearchResults() {
   if (_searchResults.isEmpty) return;
   final sortField = ref.read(searchSortFieldProvider);
-  final sortAsc = ref.read(searchSortAscProvider);
-  _searchResults.sort((a, b) {
+final sortAsc = ref.read(searchSortAscProvider);
+
+results.sort((a, b)  {
     int cmp;
     switch (sortField) {
       case SortField.name:
