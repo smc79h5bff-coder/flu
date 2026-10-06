@@ -217,12 +217,12 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                               style: TextStyle(fontSize: 11)),
                           Expanded(
                             child: Slider(
-                              min: -20,
-                              max: 30,
-                              divisions: 50,
+                              min: -100,
+                              max: 300,
+                              divisions: 400,
                               value: s.pageBottomSafePx
                                   .toDouble()
-                                  .clamp(-20, 30),
+                                  .clamp(-100, 300),
                               onChanged: (v) => n
                                   .setPageBottomSafePx(v.round()),
                             ),
