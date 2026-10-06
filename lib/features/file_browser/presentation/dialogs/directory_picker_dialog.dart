@@ -39,12 +39,22 @@ class _DirectoryPickerDialogState
   List<Directory> _dirs = const [];
   bool _loading = true;
 
+  // ===== 右栏 Tab 状态 =====
+  int _currentTab = 0; // 0=全部, 1=收藏, 2=最近
+  late final PageController _pageCtrl;
+
+  // ========== Tab 颜色（改颜色改这里）==========
+  static const int _kTabSelectedText = 0xFF6F00C7;   // 亮紫字
+  static const int _kTabSelectedBg = 0xFFF3E5F5;     // 浅紫底
+  static const int _kTabUnselectedText = 0xFF757575; // 未选中灰字
+
   @override
   void initState() {
     super.initState();
     _path = widget.initialPath;
     _jumpCtrl = TextEditingController();
     _filterCtrl = TextEditingController();
+    _pageCtrl = PageController(initialPage: 0);
     _load();
   }
 
@@ -52,38 +62,27 @@ class _DirectoryPickerDialogState
   void dispose() {
     _jumpCtrl.dispose();
     _filterCtrl.dispose();
+    _pageCtrl.dispose();
     super.dispose();
   }
 
-
-
-
-
-
-  
   Future<void> _load() async {
-  setState(() => _loading = true);
-  try {
-    final dirs = await listSubdirectoriesSafe(_path);
-    if (!mounted) return;
-    setState(() {
-      _dirs = dirs;
-      _loading = false;
-    });
-  } catch (_) {
-    if (!mounted) return;
-    setState(() {
-      _dirs = const [];
-      _loading = false;
-    });
+    setState(() => _loading = true);
+    try {
+      final dirs = await listSubdirectoriesSafe(_path);
+      if (!mounted) return;
+      setState(() {
+        _dirs = dirs;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dirs = const [];
+        _loading = false;
+      });
+    }
   }
-}
-
-
-
-
-
-  
 
   bool get _canGoUp => _path != widget.rootPath;
 
@@ -153,19 +152,19 @@ class _DirectoryPickerDialogState
   }
 
   String _relPath(String fullPath) {
-  if (fullPath == widget.rootPath) return '/';
-  if (fullPath.startsWith('${widget.rootPath}/')) {
-    var rel = fullPath.substring(widget.rootPath.length);
-    // 隐藏 emulated 前缀
-    if (rel.startsWith('/emulated/')) {
-      rel = rel.substring('/emulated'.length);
-    } else if (rel == '/emulated') {
-      rel = '/';
+    if (fullPath == widget.rootPath) return '/';
+    if (fullPath.startsWith('${widget.rootPath}/')) {
+      var rel = fullPath.substring(widget.rootPath.length);
+      // 隐藏 emulated 前缀
+      if (rel.startsWith('/emulated/')) {
+        rel = rel.substring('/emulated'.length);
+      } else if (rel == '/emulated') {
+        rel = '/';
+      }
+      return rel;
     }
-    return rel;
+    return fullPath;
   }
-  return fullPath;
-}
 
   @override
   Widget build(BuildContext context) {
@@ -337,19 +336,16 @@ class _DirectoryPickerDialogState
                               horizontalTitleGap: 2,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8),
-                              
                               leading: Icon(Icons.folder,
-    color: Colors.amber.shade200),
-                              
-  title: Text(
-  name,
-  softWrap: true,
-  style: const TextStyle(
-    color: Colors.black,
-    fontWeight: FontWeight.bold,
-  ),
-),
-                              
+                                  color: Colors.amber.shade200),
+                              title: Text(
+                                name,
+                                softWrap: true,
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                               onTap: () {
                                 setState(() {
                                   _path = d.path;
@@ -374,12 +370,13 @@ class _DirectoryPickerDialogState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // ===== 标题栏（原样不动）=====
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 1, 4, 1),
           child: Row(
             children: [
               Text(
-                '收藏 / 最近',
+                '收藏当前',
                 style: Theme.of(context).textTheme.labelMedium,
               ),
               const Spacer(),
@@ -398,6 +395,11 @@ class _DirectoryPickerDialogState
           ),
         ),
         const Divider(height: 1),
+
+        // ===== Tab 行 =====
+        _buildTabRow(),
+
+        // ===== 内容区 =====
         Expanded(
           child: (favorites.isEmpty && recents.isEmpty)
               ? const Center(
@@ -410,18 +412,13 @@ class _DirectoryPickerDialogState
                     ),
                   ),
                 )
-              : ListView(
+              : PageView(
+                  controller: _pageCtrl,
+                  onPageChanged: (i) => setState(() => _currentTab = i),
                   children: [
-                    if (favorites.isNotEmpty) ...[
-                      _sectionLabel('收藏'),
-                      for (final p in favorites)
-                        _shortcutTile(p, isFavorite: true),
-                    ],
-                    if (recents.isNotEmpty) ...[
-                      _sectionLabel('最近'),
-                      for (final p in recents)
-                        _shortcutTile(p, isFavorite: false),
-                    ],
+                    _buildAllPage(favorites, recents),
+                    _buildFavoritesPage(favorites),
+                    _buildRecentsPage(recents),
                   ],
                 ),
         ),
@@ -429,48 +426,137 @@ class _DirectoryPickerDialogState
     );
   }
 
-  Widget _sectionLabel(String text) {
+  // ========== Tab 行 ==========
+  Widget _buildTabRow() {
+    const labels = ['全部', '收藏', '最近'];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 11,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          fontWeight: FontWeight.w600,
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      child: Row(
+        children: [
+          for (var i = 0; i < 3; i++)
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (_currentTab == i) return;
+                  _pageCtrl.animateToPage(
+                    i,
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOut,
+                  );
+                },
+                child: Container(
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _currentTab == i
+                        ? const Color(_kTabSelectedBg)
+                        : null,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    labels[i],
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: _currentTab == i
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                      color: _currentTab == i
+                          ? const Color(_kTabSelectedText)
+                          : const Color(_kTabUnselectedText),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 
+  // ========== 全部页：上 70% 收藏 + 下 30% 最近，无标题无分界 ==========
+  Widget _buildAllPage(List<String> favorites, List<String> recents) {
+    return Column(
+      children: [
+        Expanded(
+          flex: 7,
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            itemCount: favorites.length,
+            itemBuilder: (ctx, i) =>
+                _shortcutTile(favorites[i], isFavorite: true),
+          ),
+        ),
+        Expanded(
+          flex: 3,
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            itemCount: recents.length,
+            itemBuilder: (ctx, i) =>
+                _shortcutTile(recents[i], isFavorite: false),
+          ),
+        ),
+      ],
+    );
+  }
 
+  // ========== 收藏页：全高 ==========
+  Widget _buildFavoritesPage(List<String> favorites) {
+    if (favorites.isEmpty) {
+      return const Center(
+        child: Text(
+          '还没有收藏',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: EdgeInsets.zero,
+      itemCount: favorites.length,
+      itemBuilder: (ctx, i) =>
+          _shortcutTile(favorites[i], isFavorite: true),
+    );
+  }
 
-
-
-
+  // ========== 最近页：全高 ==========
+  Widget _buildRecentsPage(List<String> recents) {
+    if (recents.isEmpty) {
+      return const Center(
+        child: Text(
+          '还没有移动记录',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: EdgeInsets.zero,
+      itemCount: recents.length,
+      itemBuilder: (ctx, i) =>
+          _shortcutTile(recents[i], isFavorite: false),
+    );
+  }
 
   Widget _shortcutTile(String path, {required bool isFavorite}) {
-  final relPath = _relPath(path);
+    final relPath = _relPath(path);
 
-  return ListTile(
-    dense: true,
-    horizontalTitleGap: 2,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-    leading: Icon(
-      isFavorite ? Icons.star : Icons.history,
-      size: 18,
-      color: isFavorite ? Colors.amber : null,
-    ),
-    title: Text(
-  relPath,
-  style: const TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.bold,
-  ),
-),
-    onTap: () => _selectShortcut(path),
-
-    onLongPress: () async{
+    return ListTile(
+      dense: true,
+      horizontalTitleGap: 2,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      leading: Icon(
+        isFavorite ? Icons.star : Icons.history,
+        size: 18,
+        color: isFavorite ? Colors.amber : null,
+      ),
+      title: Text(
+        relPath,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      onTap: () => _selectShortcut(path),
+      onLongPress: () async {
         final ok = await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
