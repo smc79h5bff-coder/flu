@@ -1359,14 +1359,28 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     });
   }
 
+
+
   Widget _buildTopMenuSheet(BuildContext ctx) {
+  final path = _filePaths.isEmpty ? '' : _filePaths[_fileIndex];
+  final fileName = path.split('/').last;
+
+  String pct;
+  final settings = ref.read(readerSettingsProvider);
+  if (settings.readerMode == 1) {
+    final fileKey = readerFileKey(path);
+    final offset =
+        ref.read(readerProgressProvider)[fileKey]?.charOffset ?? 0;
+    final total = _text?.length ?? 0;
+    pct = total <= 0
+        ? '-'
+        : '${(offset / total * 100).toStringAsFixed(1)}%';
+  } else {
     final p = _paginator?.result;
-    final pct = p == null
+    pct = p == null
         ? '-'
         : '${((_currentPage + 1) / p.pageCount * 100).toStringAsFixed(1)}%';
-
-    final path = _filePaths.isEmpty ? '' : _filePaths[_fileIndex];
-    final fileName = path.split('/').last;
+  }
 
     final encodingLabel = _currentEncoding?.label ?? '未识别';
 
