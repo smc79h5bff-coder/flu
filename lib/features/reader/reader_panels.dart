@@ -205,48 +205,48 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                       ),
                     ),
 
-                    // ---------- 分页底部安全边距 ----------
+                    // ---------- 安全边距 ----------
+                    // 分页模式显示：顶部 + 底部（-400 ~ +400）
+                    // 滚动模式显示：顶部 + 底部（-400 ~ +400，负数按 0 处理）
                     if (s.readerMode == 0) ...[
-                      _sliderHeader(
-                        '分页底部安全边距',
-                        '${s.pageBottomSafePx >= 0 ? "+" : ""}${s.pageBottomSafePx} px',
+                      _safeMarginControl(
+                        label: '分页顶部安全边距',
+                        helpText: '只影响分页模式。\n'
+                            '  · 正数（+）：顶部多留白，内容整体往下推。\n'
+                            '  · 0（默认）：从屏幕顶部开始。\n'
+                            '  · 负数（−）：可用高度变大，可能多显示一行，'
+                            '但也可能把第一行裁掉。',
+                        value: s.pageTopSafePx,
+                        onChanged: n.setPageTopSafePx,
                       ),
-                      Row(
-                        children: [
-                          const Text('-20',
-                              style: TextStyle(fontSize: 11)),
-                          Expanded(
-                            child: Slider(
-                              min: -100,
-                              max: 300,
-                              divisions: 400,
-                              value: s.pageBottomSafePx
-                                  .toDouble()
-                                  .clamp(-100, 300),
-                              onChanged: (v) => n
-                                  .setPageBottomSafePx(v.round()),
-                            ),
-                          ),
-                          const Text('+30',
-                              style: TextStyle(fontSize: 11)),
-                        ],
+                      _safeMarginControl(
+                        label: '分页底部安全边距',
+                        helpText: '只影响分页模式。\n'
+                            '  · 正数（+）：底部多留白，防止最后一行被裁。\n'
+                            '  · 0（默认）：精确，屏幕利用率最高。\n'
+                            '  · 负数（−）：底部榨空间，可能多显示一行，'
+                            '但也可能把最后一行裁掉一点。',
+                        value: s.pageBottomSafePx,
+                        onChanged: n.setPageBottomSafePx,
                       ),
-                      Padding(
-                        padding:
-                            const EdgeInsets.only(top: 2, bottom: 4),
-                        child: Text(
-                          '只影响分页模式。\n'
-                          '  · 正数（+）：底部多留白，防止最后一行被裁。\n'
-                          '  · 0（默认）：精确，屏幕利用率最高。\n'
-                          '  · 负数（−）：底部榨空间，可能多显示一行，'
-                          '但也可能把最后一行裁掉一点。\n'
-                          '  · 只有"底部余量本来就小于该值"的页面'
-                          '才会变化，其它页不受影响。',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
+                    ] else ...[
+                      _safeMarginControl(
+                        label: '滚动顶部安全边距',
+                        helpText: '只影响滚动模式。\n'
+                            '  · 正数（+）：顶部多留白。\n'
+                            '  · 0（默认）：贴顶。\n'
+                            '  · 负数（−）：按 0 处理（滚动模式没有"裁切"语义）。',
+                        value: s.scrollTopSafePx,
+                        onChanged: n.setScrollTopSafePx,
+                      ),
+                      _safeMarginControl(
+                        label: '滚动底部安全边距',
+                        helpText: '只影响滚动模式。\n'
+                            '  · 正数（+）：底部多留白，最后一行不会被遮住。\n'
+                            '  · 0（默认）：贴底。\n'
+                            '  · 负数（−）：按 0 处理。',
+                        value: s.scrollBottomSafePx,
+                        onChanged: n.setScrollBottomSafePx,
                       ),
                     ],
 
@@ -755,6 +755,76 @@ Padding(
                     color: Colors.blue)),
         ],
       ),
+    );
+  }
+
+  /// 一行"输入框 + 滑块"的组合，用于安全边距设置。
+  ///
+  /// 删掉了原来滑块两侧的固定数字，改成左边一个可输入的文本框，
+  /// 滑块整体右移占满剩余空间。
+  ///
+  /// 输入框只在按回车（或键盘收起）时提交，避免每输入一个字符都重排分页。
+  Widget _safeMarginControl({
+    required String label,
+    required String helpText,
+    required int value,
+    required ValueChanged<int> onChanged,
+    int min = -400,
+    int max = 400,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sliderHeader(
+          label,
+          '${value >= 0 ? "+" : ""}$value px',
+        ),
+        Row(
+          children: [
+            SizedBox(
+              width: 64,
+              height: 34,
+              child: TextFormField(
+                // key 带 value：value 变化时重建以刷新 initialValue。
+                key: ValueKey('safeMargin_${label}_$value'),
+                initialValue: value.toString(),
+                keyboardType:
+                    const TextInputType.numberWithOptions(signed: true),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                ),
+                onFieldSubmitted: (raw) {
+                  final n = int.tryParse(raw.trim());
+                  if (n == null) return;
+                  onChanged(n.clamp(min, max));
+                },
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Slider(
+                min: min.toDouble(),
+                max: max.toDouble(),
+                divisions: max - min,
+                value: value.clamp(min, max).toDouble(),
+                onChanged: (v) => onChanged(v.round()),
+              ),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 4),
+          child: Text(
+            helpText,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+        ),
+      ],
     );
   }
 
@@ -4902,5 +4972,4 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     );
   }
 }
-
 
