@@ -383,7 +383,7 @@ class _DirectoryPickerDialogState
               IconButton(
                 icon: Icon(
                   isFav ? Icons.star : Icons.star_border,
-                  color: isFav ? Colors.amber : null,
+                  color: isFav ? const Color(0xFFEEF800) : null,
                   size: 20,
                 ),
                 tooltip: isFav ? '取消收藏当前目录' : '收藏当前目录',
