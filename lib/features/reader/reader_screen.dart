@@ -2845,9 +2845,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     final spans = _buildUnitSpans(unitIdx, unit, sub, settings);
     final highlights = _highlightsForLine(unit.lineIndex);
-
-    final effectiveStyle =
-        DefaultTextStyle.of(context).style.merge(_baseStyle(settings));
+final effectiveStyle = _baseStyle(settings);
     final textScaler = MediaQuery.textScalerOf(context);
 
     final hasGrad = _hasGradientIn(highlights, unit);
