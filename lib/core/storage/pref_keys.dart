@@ -61,7 +61,8 @@ class PrefKeys {
   // ==================== 查找 / 搜索历史 ====================
   static const String findHistory = '${_p}viewer.findHistory';
   static const String browserSearchHistory = '${_p}browser.searchHistory';
-
+static const String searchSortField = 'jianming.browser.searchSortField';
+static const String searchSortAsc = 'jianming.browser.searchSortAsc';
   // ==================== 文件浏览器 ====================
   static const String sortField = '${_p}browser.sortField';
   static const String recentMoveTargets = '${_p}browser.recentMoveTargets';
