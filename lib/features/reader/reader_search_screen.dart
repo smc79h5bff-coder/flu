@@ -500,7 +500,7 @@ class ReaderSearchMinibar extends ConsumerWidget {
 
 return Container(
   decoration: BoxDecoration(
-    color: Colors.white.withValues(alpha: 0.85),
+    color: Colors.white.withValues(alpha: 0.55),
     border: Border(
       top: BorderSide(color: Colors.grey.shade300, width: 1),
     ),
