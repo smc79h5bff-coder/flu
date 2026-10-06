@@ -2871,8 +2871,8 @@ if (!allowExpand) {
                       color: isFav ? Colors.amber : null,
                     ),
                     title: Text(
-                      isFav ? '取消收藏当前目录' : '收藏当前目录',
-                    ),
+  isFav ? '取消收藏当前目录' : '收藏当前目录',
+),
                     subtitle: Text(
                       _currentPath,
                       style: const TextStyle(fontSize: 11),
@@ -2907,9 +2907,12 @@ if (!allowExpand) {
         leading: Icon(Icons.folder,
             color: Colors.amber.shade300),
         title: Text(
-          p,
-          style: const TextStyle(fontSize: 12),
-        ),
+  p,
+  style: const TextStyle(
+    fontSize: 12,
+    color: Colors.black,
+  ),
+),
         onTap: () => Navigator.pop(c, p),
         trailing: IconButton(
           icon: const Icon(Icons.delete_outline,
