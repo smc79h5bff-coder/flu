@@ -2890,37 +2890,68 @@ if (!allowExpand) {
                   Expanded(
                     child: favorites.isEmpty
                         ? const Center(child: Text('还没有收藏任何目录'))
-                        : ListView.builder(
-                            itemCount: favorites.length,
-                            itemBuilder: (ctx, i) {
-                              final p = favorites[i];
-                              return ListTile(
-                                dense: true,
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.folder,
-                                    color: Colors.amber),
-                                title: Text(p.split('/').last),
-                                subtitle: Text(
-                                  p,
-                                  style: const TextStyle(fontSize: 11),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                onTap: () => Navigator.pop(c, p),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      size: 20),
-                                  tooltip: '移除收藏',
-                                  onPressed: () {
-                                    ref
-                                        .read(favoritesProvider.notifier)
-                                        .remove(p);
-                                    setInnerState(() {});
-                                  },
-                                ),
-                              );
-                            },
-                          ),
+                 
+                      
+                      
+                      
+                      
+                      
+                      
+                      : ListView.builder(
+    itemCount: favorites.length,
+    itemBuilder: (ctx, i) {
+      final p = favorites[i];
+      return ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.folder,
+            color: Colors.amber.shade300),
+        title: Text(
+          p,
+          style: const TextStyle(fontSize: 12),
+        ),
+        onTap: () => Navigator.pop(c, p),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete_outline,
+              size: 20),
+          tooltip: '移除收藏',
+          onPressed: () async {
+            final ok = await showDialog<bool>(
+              context: ctx,
+              builder: (dc) => AlertDialog(
+                title: const Text('移除收藏？'),
+                content: Text(p),
+                actions: [
+                  TextButton(
+                    onPressed: () =>
+                        Navigator.pop(dc, false),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: () =>
+                        Navigator.pop(dc, true),
+                    child: const Text('移除'),
+                  ),
+                ],
+              ),
+            );
+            if (ok != true) return;
+            ref
+                .read(favoritesProvider.notifier)
+                .remove(p);
+            setInnerState(() {});
+          },
+        ),
+      );
+    },
+  ),
+
+
+
+
+
+
+                      
                   ),
                 ],
               ),
