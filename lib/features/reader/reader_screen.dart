@@ -2630,60 +2630,86 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     ];
   }
 
-  Widget _buildScrollReader(ReaderSettings settings) {
-    if (_text == null || _lines.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    final path = _filePaths[_fileIndex];
-    final fileKey = readerFileKey(path);
-    final progress = ref.read(readerProgressProvider)[fileKey];
-    final initialOffset = progress?.charOffset ?? 0;
-
-    return ReaderScrollView(
-      key: _scrollViewKey,
-      text: _text!,
-      lines: _lines,
-      lineStarts: _lineStarts,
-      settings: settings,
-      initialOffset: initialOffset,
-      highlights: _highlights,
-      palettes: ref.watch(readerPaletteProvider),
-      onProgressChanged: (offset) {
-        ref.read(readerProgressProvider.notifier).set(fileKey, offset);
-      },
-      onHighlightAdded: (word, palette) {
-        _applyHighlight(word, palette);
-      },
-      onPaletteEdit: (index) {
-        openPaletteEdit(context, index);
-      },
-      onSelectionActiveChanged: (active) {
-        if (_scrollSelectionActive == active) return;
-        if (!mounted) return;
-        setState(() => _scrollSelectionActive = active);
-      },
-      onTapOnShell: (pos) {
-        final btn = _hitFloatButton(pos);
-        if (btn == 'prev') {
-          _prevFile();
-          return true;
-        }
-        if (btn == 'next') {
-          _nextFile();
-          return true;
-        }
-        if (btn == 'del') {
-          _deleteCurrentFile();
-          return true;
-        }
-        if (_isInHotZone(pos)) {
-          _showTopMenu();
-          return true;
-        }
-        return false;
-      },
-    );
+ Widget _buildScrollReader(ReaderSettings settings) {
+  if (_text == null || _lines.isEmpty) {
+    return const SizedBox.shrink();
   }
+  final path = _filePaths[_fileIndex];
+  final fileKey = readerFileKey(path);
+  final progress = ref.read(readerProgressProvider)[fileKey];
+  final initialOffset = progress?.charOffset ?? 0;
+
+  return Stack(
+    children: [
+      Positioned.fill(
+        child: ReaderScrollView(
+          key: _scrollViewKey,
+          text: _text!,
+          lines: _lines,
+          lineStarts: _lineStarts,
+          settings: settings,
+          initialOffset: initialOffset,
+          highlights: _highlights,
+          palettes: ref.watch(readerPaletteProvider),
+          onProgressChanged: (offset) {
+            ref.read(readerProgressProvider.notifier).set(fileKey, offset);
+          },
+          onHighlightAdded: (word, palette) {
+            _applyHighlight(word, palette);
+          },
+          onPaletteEdit: (index) {
+            openPaletteEdit(context, index);
+          },
+          onSelectionActiveChanged: (active) {
+            if (_scrollSelectionActive == active) return;
+            if (!mounted) return;
+            setState(() => _scrollSelectionActive = active);
+          },
+          onTapOnShell: (pos) {
+            final btn = _hitFloatButton(pos);
+            if (btn == 'prev') {
+              _prevFile();
+              return true;
+            }
+            if (btn == 'next') {
+              _nextFile();
+              return true;
+            }
+            if (btn == 'del') {
+              _deleteCurrentFile();
+              return true;
+            }
+            if (_isInHotZone(pos)) {
+              _showTopMenu();
+              return true;
+            }
+            return false;
+          },
+        ),
+      ),
+      Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        child: Consumer(
+          builder: (context, ref, _) {
+            final state = ref.watch(readerSearchProvider);
+            if (!state.hasSearch) return const SizedBox.shrink();
+            return ReaderSearchMinibar(
+              onJump: (offset) {
+                _scrollViewKey.currentState?.jumpToOffset(offset);
+              },
+              onExpand: _openFind,
+              onClose: () {
+                ref.read(readerSearchProvider.notifier).clear();
+              },
+            );
+          },
+        ),
+      ),
+    ],
+  );
+}
 
   // ==================== 菜单热区绘制 ====================
 
