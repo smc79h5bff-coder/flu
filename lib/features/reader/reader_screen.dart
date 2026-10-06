@@ -3274,17 +3274,26 @@ final effectiveStyle = _baseStyle(settings);
 
       final bottomOverflow = textBottomY + trapH + 4 > screenH;
 
-      final double topPos;
-      final bool flip;
 
-      if (bottomOverflow) {
-        topPos = textTopY - safeTop - trapH;
-        flip = true;
-      } else {
-        topPos = textBottomY - safeTop;
-        flip = false;
-      }
 
+
+
+
+final double topPos;
+final bool flip;
+
+if (bottomOverflow) {
+  topPos = textTopY - trapH;
+  flip = true;
+} else {
+  topPos = textBottomY;
+  flip = false;
+}
+
+
+
+
+      
       final double left = isLeft ? globalPos.dx - trapW : globalPos.dx;
 
       return Positioned(
@@ -3459,13 +3468,22 @@ final effectiveStyle = _baseStyle(settings);
     final screenMid = safeTop + topAreaH / 2;
     final showBelow = midY < screenMid;
 
+
+
+
+
     double top;
-    if (showBelow) {
-      top = selBottom - safeTop + 24;
-    } else {
-      top = selTop - safeTop - approxH - 8;
-    }
-    top = top.clamp(4.0, topAreaH - approxH - 4);
+if (showBelow) {
+  top = selBottom + 40;      // 24 改成 40，给手柄让位
+} else {
+  top = selTop - approxH - 40;   // 8 改成 40，给手柄让位
+}
+top = top.clamp(4.0, size.height - approxH - 4);
+
+
+
+
+    
 
     double left = startPos.dx - 8;
     if (left + approxW > size.width - 4) {
