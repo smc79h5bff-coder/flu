@@ -380,7 +380,15 @@ class ReaderSettings {
     required this.bgColor,
     required this.showButtons,
     required this.readerMode,
+
+    // ====== 分页模式安全边距 ======
+    required this.pageTopSafePx,
     required this.pageBottomSafePx,
+
+    // ====== 滚动模式安全边距 ======
+    required this.scrollTopSafePx,
+    required this.scrollBottomSafePx,
+
     required this.respectSystemInsets,
 
     // ====== 上一文件按钮 ======
@@ -444,17 +452,41 @@ class ReaderSettings {
   /// 阅读模式：0 = 分页，1 = 滚动。
   final int readerMode;
 
-  /// 分页模式：底部安全边距（像素）。范围 -20 ~ +30。
+  // ==================== 分页模式安全边距 ====================
+
+  /// 分页模式：顶部安全边距（像素）。范围 -400 ~ +400。
   ///
-  /// 分页器算"一页能放几行"时，从可用高度里预留这么多像素。
-  /// 只对"底部余量本来就小于该值"的页面生效，其它页不受影响。
+  /// 分页器算"一页能放几行"时，从可用高度里减去这个值；
+  /// 渲染时正文容器顶部也加这么多 padding（负数按 0 处理）。
   ///
-  ///   · 正数：底部预留，防裁切。
+  ///   · 正数：顶部多留白，内容整体往下推。
+  ///   · 0（默认）：从屏幕顶部开始。
+  ///   · 负数：可用高度变大，可能多显示一行，也可能裁掉第一行。
+  ///
+  /// 影响范围：仅分页模式。
+  final int pageTopSafePx;
+
+  /// 分页模式：底部安全边距（像素）。范围 -400 ~ +400。
+  ///
+  /// 分页器算"一页能放几行"时，从可用高度里减去这个值；
+  /// 渲染时正文容器底部也加这么多 padding（负数按 0 处理）。
+  ///
+  ///   · 正数：底部多留白，防止最后一行被裁。
   ///   · 0（默认）：精确，屏幕利用率最高。
   ///   · 负数：底部榨空间，可能多显示一行，也可能裁掉最后一行。
   ///
   /// 影响范围：仅分页模式。
   final int pageBottomSafePx;
+
+  // ==================== 滚动模式安全边距 ====================
+
+  /// 滚动模式：顶部安全边距（像素）。范围 -400 ~ +400。
+  /// 作为滚动列表的 top padding。负数按 0 处理。
+  final int scrollTopSafePx;
+
+  /// 滚动模式：底部安全边距（像素）。范围 -400 ~ +400。
+  /// 作为滚动列表的 bottom padding。负数按 0 处理。
+  final int scrollBottomSafePx;
 
   /// 是否避让底部系统导航栏。
   /// true（默认）：分页模式和滚动模式都空出底部导航栏的高度。
@@ -532,7 +564,12 @@ class ReaderSettings {
     bgColor: bgCream,
     showButtons: false,
     readerMode: 1,
+
+    pageTopSafePx: 0,
     pageBottomSafePx: 0,
+    scrollTopSafePx: 0,
+    scrollBottomSafePx: 0,
+
     respectSystemInsets: true,
 
     topBtnStyle: 0,
@@ -583,7 +620,12 @@ class ReaderSettings {
         'bg': bgColor,
         'sb': showButtons,
         'rm': readerMode,
+
+        'ptsp': pageTopSafePx,
         'pbsp': pageBottomSafePx,
+        'stsp': scrollTopSafePx,
+        'sbsp': scrollBottomSafePx,
+
         'rsi': respectSystemInsets,
 
         'tbs': topBtnStyle,
@@ -634,7 +676,12 @@ class ReaderSettings {
         bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
         showButtons: j['sb'] as bool? ?? true,
         readerMode: (j['rm'] as num?)?.toInt() ?? 0,
+
+        pageTopSafePx: (j['ptsp'] as num?)?.toInt() ?? 0,
         pageBottomSafePx: (j['pbsp'] as num?)?.toInt() ?? 0,
+        scrollTopSafePx: (j['stsp'] as num?)?.toInt() ?? 0,
+        scrollBottomSafePx: (j['sbsp'] as num?)?.toInt() ?? 0,
+
         respectSystemInsets: j['rsi'] as bool? ?? true,
 
         topBtnStyle: (j['tbs'] as num?)?.toInt() ?? 0,
@@ -685,7 +732,12 @@ class ReaderSettings {
     int? bgColor,
     bool? showButtons,
     int? readerMode,
+
+    int? pageTopSafePx,
     int? pageBottomSafePx,
+    int? scrollTopSafePx,
+    int? scrollBottomSafePx,
+
     bool? respectSystemInsets,
 
     int? topBtnStyle,
@@ -735,7 +787,12 @@ class ReaderSettings {
         bgColor: bgColor ?? this.bgColor,
         showButtons: showButtons ?? this.showButtons,
         readerMode: readerMode ?? this.readerMode,
+
+        pageTopSafePx: pageTopSafePx ?? this.pageTopSafePx,
         pageBottomSafePx: pageBottomSafePx ?? this.pageBottomSafePx,
+        scrollTopSafePx: scrollTopSafePx ?? this.scrollTopSafePx,
+        scrollBottomSafePx: scrollBottomSafePx ?? this.scrollBottomSafePx,
+
         respectSystemInsets: respectSystemInsets ?? this.respectSystemInsets,
 
         topBtnStyle: topBtnStyle ?? this.topBtnStyle,
