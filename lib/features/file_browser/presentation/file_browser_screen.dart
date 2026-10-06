@@ -4293,7 +4293,7 @@ return Container(
             top: BorderSide(
   
               color: const Color(0xFFB000FF),   // 紫色
-              width: 2,
+              width: 1,
             ),
             bottom: BorderSide(
    
@@ -4412,7 +4412,7 @@ return Container(
           border: Border(
             top: BorderSide(
               color: const Color(0xFFB000FF),   // 紫色
-              width: 2,
+              width: 1,
             ),
             bottom: BorderSide(
               color: const Color(0xFFB000FF),   // 紫色
