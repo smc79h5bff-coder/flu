@@ -370,7 +370,7 @@ class _DirectoryPickerDialogState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+          padding: const EdgeInsets.fromLTRB(12, 1, 4, 1),
           child: Row(
             children: [
               Text(
