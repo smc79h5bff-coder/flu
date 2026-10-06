@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -53,25 +54,46 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
 
   void setBgColor(int v) => update(state.copyWith(bgColor: v));
 
-
   void setReaderMode(int v) =>
-    update(state.copyWith(readerMode: v.clamp(0, 1)));
+      update(state.copyWith(readerMode: v.clamp(0, 1)));
 
-  
   void toggleButtons() =>
       update(state.copyWith(showButtons: !state.showButtons));
 
-/// 分页底部安全边距。范围 -100 ~ +300 像素。
-///
-///   · 正数：底部预留，防裁切。
-///   · 0（默认）：精确，屏幕利用率最高。
-///   · 负数：底部"榨"空间，多显示内容，可能裁切。
-void setPageBottomSafePx(int v) => update(state.copyWith(
-      pageBottomSafePx: v.clamp(-100, 300),
-    ));
+  /// 分页模式：顶部安全边距。范围 -400 ~ +400 像素。
+  ///
+  ///   · 正数：顶部多留白，内容整体往下推。
+  ///   · 0（默认）：从屏幕顶部开始。
+  ///   · 负数：可用高度变大，可能多显示一行，也可能裁掉第一行。
+  void setPageTopSafePx(int v) => update(state.copyWith(
+        pageTopSafePx: v.clamp(-400, 400),
+      ));
+
+  /// 分页模式：底部安全边距。范围 -400 ~ +400 像素。
+  ///
+  ///   · 正数：底部多留白，防止最后一行被裁。
+  ///   · 0（默认）：精确，屏幕利用率最高。
+  ///   · 负数：底部榨空间，可能多显示一行，也可能裁掉最后一行。
+  void setPageBottomSafePx(int v) => update(state.copyWith(
+        pageBottomSafePx: v.clamp(-400, 400),
+      ));
+
+  /// 滚动模式：顶部安全边距。范围 -400 ~ +400 像素。
+  /// 作为滚动列表的 top padding，负数按 0 处理。
+  void setScrollTopSafePx(int v) => update(state.copyWith(
+        scrollTopSafePx: v.clamp(-400, 400),
+      ));
+
+  /// 滚动模式：底部安全边距。范围 -400 ~ +400 像素。
+  /// 作为滚动列表的 bottom padding，负数按 0 处理。
+  void setScrollBottomSafePx(int v) => update(state.copyWith(
+        scrollBottomSafePx: v.clamp(-400, 400),
+      ));
+
   /// 是否避让底部系统导航栏。true = 空出导航栏高度。
-void setRespectSystemInsets(bool v) =>
-    update(state.copyWith(respectSystemInsets: v));
+  void setRespectSystemInsets(bool v) =>
+      update(state.copyWith(respectSystemInsets: v));
+
   // ---- 上一文件按钮 ----
 
   void setTopBtnStyle(int v) => update(state.copyWith(topBtnStyle: v));
@@ -788,3 +810,4 @@ class HighlightViewSettingsNotifier
   void setShowBookName(bool v) =>
       update(state.copyWith(showBookName: v));
 }
+
