@@ -172,8 +172,15 @@ class ReaderScrollViewState extends ConsumerState<ReaderScrollView> {
         hi = mid - 1;
       }
     }
-    _scrollCtrl.jumpTo(index: lo);
+  _scrollCtrl.jumpTo(index: lo);
+
+  // ★ 跳转后主动通知外部保存进度。
+  final newOffset = widget.lineStarts[lo];
+  if (newOffset != _lastReportedOffset) {
+    _lastReportedOffset = newOffset;
+    widget.onProgressChanged(newOffset);
   }
+}
 
   void jumpByScreen(int dir) {
     if (!_scrollCtrl.isAttached) return;
