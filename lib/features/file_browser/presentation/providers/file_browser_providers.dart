@@ -258,3 +258,38 @@ class BrowserFontGridMetaNotifier extends DoublePrefNotifier {
 
   void set(double v) => update(v.clamp(1.0, 38.0));
 }
+
+// ==================== 搜索结果排序（独立于浏览排序） ====================
+//
+// 只管"搜索结果列表"的顺序，不动文件浏览器本身。
+// 和 sortFieldProvider / sortAscProvider 完全独立，互不影响。
+
+final searchSortFieldProvider =
+    NotifierProvider<SearchSortFieldNotifier, SortField>(
+  SearchSortFieldNotifier.new,
+);
+
+class SearchSortFieldNotifier extends EnumPrefNotifier<SortField> {
+  SearchSortFieldNotifier()
+      : super(
+          key: PrefKeys.searchSortField,
+          values: SortField.values,
+          initial: SortField.name,
+        );
+}
+
+final searchSortAscProvider =
+    NotifierProvider<SearchSortAscNotifier, bool>(
+  SearchSortAscNotifier.new,
+);
+
+class SearchSortAscNotifier extends BoolPrefNotifier {
+  SearchSortAscNotifier()
+      : super(key: PrefKeys.searchSortAsc, initial: true);
+}
+
+
+
+
+
+
