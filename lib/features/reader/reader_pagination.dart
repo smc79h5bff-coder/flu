@@ -30,22 +30,26 @@ const double kReaderParaSpacing = 4.0;
 ///   3. 全部测完 → 用显示行数 × 单行高 重跑分页
 class ReaderPaginator extends ChangeNotifier {
   ReaderPaginator({
-  required this.text,
-  required this.viewportWidth,
-  required this.viewportHeight,
-  required this.fontSize,
-  required this.fontWeight,
-  required this.pageBottomSafePx,
-});
+    required this.text,
+    required this.viewportWidth,
+    required this.viewportHeight,
+    required this.fontSize,
+    required this.fontWeight,
+    required this.pageTopSafePx,
+    required this.pageBottomSafePx,
+  });
 
-final String text;
-final double viewportWidth;
-final double viewportHeight;
-final double fontSize;
-final int fontWeight;
+  final String text;
+  final double viewportWidth;
+  final double viewportHeight;
+  final double fontSize;
+  final int fontWeight;
 
-/// 分页底部安全边距（像素）。含义见 ReaderSettings.pageBottomSafePx。
-final int pageBottomSafePx;
+  /// 分页顶部安全边距（像素）。含义见 ReaderSettings.pageTopSafePx。
+  final int pageTopSafePx;
+
+  /// 分页底部安全边距（像素）。含义见 ReaderSettings.pageBottomSafePx。
+  final int pageBottomSafePx;
 
   late final List<String> _lines;
   late final List<int> _lineStarts;
@@ -252,18 +256,19 @@ final int pageBottomSafePx;
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
 
-// 从可用高度里预留"底部安全边距"像素。
-// floor() 的取整特性保证：只要除出来的商没跨过整数边界，
-// 每页行数就不变。所以底部余量本来较大的页面完全不受影响，
-// 只有底部余量 < pageBottomSafePx 的页面才会少一行——正是需要它的页面。
-final usableHeight = math.max(
-  10.0,
-  viewportHeight - kReaderVerticalPadding * 2 - 10 - pageBottomSafePx,
-);
+    // 从可用高度里预留"顶部 + 底部安全边距"。
+    // 负数相当于拓宽可用高度（会多显示内容，可能裁切首尾）。
+    // floor() 的取整特性保证：只要除出来的商没跨过整数边界，
+    // 每页行数就不变。所以余量本来就较大的页面完全不受影响。
+    final usableHeight = math.max(
+      10.0,
+      viewportHeight -
+          kReaderVerticalPadding * 2 -
+          10 -
+          pageTopSafePx -
+          pageBottomSafePx,
+    );
 
-
-
-    
     // 每页固定显示行数（以"1 个显示行"为单位）。
     final rowsPerPage = math.max(1, (usableHeight / _singleLineHeight).floor());
 
