@@ -5063,7 +5063,7 @@ return Container(
         child: Row(
           children: [
             const SizedBox(width: 22),
-            Icon(Icons.folder, size: 18, color: Colors.amber.shade600),
+            Icon(Icons.folder, size: 18, color: Colors.black87),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -5138,7 +5138,7 @@ return Container(
             color: isZipInner
                 ? Colors.blueGrey.shade300
                 : (item.isDir
-                    ? Colors.amber.shade600
+                    ? Colors.black87
                     : _fileColor(item.displayName)),
           
         ),
