@@ -16,6 +16,7 @@ dependencies:
   flutter_colorpicker: ^1.1.0
   scrollable_positioned_list: ^0.3.8
   open_filex: ^4.5.0
+  flutter_markdown: ^0.7.4+3
 
   # State management
   flutter_riverpod: ^2.4.0
