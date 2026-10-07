@@ -4332,15 +4332,29 @@ modeRow(
                         top: 4,
                         bottom: 8,
                       ),
+
+
+
+
+                        
                       child: FilledButton.tonalIcon(
   style: FilledButton.styleFrom(
-    backgroundColor: const Color(0xFF93D6F0),
+    backgroundColor: scope == SearchScope.custom
+        ? const Color(0xFF93E6F0)   // 自定义范围：现状色
+        : const Color(0xFFD9F3F0),  // 子目录：更浅的蓝
     foregroundColor: Colors.black87,
   ),
   icon: const Icon(Icons.folder_special, size: 20),
   label: const Text('管理搜索范围'),
   onPressed: () => _showSearchFolderPicker(),
 ),
+
+
+
+
+
+
+                        
                     ),
                     const SizedBox(height: 4),
                     const Divider(height: 1),
