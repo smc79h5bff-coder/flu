@@ -63,6 +63,8 @@ class PrefKeys {
   static const String browserSearchHistory = '${_p}browser.searchHistory';
 static const String searchSortField = 'jianming.browser.searchSortField';
 static const String searchSortAsc = 'jianming.browser.searchSortAsc';
+  static const String searchBoxMode = 'jianming.browser.searchBoxMode';
+static const String filterDepth = 'jianming.browser.filterDepth';
   // ==================== 文件浏览器 ====================
   static const String sortField = '${_p}browser.sortField';
   static const String recentMoveTargets = '${_p}browser.recentMoveTargets';
