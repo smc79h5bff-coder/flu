@@ -11,22 +11,24 @@ import 'providers/file_browser_providers.dart';
 ///   · 字号
 ///   · 排序（方式 + 方向，左右并排）
 ///   · 点击文件时的打开方式
+///
+/// 右上角 ? 打开"使用说明"，Tab 化，可编辑可保存。
 class BrowserSettingsScreen extends ConsumerWidget {
   const BrowserSettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-  appBar: AppBar(
-    title: const Text('浏览器设置'),
-    actions: [
-      IconButton(
-        icon: const Icon(Icons.help_outline),
-        tooltip: '使用说明',
-        onPressed: () => _showHelp(context, ref),
+      appBar: AppBar(
+        title: const Text('浏览器设置'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: '使用说明',
+            onPressed: () => _showHelp(context),
+          ),
+        ],
       ),
-    ],
-  ),
       body: ListView(
         children: [
           _buildDisplayModeSection(context, ref),
@@ -288,22 +290,7 @@ class BrowserSettingsScreen extends ConsumerWidget {
         return '大小';
     }
   }
-Future<void> _showHelp(BuildContext context, WidgetRef ref) async {
-  final current = ref.read(browserSettingsHelpProvider);
-  final content = current.isEmpty ? _defaultHelpText : current;
-  final saved = await showDialog<String>(
-    context: context,
-    builder: (_) => _SettingsHelpDialog(initialText: content),
-  );
-  if (saved != null) {
-    ref.read(browserSettingsHelpProvider.notifier).update(saved);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('说明已保存')),
-      );
-    }
-  }
-}
+
   // ==================== 打开方式 ====================
 
   Widget _buildOpenModeSection(BuildContext context, WidgetRef ref) {
@@ -369,6 +356,15 @@ Future<void> _showHelp(BuildContext context, WidgetRef ref) async {
         ),
         const SizedBox(height: 12),
       ],
+    );
+  }
+
+  // ==================== 说明弹窗 ====================
+
+  Future<void> _showHelp(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => const _SettingsHelpDialog(),
     );
   }
 }
@@ -601,7 +597,478 @@ class _RadioRow extends StatelessWidget {
   }
 }
 
+// ==================== 说明弹窗（Tab 化，可编辑） ====================
 
-// ==================== 默认说明文字 ====================
+class _SettingsHelpDialog extends ConsumerStatefulWidget {
+  const _SettingsHelpDialog();
 
+  @override
+  ConsumerState<_SettingsHelpDialog> createState() =>
+      _SettingsHelpDialogState();
+}
 
+class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+  int _lastIndex = 0;
+
+  List<BrowserHelpTab> _tabs = const [];
+  bool _editing = false;
+
+  final TextEditingController _titleCtrl = TextEditingController();
+  final TextEditingController _contentCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final saved = ref.read(browserSettingsHelpProvider);
+    _tabs = List<BrowserHelpTab>.from(saved);
+    if (_tabs.isEmpty) _tabs = defaultBrowserHelpTabs();
+    _tabCtrl = TabController(length: _tabs.length, vsync: this);
+    _tabCtrl.addListener(_onTabChanged);
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.removeListener(_onTabChanged);
+    _tabCtrl.dispose();
+    _titleCtrl.dispose();
+    _contentCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (_lastIndex == _tabCtrl.index) return;
+    _lastIndex = _tabCtrl.index;
+    if (mounted) setState(() {});
+  }
+
+  void _recreateTabCtrl(int length, int initial) {
+    final old = _tabCtrl;
+    old.removeListener(_onTabChanged);
+    final newCtrl = TabController(
+      length: length,
+      initialIndex: length == 0 ? 0 : initial.clamp(0, length - 1),
+      vsync: this,
+    );
+    newCtrl.addListener(_onTabChanged);
+    _tabCtrl = newCtrl;
+    _lastIndex = newCtrl.index;
+    WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+  }
+
+  Future<void> _persist() async {
+    ref.read(browserSettingsHelpProvider.notifier).setAll(_tabs);
+  }
+
+  // ==================== 编辑 ====================
+
+  void _enterEdit() {
+    final idx = _tabCtrl.index;
+    if (idx < 0 || idx >= _tabs.length) return;
+    final t = _tabs[idx];
+    _titleCtrl.text = t.title;
+    _contentCtrl.text = t.content;
+    setState(() => _editing = true);
+  }
+
+  void _cancelEdit() {
+    setState(() => _editing = false);
+  }
+
+  Future<void> _saveEdit() async {
+    final idx = _tabCtrl.index;
+    if (idx < 0 || idx >= _tabs.length) return;
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty) {
+      _snack('Tab 名不能为空');
+      return;
+    }
+    final next = List<BrowserHelpTab>.from(_tabs);
+    next[idx] = next[idx].copyWith(
+      title: title,
+      content: _contentCtrl.text,
+    );
+    setState(() {
+      _tabs = next;
+      _editing = false;
+    });
+    await _persist();
+    _snack('已保存');
+  }
+
+  // ==================== Tab 管理 ====================
+
+  Future<void> _createTab() async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('新建 Tab'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Tab 名',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(c, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || name.trim().isEmpty || !mounted) return;
+
+    final newTab = BrowserHelpTab(
+      id: 'user_${DateTime.now().microsecondsSinceEpoch}',
+      title: name.trim(),
+      content: '',
+    );
+    final next = [..._tabs, newTab];
+    setState(() => _tabs = next);
+    _recreateTabCtrl(next.length, next.length - 1);
+    await _persist();
+    _enterEdit();
+  }
+
+  Future<void> _renameCurrent() async {
+    final idx = _tabCtrl.index;
+    if (idx < 0 || idx >= _tabs.length) return;
+    final ctrl = TextEditingController(text: _tabs[idx].title);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('重命名 Tab'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(c, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || name.trim().isEmpty || !mounted) return;
+    final next = List<BrowserHelpTab>.from(_tabs);
+    next[idx] = next[idx].copyWith(title: name.trim());
+    setState(() => _tabs = next);
+    await _persist();
+  }
+
+  Future<void> _deleteCurrent() async {
+    if (_tabs.length <= 1) {
+      _snack('至少保留一个 Tab');
+      return;
+    }
+    final idx = _tabCtrl.index;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('删除「${_tabs[idx].title}」？'),
+        content: const Text('此 Tab 的内容会一并删除，无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    final next = List<BrowserHelpTab>.from(_tabs)..removeAt(idx);
+    final newIdx = idx >= next.length ? next.length - 1 : idx;
+    setState(() => _tabs = next);
+    _recreateTabCtrl(next.length, newIdx);
+    await _persist();
+  }
+
+  Future<void> _moveCurrent(int delta) async {
+    final idx = _tabCtrl.index;
+    final j = idx + delta;
+    if (j < 0 || j >= _tabs.length) return;
+    final next = List<BrowserHelpTab>.from(_tabs);
+    final t = next.removeAt(idx);
+    next.insert(j, t);
+    setState(() => _tabs = next);
+    _recreateTabCtrl(next.length, j);
+    await _persist();
+  }
+
+  Future<void> _confirmResetAll() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('恢复默认 Tab？'),
+        content: const Text(
+          '当前所有 Tab（包括你新建的、改过内容的）会被替换成 4 个默认 Tab。\n'
+          '此操作无法撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final next = defaultBrowserHelpTabs();
+    setState(() => _tabs = next);
+    _recreateTabCtrl(next.length, 0);
+    await _persist();
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
+  // ==================== build ====================
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(4),
+      child: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.9,
+        child: Column(
+          children: [
+            // ---------- 标题栏 ----------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 6, 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '浏览器 · 使用说明',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  if (_editing) ...[
+                    TextButton(
+                      onPressed: _cancelEdit,
+                      child: const Text('取消'),
+                    ),
+                    TextButton(
+                      onPressed: _saveEdit,
+                      child: const Text('保存'),
+                    ),
+                  ] else ...[
+                    TextButton(
+                      onPressed: _enterEdit,
+                      child: const Text('编辑'),
+                    ),
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (v) {
+                        if (v == 'reset') _confirmResetAll();
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'reset',
+                          child: Text('恢复默认 Tab'),
+                        ),
+                      ],
+                    ),
+                  ],
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+
+            // ---------- TabBar ----------
+            _buildTabBar(s),
+
+            // ---------- 编辑态下的 Tab 名输入框 ----------
+            if (_editing) _buildEditTitleBar(s),
+
+            // ---------- 工具栏（非编辑态） ----------
+            if (!_editing) _buildToolbar(s),
+
+            // ---------- 内容区 ----------
+            Expanded(
+              child: _editing
+                  ? _buildEditor()
+                  : _buildContent(s),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabBar(ColorScheme s) {
+    final bar = Container(
+      color: s.surface,
+      child: TabBar(
+        controller: _tabCtrl,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        tabs: [
+          for (final t in _tabs) Tab(text: t.title),
+        ],
+      ),
+    );
+    if (!_editing) return bar;
+    return IgnorePointer(
+      child: Opacity(opacity: 0.55, child: bar),
+    );
+  }
+
+  Widget _buildEditTitleBar(ColorScheme s) {
+    return Container(
+      color: s.surfaceVariant.withValues(alpha: 0.3),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: TextField(
+        controller: _titleCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Tab 名',
+          isDense: true,
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToolbar(ColorScheme s) {
+    final idx = _tabCtrl.index;
+    final canDelete = _tabs.length > 1;
+    final canLeft = idx > 0;
+    final canRight = idx < _tabs.length - 1;
+
+    return Container(
+      color: s.surfaceVariant.withValues(alpha: 0.3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            TextButton.icon(
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('新建'),
+              onPressed: _createTab,
+            ),
+            const SizedBox(width: 2),
+            TextButton.icon(
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('重命名'),
+              onPressed: _renameCurrent,
+            ),
+            const SizedBox(width: 2),
+            TextButton.icon(
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('删除'),
+              onPressed: canDelete ? _deleteCurrent : null,
+            ),
+            const SizedBox(width: 8),
+            Container(width: 1, height: 20, color: s.outlineVariant),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: '左移此 Tab',
+              icon: const Icon(Icons.arrow_back, size: 18),
+              visualDensity: VisualDensity.compact,
+              onPressed: canLeft ? () => _moveCurrent(-1) : null,
+            ),
+            IconButton(
+              tooltip: '右移此 Tab',
+              icon: const Icon(Icons.arrow_forward, size: 18),
+              visualDensity: VisualDensity.compact,
+              onPressed: canRight ? () => _moveCurrent(1) : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent(ColorScheme s) {
+    final idx = _tabCtrl.index;
+    if (idx < 0 || idx >= _tabs.length) return const SizedBox.shrink();
+    final tab = _tabs[idx];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
+      child: SelectableText(
+        tab.content.isEmpty
+            ? '（此 Tab 还没有内容。点上方"编辑"写点什么。）'
+            : tab.content,
+        style: const TextStyle(
+          fontSize: 13.5,
+          height: 1.6,
+          fontFamily: 'monospace',
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditor() {
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: TextField(
+        controller: _contentCtrl,
+        maxLines: null,
+        expands: true,
+        textAlignVertical: TextAlignVertical.top,
+        style: const TextStyle(
+          fontSize: 13.5,
+          height: 1.5,
+          fontFamily: 'monospace',
+        ),
+        decoration: InputDecoration(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(6),
+          ),
+          contentPadding: const EdgeInsets.all(12),
+          hintText: '在这里编辑说明……',
+        ),
+      ),
+    );
+  }
+}
