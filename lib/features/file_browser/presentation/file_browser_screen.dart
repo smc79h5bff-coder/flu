@@ -3892,7 +3892,7 @@ const PopupMenuItem<String>(
   final hasText = _searchCtrl.text.isNotEmpty;
 
   const currentText = Color(0xFFB79800);
-  const currentBtnBg = Color(0xFFFFF0CE);
+  const currentBtnBg = Color(0xFFFFF7D2);
   const customText = Color(0xFF009EDD);
   const customBtnBg = Color(0xFFE4FAFF);
 
