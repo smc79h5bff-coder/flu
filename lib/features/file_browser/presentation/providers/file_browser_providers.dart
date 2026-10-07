@@ -958,3 +958,44 @@ const String _helpReader = r'''
     和渲染走同一套 spans 结构，避免单 span 和
     多 span 的 shaping 断点差异导致渐变偏移 1~3 像素。
 ''';
+
+
+// ==================== 搜索框行为（搜索 / 过滤） ====================
+
+enum SearchBoxMode { search, filter }
+
+final searchBoxModeProvider =
+    NotifierProvider<SearchBoxModeNotifier, SearchBoxMode>(
+  SearchBoxModeNotifier.new,
+);
+
+class SearchBoxModeNotifier extends EnumPrefNotifier<SearchBoxMode> {
+  SearchBoxModeNotifier()
+      : super(
+          key: PrefKeys.searchBoxMode,
+          values: SearchBoxMode.values,
+          initial: SearchBoxMode.search,
+        );
+}
+
+// ==================== 过滤深度 ====================
+
+/// 过滤深度：往下钻几层。0 = 只当前层。范围 0~9。
+final filterDepthProvider =
+    NotifierProvider<FilterDepthNotifier, int>(FilterDepthNotifier.new);
+
+class FilterDepthNotifier extends PersistentNotifier<int> {
+  @override
+  String get key => PrefKeys.filterDepth;
+
+  @override
+  int get defaultValue => 1;
+
+  @override
+  int decode(String raw) => int.tryParse(raw) ?? 1;
+
+  @override
+  String encode(int value) => value.toString();
+
+  void set(int v) => update(v.clamp(0, 9));
+}
