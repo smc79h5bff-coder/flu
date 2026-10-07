@@ -3891,13 +3891,13 @@ Widget _buildSearchBar() {
   final hasText = _searchCtrl.text.isNotEmpty;
 
   const currentText = Color(0xFFB79800);
-  const currentBtnBg = Color(0xFFD8C775);
+  const currentBtnBg = Color(0xFFFFF0CE);
   const customText = Color(0xFF009EDD);
-  const customBtnBg = Color(0xFF93D6F0);
+  const customBtnBg = Color(0xFFE4FAFF);
 
   const filterAccent = Color(0xFFE53935);
   const filterBtnBg = Color(0xFFFFCDD2);
-  const filterInputBg = Color(0xFFFFEBEE);
+  const filterInputBg = Color(0xFFFFF0F0);
 
   final Color accent;
   final Color btnBg;
@@ -3951,18 +3951,24 @@ Widget _buildSearchBar() {
                 horizontal: 4,
                 vertical: 8,
               ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                color: isFilter ? filterBtnBg : null,
-                border: isFilter
-                    ? null
-                    : Border.all(
-                        color: _selectionMode
-                            ? Colors.grey.shade300
-                            : Colors.black,
-                        width: 1,
-                      ),
-              ),
+              
+              
+              
+decoration: BoxDecoration(
+  borderRadius: BorderRadius.circular(8),
+  color: null,
+  border: isFilter
+      ? Border.all(
+          color: _selectionMode
+              ? Colors.grey.shade300
+              : filterBtnBg,
+          width: 1,
+        )
+      : null,
+),
+              
+              
+              
               child: Text(
                 '搜索设置',
                 style: TextStyle(
@@ -4191,13 +4197,16 @@ Future<void> _showSearchSettings() async {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            height: 1.4,
-                          ),
-                        ),
+Text(
+  subtitle,
+  style: TextStyle(
+    fontSize: 11,
+    height: 1.4,
+    color: selected
+        ? Colors.black87
+        : Colors.grey,
+  ),
+),
                       ],
                     ),
                   ),
@@ -4223,19 +4232,19 @@ Future<void> _showSearchSettings() async {
                 children: [
                   const _SearchSettingsSectionTitle('搜索框行为'),
                   modeRow(
-                    value: SearchBoxMode.search,
-                    title: '搜索',
-                    subtitle:
-                        '打字不响应，点按钮或回车才开始；'
-                        '递归搜索子目录（切页显示结果）',
-                    activeColor: Colors.black87,
-                  ),
-                  modeRow(
-                    value: SearchBoxMode.filter,
-                    title: '过滤',
-                    subtitle: '打字就地过滤，不切页；按回车无反应',
-                    activeColor: filterColor,
-                  ),
+  value: SearchBoxMode.search,
+  title: '搜索',
+  subtitle:
+      '打字不响应，点按钮或回车才开始；'
+      '递归搜索子目录（切页显示结果）',
+  activeColor: AppColors.accentPurple,
+),
+modeRow(
+  value: SearchBoxMode.filter,
+  title: '过滤',
+  subtitle: '打字就地过滤，不切页；按回车无反应',
+  activeColor: AppColors.accentPurple,
+),
 
                   const SizedBox(height: 4),
                   const Divider(height: 1),
@@ -4321,61 +4330,97 @@ Future<void> _showSearchSettings() async {
                         bottom: 8,
                       ),
                       child: FilledButton.tonalIcon(
-                        icon: const Icon(Icons.folder_special, size: 20),
-                        label: const Text('管理搜索范围'),
-                        onPressed: () => _showSearchFolderPicker(),
-                      ),
+  style: FilledButton.styleFrom(
+    backgroundColor: const Color(0xFF93D6F0),
+    foregroundColor: Colors.black87,
+  ),
+  icon: const Icon(Icons.folder_special, size: 20),
+  label: const Text('管理搜索范围'),
+  onPressed: () => _showSearchFolderPicker(),
+),
                     ),
                     const SizedBox(height: 4),
                     const Divider(height: 1),
                     const SizedBox(height: 8),
 
-                    const _SearchSettingsSectionTitle('搜索结果排序'),
-                    for (final f in SortField.values)
-                      RadioListTile<SortField>(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(_sortLabel(f)),
-                        value: f,
-                        groupValue: searchSortField,
-                        activeColor: AppColors.accentPurple,
-                        onChanged: (v) {
-                          if (v == null) return;
-                          ref
-                              .read(searchSortFieldProvider.notifier)
-                              .update(v);
-                          _resortSearchResults();
-                        },
-                      ),
-                    const Divider(height: 1),
-                    RadioListTile<bool>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('升序'),
-                      value: true,
-                      groupValue: searchSortAsc,
-                      activeColor: AppColors.accentPurple,
-                      onChanged: (_) {
-                        ref
-                            .read(searchSortAscProvider.notifier)
-                            .update(true);
-                        _resortSearchResults();
-                      },
-                    ),
-                    RadioListTile<bool>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('降序'),
-                      value: false,
-                      groupValue: searchSortAsc,
-                      activeColor: AppColors.accentPurple,
-                      onChanged: (_) {
-                        ref
-                            .read(searchSortAscProvider.notifier)
-                            .update(false);
-                        _resortSearchResults();
-                      },
-                    ),
+                const _SearchSettingsSectionTitle('搜索结果排序'),
+for (final f in SortField.values)
+  RadioListTile<SortField>(
+    dense: true,
+    contentPadding: EdgeInsets.zero,
+    title: Text(
+      _sortLabel(f),
+      style: TextStyle(
+        color: searchSortField == f
+            ? AppColors.accentPurple
+            : Colors.grey,
+        fontWeight: searchSortField == f
+            ? FontWeight.bold
+            : FontWeight.normal,
+      ),
+    ),
+    value: f,
+    groupValue: searchSortField,
+    activeColor: AppColors.accentPurple,
+    onChanged: (v) {
+      if (v == null) return;
+      ref
+          .read(searchSortFieldProvider.notifier)
+          .update(v);
+      _resortSearchResults();
+    },
+  ),
+                 const Divider(height: 1),
+RadioListTile<bool>(
+  dense: true,
+  contentPadding: EdgeInsets.zero,
+  title: Text(
+    '升序',
+    style: TextStyle(
+      color: searchSortAsc
+          ? AppColors.accentPurple
+          : Colors.grey,
+      fontWeight: searchSortAsc
+          ? FontWeight.bold
+          : FontWeight.normal,
+    ),
+  ),
+  value: true,
+  groupValue: searchSortAsc,
+  activeColor: AppColors.accentPurple,
+  onChanged: (_) {
+    ref
+        .read(searchSortAscProvider.notifier)
+        .update(true);
+    _resortSearchResults();
+  },
+),
+RadioListTile<bool>(
+  dense: true,
+  contentPadding: EdgeInsets.zero,
+  title: Text(
+    '降序',
+    style: TextStyle(
+      color: !searchSortAsc
+          ? AppColors.accentPurple
+          : Colors.grey,
+      fontWeight: !searchSortAsc
+          ? FontWeight.bold
+          : FontWeight.normal,
+    ),
+  ),
+  value: false,
+  groupValue: searchSortAsc,
+  activeColor: AppColors.accentPurple,
+  onChanged: (_) {
+    ref
+        .read(searchSortAscProvider.notifier)
+        .update(false);
+    _resortSearchResults();
+  },
+),
+                    
+                    
                   ],
                 ],
               ),
