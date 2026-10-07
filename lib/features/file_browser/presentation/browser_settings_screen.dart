@@ -298,6 +298,7 @@ class BrowserSettingsScreen extends ConsumerWidget {
   Widget _buildOpenModeSection(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(fileOpenModeProvider);
     final n = ref.read(fileOpenModeProvider.notifier);
+    final s = Theme.of(context).colorScheme;
 
     Widget tile({
       required FileOpenMode value,
@@ -305,6 +306,7 @@ class BrowserSettingsScreen extends ConsumerWidget {
       required String title,
       required String subtitle,
     }) {
+      final selected = mode == value;
       return RadioListTile<FileOpenMode>(
         value: value,
         groupValue: mode,
@@ -315,7 +317,14 @@ class BrowserSettingsScreen extends ConsumerWidget {
           children: [
             Icon(icon, size: 20),
             const SizedBox(width: 10),
-            Text(title),
+            Text(
+              title,
+              style: TextStyle(
+                color: selected ? s.primary : null,
+                fontWeight:
+                    selected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
           ],
         ),
         subtitle: Padding(
@@ -562,6 +571,8 @@ class _FontSizeRowState extends State<_FontSizeRow> {
 }
 
 /// 一行单选项：圆圈 + 文字。
+///
+/// 选中时圆圈是主题色（紫），文字也跟随主题色并加粗。
 class _RadioRow extends StatelessWidget {
   const _RadioRow({
     required this.label,
@@ -591,7 +602,15 @@ class _RadioRow extends StatelessWidget {
               color: selected ? s.primary : s.onSurfaceVariant,
             ),
             const SizedBox(width: 8),
-            Text(label, style: const TextStyle(fontSize: 14)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                color: selected ? s.primary : null,
+                fontWeight:
+                    selected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
           ],
         ),
       ),
