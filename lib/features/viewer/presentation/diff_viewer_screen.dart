@@ -2758,7 +2758,7 @@ Widget _buildFewDiffsBanner(int blocks) {
     }
 
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Column(
