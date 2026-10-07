@@ -17,7 +17,16 @@ class BrowserSettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(title: const Text('浏览器设置')),
+  appBar: AppBar(
+    title: const Text('浏览器设置'),
+    actions: [
+      IconButton(
+        icon: const Icon(Icons.help_outline),
+        tooltip: '使用说明',
+        onPressed: () => _showHelp(context, ref),
+      ),
+    ],
+  ),
       body: ListView(
         children: [
           _buildDisplayModeSection(context, ref),
@@ -279,7 +288,22 @@ class BrowserSettingsScreen extends ConsumerWidget {
         return '大小';
     }
   }
-
+Future<void> _showHelp(BuildContext context, WidgetRef ref) async {
+  final current = ref.read(browserSettingsHelpProvider);
+  final content = current.isEmpty ? _defaultHelpText : current;
+  final saved = await showDialog<String>(
+    context: context,
+    builder: (_) => _SettingsHelpDialog(initialText: content),
+  );
+  if (saved != null) {
+    ref.read(browserSettingsHelpProvider.notifier).update(saved);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('说明已保存')),
+      );
+    }
+  }
+}
   // ==================== 打开方式 ====================
 
   Widget _buildOpenModeSection(BuildContext context, WidgetRef ref) {
@@ -576,3 +600,8 @@ class _RadioRow extends StatelessWidget {
     );
   }
 }
+
+
+// ==================== 默认说明文字 ====================
+
+
