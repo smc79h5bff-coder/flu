@@ -467,6 +467,13 @@ var e = boundary.end;
   return units;
 }
 
+
+
+
+
+
+
+
 List<RenderUnit> _splitLongLineEstimated({
   required int lineIndex,
   required String content,
@@ -474,26 +481,57 @@ List<RenderUnit> _splitLongLineEstimated({
   required int rowsPerPage,
   required double singleLineHeight,
 }) {
-  final charWidth = singleLineHeight / kReaderLineHeightFactor;
-  final charsPerLine = math.max(1, (usableWidth / charWidth).floor());
-  // 每块 1 行。
-  final charsPerChunk = charsPerLine;
+  if (content.isEmpty) return const [];
+
+  final fontSize = singleLineHeight / kReaderLineHeightFactor;
 
   final units = <RenderUnit>[];
-  var start = 0;
-  while (start < content.length) {
-    final end = math.min(start + charsPerChunk, content.length);
-    final chunkLen = end - start;
-    final displayLines = math.max(1, (chunkLen / charsPerLine).ceil());
+  var lineStart = 0;
+  var x = 0.0;
+  var codeUnitIdx = 0;
+
+  final runeIter = content.runes.iterator;
+  while (runeIter.moveNext()) {
+    final rune = runeIter.current;
+    final w = _estimateCharWidth(rune, fontSize);
+
+    // 加上这个字符会超出 → 换段（但本行至少已有 1 个字符）
+    if (x + w > usableWidth && codeUnitIdx > lineStart) {
+      units.add(RenderUnit(
+        lineIndex: lineIndex,
+        charStart: lineStart,
+        charEnd: codeUnitIdx,
+        height: singleLineHeight,
+      ));
+      lineStart = codeUnitIdx;
+      x = 0.0;
+    }
+    x += w;
+    codeUnitIdx += rune < 0x10000 ? 1 : 2;
+  }
+
+  if (lineStart < content.length) {
     units.add(RenderUnit(
       lineIndex: lineIndex,
-      charStart: start,
-      charEnd: end,
-      height: math.min(displayLines, 1) * singleLineHeight,
+      charStart: lineStart,
+      charEnd: content.length,
+      height: singleLineHeight,
     ));
-    start = end;
   }
   return units;
+}
+
+double _estimateCharWidth(int rune, double fontSize) {
+  if (rune < 0x80) {
+    if (rune == 0x20) return fontSize * 0.30;
+    if ((rune >= 0x30 && rune <= 0x39) ||
+        (rune >= 0x41 && rune <= 0x5A) ||
+        (rune >= 0x61 && rune <= 0x7A)) {
+      return fontSize * 0.55;
+    }
+    return fontSize * 0.40;
+  }
+  return fontSize * 1.0;
 }
 
 // ==================== 估算 ====================
