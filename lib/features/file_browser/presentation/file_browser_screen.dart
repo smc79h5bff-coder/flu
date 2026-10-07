@@ -3882,7 +3882,8 @@ const PopupMenuItem<String>(
 
   // ==================== 搜索栏 UI ====================
 
-Widget _buildSearchBar() {
+
+ Widget _buildSearchBar() {
   final scope = ref.watch(searchScopeProvider);
   final mode = ref.watch(searchBoxModeProvider);
   final isFilter = mode == SearchBoxMode.filter;
@@ -3937,130 +3938,129 @@ Widget _buildSearchBar() {
             : '输入关键词');
   }
 
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-    child: Row(
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _selectionMode ? null : _showSearchSettings,
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 4,
-                vertical: 8,
-              ),
-              
-              
-              
-decoration: BoxDecoration(
-  borderRadius: BorderRadius.circular(8),
-  color: null,
-  border: isFilter
-      ? Border.all(
-          color: _selectionMode
-              ? Colors.grey.shade300
-              : filterBtnBg,
-          width: 1,
-        )
-      : null,
-),
-              
-              
-              
-              child: Text(
-                '搜索设置',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: _selectionMode
-                      ? Colors.grey
-                      : (isFilter ? Colors.black : accent),
-                  fontWeight: (isFilter || hasText)
-                      ? FontWeight.bold
-                      : FontWeight.normal,
+  return TapRegion(
+    onTapOutside: (_) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    },
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+      child: Row(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _selectionMode ? null : _showSearchSettings,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  color: null,
+                  border: isFilter
+                      ? Border.all(
+                          color: _selectionMode
+                              ? Colors.grey.shade300
+                              : filterBtnBg,
+                          width: 1,
+                        )
+                      : null,
+                ),
+                child: Text(
+                  '搜索设置',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _selectionMode
+                        ? Colors.grey
+                        : (isFilter ? Colors.black : accent),
+                    fontWeight: (isFilter || hasText)
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
 
-        const SizedBox(width: 2),
+          const SizedBox(width: 2),
 
-        InkWell(
-          onTap: _selectionMode
-              ? null
-              : (isFilter
-                  ? null
-                  : (hasText ? _doSearch : null)),
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 8,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              color: _selectionMode ? Colors.grey.shade300 : btnBg,
-            ),
-            child: Icon(btnIcon, color: btnIconColor),
-          ),
-        ),
-        const SizedBox(width: 4),
-
-        Expanded(
-          child: TextField(
-            controller: _searchCtrl,
-            enabled: !_selectionMode,
-            cursorColor: accent,
-            style: TextStyle(
-              color: inputFg,
-              fontWeight:
-                  isFilter ? FontWeight.bold : FontWeight.normal,
-            ),
-            decoration: InputDecoration(
-              hintText: hintText,
-              filled: isFilter,
-              fillColor: isFilter ? inputBg : null,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 12,
+          InkWell(
+            onTap: _selectionMode
+                ? null
+                : (isFilter
+                    ? null
+                    : (hasText ? _doSearch : null)),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 8,
               ),
-              suffixIcon: hasText
-                  ? _suffixButton(
-                      icon: Icons.clear,
-                      tooltip: '清空',
-                      fg: suffixFg,
-                      bg: suffixBg,
-                      onTap: isFilter ? _clearFilter : _clearSearch,
-                    )
-                  : _suffixButton(
-                      icon: Icons.history,
-                      tooltip: '搜索历史',
-                      fg: suffixFg,
-                      bg: suffixBg,
-                      onTap: _showSearchHistory,
-                    ),
-              suffixIconConstraints: const BoxConstraints(
-                minWidth: 44,
-                minHeight: 44,
-              ),
-              border: OutlineInputBorder(
+              decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
+                color: _selectionMode ? Colors.grey.shade300 : btnBg,
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: accent, width: 2),
-              ),
+              child: Icon(btnIcon, color: btnIconColor),
             ),
-            onChanged: _onSearchChanged,
-            onSubmitted: (isFilter || _selectionMode)
-                ? (_) => FocusManager.instance.primaryFocus?.unfocus()
-                : (_) => _doSearch(),
           ),
-        ),
-      ],
+          const SizedBox(width: 4),
+
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              enabled: !_selectionMode,
+              cursorColor: accent,
+              style: TextStyle(
+                color: inputFg,
+                fontWeight:
+                    isFilter ? FontWeight.bold : FontWeight.normal,
+              ),
+              decoration: InputDecoration(
+                hintText: hintText,
+                filled: isFilter,
+                fillColor: isFilter ? inputBg : null,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 12,
+                ),
+                suffixIcon: hasText
+                    ? _suffixButton(
+                        icon: Icons.clear,
+                        tooltip: '清空',
+                        fg: suffixFg,
+                        bg: suffixBg,
+                        onTap: isFilter ? _clearFilter : _clearSearch,
+                      )
+                    : _suffixButton(
+                        icon: Icons.history,
+                        tooltip: '搜索历史',
+                        fg: suffixFg,
+                        bg: suffixBg,
+                        onTap: _showSearchHistory,
+                      ),
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 44,
+                  minHeight: 44,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: accent, width: 2),
+                ),
+              ),
+              onChanged: _onSearchChanged,
+              onSubmitted: (isFilter || _selectionMode)
+                  ? (_) => FocusManager.instance.primaryFocus?.unfocus()
+                  : (_) => _doSearch(),
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -4102,6 +4102,9 @@ Widget _suffixButton({
 
 
 Future<void> _showSearchSettings() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    
   await showDialog<void>(
     context: context,
     builder: (c) => Consumer(
