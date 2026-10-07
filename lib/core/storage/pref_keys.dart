@@ -72,7 +72,7 @@ static const String searchSortAsc = 'jianming.browser.searchSortAsc';
   static const String lastPath = '${_p}browser.lastPath';
   static const String searchScope = '${_p}browser.searchScope';
   static const String fileOpenMode = '${_p}browser.fileOpenMode';
-
+static const String browserSettingsHelp = 'jianming.browser.settingsHelp';
   // ==================== 文件浏览器 · 视图 ====================
   /// 是否网格模式。false = 列表（默认），true = 网格。
   static const String browserGridMode = '${_p}browser.gridMode';
