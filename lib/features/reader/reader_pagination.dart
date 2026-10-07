@@ -398,10 +398,21 @@ List<RenderUnit> _splitLongLinePrecise({
     // 写成 baseline + (ascent + descent) / 2 会偏高，落到上一行，
     // 导致切分点全错、渲染出奇怪的短行和空行。
     final yMid = m.baseline + (m.descent - m.ascent) / 2;
-    final posStart = tp.getPositionForOffset(Offset(0, yMid));
-    final posEnd = tp.getPositionForOffset(Offset(maxWidth - 0.5, yMid));
-    var s = posStart.offset;
-    var e = posEnd.offset;
+ 
+    
+    
+    
+    // 用 x=0 探针拿到本行内一个位置，再用 getLineBoundary 精确拿本视觉行
+// 的字符边界 [start, end)。
+//
+// 不用 getPositionForOffset(maxWidth - 0.5)：
+//   那个 x 落在行末之外，Dart 会 snap 到最近字符位置。一旦落在换行点，
+//   就跳到下一行首，导致本行边界多含下一行字符。多出的字符在渲染时
+//   会被再换行一次 → 本行右侧留大空白 + 下伸被裁 + 长按选字偏上一行。
+final probe = tp.getPositionForOffset(Offset(0, yMid));
+final boundary = tp.getLineBoundary(probe);
+var s = boundary.start;
+var e = boundary.end;
     if (e <= s) e = s + 1;
     if (s < 0) s = 0;
     if (e > content.length) e = content.length;
