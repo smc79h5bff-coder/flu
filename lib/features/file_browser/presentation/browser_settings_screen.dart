@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/file_browser_providers.dart';
@@ -1082,21 +1083,86 @@ class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
     );
   }
 
+  // ========== 改动：使用 Markdown 渲染 ==========
   Widget _buildContent(ColorScheme s) {
     final idx = _tabCtrl.index;
     if (idx < 0 || idx >= _tabs.length) return const SizedBox.shrink();
     final tab = _tabs[idx];
 
-    return SingleChildScrollView(
+    if (tab.content.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SelectableText(
+          '（此 Tab 还没有内容。点上方"编辑"写点什么。）',
+        ),
+      );
+    }
+
+    return Markdown(
+      data: tab.content,
+      selectable: true,
       padding: const EdgeInsets.all(12),
-      child: SelectableText(
-        tab.content.isEmpty
-            ? '（此 Tab 还没有内容。点上方"编辑"写点什么。）'
-            : tab.content,
-        style: const TextStyle(
-          fontSize: 13.5,
-          height: 1.6,
+      styleSheet: MarkdownStyleSheet(
+        h1: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          height: 1.5,
+        ),
+        h2: const TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.bold,
+          height: 1.5,
+        ),
+        h3: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          height: 1.5,
+        ),
+        p: const TextStyle(fontSize: 13.5, height: 1.65),
+        listBullet: const TextStyle(fontSize: 13.5, height: 1.65),
+        listIndent: 20,
+        strong: const TextStyle(fontWeight: FontWeight.bold),
+        em: const TextStyle(fontStyle: FontStyle.italic),
+        code: TextStyle(
+          fontSize: 13,
           fontFamily: 'monospace',
+          backgroundColor: s.surfaceVariant.withValues(alpha: 0.4),
+        ),
+        codeblockDecoration: BoxDecoration(
+          color: s.surfaceVariant.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        codeblockPadding: const EdgeInsets.all(10),
+        blockquote: TextStyle(
+          fontSize: 13,
+          color: s.onSurfaceVariant,
+          height: 1.6,
+        ),
+        blockquoteDecoration: BoxDecoration(
+          color: s.surfaceVariant.withValues(alpha: 0.35),
+          border: Border(
+            left: BorderSide(color: s.primary, width: 3),
+          ),
+        ),
+        blockquotePadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+        tableBorder: TableBorder.all(
+          color: s.outlineVariant,
+          width: 0.5,
+        ),
+        tableCellsPadding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 6,
+        ),
+        tableHead: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+        ),
+        tableBody: const TextStyle(fontSize: 13, height: 1.5),
+        tableColumnWidth: const IntrinsicColumnWidth(),
+        horizontalRuleDecoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: s.outlineVariant, width: 0.5),
+          ),
         ),
       ),
     );
