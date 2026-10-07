@@ -18,6 +18,8 @@ class BrowserSettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final gridMode = ref.watch(browserGridModeProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('浏览器设置'),
@@ -33,8 +35,13 @@ class BrowserSettingsScreen extends ConsumerWidget {
         children: [
           _buildDisplayModeSection(context, ref),
           const Divider(height: 1),
-          _buildGridContentSection(context, ref),
-          const Divider(height: 1),
+
+          // 只有网格模式才显示"网格显示内容"
+          if (gridMode) ...[
+            _buildGridContentSection(context, ref),
+            const Divider(height: 1),
+          ],
+
           _buildFontSizeSection(context, ref),
           const Divider(height: 1),
           _buildSortSection(context, ref),
@@ -82,18 +89,13 @@ class BrowserSettingsScreen extends ConsumerWidget {
   // ==================== 网格显示内容 ====================
 
   Widget _buildGridContentSection(BuildContext context, WidgetRef ref) {
-    final gridMode = ref.watch(browserGridModeProvider);
     final showSize = ref.watch(browserGridShowSizeProvider);
     final showTime = ref.watch(browserGridShowTimeProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(
-          title: '网格显示内容',
-          subtitle: gridMode ? null : '仅网格模式生效',
-          dim: !gridMode,
-        ),
+        const _SectionHeader(title: '网格显示内容'),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Row(
@@ -102,7 +104,7 @@ class BrowserSettingsScreen extends ConsumerWidget {
                 child: _SwitchRow(
                   label: '显示大小',
                   value: showSize,
-                  enabled: gridMode,
+                  enabled: true,
                   onChanged: (v) => ref
                       .read(browserGridShowSizeProvider.notifier)
                       .update(v),
@@ -113,7 +115,7 @@ class BrowserSettingsScreen extends ConsumerWidget {
                 child: _SwitchRow(
                   label: '显示时间',
                   value: showTime,
-                  enabled: gridMode,
+                  enabled: true,
                   onChanged: (v) => ref
                       .read(browserGridShowTimeProvider.notifier)
                       .update(v),
