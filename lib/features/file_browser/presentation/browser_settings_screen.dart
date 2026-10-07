@@ -905,10 +905,33 @@ class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
                     PopupMenuButton<String>(
                       icon: const Icon(Icons.more_vert),
                       onSelected: (v) {
-                        if (v == 'reset') _confirmResetAll();
+                        switch (v) {
+                          case 'create':
+                            _createTab();
+                          case 'rename':
+                            _renameCurrent();
+                          case 'delete':
+                            _deleteCurrent();
+                          case 'reset':
+                            _confirmResetAll();
+                        }
                       },
-                      itemBuilder: (_) => const [
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'create',
+                          child: Text('新建 Tab'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'rename',
+                          child: Text('重命名 Tab'),
+                        ),
                         PopupMenuItem(
+                          value: 'delete',
+                          enabled: _tabs.length > 1,
+                          child: const Text('删除 Tab'),
+                        ),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem(
                           value: 'reset',
                           child: Text('恢复默认 Tab'),
                         ),
@@ -931,7 +954,7 @@ class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
             if (_editing) _buildEditTitleBar(s),
 
             // ---------- 工具栏（非编辑态） ----------
-            if (!_editing) _buildToolbar(s),
+            if (!_editing) _buildToolbar(),
 
             // ---------- 内容区 ----------
             Expanded(
@@ -979,52 +1002,61 @@ class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
     );
   }
 
-  Widget _buildToolbar(ColorScheme s) {
+  Widget _buildToolbar() {
     final idx = _tabCtrl.index;
-    final canDelete = _tabs.length > 1;
     final canLeft = idx > 0;
     final canRight = idx < _tabs.length - 1;
 
-    return Container(
-      color: s.surfaceVariant.withValues(alpha: 0.3),
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            TextButton.icon(
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('新建'),
-              onPressed: _createTab,
+      child: Row(
+        children: [
+          _circleArrowButton(
+            icon: Icons.arrow_back,
+            tooltip: '左移此 Tab',
+            onPressed: canLeft ? () => _moveCurrent(-1) : null,
+          ),
+          const SizedBox(width: 8),
+          _circleArrowButton(
+            icon: Icons.arrow_forward,
+            tooltip: '右移此 Tab',
+            onPressed: canRight ? () => _moveCurrent(1) : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 带白色半透明圆形背景的箭头按钮。
+  /// 视觉圆形 40×40，点击区域 64×44（横向更宽）。
+  Widget _circleArrowButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+  }) {
+    final enabled = onPressed != null;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          width: 64,
+          height: 44,
+          alignment: Alignment.center,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.5),
             ),
-            const SizedBox(width: 2),
-            TextButton.icon(
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              label: const Text('重命名'),
-              onPressed: _renameCurrent,
+            child: Icon(
+              icon,
+              size: 20,
+              color: enabled ? Colors.black87 : Colors.black26,
             ),
-            const SizedBox(width: 2),
-            TextButton.icon(
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: const Text('删除'),
-              onPressed: canDelete ? _deleteCurrent : null,
-            ),
-            const SizedBox(width: 8),
-            Container(width: 1, height: 20, color: s.outlineVariant),
-            const SizedBox(width: 4),
-            IconButton(
-              tooltip: '左移此 Tab',
-              icon: const Icon(Icons.arrow_back, size: 18),
-              visualDensity: VisualDensity.compact,
-              onPressed: canLeft ? () => _moveCurrent(-1) : null,
-            ),
-            IconButton(
-              tooltip: '右移此 Tab',
-              icon: const Icon(Icons.arrow_forward, size: 18),
-              visualDensity: VisualDensity.compact,
-              onPressed: canRight ? () => _moveCurrent(1) : null,
-            ),
-          ],
+          ),
         ),
       ),
     );
