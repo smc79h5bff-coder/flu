@@ -5963,3 +5963,15 @@ class _RadioDot extends StatelessWidget {
     );
   }
 }
+
+
+// ==================== 浏览器设置 · 说明文档（持久化，可编辑） ====================
+
+final browserSettingsHelpProvider =
+    NotifierProvider<BrowserSettingsHelpNotifier, String>(
+  BrowserSettingsHelpNotifier.new,
+);
+
+class BrowserSettingsHelpNotifier extends StringPrefNotifier {
+  BrowserSettingsHelpNotifier() : super(key: PrefKeys.browserSettingsHelp);
+}
