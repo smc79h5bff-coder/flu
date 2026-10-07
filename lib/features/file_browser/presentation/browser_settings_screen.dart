@@ -53,38 +53,39 @@ class BrowserSettingsScreen extends ConsumerWidget {
   }
 
   // ==================== 显示方式 ====================
-
-  Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
-    final gridMode = ref.watch(browserGridModeProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionHeader(title: '显示方式'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Row(
-            children: [
-              ChoiceChip(
-                label: const Text('列表'),
-                selected: !gridMode,
-                onSelected: (_) {
-                  ref.read(browserGridModeProvider.notifier).update(false);
-                },
-              ),
-              const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('网格'),
-                selected: gridMode,
-                onSelected: (_) {
-                  ref.read(browserGridModeProvider.notifier).update(true);
-                },
-              ),
-            ],
-          ),
+Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
+  final gridMode = ref.watch(browserGridModeProvider);
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const _SectionHeader(title: '显示方式'),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Row(
+          children: [
+            ChoiceChip(
+              label: const Text('列表'),
+              selected: !gridMode,
+              backgroundColor: Colors.white,
+              onSelected: (_) {
+                ref.read(browserGridModeProvider.notifier).update(false);
+              },
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('网格'),
+              selected: gridMode,
+              backgroundColor: Colors.white,
+              onSelected: (_) {
+                ref.read(browserGridModeProvider.notifier).update(true);
+              },
+            ),
+          ],
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
 
   // ==================== 网格显示内容 ====================
 
