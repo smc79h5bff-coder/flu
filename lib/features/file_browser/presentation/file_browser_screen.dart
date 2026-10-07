@@ -392,7 +392,25 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
     '.odt', '.ods', '.odp', '.epub', '.mobi', '.azw', '.azw3',
     '.exe', '.dll', '.so', '.bin', '.img', '.db', '.sqlite', '.mdb',
   };
+static const Set<String> _imageExts = {
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico',
+  '.tif', '.tiff', '.heic', '.raw',
+};
 
+static const Set<String> _videoExts = {
+  '.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm', '.m4v',
+  '.3gp', '.mpg', '.mpeg', '.rmvb', '.rm', '.vob',
+};
+
+static const Set<String> _audioExts = {
+  '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.ape',
+  '.opus',
+};
+
+static const Set<String> _archiveExts = {
+  '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', '.iso',
+  '.cab', '.lz', '.lzma', '.zst', '.apk', '.apks', '.xapk', '.aab',
+};
   static String _extOf(String name) {
     final i = name.lastIndexOf('.');
     if (i <= 0 || i == name.length - 1) return '';
@@ -1813,7 +1831,10 @@ if (!allowExpand) {
     }
     return picked;
   }
-
+void _jumpToTop() {
+  if (!_itemScrollController.isAttached) return;
+  _itemScrollController.jumpTo(index: 0);
+}
   void _scrollToPath(String path) {
     final allItems = _cachedDisplayItems ?? const <_DisplayItem>[];
     final index = allItems.indexWhere((it) => it.key == path);
@@ -1989,7 +2010,7 @@ if (!allowExpand) {
       roots.add(_currentPath);
     } else {
       if (customFolders.isEmpty) {
-        _toast('请先长按搜索按钮 → 管理已勾选文件夹');
+        _toast('请先点击左侧搜索设置 → 管理搜索范围');
         if (mounted) setState(() => _searching = false);
         return;
       }
@@ -2007,8 +2028,8 @@ if (!allowExpand) {
     if (taskId != _searchTaskId) return;
     if (!mounted) return;
 
-    final sortField = ref.read(sortFieldProvider);
-    final sortAsc = ref.read(sortAscProvider);
+    final sortField = ref.read(searchSortFieldProvider);
+final sortAsc = ref.read(searchSortAscProvider);
 
     results.sort((a, b) {
       int cmp;
@@ -2541,200 +2562,9 @@ if (!allowExpand) {
 
   // ==================== 视图弹窗 ====================
 
-  Future<void> _showViewDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (c) => Consumer(
-        builder: (c, ref, _) {
-          final gridMode = ref.watch(browserGridModeProvider);
-          final gridShowSize = ref.watch(browserGridShowSizeProvider);
-          final gridShowTime = ref.watch(browserGridShowTimeProvider);
-          final fontListName = ref.watch(browserFontListNameProvider);
-          final fontListMeta = ref.watch(browserFontListMetaProvider);
-          final fontGridName = ref.watch(browserFontGridNameProvider);
-          final fontGridMeta = ref.watch(browserFontGridMetaProvider);
-          final sortField = ref.watch(sortFieldProvider);
-          final sortAsc = ref.watch(sortAscProvider);
 
-          return AlertDialog(
-            insetPadding: _dlgInset,
-            titlePadding: _dlgTitlePad,
-            contentPadding: _dlgContentPad,
-            actionsPadding: _dlgActionsPad,
-            title: const Text('视图'),
-            content: SizedBox(
-              width: double.maxFinite,
-              height: MediaQuery.of(c).size.height * 0.75,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _viewSectionTitle('显示方式'),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        ChoiceChip(
-                          label: const Text('列表'),
-                          selected: !gridMode,
-                          onSelected: (_) {
-                            ref
-                                .read(browserGridModeProvider.notifier)
-                                .update(false);
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          label: const Text('网格'),
-                          selected: gridMode,
-                          onSelected: (_) {
-                            ref
-                                .read(browserGridModeProvider.notifier)
-                                .update(true);
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const Divider(height: 1),
-                    const SizedBox(height: 8),
-                    if (gridMode) ...[
-                      _viewSectionTitle('网格显示内容'),
-                      Row(
-                        children: [
-                          const Text('显示大小',
-                              style: TextStyle(fontSize: 13)),
-                          const SizedBox(width: 8),
-                          Switch(
-                            value: gridShowSize,
-                            onChanged: (v) => ref
-                                .read(browserGridShowSizeProvider.notifier)
-                                .update(v),
-                          ),
-                        ],
-                      ),
-                      Row(
-                        children: [
-                          const Text('显示时间',
-                              style: TextStyle(fontSize: 13)),
-                          const SizedBox(width: 8),
-                          Switch(
-                            value: gridShowTime,
-                            onChanged: (v) => ref
-                                .read(browserGridShowTimeProvider.notifier)
-                                .update(v),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Divider(height: 1),
-                      const SizedBox(height: 8),
-                    ],
-                    _viewSectionTitle('字号'),
-                    const SizedBox(height: 4),
-                    if (!gridMode) ...[
-                      _FontSizeRow(
-                        key: const ValueKey('fontListName'),
-                        label: '文件名',
-                        value: fontListName,
-                        onChanged: (v) => ref
-                            .read(browserFontListNameProvider.notifier)
-                            .set(v),
-                      ),
-                      _FontSizeRow(
-                        key: const ValueKey('fontListMeta'),
-                        label: '大小 / 时间',
-                        value: fontListMeta,
-                        onChanged: (v) => ref
-                            .read(browserFontListMetaProvider.notifier)
-                            .set(v),
-                      ),
-                    ] else ...[
-                      _FontSizeRow(
-                        key: const ValueKey('fontGridName'),
-                        label: '文件名',
-                        value: fontGridName,
-                        onChanged: (v) => ref
-                            .read(browserFontGridNameProvider.notifier)
-                            .set(v),
-                      ),
-                      _FontSizeRow(
-                        key: const ValueKey('fontGridMeta'),
-                        label: '大小 / 时间',
-                        value: fontGridMeta,
-                        onChanged: (v) => ref
-                            .read(browserFontGridMetaProvider.notifier)
-                            .set(v),
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    const Divider(height: 1),
-                    const SizedBox(height: 8),
-                    _viewSectionTitle('排序方式'),
-                    for (final f in SortField.values)
-                      RadioListTile<SortField>(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(_sortLabel(f)),
-                        value: f,
-                        groupValue: sortField,
-                        onChanged: (v) {
-                          if (v == null) return;
-                          ref.read(sortFieldProvider.notifier).update(v);
-                          _load();
-                        },
-                      ),
-                    const Divider(),
-                    RadioListTile<bool>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('升序'),
-                      value: true,
-                      groupValue: sortAsc,
-                      onChanged: (_) {
-                        ref.read(sortAscProvider.notifier).update(true);
-                        _load();
-                      },
-                    ),
-                    RadioListTile<bool>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('降序'),
-                      value: false,
-                      groupValue: sortAsc,
-                      onChanged: (_) {
-                        ref.read(sortAscProvider.notifier).update(false);
-                        _load();
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(c),
-                child: const Text('关闭'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
 
-  Widget _viewSectionTitle(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 2),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
+
 
   String _sortLabel(SortField f) {
     switch (f) {
@@ -2746,7 +2576,202 @@ if (!allowExpand) {
         return '大小';
     }
   }
+// ==================== 当前目录信息 ====================
 
+Future<void> _showDirInfoDialog() async {
+  if (_loading) {
+    _toast('目录还在加载中，请稍候');
+    return;
+  }
+
+  final entries = _entries ?? const <EntryInfo>[];
+
+  var dirCount = 0;
+  var fileCount = 0;
+  var totalBytes = 0;
+  var hasUnknownSize = false;
+
+  var textCount = 0;
+  var imageCount = 0;
+  var videoCount = 0;
+  var audioCount = 0;
+  var archiveCount = 0;
+  var otherCount = 0;
+
+  int? maxSize;
+  String? maxSizeName;
+  DateTime? newestTime;
+  String? newestName;
+  DateTime? oldestTime;
+  String? oldestName;
+
+  for (final info in entries) {
+    if (info.isDir) {
+      dirCount++;
+      continue;
+    }
+    fileCount++;
+
+    final sz = info.size;
+    if (sz != null) {
+      totalBytes += sz;
+      if (maxSize == null || sz > maxSize) {
+        maxSize = sz;
+        maxSizeName = info.name;
+      }
+    } else {
+      hasUnknownSize = true;
+    }
+
+    final t = info.modified;
+    if (t != null) {
+      if (newestTime == null || t.isAfter(newestTime)) {
+        newestTime = t;
+        newestName = info.name;
+      }
+      if (oldestTime == null || t.isBefore(oldestTime)) {
+        oldestTime = t;
+        oldestName = info.name;
+      }
+    }
+
+    final ext = _extOf(info.name);
+    if (_textExts.contains(ext)) {
+      textCount++;
+    } else if (_imageExts.contains(ext)) {
+      imageCount++;
+    } else if (_videoExts.contains(ext)) {
+      videoCount++;
+    } else if (_audioExts.contains(ext)) {
+      audioCount++;
+    } else if (_archiveExts.contains(ext)) {
+      archiveCount++;
+    } else {
+      otherCount++;
+    }
+  }
+
+  if (!mounted) return;
+
+  final sortField = ref.read(sortFieldProvider);
+  final sortAsc = ref.read(sortAscProvider);
+  final gridMode = ref.read(browserGridModeProvider);
+
+  String sizeText;
+  if (hasUnknownSize) {
+    sizeText = '${_formatSize(totalBytes)} + 部分未统计';
+  } else {
+    sizeText = _formatSize(totalBytes);
+  }
+
+  await showDialog<void>(
+    context: context,
+    builder: (c) {
+      final s = Theme.of(c).colorScheme;
+
+      Widget kv(String label, String value, {bool selectable = false}) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(c).textTheme.labelSmall),
+              const SizedBox(height: 2),
+              selectable
+                  ? SelectableText(value, style: const TextStyle(fontSize: 13))
+                  : Text(value, style: const TextStyle(fontSize: 13)),
+            ],
+          ),
+        );
+      }
+
+      return AlertDialog(
+        insetPadding: _dlgInset,
+        titlePadding: _dlgTitlePad,
+        contentPadding: _dlgContentPad,
+        actionsPadding: _dlgActionsPad,
+        title: const Text('当前目录信息'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.7,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                kv('路径', _currentPath, selectable: true),
+                const SizedBox(height: 4),
+
+                Text(
+                  '共 ${entries.length} 项',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$dirCount 个文件夹 · $fileCount 个文件',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: s.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+
+                kv('总大小（不含子目录）', sizeText),
+
+                if (maxSizeName != null)
+                  kv('最大文件',
+                      '$maxSizeName（${_formatSize(maxSize!)}）'),
+
+                if (newestTime != null)
+                  kv('最新文件',
+                      '$newestName（${_formatTime(newestTime!)}）'),
+
+                if (oldestTime != null)
+                  kv('最旧文件',
+                      '$oldestName（${_formatTime(oldestTime!)}）'),
+
+                kv('当前排序',
+                    '${_sortLabel(sortField)} · ${sortAsc ? "升序" : "降序"}'),
+
+                kv('显示模式', gridMode ? '网格' : '列表'),
+
+                const SizedBox(height: 4),
+                const Divider(height: 1),
+                const SizedBox(height: 8),
+
+                Text(
+                  '类型分布',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: s.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '文本 $textCount · 图片 $imageCount · 视频 $videoCount · '
+                  '音频 $audioCount · 压缩包 $archiveCount · 其他 $otherCount',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      );
+    },
+  );
+}
   // ==================== 收藏 / 配置 ====================
 
   void _toggleFavorite() {
@@ -3537,27 +3562,42 @@ if (!_searchActive &&
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           tooltip: '更多',
-          onSelected: (v) {
-            switch (v) {
-              case 'browserSettings':
-                Navigator.of(context).push(_noAnimRoute(
-                  const BrowserSettingsScreen(),
-                ));
-              case 'exportConfig':
-                _exportConfig();
-              case 'importConfig':
-                _importConfig();
-              case 'refresh':
-                DirCache.instance.invalidate(_currentPath);
-                _load(skipCache: true);
-              case 'view':
-                _showViewDialog();
-              case 'favorites':
-                _showFavorites();
-              case 'newFolder':
-                _newFolder();
-            }
-          },
+          
+          
+          onSelected: (v) async {
+  switch (v) {
+    case 'browserSettings':
+      final beforeField = ref.read(sortFieldProvider);
+      final beforeAsc = ref.read(sortAscProvider);
+      await Navigator.of(context).push(_noAnimRoute(
+        const BrowserSettingsScreen(),
+      ));
+      if (!mounted) return;
+      final afterField = ref.read(sortFieldProvider);
+      final afterAsc = ref.read(sortAscProvider);
+      if (beforeField != afterField || beforeAsc != afterAsc) {
+        DirCache.instance.invalidate(_currentPath);
+        _load();
+      }
+    case 'exportConfig':
+      _exportConfig();
+    case 'importConfig':
+      _importConfig();
+   case 'refresh':
+  DirCache.instance.invalidate(_currentPath);
+  _load(skipCache: true);
+case 'jumpToPath':
+  _showJumpToPathDialog();
+case 'jumpToTop':
+  _jumpToTop();
+case 'dirInfo':
+  _showDirInfoDialog();
+case 'favorites':
+  _showFavorites();
+    case 'newFolder':
+      _newFolder();
+  }
+},
           itemBuilder: (context) => [
             const PopupMenuItem<String>(
               value: 'browserSettings',
@@ -3601,16 +3641,18 @@ if (!_searchActive &&
                 ],
               ),
             ),
-            const PopupMenuItem<String>(
-              value: 'view',
-              child: Row(
-                children: [
-                  Icon(Icons.grid_view),
-                  SizedBox(width: 10),
-                  Text('视图'),
-                ],
-              ),
-            ),
+ const PopupMenuItem<String>(
+  value: 'jumpToPath',
+  child: Text('跳转到目录'),
+),
+const PopupMenuItem<String>(
+  value: 'jumpToTop',
+  child: Text('跳到此目录顶部'),
+),
+const PopupMenuItem<String>(
+  value: 'dirInfo',
+  child: Text('当前目录信息'),
+),
             const PopupMenuDivider(),
             PopupMenuItem<String>(
               value: 'favorites',
@@ -3706,22 +3748,36 @@ Widget _buildSearchBar() {
     padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
     child: Row(
       children: [
-        // ---------- 搜索设置（文字按钮，无图标） ----------
-        InkWell(
-          onTap: _selectionMode ? null : _showSearchSettings,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-            child: Text(
-              '搜索设置',
-              style: TextStyle(
-                fontSize: 12,
-                color: _selectionMode ? Colors.grey : accent,
-                fontWeight: hasText ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ),
+// ---------- 搜索设置（细黑边框） ----------
+Material(
+  color: Colors.transparent,
+  child: InkWell(
+    onTap: _selectionMode ? null : _showSearchSettings,
+    borderRadius: BorderRadius.circular(8),
+    child: Container(
+      padding: const EdgeInsets.symmetric(
+  horizontal: 4,
+  vertical: 8,
+),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: _selectionMode ? Colors.grey.shade300 : Colors.black,
+          width: 1,
         ),
+      ),
+      child: Text(
+        '搜索设置',
+        style: TextStyle(
+          fontSize: 12,
+          color: _selectionMode ? Colors.grey : accent,
+          fontWeight: hasText ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    ),
+  ),
+),
+        
         const SizedBox(width: 2),
 
         // ---------- 搜索按钮（单击搜索，无长按） ----------
@@ -3950,8 +4006,8 @@ void _resortSearchResults() {
   if (_searchResults.isEmpty) return;
   final sortField = ref.read(searchSortFieldProvider);
 final sortAsc = ref.read(searchSortAscProvider);
-
-results.sort((a, b)  {
+_searchResults.sort((a, b) {
+ 
     int cmp;
     switch (sortField) {
       case SortField.name:
@@ -5098,98 +5154,7 @@ class _TextInputDialogState extends State<_TextInputDialog> {
   }
 }
 
-class _FontSizeRow extends StatefulWidget {
-  const _FontSizeRow({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
 
-  final String label;
-  final double value;
-  final ValueChanged<double> onChanged;
-
-  @override
-  State<_FontSizeRow> createState() => _FontSizeRowState();
-}
-
-class _FontSizeRowState extends State<_FontSizeRow> {
-  late final TextEditingController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.value.round().toString());
-  }
-
-  @override
-  void didUpdateWidget(covariant _FontSizeRow oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final cur = widget.value.round().toString();
-    if (_ctrl.text != cur) {
-      _ctrl.text = cur;
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void _step(int delta) {
-    final next = (widget.value.round() + delta).clamp(1, 38).toDouble();
-    widget.onChanged(next);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(widget.label, style: const TextStyle(fontSize: 13)),
-          ),
-          IconButton(
-            icon: const Icon(Icons.remove),
-            visualDensity: VisualDensity.compact,
-            onPressed: () => _step(-1),
-          ),
-          SizedBox(
-            width: 56,
-            child: TextFormField(
-              controller: _ctrl,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              ),
-              onFieldSubmitted: (v) {
-                final n = int.tryParse(v.trim());
-                if (n == null) {
-                  _ctrl.text = widget.value.round().toString();
-                  return;
-                }
-                final clamped = n.clamp(1, 38).toDouble();
-                widget.onChanged(clamped);
-              },
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
-            visualDensity: VisualDensity.compact,
-            onPressed: () => _step(1),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _SearchFolderPickerDialog extends StatefulWidget {
   const _SearchFolderPickerDialog({
