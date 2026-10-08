@@ -43,7 +43,7 @@ final showLineNumbersProvider =
 
 class ShowLineNumbersNotifier extends BoolPrefNotifier {
   ShowLineNumbersNotifier()
-      : super(PrefKeys.showLineNumbers, initial: true);
+      : super(key: PrefKeys.showLineNumbers, initial: true); // ★ 修正
 }
 
 final bodyFontSizeProvider =
@@ -51,7 +51,7 @@ final bodyFontSizeProvider =
 
 class BodyFontSizeNotifier extends DoublePrefNotifier {
   BodyFontSizeNotifier()
-      : super(PrefKeys.bodyFontSize, initial: 14.0);
+      : super(key: PrefKeys.bodyFontSize, initial: 14.0); // ★ 修正
 }
 
 final gutterFontSizeProvider =
@@ -61,7 +61,7 @@ final gutterFontSizeProvider =
 
 class GutterFontSizeNotifier extends DoublePrefNotifier {
   GutterFontSizeNotifier()
-      : super(PrefKeys.gutterFontSize, initial: 11.0);
+      : super(key: PrefKeys.gutterFontSize, initial: 11.0); // ★ 修正
 }
 
 
@@ -72,7 +72,7 @@ final contextFontSizeProvider =
 
 class ContextFontSizeNotifier extends DoublePrefNotifier {
   ContextFontSizeNotifier()
-      : super(PrefKeys.contextFontSize, initial: 10.0);
+      : super(key: PrefKeys.contextFontSize, initial: 10.0); // ★ 修正
 }
 
 
