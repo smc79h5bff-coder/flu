@@ -378,7 +378,7 @@ if (q.isNotEmpty && diff != null) {
     }
 // ★ 开了正则/忽略大小写/整词时，涂色可能跟计数对不上，给提示
 if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
-  const warn = '当前搜索条件（正则/大小写/整词）下不显示高亮，替换正常';
+  const warn = '当前搜索条件不支持高亮，替换仍可正常进行';
   hint = hint == null ? warn : '$hint\n$warn';
 }
     int newPos = 0;
