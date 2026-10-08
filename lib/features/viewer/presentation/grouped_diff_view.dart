@@ -223,6 +223,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   double? _cacheCtxFont;
   double? _cacheGutterFont;
   bool? _cacheShowLine;
+  int? _lastCtxLines;
   TextScaler? _cacheScaler;
 
   // 只用于文字高亮
