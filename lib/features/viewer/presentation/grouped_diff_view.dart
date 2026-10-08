@@ -12,8 +12,6 @@ import 'providers/diff_viewer_providers.dart';
 import 'providers/grouped_color_providers.dart';
 import 'viewer_widgets.dart';
 
-// ==================== 固定常量 ====================
-
 const int _kMaxLinesPerChunk = 25;
 
 // ==================== 数据模型 ====================
@@ -205,13 +203,7 @@ List<List<int>> _blobHighlight(
 // ==================== 视图 ====================
 
 class GroupedDiffView extends ConsumerStatefulWidget {
-  const GroupedDiffView({
-    super.key,
-    this.onMatchCountChanged,        // ★ 新增
-  });
-
-  /// ★ 查找匹配数变化时回调给外部（让查找栏按钮的 enabled 状态跟着变）
-  final ValueChanged<int>? onMatchCountChanged;
+  const GroupedDiffView({super.key});
 
   @override
   ConsumerState<GroupedDiffView> createState() => GroupedDiffViewState();
@@ -233,15 +225,15 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   bool? _cacheShowLine;
   TextScaler? _cacheScaler;
 
+  // 只用于文字高亮
   String _findQuery = '';
-  List<({int blockIdx, bool isLeft})> _matches = const [];
-  int _matchPos = -1;
 
-  /// ★ 当前被跳到的 block 索引（画黑框用）
+  // 当前跳到的 block（差异跳转 / 查找跳转都用它）
   int? _jumpedBlockIdx;
 
-  /// ★ 外部同步用：当前匹配数
-  int get matchCount => _matches.length;
+  // 行号缓存
+  DiffResult? _metaFor;
+  List<({int orig, int mod})>? _metaCache;
 
   @override
   void initState() {
@@ -289,7 +281,35 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     _syncing = false;
   }
 
-  // ==================== 公开方法 ====================
+  // ==================== 给外部（主 screen）的公开方法 ====================
+
+  /// 更新高亮词。只影响文字颜色，不做跳转。
+  void updateFindQuery(String q) {
+    if (_findQuery == q) return;
+    setState(() => _findQuery = q);
+  }
+
+  /// 清掉查找状态。
+  void clearFind() {
+    if (_findQuery.isEmpty && _jumpedBlockIdx == null) return;
+    setState(() {
+      _findQuery = '';
+      _jumpedBlockIdx = null;
+    });
+  }
+
+  /// 滚动到指定的 entry 索引。由主 screen 在按下"下一个/上一个"时调用。
+  void scrollToEntry(int entryIdx) {
+    final blockIdx = _blockIdxForEntry(entryIdx);
+    if (blockIdx == null) return;
+    setState(() => _jumpedBlockIdx = blockIdx);
+    final off = _blockOffset(blockIdx);
+    if (_leftCtrl.hasClients) {
+      _leftCtrl.jumpTo(off.clamp(0, _leftCtrl.position.maxScrollExtent));
+    }
+  }
+
+  // ==================== 差异跳转（工具栏按钮用）====================
 
   void pageUp() {
     if (!_leftCtrl.hasClients) return;
@@ -311,7 +331,6 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
 
   void jumpToTop() {
     if (_leftCtrl.hasClients) _leftCtrl.jumpTo(0);
-    // ★ 跳到顶时清掉黑框
     if (_jumpedBlockIdx != null) {
       setState(() => _jumpedBlockIdx = null);
     }
@@ -321,7 +340,6 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     if (_leftCtrl.hasClients) {
       _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
     }
-    // ★ 跳到最底时清掉黑框
     if (_jumpedBlockIdx != null) {
       setState(() => _jumpedBlockIdx = null);
     }
@@ -333,7 +351,6 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final cur = _currentBlockIdx() ?? -1;
     for (var i = cur + 1; i < visible.length; i++) {
       if (visible[i].kind != GroupedBlockKind.equal) {
-        // ★ 记下要跳的 block 并 setState 画黑框
         setState(() => _jumpedBlockIdx = i);
         _leftCtrl.jumpTo(_blockOffset(i)
             .clamp(0, _leftCtrl.position.maxScrollExtent));
@@ -356,57 +373,6 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       }
     }
     _toast('到顶了');
-  }
-
-  void updateFindQuery(String q) {
-    _findQuery = q;
-    final data = _data;
-    final visible = _visible;
-    if (data == null || visible == null || q.isEmpty) {
-      setState(() { _matches = const []; _matchPos = -1; });
-      widget.onMatchCountChanged?.call(0);       // ★
-      return;
-    }
-    final list = <({int blockIdx, bool isLeft})>[];
-    for (var i = 0; i < visible.length; i++) {
-      final b = visible[i];
-      var hitL = false;
-      for (var li = b.leftStart; li < b.leftEnd; li++) {
-        if (li < 0 || li >= data.linesA.length) continue;
-        if (data.linesA[li].contains(q)) { hitL = true; break; }
-      }
-      if (hitL) list.add((blockIdx: i, isLeft: true));
-      var hitR = false;
-      for (var li = b.rightStart; li < b.rightEnd; li++) {
-        if (li < 0 || li >= data.linesB.length) continue;
-        if (data.linesB[li].contains(q)) { hitR = true; break; }
-      }
-      if (hitR) list.add((blockIdx: i, isLeft: false));
-    }
-    setState(() {
-      _matches = list;
-      _matchPos = list.isEmpty ? -1 : 0;
-    });
-    widget.onMatchCountChanged?.call(list.length);  // ★
-    if (list.isNotEmpty) _scrollToMatch(0);
-  }
-
-  void nextMatch() {
-    if (_matches.isEmpty) return;
-    setState(() => _matchPos = (_matchPos + 1) % _matches.length);
-    _scrollToMatch(_matchPos);
-  }
-
-  void prevMatch() {
-    if (_matches.isEmpty) return;
-    setState(() => _matchPos = (_matchPos - 1 + _matches.length) % _matches.length);
-    _scrollToMatch(_matchPos);
-  }
-
-  void clearFind() {
-    _findQuery = '';
-    setState(() { _matches = const []; _matchPos = -1; });
-    widget.onMatchCountChanged?.call(0);            // ★
   }
 
   // ==================== 内部 ====================
@@ -440,15 +406,49 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     return _visible!.length - 1;
   }
 
-  void _scrollToMatch(int idx) {
-    if (idx < 0 || idx >= _matches.length) return;
-    final targetBlock = _matches[idx].blockIdx;
-    final off = _blockOffset(targetBlock);
-    // ★ 查找跳转也画黑框，和差异跳转保持一致
-    setState(() => _jumpedBlockIdx = targetBlock);
-    if (_leftCtrl.hasClients) {
-      _leftCtrl.jumpTo(off.clamp(0, _leftCtrl.position.maxScrollExtent));
+  /// 给定 entry 索引，找它落在哪个可见 block 里。
+  int? _blockIdxForEntry(int entryIdx) {
+    final diff = _dataForDiff;
+    final visible = _visible;
+    if (diff == null || visible == null) return null;
+    if (entryIdx < 0 || entryIdx >= diff.entries.length) return null;
+    final meta = _computeLineMeta(diff);
+    final m = meta[entryIdx];
+    // 优先看左侧行号
+    if (m.orig >= 0) {
+      for (var i = 0; i < visible.length; i++) {
+        final b = visible[i];
+        if (m.orig >= b.leftStart && m.orig < b.leftEnd) return i;
+      }
     }
+    // 再看右侧
+    if (m.mod >= 0) {
+      for (var i = 0; i < visible.length; i++) {
+        final b = visible[i];
+        if (m.mod >= b.rightStart && m.mod < b.rightEnd) return i;
+      }
+    }
+    return null;
+  }
+
+  List<({int orig, int mod})> _computeLineMeta(DiffResult result) {
+    if (identical(_metaFor, result) && _metaCache != null) return _metaCache!;
+    final meta = <({int orig, int mod})>[];
+    var o = 0, m = 0;
+    for (final e in result.entries) {
+      final usesOrig = e.operation == DiffOperation.equal ||
+          e.operation == DiffOperation.delete ||
+          e.operation == DiffOperation.replace;
+      final usesMod = e.operation == DiffOperation.equal ||
+          e.operation == DiffOperation.insert ||
+          e.operation == DiffOperation.replace;
+      meta.add((orig: usesOrig ? o : -1, mod: usesMod ? m : -1));
+      if (usesOrig) o++;
+      if (usesMod) m++;
+    }
+    _metaFor = result;
+    _metaCache = meta;
+    return meta;
   }
 
   Future<void> _onLineLongPress(int lineIdx, bool isLeft) async {
@@ -497,6 +497,8 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     }
     ref.read(importRevisionProvider.notifier).state++;
     _dataForDiff = null;
+    _metaFor = null;
+    _metaCache = null;
     if (mounted) setState(() {});
   }
 
@@ -518,12 +520,8 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
           _data = buildGroupedData(diff, a, b);
           _visible = null;
           _chunkHeights.clear();
-        }
-        // ★ 如果之前在别的视图里输入过查找词，进入本视图时补做一次匹配
-        if (_findQuery.isNotEmpty && _matches.isEmpty) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) updateFindQuery(_findQuery);
-          });
+          _metaFor = null;
+          _metaCache = null;
         }
         return _buildBody(_data!);
       },
@@ -587,11 +585,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
           gutterFontSize: gutterFs,
           heightForBlock: _heightForBlock,
           findQuery: _findQuery,
-          currentMatchBlock: _matchPos >= 0 && _matchPos < _matches.length
-              ? _matches[_matchPos].blockIdx : null,
-          currentMatchIsLeft: _matchPos >= 0 && _matchPos < _matches.length
-              ? _matches[_matchPos].isLeft : null,
-          jumpedBlockIdx: _jumpedBlockIdx,      // ★
+          jumpedBlockIdx: _jumpedBlockIdx,
           colors: colors,
           onLineLongPress: _onLineLongPress,
         )),
@@ -603,11 +597,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
           gutterFontSize: gutterFs,
           heightForBlock: _heightForBlock,
           findQuery: _findQuery,
-          currentMatchBlock: _matchPos >= 0 && _matchPos < _matches.length
-              ? _matches[_matchPos].blockIdx : null,
-          currentMatchIsLeft: _matchPos >= 0 && _matchPos < _matches.length
-              ? _matches[_matchPos].isLeft : null,
-          jumpedBlockIdx: _jumpedBlockIdx,      // ★
+          jumpedBlockIdx: _jumpedBlockIdx,
           colors: colors,
           onLineLongPress: _onLineLongPress,
         )),
@@ -630,11 +620,11 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
         : ref.read(bodyFontSizeProvider);
     final width = _cacheWidth ?? 100.0;
     final scaler = _cacheScaler ?? TextScaler.noScaling;
-    final style = TextStyle(fontSize: fs, height: 1.1);
+    final style = TextStyle(fontSize: fs, height: 1.35);
 
     final showLine = ref.read(showLineNumbersProvider);
     final gutterFs = ref.read(gutterFontSizeProvider);
-    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.1);
+    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.35);
     final gutterH = showLine
         ? measureTextHeight(
             text: '0',
@@ -726,8 +716,7 @@ class _SidePane extends StatelessWidget {
     required this.controller, required this.showLineNumbers,
     required this.bodyFontSize, required this.contextFontSize,
     required this.gutterFontSize, required this.heightForBlock,
-    required this.findQuery, required this.currentMatchBlock,
-    required this.currentMatchIsLeft, required this.jumpedBlockIdx,
+    required this.findQuery, required this.jumpedBlockIdx,
     required this.colors, required this.onLineLongPress,
   });
 
@@ -741,9 +730,7 @@ class _SidePane extends StatelessWidget {
   final double gutterFontSize;
   final double Function(int) heightForBlock;
   final String findQuery;
-  final int? currentMatchBlock;
-  final bool? currentMatchIsLeft;
-  final int? jumpedBlockIdx;                 // ★
+  final int? jumpedBlockIdx;
   final _Colors colors;
   final void Function(int lineIdx, bool isLeft) onLineLongPress;
 
@@ -766,9 +753,7 @@ class _SidePane extends StatelessWidget {
             contextFontSize: contextFontSize,
             gutterFontSize: gutterFontSize,
             findQuery: findQuery,
-            isCurrentMatch: currentMatchBlock == i &&
-                currentMatchIsLeft == (side == _Side.left),
-            isJumped: jumpedBlockIdx == i,   // ★
+            isCurrent: jumpedBlockIdx == i,
             colors: colors,
             onLineLongPress: onLineLongPress,
           ),
@@ -788,9 +773,8 @@ class _BlockTile extends StatelessWidget {
     required this.block, required this.data, required this.side,
     required this.showLineNumbers, required this.bodyFontSize,
     required this.contextFontSize, required this.gutterFontSize,
-    required this.findQuery, required this.isCurrentMatch,
-    required this.isJumped, required this.colors,
-    required this.onLineLongPress,
+    required this.findQuery, required this.isCurrent,
+    required this.colors, required this.onLineLongPress,
   });
 
   final GroupedBlock block;
@@ -801,8 +785,7 @@ class _BlockTile extends StatelessWidget {
   final double contextFontSize;
   final double gutterFontSize;
   final String findQuery;
-  final bool isCurrentMatch;
-  final bool isJumped;                        // ★
+  final bool isCurrent;
   final _Colors colors;
   final void Function(int lineIdx, bool isLeft) onLineLongPress;
 
@@ -833,7 +816,7 @@ class _BlockTile extends StatelessWidget {
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white : Colors.black);
     final outline = Theme.of(context).colorScheme.outline;
-    final base = TextStyle(fontSize: fs, color: fg, height: 1.1);
+    final base = TextStyle(fontSize: fs, color: fg, height: 1.35);
 
     final rows = <Widget>[];
     for (var li = start; li < end; li++) {
@@ -857,20 +840,19 @@ class _BlockTile extends StatelessWidget {
                   overflow: TextOverflow.clip,
                   style: TextStyle(
                     fontSize: gutterFontSize,
-                    height: 1.1,
+                    height: 1.35,
                     color: outline)),
               ),
               const SizedBox(width: 4),
             ],
             Expanded(child: Text.rich(TextSpan(children: _spans(
-              lines[li], marks, base, findQuery, isCurrentMatch, isLeft)))),
+              lines[li], marks, base, findQuery, isCurrent, isLeft)))),
           ],
         ),
       ));
     }
-    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.1));
+    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.35));
 
-    // ★ 用 foregroundDecoration 画黑框，不影响布局，跟其他视图一致
     final body = ColoredBox(
       color: bg,
       child: Padding(
@@ -882,7 +864,7 @@ class _BlockTile extends StatelessWidget {
       ),
     );
 
-    if (isJumped) {
+    if (isCurrent) {
       return Container(
         foregroundDecoration: BoxDecoration(
           border: Border.all(color: Colors.black, width: 2),
@@ -906,7 +888,7 @@ class _BlockTile extends StatelessWidget {
 
   List<InlineSpan> _spans(
     String text, Set<int> marks, TextStyle base,
-    String findQuery, bool isCurrentMatch, bool isLeft,
+    String findQuery, bool isCurrent, bool isLeft,
   ) {
     final lineEndMarked = marks.contains(text.length);
     final innerMarks = marks.where((m) => m < text.length).toSet();
@@ -918,7 +900,7 @@ class _BlockTile extends StatelessWidget {
     if (text.isEmpty) {
       out.add(TextSpan(text: ' ', style: base));
     } else if (innerMarks.isEmpty) {
-      _appendWithFind(out, text, base, findQuery, isCurrentMatch);
+      _appendWithFind(out, text, base, findQuery, isCurrent);
     } else {
       var i = 0;
       while (i < text.length) {
@@ -938,7 +920,7 @@ class _BlockTile extends StatelessWidget {
             ),
           ));
         } else {
-          _appendWithFind(out, chunk, base, findQuery, isCurrentMatch);
+          _appendWithFind(out, chunk, base, findQuery, isCurrent);
         }
         i = j;
       }
@@ -956,12 +938,12 @@ class _BlockTile extends StatelessWidget {
   }
 
   void _appendWithFind(List<InlineSpan> out, String text, TextStyle base,
-      String q, bool isCurrentMatch) {
+      String q, bool isCurrent) {
     if (q.isEmpty || !text.contains(q)) {
       out.add(TextSpan(text: text, style: base));
       return;
     }
-    final bg = isCurrentMatch ? colors.findPink : colors.findYellow;
+    final bg = isCurrent ? colors.findPink : colors.findYellow;
     var s = 0;
     int idx;
     while ((idx = text.indexOf(q, s)) != -1) {
