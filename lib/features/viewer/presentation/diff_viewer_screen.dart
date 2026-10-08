@@ -363,11 +363,15 @@ for (var i = 0; i < diff.entries.length; i++) {
           }
         }
         if (hasGlobalHits) {
-          hint = '本视图搜不到，切到「并排」或「合并」试试';
+          hint = '本视图搜不到，切到视图试试';
         }
       }
     }
-
+// ★ 开了正则/忽略大小写/整词时，涂色可能跟计数对不上，给提示
+if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
+  const warn = '当前搜索条件（正则/大小写/整词）下不显示高亮，替换正常';
+  hint = hint == null ? warn : '$hint\n$warn';
+}
     int newPos = 0;
     if (matches.isNotEmpty && diff != null) {
       final mode = ref.read(viewModeProvider);
