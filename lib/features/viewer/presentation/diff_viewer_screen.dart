@@ -84,6 +84,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   // ★ 新增：诊断相关
   String? _findWarning;
   String? _replaceHint;
+  String? _regexErrorHint;
 
   bool _regexEnable = false;
   bool _caseInsensitive = false;
@@ -503,10 +504,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       setState(() {
         _matchEntries = const [];
         _matchPos = -1;
-        _noResultHint = '正则语法错误：${e.name}\n${e.detail}';
+        _regexErrorHint = '正则语法错误：${e.name}\n${e.detail}';
       });
       (_groupedKey.currentState as dynamic)?.updateFindQuery('');
       return;
+    }
+    // 正则没错了 → 清掉旧的正则错误提示
+    if (_regexErrorHint != null) {
+      setState(() => _regexErrorHint = null);
     }
 
     // ★ grouped 视图：转交给它自己的查找
@@ -843,6 +848,7 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
       _noResultHint = null;
       _findWarning = null;
       _replaceHint = null;
+      _regexErrorHint = null;
     });
   }
 
@@ -3301,7 +3307,7 @@ Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade40,
+                  color: Colors.orange.shade50,
                   border: Border.all(color: Colors.orange.shade300),
                   borderRadius: BorderRadius.circular(4),
                 ),
@@ -3356,7 +3362,7 @@ Padding(
                 ),
               ],
             ),
-            if (_replaceHint != null)
+            if (_replaceHint != null || _regexErrorHint != null)
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(top: 4, bottom: 4),
@@ -3364,20 +3370,29 @@ Padding(
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.red.shade50,
-                  border: Border.all(color: Colors.red.shade200),
+                  border: Border.all(color: Colors.red.shade300),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.warning_amber,
-                        size: 15, color: Colors.red.shade800),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(Icons.warning_amber,
+                          size: 15, color: Colors.red.shade800),
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        _replaceHint!,
+                        [
+                          if (_regexErrorHint != null)
+                            '查找框：$_regexErrorHint',
+                          if (_replaceHint != null)
+                            '替换框：$_replaceHint',
+                        ].join('\n\n'),
                         style: TextStyle(
                           fontSize: 12,
-                          height: 1.45,
+                          height: 1.5,
                           fontWeight: FontWeight.bold,
                           color: Colors.red.shade900,
                         ),
