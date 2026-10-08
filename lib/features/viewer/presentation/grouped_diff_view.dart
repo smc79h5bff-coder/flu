@@ -630,11 +630,11 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
         : ref.read(bodyFontSizeProvider);
     final width = _cacheWidth ?? 100.0;
     final scaler = _cacheScaler ?? TextScaler.noScaling;
-    final style = TextStyle(fontSize: fs, height: 1.35);
+    final style = TextStyle(fontSize: fs, height: 1.1);
 
     final showLine = ref.read(showLineNumbersProvider);
     final gutterFs = ref.read(gutterFontSizeProvider);
-    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.35);
+    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.1);
     final gutterH = showLine
         ? measureTextHeight(
             text: '0',
@@ -833,7 +833,7 @@ class _BlockTile extends StatelessWidget {
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white : Colors.black);
     final outline = Theme.of(context).colorScheme.outline;
-    final base = TextStyle(fontSize: fs, color: fg, height: 1.35);
+    final base = TextStyle(fontSize: fs, color: fg, height: 1.1);
 
     final rows = <Widget>[];
     for (var li = start; li < end; li++) {
@@ -857,7 +857,7 @@ class _BlockTile extends StatelessWidget {
                   overflow: TextOverflow.clip,
                   style: TextStyle(
                     fontSize: gutterFontSize,
-                    height: 1.35,
+                    height: 1.1,
                     color: outline)),
               ),
               const SizedBox(width: 4),
@@ -868,7 +868,7 @@ class _BlockTile extends StatelessWidget {
         ),
       ));
     }
-    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.35));
+    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.1));
 
     // ★ 用 foregroundDecoration 画黑框，不影响布局，跟其他视图一致
     final body = ColoredBox(
