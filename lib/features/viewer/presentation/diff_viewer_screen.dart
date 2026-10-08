@@ -311,7 +311,7 @@ setState(() {
   if (q.isNotEmpty && matches.isEmpty) {
     _noResultHint = '没找到「$q」';
   } else if (q.isNotEmpty && !isLiteral) {
-    _noResultHint = '当前搜索条件不支持高亮，替换仍可正常进行';
+    _noResultHint = '高级搜索已开，搜索结果暂不支持显示高亮';
   } else {
     _noResultHint = null;
   }
@@ -372,13 +372,13 @@ if (q.isNotEmpty && diff != null) {
           }
         }
         if (hasGlobalHits) {
-          hint = '本视图搜不到，切到视图试试';
+          hint = '本视图搜不到，切视图试试';
         }
       }
     }
 // ★ 开了正则/忽略大小写/整词时，涂色可能跟计数对不上，给提示
 if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
-  const warn = '当前搜索条件不支持高亮，替换仍可正常进行';
+  const warn = '高级搜索已开，搜索结果暂不支持显示高亮';
   hint = hint == null ? warn : '$hint\n$warn';
 }
     int newPos = 0;
