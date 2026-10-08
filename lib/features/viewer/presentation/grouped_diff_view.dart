@@ -1,9 +1,4 @@
 // grouped_diff_view.dart
-//
-// 复用现有 diffResultProvider 的行级结果，做后处理：
-// 连续的 delete+insert 段，去空白后若相等，合成「跨行相同块」。
-// 不重算全文件 diff，速度与现有视图一致。
-// 支持标记空格差异和换行差异（行尾显示 ↵）。
 
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/foundation.dart';
@@ -38,6 +33,31 @@ const Color _kDiffRightBg = Color(0xFFEEFFEE);
 const Color _kCharHighlight = Color(0xFFEF6C00);
 const Color _kWsHighlight = Color(0xFFFFD600);
 
+// ==================== 高亮缓存 ====================
+
+final Map<String, List<List<int>>> _hlCache = {};
+const int _hlCacheMax = 200;
+
+String _hlKey(String self, String other) =>
+    '${self.length}:${other.length}:${self.hashCode}:${other.hashCode}';
+
+List<List<int>> _hlCached(
+  String selfBlob,
+  int selfLines,
+  String otherBlob,
+  bool onlyWs,
+) {
+  final key = _hlKey(selfBlob, otherBlob) + ':$onlyWs';
+  final hit = _hlCache[key];
+  if (hit != null) return hit;
+  if (_hlCache.length >= _hlCacheMax) {
+    _hlCache.remove(_hlCache.keys.first);
+  }
+  final result = _blobHighlight(selfBlob, selfLines, otherBlob, onlyWs);
+  _hlCache[key] = result;
+  return result;
+}
+
 // ==================== 数据模型 ====================
 
 enum GroupedBlockKind { equal, equalIgnoringWs, different }
@@ -49,17 +69,10 @@ class GroupedBlock {
     required this.rightStart,
     required this.rightEnd,
     required this.kind,
-    this.leftHighlights = const [],
-    this.rightHighlights = const [],
   });
 
   final int leftStart, leftEnd, rightStart, rightEnd;
   final GroupedBlockKind kind;
-
-  /// 每行要高亮的字符位置。外层下标 = 块内行偏移。
-  /// 特殊值：等于该行长度表示"行尾换行符"。
-  final List<List<int>> leftHighlights;
-  final List<List<int>> rightHighlights;
 
   int get leftLength => leftEnd - leftStart;
   int get rightLength => rightEnd - rightStart;
@@ -97,23 +110,22 @@ String _strip(String s) {
   return buf.toString();
 }
 
-// ==================== 后处理：从 DiffResult 构建 ====================
+// ==================== 后处理 ====================
 
 GroupedDiffData buildGroupedData(
   DiffResult diff,
   String a,
   String b,
 ) {
+  kGroupedLogs.clear();
   _log('=== buildGroupedData 开始 ===');
 
   final linesA = a.split('\n');
   final linesB = b.split('\n');
-
-  _log('行数: A=${linesA.length} B=${linesB.length}');
-  _log('entries 数: ${diff.entries.length}');
+  _log('行数: A=${linesA.length} B=${linesB.length} '
+      'entries=${diff.entries.length}');
 
   final blocks = <GroupedBlock>[];
-
   var ai = 0, bi = 0, i = 0;
   final entries = diff.entries;
 
@@ -129,24 +141,18 @@ GroupedDiffData buildGroupedData(
           leftStart: ai, leftEnd: ai + 1,
           rightStart: bi, rightEnd: bi + 1,
           kind: GroupedBlockKind.equal,
-          leftHighlights: [const <int>[]],
-          rightHighlights: [const <int>[]],
         ));
       } else if (_strip(la) == _strip(ra)) {
         blocks.add(GroupedBlock(
           leftStart: ai, leftEnd: ai + 1,
           rightStart: bi, rightEnd: bi + 1,
           kind: GroupedBlockKind.equalIgnoringWs,
-          leftHighlights: [_lineDiff(la, ra, true)],
-          rightHighlights: [_lineDiff(ra, la, true)],
         ));
       } else {
         blocks.add(GroupedBlock(
           leftStart: ai, leftEnd: ai + 1,
           rightStart: bi, rightEnd: bi + 1,
           kind: GroupedBlockKind.different,
-          leftHighlights: [_lineDiff(la, ra, false)],
-          rightHighlights: [_lineDiff(ra, la, false)],
         ));
       }
       ai++; bi++; i++;
@@ -165,112 +171,52 @@ GroupedDiffData buildGroupedData(
         final leftBlob = linesA.sublist(startA, endA).join('\n');
         final rightBlob = linesB.sublist(startB, endB).join('\n');
         final sameWs = _strip(leftBlob) == _strip(rightBlob);
-
-        _log('差异段: A[$startA,$endA) B[$startB,$endB) '
-            'sameWs=$sameWs');
-
-        if (sameWs) {
-          blocks.add(GroupedBlock(
-            leftStart: startA, leftEnd: endA,
-            rightStart: startB, rightEnd: endB,
-            kind: GroupedBlockKind.equalIgnoringWs,
-            leftHighlights: _blobHighlight(
-              linesA.sublist(startA, endA), rightBlob, true),
-            rightHighlights: _blobHighlight(
-              linesB.sublist(startB, endB), leftBlob, true),
-          ));
-        } else {
-          blocks.add(GroupedBlock(
-            leftStart: startA, leftEnd: endA,
-            rightStart: startB, rightEnd: endB,
-            kind: GroupedBlockKind.different,
-            leftHighlights: _blobHighlight(
-              linesA.sublist(startA, endA), rightBlob, false),
-            rightHighlights: _blobHighlight(
-              linesB.sublist(startB, endB), leftBlob, false),
-          ));
-        }
+        blocks.add(GroupedBlock(
+          leftStart: startA, leftEnd: endA,
+          rightStart: startB, rightEnd: endB,
+          kind: sameWs
+              ? GroupedBlockKind.equalIgnoringWs
+              : GroupedBlockKind.different,
+        ));
       } else if (endA > startA) {
-        _log('纯删除: A[$startA,$endA)');
         blocks.add(GroupedBlock(
           leftStart: startA, leftEnd: endA,
           rightStart: startB, rightEnd: startB,
           kind: GroupedBlockKind.different,
-          leftHighlights: List.generate(endA - startA, (_) => <int>[]),
         ));
       } else if (endB > startB) {
-        _log('纯新增: B[$startB,$endB)');
         blocks.add(GroupedBlock(
           leftStart: startA, leftEnd: startA,
           rightStart: startB, rightEnd: endB,
           kind: GroupedBlockKind.different,
-          rightHighlights: List.generate(endB - startB, (_) => <int>[]),
         ));
       }
     }
   }
 
   final diffCount = blocks
-      .where((b) => b.kind == GroupedBlockKind.different)
-      .length;
+      .where((b) => b.kind == GroupedBlockKind.different).length;
   final wsCount = blocks
-      .where((b) => b.kind == GroupedBlockKind.equalIgnoringWs)
-      .length;
+      .where((b) => b.kind == GroupedBlockKind.equalIgnoringWs).length;
   final eqCount = blocks
-      .where((b) => b.kind == GroupedBlockKind.equal)
-      .length;
+      .where((b) => b.kind == GroupedBlockKind.equal).length;
   _log('块数: total=${blocks.length} diff=$diffCount ws=$wsCount eq=$eqCount');
   _log('=== buildGroupedData 结束 ===');
 
   return GroupedDiffData(linesA: linesA, linesB: linesB, blocks: blocks);
 }
 
-List<int> _lineDiff(String self, String other, bool onlyWs) {
-  if (self.isEmpty) return const [];
-  if (self.length > 100000) {
-    _log('_lineDiff: 行过长(${self.length})，跳过');
-    return const [];
-  }
-  try {
-    final dmp = DiffMatchPatch()..diffTimeout = 1.0;
-    final diffs = dmp.diff(self, other);
-    final r = <int>[];
-    var pos = 0;
-    for (final d in diffs) {
-      final len = d.text.length;
-      if (d.operation == DIFF_EQUAL) {
-        pos += len;
-      } else if (d.operation == DIFF_DELETE) {
-        for (var k = 0; k < len; k++) {
-          final p = pos + k;
-          if (p >= self.length) break;
-          if (onlyWs && !_isWs(self.codeUnitAt(p))) continue;
-          r.add(p);
-        }
-        pos += len;
-      }
-    }
-    return r;
-  } catch (e) {
-    _log('_lineDiff 异常: $e');
-    return const [];
-  }
-}
-
+/// 多行 blob vs blob：本侧独有字符的位置，按行分组。
 List<List<int>> _blobHighlight(
-  List<String> lines,
+  String selfBlob,
+  int selfLines,
   String otherBlob,
   bool onlyWs,
 ) {
-  final r = List.generate(lines.length, (_) => <int>[]);
-  final selfBlob = lines.join('\n');
+  final r = List.generate(selfLines, (_) => <int>[]);
   if (selfBlob.isEmpty) return r;
-
-  _log('_blobHighlight: lines=${lines.length} '
-      'selfBlob=${selfBlob.length} other=${otherBlob.length} onlyWs=$onlyWs');
-
   if (selfBlob.length > 100000 || otherBlob.length > 100000) {
-    _log('  → 超过 10 万字符，跳过高亮');
+    _log('  → blob 过大(${selfBlob.length})，跳过高亮');
     return r;
   }
 
@@ -310,8 +256,7 @@ List<List<int>> _blobHighlight(
           }
           final li = lo;
           final col = p - starts[li];
-          // col == lengths[li] 表示行尾的换行符位置
-          if (li < lines.length && col <= lengths[li]) {
+          if (li < selfLines && col <= lengths[li]) {
             r[li].add(col);
           }
         }
@@ -548,7 +493,6 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     );
   }
 
-  /// 保留差异块 + 前后各 contextLines 行上下文。
   List<GroupedBlock> _filter(List<GroupedBlock> blocks, int ctx) {
     final diffIdx = <int>[];
     for (var i = 0; i < blocks.length; i++) {
@@ -576,6 +520,7 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     return [for (final i in sorted) blocks[i]];
   }
 
+  /// 固定行高，O(块数)，不 measure。
   LineHeightTable _buildTable(
     GroupedDiffData data,
     List<GroupedBlock> blocks,
@@ -583,30 +528,11 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     double fontSize,
     TextScaler scaler,
   ) {
-    final heights = <double>[];
-    final style = TextStyle(fontSize: fontSize, height: 1.35);
+    final lineH = fontSize * 1.35 + 2;
     const pad = 8.0;
-    final blankH = measureTextHeight(
-      text: ' ', maxWidth: width, style: style, textScaler: scaler);
-
-    for (final b in blocks) {
-      double lh = 0, rh = 0;
-      for (var i = b.leftStart; i < b.leftEnd; i++) {
-        if (i < 0 || i >= data.linesA.length) continue;
-        lh += measureTextHeight(
-          text: data.linesA[i].isEmpty ? ' ' : data.linesA[i],
-          maxWidth: width, style: style, textScaler: scaler);
-      }
-      for (var i = b.rightStart; i < b.rightEnd; i++) {
-        if (i < 0 || i >= data.linesB.length) continue;
-        rh += measureTextHeight(
-          text: data.linesB[i].isEmpty ? ' ' : data.linesB[i],
-          maxWidth: width, style: style, textScaler: scaler);
-      }
-      if (lh == 0) lh = blankH;
-      if (rh == 0) rh = blankH;
-      heights.add((lh > rh ? lh : rh) + pad);
-    }
+    final heights = <double>[
+      for (final b in blocks) b.visualLength * lineH + pad,
+    ];
     return LineHeightTable.fromHeights(heights);
   }
 }
@@ -669,7 +595,21 @@ class _BlockTile extends StatelessWidget {
     final start = isLeft ? block.leftStart : block.rightStart;
     final end = isLeft ? block.leftEnd : block.rightEnd;
     final lines = isLeft ? data.linesA : data.linesB;
-    final hi = isLeft ? block.leftHighlights : block.rightHighlights;
+    final otherLines = isLeft ? data.linesB : data.linesA;
+    final otherStart = isLeft ? block.rightStart : block.leftStart;
+    final otherEnd = isLeft ? block.rightEnd : block.leftEnd;
+
+    List<List<int>> hi;
+    if (block.kind == GroupedBlockKind.equal || end <= start) {
+      hi = List.generate(end - start, (_) => <int>[], growable: false);
+    } else {
+      final selfBlob = lines.sublist(start, end).join('\n');
+      final otherBlob =
+          otherLines.sublist(otherStart, otherEnd).join('\n');
+      final onlyWs = block.kind == GroupedBlockKind.equalIgnoringWs;
+      hi = _hlCached(selfBlob, end - start, otherBlob, onlyWs);
+    }
+
     final bg = _bg();
     final fg = Theme.of(context).textTheme.bodyMedium?.color ??
         (Theme.of(context).brightness == Brightness.dark
