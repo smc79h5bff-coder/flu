@@ -261,37 +261,37 @@ class DisplaySettingsSheet extends ConsumerWidget {
                         charDeleteFgProvider),
                     _colorRow(context, ref, '右侧行内改动字 · 底色',
                         charInsertBgProvider),
-            _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
-            charInsertFgProvider),
+_colorRow(context, ref, '右侧行内改动字 · 文字颜色',
+                      charInsertFgProvider),
 
-        // ========== 跨行块视图专属颜色（只在跨行块视图下显示） ==========
-        if (ref.watch(viewModeProvider) == ViewMode.grouped) ...[
-          const Divider(height: 32),
-          Text(
-            '跨行块视图专属颜色',
-            style: Theme.of(context).textTheme.titleSmall,
+                  // ========== 跨行块视图专属颜色 ==========
+                  if (ref.watch(viewModeProvider) == ViewMode.grouped) ...[
+                    const Divider(height: 32),
+                    Text(
+                      '跨行块视图专属颜色',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    _colorRow(context, ref, '忽略空白相同的块 · 底色',
+                        groupedEqualIgnoringWsBgProvider),
+                    _colorRow(context, ref, '空白差异高亮（含行尾 ↵）',
+                        groupedWsHighlightProvider),
+                    _colorRow(context, ref, '查找命中 · 底色',
+                        groupedFindYellowProvider),
+                    _colorRow(context, ref, '当前查找命中 · 底色',
+                        groupedFindPinkProvider),
+                  ],
+
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 4),
-          _colorRow(context, ref, '忽略空白相同的块 · 底色',
-              groupedEqualIgnoringWsBgProvider),
-          _colorRow(context, ref, '空白差异高亮（含行尾 ↵）',
-              groupedWsHighlightProvider),
-          _colorRow(context, ref, '查找命中 · 底色',
-              groupedFindYellowProvider),
-          _colorRow(context, ref, '当前查找命中 · 底色',
-              groupedFindPinkProvider),
         ],
-
-        const SizedBox(height: 24),
-      ],
-    ),
-  ),
-),
-        ),
       ),
-    );
+    ),
+  );
   }
-
   Widget _colorRow(
     BuildContext context,
     WidgetRef ref,
