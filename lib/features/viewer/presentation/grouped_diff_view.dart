@@ -345,35 +345,111 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     }
   }
 
-  void jumpToNextDiff() {
-    final visible = _visible;
-    if (visible == null || !_leftCtrl.hasClients) return;
-    final cur = _currentBlockIdx() ?? -1;
-    for (var i = cur + 1; i < visible.length; i++) {
-      if (visible[i].kind != GroupedBlockKind.equal) {
-        setState(() => _jumpedBlockIdx = i);
-        _leftCtrl.jumpTo(_blockOffset(i)
-            .clamp(0, _leftCtrl.position.maxScrollExtent));
-        return;
-      }
+  const int _kLongSegThreshold = 3;   // 段长 > 3 才算"长段"
+
+/// 返回 idx 所在差异段的起止；idx 是相同块返回 null。
+({int start, int end})? _segmentAt(int idx, List<GroupedBlock> visible) {
+  if (idx < 0 || idx >= visible.length) return null;
+  if (visible[idx].kind == GroupedBlockKind.equal) return null;
+  var start = idx;
+  while (start > 0 &&
+      visible[start - 1].kind != GroupedBlockKind.equal) {
+    start--;
+  }
+  var end = idx;
+  while (end + 1 < visible.length &&
+      visible[end + 1].kind != GroupedBlockKind.equal) {
+    end++;
+  }
+  return (start: start, end: end);
+}
+
+void jumpToNextDiff() {
+  final visible = _visible;
+  if (visible == null || !_leftCtrl.hasClients) return;
+  final cur = _currentBlockIdx() ?? -1;
+
+  int? target;
+  final seg = _segmentAt(cur, visible);
+
+  if (seg == null) {
+    // 站在相同块上：找下一段段首
+    var i = cur + 1;
+    while (i < visible.length &&
+        visible[i].kind == GroupedBlockKind.equal) {
+      i++;
     }
-    _toast('到底了');
+    if (i < visible.length) target = i;
+  } else {
+    final len = seg.end - seg.start + 1;
+    if (cur < seg.end) {
+      // 段内但不在段尾：短段逐个跳，长段一次到段尾
+      target = len > _kLongSegThreshold ? seg.end : cur + 1;
+    } else {
+      // 段尾：跳到下一段段首
+      var i = seg.end + 1;
+      while (i < visible.length &&
+          visible[i].kind == GroupedBlockKind.equal) {
+        i++;
+      }
+      if (i < visible.length) target = i;
+    }
   }
 
-  void jumpToPrevDiff() {
-    final visible = _visible;
-    if (visible == null || !_leftCtrl.hasClients) return;
-    final cur = _currentBlockIdx() ?? visible.length;
-    for (var i = cur - 1; i >= 0; i--) {
-      if (visible[i].kind != GroupedBlockKind.equal) {
-        setState(() => _jumpedBlockIdx = i);
-        _leftCtrl.jumpTo(_blockOffset(i)
-            .clamp(0, _leftCtrl.position.maxScrollExtent));
-        return;
+  if (target == null) {
+    _toast('到底了');
+    return;
+  }
+  setState(() => _jumpedBlockIdx = target);
+  _leftCtrl.jumpTo(
+      _blockOffset(target).clamp(0, _leftCtrl.position.maxScrollExtent));
+}
+
+void jumpToPrevDiff() {
+  final visible = _visible;
+  if (visible == null || !_leftCtrl.hasClients) return;
+  final cur = _currentBlockIdx() ?? visible.length;
+
+  int? target;
+  final seg = _segmentAt(cur, visible);
+
+  if (seg == null) {
+    var i = cur - 1;
+    while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
+      i--;
+    }
+    if (i >= 0) {
+      while (i > 0 && visible[i - 1].kind != GroupedBlockKind.equal) {
+        i--;
+      }
+      target = i;
+    }
+  } else {
+    final len = seg.end - seg.start + 1;
+    if (cur > seg.start) {
+      target = len > _kLongSegThreshold ? seg.start : cur - 1;
+    } else {
+      var i = seg.start - 1;
+      while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
+        i--;
+      }
+      if (i >= 0) {
+        while (i > 0 && visible[i - 1].kind != GroupedBlockKind.equal) {
+          i--;
+        }
+        target = i;
       }
     }
-    _toast('到顶了');
   }
+
+  if (target == null) {
+    _toast('到顶了');
+    return;
+  }
+  setState(() => _jumpedBlockIdx = target);
+  _leftCtrl.jumpTo(
+      _blockOffset(target).clamp(0, _leftCtrl.position.maxScrollExtent));
+}
 
   // ==================== 内部 ====================
 
