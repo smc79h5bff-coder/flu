@@ -278,24 +278,28 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 if (ref.read(viewModeProvider) == ViewMode.grouped) {
   _findQuery = q;
   _scannedQuery = q;
+
+
+
   final diff = _diff;
-  final matches = <int>[];
-  if (q.isNotEmpty && diff != null) {
-    for (var i = 0; i < diff.entries.length; i++) {
-      final e = diff.entries[i];
-      var hit = false;
-      if (_entryMatchesOnLeft(e) &&
-          _entryLeftText(e).contains(q)) {
-        hit = true;
-      }
-      if (!hit &&
-          _entryMatchesOnRight(e) &&
-          _entryRightText(e).contains(q)) {
-        hit = true;
-      }
-      if (hit) matches.add(i);
+final matches = <int>[];
+if (q.isNotEmpty && diff != null) {
+  final p = _buildFindPattern();
+  for (var i = 0; i < diff.entries.length; i++) {
+    final e = diff.entries[i];
+    var hit = false;
+    if (_entryMatchesOnLeft(e) &&
+        p.allMatches(_entryLeftText(e)).isNotEmpty) {
+      hit = true;
     }
+    if (!hit &&
+        _entryMatchesOnRight(e) &&
+        p.allMatches(_entryRightText(e)).isNotEmpty) {
+      hit = true;
+    }
+    if (hit) matches.add(i);
   }
+}
   setState(() {
   _matchEntries = matches;
   _matchPos = matches.isEmpty ? -1 : 0;
