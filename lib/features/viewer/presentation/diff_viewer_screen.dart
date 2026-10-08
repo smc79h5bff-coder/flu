@@ -19,7 +19,7 @@ import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import 'diagnostic_screen.dart';
 import 'diff_text_index.dart';
-import 'grouped_diff_view.dart'; // ★ 1 新增 import
+import 'grouped_diff_view.dart';
 import 'line_height_cache.dart';
 import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
@@ -120,6 +120,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String _processingText = '';
 
   DiffResult? _lastDiagDiff;
+
+  // ★ 新增：跨行块视图的 key，用来调用它的方法
+  final GlobalKey<GroupedDiffViewState> _groupedKey = GlobalKey();
 
   @override
   void initState() {
@@ -251,7 +254,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         }
         break;
       case ViewMode.grouped:
-        // ★ 2 grouped 视图不走这套可见性逻辑
         break;
     }
     return s;
@@ -270,6 +272,19 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _findChanged(String q, {bool autoScroll = true}) {
+    // ★ grouped 视图：转交给它自己的查找
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      _findQuery = q;
+      _scannedQuery = q;
+      _groupedKey.currentState?.updateFindQuery(q);
+      setState(() {
+        _matchEntries = const [];
+        _matchPos = -1;
+        _noResultHint = null;
+      });
+      return;
+    }
+
     _findQuery = q;
     _scannedQuery = q;
     final diff = _diff;
@@ -510,6 +525,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
 
     if (!mounted) return;
+    // ★ grouped 视图：清掉它自己的查找状态
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      _groupedKey.currentState?.clearFind();
+    }
     _findDebounce?.cancel();
     _findController.clear();
     _replaceController.clear();
@@ -551,7 +570,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         if (spec.del != null) map.putIfAbsent(spec.del!, () => r);
         if (spec.ins != null) map.putIfAbsent(spec.ins!, () => r);
       }
-    } else {
+    } else if (mode == ViewMode.diffOnly) {
       final rows = cachedDiffOnlyRows(diff);
       for (var r = 0; r < rows.length; r++) {
         final spec = rows[r];
@@ -568,7 +587,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   // ==================== 高度表 ====================
 
   Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
-    // ★ 3 grouped 视图自带高度计算，返回空 bundle
     if (mode == ViewMode.grouped) {
       return Future<_HeightBundle>.value(const _HeightBundle());
     }
@@ -780,7 +798,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       case ViewMode.diffOnlyPlain:
         return h.diffOnlyPlain;
       case ViewMode.grouped:
-        // ★ 4 grouped 视图自己管高度
         return null;
     }
   }
@@ -841,6 +858,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _nextMatch() {
+    // ★ grouped 视图：转交
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      _groupedKey.currentState?.nextMatch();
+      return;
+    }
+
     _ensureFindApplied();
     _recordFindHistory();
     if (_matchEntries.isEmpty) return;
@@ -850,6 +873,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _prevMatch() {
+    // ★ grouped 视图：转交
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      _groupedKey.currentState?.prevMatch();
+      return;
+    }
+
     _ensureFindApplied();
     _recordFindHistory();
     if (_matchEntries.isEmpty) return;
@@ -933,10 +962,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
   }
 
-  // ★ ========== 翻一屏（纯像素，95% 重叠）==========
-
-  /// 向下翻一屏：当前位置 + 屏高 × 0.95。
-  /// 留 5% 重叠，保证上一屏底部被截断的那一行，下一屏顶部能完整看到。
   void _pageDown() {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
@@ -946,7 +971,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollController.jumpTo(target);
   }
 
-  /// 向上翻一屏：当前位置 - 屏高 × 0.95。
   void _pageUp() {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
@@ -955,8 +979,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if ((target - pos.pixels).abs() < 0.5) return;
     _scrollController.jumpTo(target);
   }
-
-  // ★ ========== 翻屏方法结束 ==========
 
   void _jumpToNextDiff() {
     final diff = _diff;
@@ -1009,8 +1031,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
 
-    // ★ 5 grouped 视图自带一对 ScrollController，与主 ScrollController 不通用，
-    // 也无需做位置跳转询问。直接切。
     if (newMode == ViewMode.grouped || current == ViewMode.grouped) {
       _log('切视图: ${_viewModeName(newMode)}');
       ref.read(viewModeProvider.notifier).state = newMode;
@@ -1054,7 +1074,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       case ViewMode.diffOnlyPlain:
         return '仅差异行';
       case ViewMode.grouped:
-        // ★ 6 新视图名称
         return '跨行块';
     }
   }
@@ -2030,12 +2049,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
-      // ★ 7 新视图：自带滚动 + 高度，不接主 ScrollController
-      ViewMode.grouped => GroupedDiffView(
-          showLineNumbers: ref.watch(showLineNumbersProvider),
-          bodyFontSize: ref.watch(bodyFontSizeProvider),
-          gutterFontSize: ref.watch(gutterFontSizeProvider),
-        ),
+      ViewMode.grouped => GroupedDiffView(key: _groupedKey),
     };
 
     if (!noWrap) return inner;
@@ -2069,69 +2083,92 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        
-  toolbarHeight: 43,   // ★ 新增
-        
+        toolbarHeight: 43,
         titleSpacing: 1,
-
-
-
-
-
-title: Row(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    Builder(builder: (ctx) {
-      final iconColor =
-          IconTheme.of(ctx).color ?? const Color(0xFF000000);
-      return SizedBox(
-        width: 56,
-        height: 42,
-        child: InkWell(
-          key: const Key('page-up'),
-          onTap: _pageUp,
-          onLongPress: _jumpToDocTop,
-          child: Center(
-            child: CustomPaint(
-              size: const Size.square(24),
-              painter: _PageUpIconPainter(color: iconColor),
-            ),
-          ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Builder(builder: (ctx) {
+              final iconColor =
+                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
+              return SizedBox(
+                width: 56,
+                height: 42,
+                child: InkWell(
+                  key: const Key('page-up'),
+                  onTap: () {
+                    if (viewMode == ViewMode.grouped) {
+                      _groupedKey.currentState?.pageUp();
+                    } else {
+                      _pageUp();
+                    }
+                  },
+                  onLongPress: () {
+                    if (viewMode == ViewMode.grouped) {
+                      _groupedKey.currentState?.jumpToTop();
+                    } else {
+                      _jumpToDocTop();
+                    }
+                  },
+                  child: Center(
+                    child: CustomPaint(
+                      size: const Size.square(24),
+                      painter: _PageUpIconPainter(color: iconColor),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            Builder(builder: (ctx) {
+              final iconColor =
+                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
+              return SizedBox(
+                width: 56,
+                height: 42,
+                child: InkWell(
+                  key: const Key('page-down'),
+                  onTap: () {
+                    if (viewMode == ViewMode.grouped) {
+                      _groupedKey.currentState?.pageDown();
+                    } else {
+                      _pageDown();
+                    }
+                  },
+                  onLongPress: () {
+                    if (viewMode == ViewMode.grouped) {
+                      _groupedKey.currentState?.jumpToBottom();
+                    } else {
+                      _jumpToDocBottom();
+                    }
+                  },
+                  child: Center(
+                    child: CustomPaint(
+                      size: const Size.square(24),
+                      painter: _PageDownIconPainter(color: iconColor),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
         ),
-      );
-    }),
-    Builder(builder: (ctx) {
-      final iconColor =
-          IconTheme.of(ctx).color ?? const Color(0xFF000000);
-      return SizedBox(
-        width: 56,
-        height: 42,
-        child: InkWell(
-          key: const Key('page-down'),
-          onTap: _pageDown,
-          onLongPress: _jumpToDocBottom,
-          child: Center(
-            child: CustomPaint(
-              size: const Size.square(24),
-              painter: _PageDownIconPainter(color: iconColor),
-            ),
-          ),
-        ),
-      );
-    }),
-  ],
-),
-
-
-
-
-        
         actions: [
-        
           InkWell(
             key: const Key('prev-diff'),
-            onTap: _jumpToPrevDiff,
-            onLongPress: _jumpToDocTop,
+            onTap: () {
+              if (viewMode == ViewMode.grouped) {
+                _groupedKey.currentState?.jumpToPrevDiff();
+              } else {
+                _jumpToPrevDiff();
+              }
+            },
+            onLongPress: () {
+              if (viewMode == ViewMode.grouped) {
+                _groupedKey.currentState?.jumpToTop();
+              } else {
+                _jumpToDocTop();
+              }
+            },
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               child: Icon(Icons.arrow_upward, size: 26),
@@ -2139,8 +2176,20 @@ title: Row(
           ),
           InkWell(
             key: const Key('next-diff'),
-            onTap: _jumpToNextDiff,
-            onLongPress: _jumpToDocBottom,
+            onTap: () {
+              if (viewMode == ViewMode.grouped) {
+                _groupedKey.currentState?.jumpToNextDiff();
+              } else {
+                _jumpToNextDiff();
+              }
+            },
+            onLongPress: () {
+              if (viewMode == ViewMode.grouped) {
+                _groupedKey.currentState?.jumpToBottom();
+              } else {
+                _jumpToDocBottom();
+              }
+            },
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               child: Icon(Icons.arrow_downward, size: 26),
@@ -2328,7 +2377,6 @@ title: Row(
                     current: viewMode,
                   ),
                 ),
-                // ★ chip 栏新增「跨行块」
                 Expanded(
                   flex: 2,
                   child: _viewChip(
@@ -2374,7 +2422,6 @@ title: Row(
       ),
     );
   }
-  
 
   // ==================== 按钮栏 ====================
 
@@ -2699,35 +2746,35 @@ title: Row(
     );
   }
 
-Widget _buildFewDiffsBanner(int blocks) {
-  return Container(
-    width: double.infinity,
-    color: Colors.green.shade800,
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-    child: Row(
-      children: [
-        const Icon(
-          Icons.check_circle_outline,
-          size: 20,
-          color: Colors.white,
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            blocks == 0
-                ? '两份文档完全相同'
-                : '共 $blocks 处差异，已全部显示',
-            style: const TextStyle(
-              fontSize: 15,
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+  Widget _buildFewDiffsBanner(int blocks) {
+    return Container(
+      width: double.infinity,
+      color: Colors.green.shade800,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.check_circle_outline,
+            size: 20,
+            color: Colors.white,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              blocks == 0
+                  ? '两份文档完全相同'
+                  : '共 $blocks 处差异，已全部显示',
+              style: const TextStyle(
+                fontSize: 15,
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   // ==================== 查找栏 UI ====================
 
@@ -2999,15 +3046,7 @@ Widget _buildFewDiffsBanner(int blocks) {
   }
 }
 
-// ==================== 翻屏图标（自定义绘制） ====================
-//
-// 来源 SVG（viewBox 24×24）：
-//   矩形 = 当前"页"
-//   小折线 = 半透明的辅助箭头
-//   大折线 = 主箭头
-//
-// 用 canvas.scale(size.width / 24) 把 24×24 坐标系映射到实际大小，
-// strokeWidth 保持原始数值，缩放后自动按比例。
+// ==================== 翻屏图标 ====================
 
 class _PageDownIconPainter extends CustomPainter {
   _PageDownIconPainter({required this.color});
