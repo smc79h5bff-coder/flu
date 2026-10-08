@@ -3038,20 +3038,21 @@ Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  border: Border.all(color: Colors.orange.shade200),
+                  color: Colors.orange.shade40,
+                  border: Border.all(color: Colors.orange.shade300),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
                   children: [
                     Icon(Icons.info_outline,
-                        size: 14, color: Colors.orange.shade800),
+                        size: 15, color: Colors.orange.shade800),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         _noResultHint!,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
                           color: Colors.orange.shade900,
                         ),
                       ),
