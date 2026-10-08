@@ -8,7 +8,7 @@
 //   4. 单行 EQUAL：逐行再判断是完全相同还是只差空白
 // 上下文按行算（前后各 N 行）。左右同步滚动。
 //
-// 调试：把 kGroupedDiffDebug 设为 true，看控制台日志。
+// 调试：把 kGroupedDiffDebug 设为 true，看控制台日志 + 屏幕右上角日志按钮。
 
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/foundation.dart';
@@ -21,12 +21,17 @@ import 'providers/diff_viewer_providers.dart';
 
 // ==================== 调试开关 ====================
 
-/// true 时打印每一步的日志。上线时改成 false。
+/// true 时打印每一步的日志，并在屏幕右上角显示日志按钮。上线时改成 false。
 const bool kGroupedDiffDebug = true;
+
+/// 屏幕日志缓冲区（最多 300 条）。
+final List<String> kGroupedDiffLogs = [];
 
 void _log(String msg) {
   if (!kGroupedDiffDebug) return;
   debugPrint('[GroupedDiff] $msg');
+  kGroupedDiffLogs.add(msg);
+  if (kGroupedDiffLogs.length > 300) kGroupedDiffLogs.removeAt(0);
 }
 
 // ==================== 颜色 ====================
@@ -677,7 +682,7 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       return const Center(child: Text('两份文档完全相同'));
     }
 
-    return Row(
+    final content = Row(
       children: [
         Expanded(
           child: _SidePane(
@@ -705,6 +710,75 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
           ),
         ),
       ],
+    );
+
+    if (!kGroupedDiffDebug) return content;
+
+    return Stack(
+      children: [
+        content,
+        Positioned(
+          right: 4,
+          top: 4,
+          child: GestureDetector(
+            onTap: () => _showLogs(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '日志 ${kGroupedDiffLogs.length}',
+                style: const TextStyle(color: Colors.white, fontSize: 11),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showLogs(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('GroupedDiff 日志', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.7,
+          child: kGroupedDiffLogs.isEmpty
+              ? const Center(child: Text('还没有日志'))
+              : ListView.builder(
+                  itemCount: kGroupedDiffLogs.length,
+                  itemBuilder: (ctx, i) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: SelectableText(
+                      kGroupedDiffLogs[i],
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              kGroupedDiffLogs.clear();
+              Navigator.pop(c);
+            },
+            child: const Text('清空'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
     );
   }
 
