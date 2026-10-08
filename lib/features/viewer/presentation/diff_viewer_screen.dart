@@ -2935,28 +2935,37 @@ Padding(
         _pendingOrigChanges.length + _pendingModChanges.length;
 
     Widget toggle({
-      required String label,
-      required bool value,
-      required VoidCallback onTap,
-      VoidCallback? onLongPress,
-    }) {
-      return InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: value ? FontWeight.bold : FontWeight.normal,
-              color: value
-                  ? AppColors.accentPurple
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+  required String label,
+  required bool value,
+  required VoidCallback onTap,
+  VoidCallback? onLongPress,
+}) {
+  return InkWell(
+    onTap: onTap,
+    onLongPress: onLongPress,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: value
+            ? BoxDecoration(
+                border: Border.all(color: Colors.orange, width: 1.5),
+                borderRadius: BorderRadius.circular(4),
+              )
+            : null,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: value ? FontWeight.bold : FontWeight.normal,
+            color: value
+                ? AppColors.accentPurple
+                : Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
-      );
+      ),
+    ),
+  );
     }
 
     Widget sideToggle({
