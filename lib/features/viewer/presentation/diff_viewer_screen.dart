@@ -273,14 +273,38 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   void _findChanged(String q, {bool autoScroll = true}) {
     // ★ grouped 视图：转交给它自己的查找
- // ★ grouped 视图：转交给它自己的查找
-// 匹配数由 GroupedDiffView 通过 onMatchCountChanged 回调同步回来，
-// 这里不用再手动 setState（那样反而会在时序上抢跑）。
+ // ★ grouped 视图：主 screen 自己算匹配（与其他视图一致），
+// 然后通知 grouped 更新高亮并滚动到第一个
 if (ref.read(viewModeProvider) == ViewMode.grouped) {
   _findQuery = q;
   _scannedQuery = q;
+  final diff = _diff;
+  final matches = <int>[];
+  if (q.isNotEmpty && diff != null) {
+    for (var i = 0; i < diff.entries.length; i++) {
+      final e = diff.entries[i];
+      var hit = false;
+      if (_entryMatchesOnLeft(e) &&
+          _entryLeftText(e).contains(q)) {
+        hit = true;
+      }
+      if (!hit &&
+          _entryMatchesOnRight(e) &&
+          _entryRightText(e).contains(q)) {
+        hit = true;
+      }
+      if (hit) matches.add(i);
+    }
+  }
+  setState(() {
+    _matchEntries = matches;
+    _matchPos = matches.isEmpty ? -1 : 0;
+    _noResultHint = null;
+  });
   (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
-  setState(() => _noResultHint = null);
+  if (autoScroll && matches.isNotEmpty) {
+    (_groupedKey.currentState as dynamic)?.scrollToEntry(matches[0]);
+  }
   return;
 }
 
@@ -864,34 +888,30 @@ if (ref.read(viewModeProvider) == ViewMode.grouped) {
   }
 
   void _nextMatch() {
-    // ★ grouped 视图：转交
-    if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      (_groupedKey.currentState as dynamic)?.nextMatch();
-      return;
-    }
-
-    _ensureFindApplied();
-    _recordFindHistory();
-    if (_matchEntries.isEmpty) return;
-    final next = (_matchPos + 1) % _matchEntries.length;
-    setState(() => _matchPos = next);
+  _ensureFindApplied();
+  _recordFindHistory();
+  if (_matchEntries.isEmpty) return;
+  final next = (_matchPos + 1) % _matchEntries.length;
+  setState(() => _matchPos = next);
+  if (ref.read(viewModeProvider) == ViewMode.grouped) {
+    (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[next]);
+  } else {
     _scrollToEntry(_matchEntries[next]);
   }
+}
 
   void _prevMatch() {
-    // ★ grouped 视图：转交
-    if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      (_groupedKey.currentState as dynamic)?.prevMatch();
-      return;
-    }
-
-    _ensureFindApplied();
-    _recordFindHistory();
-    if (_matchEntries.isEmpty) return;
-    final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
-    setState(() => _matchPos = prev);
+  _ensureFindApplied();
+  _recordFindHistory();
+  if (_matchEntries.isEmpty) return;
+  final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
+  setState(() => _matchPos = prev);
+  if (ref.read(viewModeProvider) == ViewMode.grouped) {
+    (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[prev]);
+  } else {
     _scrollToEntry(_matchEntries[prev]);
   }
+}
 
   void _openEdit() {
     Navigator.of(context).push(
@@ -2055,18 +2075,7 @@ if (ref.read(viewModeProvider) == ViewMode.grouped) {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
-    ViewMode.grouped => GroupedDiffView(
-    key: _groupedKey,
-    onMatchCountChanged: (count) {
-      if (!mounted) return;
-      if (ref.read(viewModeProvider) != ViewMode.grouped) return;
-      setState(() {
-        _matchEntries =
-            List<int>.generate(count, (i) => i, growable: false);
-        _matchPos = count > 0 ? 0 : -1;
-      });
-    },
-  ),
+    ViewMode.grouped => GroupedDiffView(key: _groupedKey),
     };
 
     if (!noWrap) return inner;
