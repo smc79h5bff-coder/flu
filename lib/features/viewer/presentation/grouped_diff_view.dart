@@ -299,6 +299,36 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     });
   }
 
+
+double? _pendingRestoreOffset;
+
+/// 返回左栏当前滚动像素位置。给主 screen 记住用。
+double? get currentScrollOffset {
+  if (!_leftCtrl.hasClients) return null;
+  return _leftCtrl.offset;
+}
+
+/// 恢复左栏滚动位置。内容变了可能偏几行，但不会跳回开头。
+void restoreScrollOffset(double offset) {
+  _pendingRestoreOffset = offset;
+  _tryRestoreOffset();
+}
+
+void _tryRestoreOffset() {
+  final o = _pendingRestoreOffset;
+  if (o == null) return;
+  if (!_leftCtrl.hasClients) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tryRestoreOffset();
+    });
+    return;
+  }
+  final max = _leftCtrl.position.maxScrollExtent;
+  _leftCtrl.jumpTo(o.clamp(0.0, max));
+  _pendingRestoreOffset = null;
+}
+
+  
   /// 滚动到指定的 entry 索引。由主 screen 在按下"下一个/上一个"时调用。
   void scrollToEntry(int entryIdx) {
     final blockIdx = _blockIdxForEntry(entryIdx);
