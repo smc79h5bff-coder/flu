@@ -11,7 +11,8 @@ import '../../../diff/domain/diff_operation.dart';
 import '../../../diff/domain/diff_result.dart';
 import '../../../import/presentation/providers/import_providers.dart';
 
-enum ViewMode { merged, sideBySide, diffOnly, diffOnlyPlain }
+// ★ 新增 grouped 值
+enum ViewMode { merged, sideBySide, diffOnly, diffOnlyPlain, grouped }
 
 final viewModeProvider = StateProvider<ViewMode>((ref) => ViewMode.merged);
 /// 进入对比页时的默认视图。用户可在菜单里改。
@@ -42,7 +43,7 @@ final showLineNumbersProvider =
 
 class ShowLineNumbersNotifier extends BoolPrefNotifier {
   ShowLineNumbersNotifier()
-      : super(key: PrefKeys.showLineNumbers, initial: true);
+      : super(PrefKeys.showLineNumbers, initial: true);
 }
 
 final bodyFontSizeProvider =
@@ -50,7 +51,7 @@ final bodyFontSizeProvider =
 
 class BodyFontSizeNotifier extends DoublePrefNotifier {
   BodyFontSizeNotifier()
-      : super(key: PrefKeys.bodyFontSize, initial: 14.0);
+      : super(PrefKeys.bodyFontSize, initial: 14.0);
 }
 
 final gutterFontSizeProvider =
@@ -60,7 +61,7 @@ final gutterFontSizeProvider =
 
 class GutterFontSizeNotifier extends DoublePrefNotifier {
   GutterFontSizeNotifier()
-      : super(key: PrefKeys.gutterFontSize, initial: 11.0);
+      : super(PrefKeys.gutterFontSize, initial: 11.0);
 }
 
 
@@ -71,7 +72,7 @@ final contextFontSizeProvider =
 
 class ContextFontSizeNotifier extends DoublePrefNotifier {
   ContextFontSizeNotifier()
-      : super(key: PrefKeys.contextFontSize, initial: 10.0);
+      : super(PrefKeys.contextFontSize, initial: 10.0);
 }
 
 
