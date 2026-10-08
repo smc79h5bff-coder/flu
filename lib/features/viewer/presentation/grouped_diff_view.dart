@@ -1,9 +1,9 @@
 // grouped_diff_view.dart
 //
 // 新视图：跨行相同块。
-// 核心：忽略空白（空格、Tab、换行）后内容相同的多个行，视为一块，
-//      只高亮空白字符本身，不整行标红。
-// 真正有差异的块，做字符级 diff，只高亮不同的字符。
+// 相同行拆成单行块；跨行相同的多行（忽略空白后一致）保留整块；
+// 真差异块保留整块做字符级 diff。
+// 上下文按行算（前后各 2 行）。左右同步滚动。
 // 不影响现有 4 个视图。
 
 import 'package:diff_match_patch/diff_match_patch.dart';
@@ -14,12 +14,27 @@ import '../../import/presentation/providers/import_providers.dart';
 import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
 
+// ==================== 颜色 ====================
+
+/// 忽略空白后相同的块底色（很浅的蓝）
+const Color _kEqualIgnoringWsBg = Color(0xFFF0F6FF);
+
+/// 差异块底色
+const Color _kDiffLeftBg = Color(0xFFFFEEEE);
+const Color _kDiffRightBg = Color(0xFFEEFFEE);
+
+/// 差异字符高亮（深橙，配黑字）
+const Color _kCharHighlight = Color(0xFFFFA000);
+
+/// 空白字符差异高亮（高饱和黄）
+const Color _kWsHighlight = Color(0xFFFFEB3B);
+
 // ==================== 数据模型 ====================
 
 enum GroupedBlockKind {
-  /// 完全相等（连空白都一样）
+  /// 完全相等
   equal,
-  /// 忽略空白后相等（只差空格 / Tab / 换行）
+  /// 忽略空白后相等
   equalIgnoringWs,
   /// 有真正的差异
   different,
@@ -36,13 +51,8 @@ class GroupedBlock {
     this.rightHighlights = const [],
   });
 
-  final int leftStart;
-  final int leftEnd;
-  final int rightStart;
-  final int rightEnd;
+  final int leftStart, leftEnd, rightStart, rightEnd;
   final GroupedBlockKind kind;
-
-  /// 每行要高亮的字符位置。外层下标对应块内行偏移。
   final List<List<int>> leftHighlights;
   final List<List<int>> rightHighlights;
 
@@ -65,18 +75,13 @@ class GroupedDiffData {
 // ==================== 算法 ====================
 
 bool _isWhitespace(int c) =>
-    c == 0x20 ||
-    c == 0x09 ||
-    c == 0x0A ||
-    c == 0x0D ||
-    c == 0x0B ||
-    c == 0x0C;
+    c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D || c == 0x0B || c == 0x0C;
 
 GroupedDiffData computeGroupedDiff(String a, String b) {
   final linesA = a.split('\n');
   final linesB = b.split('\n');
 
-  // 1. 去空白 + 记录每个去空白字符属于哪一行
+  // 1. 去空白 + 记录每个字符属于哪一行
   final normA = <int>[];
   final normALine = <int>[];
   var line = 0;
@@ -90,7 +95,6 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
     normA.add(c);
     normALine.add(line);
   }
-
   final normB = <int>[];
   final normBLine = <int>[];
   line = 0;
@@ -105,14 +109,14 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
     normBLine.add(line);
   }
 
-  // 2. 在去空白文本上做字符级 diff
+  // 2. 去空白字符流上做 diff
   final dmp = DiffMatchPatch();
   final diffs = dmp.diff(
     String.fromCharCodes(normA),
     String.fromCharCodes(normB),
   );
 
-  // 3. 把 diff 段映射回行范围
+  // 3. 段 → 行范围
   final rawBlocks = <_RawBlock>[];
   var posA = 0, posB = 0;
   var curLineA = 0, curLineB = 0;
@@ -127,10 +131,8 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
       final rStart = curLineB;
       final rEnd = normBLine[posB + len - 1] + 1;
       rawBlocks.add(_RawBlock(
-        leftStart: lStart,
-        leftEnd: lEnd,
-        rightStart: rStart,
-        rightEnd: rEnd,
+        leftStart: lStart, leftEnd: lEnd,
+        rightStart: rStart, rightEnd: rEnd,
         isEqual: true,
       ));
       curLineA = lEnd;
@@ -141,10 +143,8 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
       final lStart = curLineA;
       final lEnd = normALine[posA + len - 1] + 1;
       rawBlocks.add(_RawBlock(
-        leftStart: lStart,
-        leftEnd: lEnd,
-        rightStart: curLineB,
-        rightEnd: curLineB,
+        leftStart: lStart, leftEnd: lEnd,
+        rightStart: curLineB, rightEnd: curLineB,
         isEqual: false,
       ));
       curLineA = lEnd;
@@ -153,10 +153,8 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
       final rStart = curLineB;
       final rEnd = normBLine[posB + len - 1] + 1;
       rawBlocks.add(_RawBlock(
-        leftStart: curLineA,
-        leftEnd: curLineA,
-        rightStart: rStart,
-        rightEnd: rEnd,
+        leftStart: curLineA, leftEnd: curLineA,
+        rightStart: rStart, rightEnd: rEnd,
         isEqual: false,
       ));
       curLineB = rEnd;
@@ -164,16 +162,14 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
     }
   }
 
-  // 4. 合并相邻的「不同」块
+  // 4. 合并相邻 different 块
   final merged = <_RawBlock>[];
   for (final rb in rawBlocks) {
     if (merged.isNotEmpty && !merged.last.isEqual && !rb.isEqual) {
       final last = merged.removeLast();
       merged.add(_RawBlock(
-        leftStart: last.leftStart,
-        leftEnd: rb.leftEnd,
-        rightStart: last.rightStart,
-        rightEnd: rb.rightEnd,
+        leftStart: last.leftStart, leftEnd: rb.leftEnd,
+        rightStart: last.rightStart, rightEnd: rb.rightEnd,
         isEqual: false,
       ));
     } else {
@@ -181,46 +177,83 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
     }
   }
 
-  // 5. 生成最终 GroupedBlock + 高亮
+  // 5. 生成最终块
   final blocks = <GroupedBlock>[];
   for (final rb in merged) {
-    final kind = rb.isEqual
-        ? _classifyEqual(linesA, linesB, rb)
-        : GroupedBlockKind.different;
+    if (rb.isEqual) {
+      final leftLen = rb.leftEnd - rb.leftStart;
+      final rightLen = rb.rightEnd - rb.rightStart;
 
-    List<List<int>> leftHi = const [];
-    List<List<int>> rightHi = const [];
-
-    if (kind != GroupedBlockKind.equal) {
-      final leftBlob =
-          linesA.sublist(rb.leftStart, rb.leftEnd).join('\n');
-      final rightBlob =
-          linesB.sublist(rb.rightStart, rb.rightEnd).join('\n');
-
-      leftHi = _computeSideHighlights(
-        selfBlob: leftBlob,
-        selfLineCount: rb.leftEnd - rb.leftStart,
-        otherBlob: rightBlob,
-      );
-      rightHi = _computeSideHighlights(
-        selfBlob: rightBlob,
-        selfLineCount: rb.rightEnd - rb.rightStart,
-        otherBlob: leftBlob,
-      );
+      if (leftLen == rightLen && leftLen > 0) {
+        // 行数相同 → 逐行拆
+        for (var k = 0; k < leftLen; k++) {
+          final la = linesA[rb.leftStart + k];
+          final ra = linesB[rb.rightStart + k];
+          if (la == ra) {
+            blocks.add(GroupedBlock(
+              leftStart: rb.leftStart + k, leftEnd: rb.leftStart + k + 1,
+              rightStart: rb.rightStart + k, rightEnd: rb.rightStart + k + 1,
+              kind: GroupedBlockKind.equal,
+              leftHighlights: [<int>[]],
+              rightHighlights: [<int>[]],
+            ));
+          } else {
+            // 只差空白（非空白字符可能也乱，但我们只标空白）
+            final leftHi = _diffPositionsInLine(la, ra, onlyWhitespace: true);
+            final rightHi = _diffPositionsInLine(ra, la, onlyWhitespace: true);
+            blocks.add(GroupedBlock(
+              leftStart: rb.leftStart + k, leftEnd: rb.leftStart + k + 1,
+              rightStart: rb.rightStart + k, rightEnd: rb.rightStart + k + 1,
+              kind: GroupedBlockKind.equalIgnoringWs,
+              leftHighlights: [leftHi],
+              rightHighlights: [rightHi],
+            ));
+          }
+        }
+      } else {
+        // 行数不同 → 整块 equalIgnoringWs
+        final leftBlob = linesA.sublist(rb.leftStart, rb.leftEnd).join('\n');
+        final rightBlob = linesB.sublist(rb.rightStart, rb.rightEnd).join('\n');
+        blocks.add(GroupedBlock(
+          leftStart: rb.leftStart, leftEnd: rb.leftEnd,
+          rightStart: rb.rightStart, rightEnd: rb.rightEnd,
+          kind: GroupedBlockKind.equalIgnoringWs,
+          leftHighlights: _computeSideHighlights(
+            selfBlob: leftBlob,
+            selfLineCount: leftLen,
+            otherBlob: rightBlob,
+            onlyWhitespace: true,
+          ),
+          rightHighlights: _computeSideHighlights(
+            selfBlob: rightBlob,
+            selfLineCount: rightLen,
+            otherBlob: leftBlob,
+            onlyWhitespace: true,
+          ),
+        ));
+      }
     } else {
-      leftHi = List.generate(rb.leftEnd - rb.leftStart, (_) => <int>[]);
-      rightHi = List.generate(rb.rightEnd - rb.rightStart, (_) => <int>[]);
+      // 真差异块
+      final leftBlob = linesA.sublist(rb.leftStart, rb.leftEnd).join('\n');
+      final rightBlob = linesB.sublist(rb.rightStart, rb.rightEnd).join('\n');
+      blocks.add(GroupedBlock(
+        leftStart: rb.leftStart, leftEnd: rb.leftEnd,
+        rightStart: rb.rightStart, rightEnd: rb.rightEnd,
+        kind: GroupedBlockKind.different,
+        leftHighlights: _computeSideHighlights(
+          selfBlob: leftBlob,
+          selfLineCount: rb.leftEnd - rb.leftStart,
+          otherBlob: rightBlob,
+          onlyWhitespace: false,
+        ),
+        rightHighlights: _computeSideHighlights(
+          selfBlob: rightBlob,
+          selfLineCount: rb.rightEnd - rb.rightStart,
+          otherBlob: leftBlob,
+          onlyWhitespace: false,
+        ),
+      ));
     }
-
-    blocks.add(GroupedBlock(
-      leftStart: rb.leftStart,
-      leftEnd: rb.leftEnd,
-      rightStart: rb.rightStart,
-      rightEnd: rb.rightEnd,
-      kind: kind,
-      leftHighlights: leftHi,
-      rightHighlights: rightHi,
-    ));
   }
 
   return GroupedDiffData(linesA: linesA, linesB: linesB, blocks: blocks);
@@ -228,39 +261,47 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
 
 class _RawBlock {
   const _RawBlock({
-    required this.leftStart,
-    required this.leftEnd,
-    required this.rightStart,
-    required this.rightEnd,
+    required this.leftStart, required this.leftEnd,
+    required this.rightStart, required this.rightEnd,
     required this.isEqual,
   });
   final int leftStart, leftEnd, rightStart, rightEnd;
   final bool isEqual;
 }
 
-GroupedBlockKind _classifyEqual(
-  List<String> linesA,
-  List<String> linesB,
-  _RawBlock rb,
-) {
-  final leftText = linesA.sublist(rb.leftStart, rb.leftEnd).join('\n');
-  final rightText = linesB.sublist(rb.rightStart, rb.rightEnd).join('\n');
-  if (leftText == rightText) return GroupedBlockKind.equal;
-  return GroupedBlockKind.equalIgnoringWs;
+/// 单行 vs 单行：本侧独有字符的位置。
+List<int> _diffPositionsInLine(
+  String self,
+  String other, {
+  required bool onlyWhitespace,
+}) {
+  if (self.isEmpty) return const [];
+  final dmp = DiffMatchPatch();
+  final diffs = dmp.diff(self, other);
+  final result = <int>[];
+  var pos = 0;
+  for (final d in diffs) {
+    final len = d.text.length;
+    if (d.operation == DIFF_EQUAL) {
+      pos += len;
+    } else if (d.operation == DIFF_DELETE) {
+      for (var i = 0; i < len; i++) {
+        final p = pos + i;
+        if (onlyWhitespace && !_isWhitespace(self.codeUnitAt(p))) continue;
+        result.add(p);
+      }
+      pos += len;
+    }
+  }
+  return result;
 }
 
-/// 计算某一侧的每行高亮位置。
-///
-/// 做的是「本侧 vs 对侧」的字符级 diff：
-///   - DIFF_DELETE 段 = 本侧独有 → 标记
-///   - DIFF_INSERT 段 = 对侧独有 → 跳过
-/// 这样不论空白还是非空白差异，都能精确定位到字符。
-///
-/// 换行符位置（行末那一列）会被跳过，因为它不是可显示的字符。
+/// 多行 blob vs blob：本侧独有字符的位置，按行分组。
 List<List<int>> _computeSideHighlights({
   required String selfBlob,
   required int selfLineCount,
   required String otherBlob,
+  required bool onlyWhitespace,
 }) {
   final result = List.generate(selfLineCount, (_) => <int>[]);
   if (selfBlob.isEmpty) return result;
@@ -268,15 +309,13 @@ List<List<int>> _computeSideHighlights({
   final dmp = DiffMatchPatch();
   final diffs = dmp.diff(selfBlob, otherBlob);
 
-  // 预计算行起始 + 行长度
   final starts = <int>[0];
   for (var i = 0; i < selfBlob.length; i++) {
     if (selfBlob.codeUnitAt(i) == 0x0A) starts.add(i + 1);
   }
   final lengths = <int>[];
   for (var i = 0; i < starts.length; i++) {
-    final end =
-        i + 1 < starts.length ? starts[i + 1] - 1 : selfBlob.length;
+    final end = i + 1 < starts.length ? starts[i + 1] - 1 : selfBlob.length;
     lengths.add(end - starts[i]);
   }
 
@@ -288,7 +327,9 @@ List<List<int>> _computeSideHighlights({
     } else if (d.operation == DIFF_DELETE) {
       for (var i = 0; i < len; i++) {
         final p = pos + i;
-        // 二分找行
+        if (p >= selfBlob.length) break;
+        if (onlyWhitespace && !_isWhitespace(selfBlob.codeUnitAt(p))) continue;
+
         var lo = 0, hi = starts.length - 1;
         while (lo < hi) {
           final mid = (lo + hi + 1) >> 1;
@@ -306,7 +347,6 @@ List<List<int>> _computeSideHighlights({
       }
       pos += len;
     }
-    // DIFF_INSERT：对侧独有，本侧不高亮
   }
 
   return result;
@@ -321,12 +361,14 @@ class GroupedDiffView extends ConsumerStatefulWidget {
     this.showLineNumbers = true,
     this.bodyFontSize = 14.0,
     this.gutterFontSize = 11.0,
+    this.contextLines = 2,
   });
 
   final ScrollController? controller;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+  final int contextLines;
 
   @override
   ConsumerState<GroupedDiffView> createState() => _GroupedDiffViewState();
@@ -335,9 +377,62 @@ class GroupedDiffView extends ConsumerStatefulWidget {
 class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   GroupedDiffData? _data;
   LineHeightTable? _heightTable;
+  List<GroupedBlock>? _visibleBlocks;
   String? _key;
   double? _heightWidth;
   double? _heightFont;
+
+  late final ScrollController _leftCtrl;
+  late final ScrollController _rightCtrl;
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _leftCtrl = widget.controller ?? ScrollController();
+    _rightCtrl = ScrollController();
+    _leftCtrl.addListener(_syncFromLeft);
+    _rightCtrl.addListener(_syncFromRight);
+  }
+
+  @override
+  void dispose() {
+    _leftCtrl.removeListener(_syncFromLeft);
+    _rightCtrl.removeListener(_syncFromRight);
+    if (widget.controller == null) _leftCtrl.dispose();
+    _rightCtrl.dispose();
+    super.dispose();
+  }
+
+  void _syncFromLeft() {
+    if (_syncing) return;
+    if (!_leftCtrl.hasClients || !_rightCtrl.hasClients) return;
+    final o = _leftCtrl.offset;
+    if ((_rightCtrl.offset - o).abs() < 0.5) return;
+    _syncing = true;
+    try {
+      _rightCtrl.jumpTo(o.clamp(
+        _rightCtrl.position.minScrollExtent,
+        _rightCtrl.position.maxScrollExtent,
+      ));
+    } catch (_) {}
+    _syncing = false;
+  }
+
+  void _syncFromRight() {
+    if (_syncing) return;
+    if (!_leftCtrl.hasClients || !_rightCtrl.hasClients) return;
+    final o = _rightCtrl.offset;
+    if ((_leftCtrl.offset - o).abs() < 0.5) return;
+    _syncing = true;
+    try {
+      _leftCtrl.jumpTo(o.clamp(
+        _leftCtrl.position.minScrollExtent,
+        _leftCtrl.position.maxScrollExtent,
+      ));
+    } catch (_) {}
+    _syncing = false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -349,6 +444,7 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       _key = key;
       _data = computeGroupedDiff(a, b);
       _heightTable = null;
+      _visibleBlocks = null;
     }
 
     final data = _data!;
@@ -359,14 +455,19 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final halfW = (viewportW - 1) / 2;
     final contentW = halfW - (showLine ? 42.0 : 12.0);
 
+    if (_visibleBlocks == null) {
+      _visibleBlocks = _filterVisible(
+        data.blocks,
+        contextLines: widget.contextLines,
+      );
+    }
+    final visible = _visibleBlocks!;
+
     if (_heightTable == null ||
         _heightWidth != contentW ||
         _heightFont != fontSize) {
       _heightTable = _buildHeightTable(
-        data,
-        contentW,
-        fontSize,
-        mq.textScaler,
+        data, visible, contentW, fontSize, mq.textScaler,
       );
       _heightWidth = contentW;
       _heightFont = fontSize;
@@ -376,14 +477,19 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
+    if (visible.isEmpty) {
+      return const Center(child: Text('两份文档完全相同'));
+    }
+
     return Row(
       children: [
         Expanded(
           child: _SidePane(
             data: data,
+            blocks: visible,
             table: table,
             side: _Side.left,
-            controller: widget.controller,
+            controller: _leftCtrl,
             showLineNumbers: showLine,
             bodyFontSize: fontSize,
             gutterFontSize: widget.gutterFontSize,
@@ -393,9 +499,10 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
         Expanded(
           child: _SidePane(
             data: data,
+            blocks: visible,
             table: table,
             side: _Side.right,
-            controller: null,
+            controller: _rightCtrl,
             showLineNumbers: showLine,
             bodyFontSize: fontSize,
             gutterFontSize: widget.gutterFontSize,
@@ -405,8 +512,41 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     );
   }
 
+  /// 只保留差异块 + 前后各 contextLines 行上下文。
+  List<GroupedBlock> _filterVisible(
+    List<GroupedBlock> blocks, {
+    required int contextLines,
+  }) {
+    final diffIdx = <int>[];
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i].kind != GroupedBlockKind.equal) diffIdx.add(i);
+    }
+    if (diffIdx.isEmpty) return const [];
+
+    final keep = <int>{};
+    for (final di in diffIdx) {
+      keep.add(di);
+
+      // 往前扩
+      var acc = 0;
+      for (var j = di - 1; j >= 0 && acc < contextLines; j--) {
+        keep.add(j);
+        acc += blocks[j].leftLength;
+      }
+      // 往后扩
+      acc = 0;
+      for (var j = di + 1; j < blocks.length && acc < contextLines; j++) {
+        keep.add(j);
+        acc += blocks[j].leftLength;
+      }
+    }
+    final sorted = keep.toList()..sort();
+    return [for (final i in sorted) blocks[i]];
+  }
+
   LineHeightTable _buildHeightTable(
     GroupedDiffData data,
+    List<GroupedBlock> blocks,
     double width,
     double fontSize,
     TextScaler scaler,
@@ -415,7 +555,7 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final style = TextStyle(fontSize: fontSize, height: 1.35);
     const extraPad = 8.0;
 
-    for (final block in data.blocks) {
+    for (final block in blocks) {
       double leftH = 0;
       for (var i = block.leftStart; i < block.leftEnd; i++) {
         leftH += measureTextHeight(
@@ -445,6 +585,7 @@ enum _Side { left, right }
 class _SidePane extends StatelessWidget {
   const _SidePane({
     required this.data,
+    required this.blocks,
     required this.table,
     required this.side,
     required this.controller,
@@ -454,6 +595,7 @@ class _SidePane extends StatelessWidget {
   });
 
   final GroupedDiffData data;
+  final List<GroupedBlock> blocks;
   final LineHeightTable table;
   final _Side side;
   final ScrollController? controller;
@@ -463,8 +605,6 @@ class _SidePane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final blocks = data.blocks;
-
     return ListView.builder(
       controller: controller,
       addAutomaticKeepAlives: false,
@@ -503,19 +643,15 @@ class _BlockTile extends StatelessWidget {
   final double bodyFontSize;
   final double gutterFontSize;
 
-  static const Color _wsHighlight = Color(0xFFFFF59D);
-  static const Color _charHighlight = Color(0xFFFFB74D);
-
   @override
   Widget build(BuildContext context) {
     final isLeft = side == _Side.left;
     final startLine = isLeft ? block.leftStart : block.rightStart;
     final endLine = isLeft ? block.leftEnd : block.rightEnd;
     final lines = isLeft ? data.linesA : data.linesB;
-    final highlights =
-        isLeft ? block.leftHighlights : block.rightHighlights;
+    final highlights = isLeft ? block.leftHighlights : block.rightHighlights;
 
-    final bg = _bgColor(context);
+    final bg = _bgColor();
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white
@@ -539,7 +675,6 @@ class _BlockTile extends StatelessWidget {
         text: lines[li],
         markPositions: marks,
         baseStyle: baseStyle,
-        kind: block.kind,
       );
 
       rowWidgets.add(Row(
@@ -551,17 +686,12 @@ class _BlockTile extends StatelessWidget {
               child: Text(
                 '${li + 1}',
                 textAlign: TextAlign.end,
-                style: TextStyle(
-                  fontSize: gutterFontSize,
-                  color: outline,
-                ),
+                style: TextStyle(fontSize: gutterFontSize, color: outline),
               ),
             ),
             const SizedBox(width: 4),
           ],
-          Expanded(
-            child: Text.rich(TextSpan(children: spans)),
-          ),
+          Expanded(child: Text.rich(TextSpan(children: spans))),
         ],
       ));
     }
@@ -578,16 +708,14 @@ class _BlockTile extends StatelessWidget {
     );
   }
 
-  Color _bgColor(BuildContext context) {
+  Color _bgColor() {
     switch (block.kind) {
       case GroupedBlockKind.equal:
         return Colors.transparent;
       case GroupedBlockKind.equalIgnoringWs:
-        return const Color(0xFFE3F2FD); // 淡蓝：忽略空白后相同
+        return _kEqualIgnoringWsBg;
       case GroupedBlockKind.different:
-        return side == _Side.left
-            ? const Color(0xFFFFEEEE)
-            : const Color(0xFFEEFFEE);
+        return side == _Side.left ? _kDiffLeftBg : _kDiffRightBg;
     }
   }
 
@@ -595,7 +723,6 @@ class _BlockTile extends StatelessWidget {
     required String text,
     required Set<int> markPositions,
     required TextStyle baseStyle,
-    required GroupedBlockKind kind,
   }) {
     if (text.isEmpty) {
       return [TextSpan(text: ' ', style: baseStyle)];
@@ -603,11 +730,6 @@ class _BlockTile extends StatelessWidget {
     if (markPositions.isEmpty) {
       return [TextSpan(text: text, style: baseStyle)];
     }
-
-    // equalIgnoringWs：标黄（空白）；different：标橙（真差异）
-    final hlColor = kind == GroupedBlockKind.equalIgnoringWs
-        ? _wsHighlight
-        : _charHighlight;
 
     final spans = <InlineSpan>[];
     var i = 0;
@@ -619,10 +741,14 @@ class _BlockTile extends StatelessWidget {
       }
       final chunk = text.substring(i, j);
       if (marked) {
+        // 是空白 → 黄；非空白 → 深橙
+        final c = _isWhitespace(text.codeUnitAt(i))
+            ? _kWsHighlight
+            : _kCharHighlight;
         spans.add(TextSpan(
           text: chunk,
           style: baseStyle.copyWith(
-            backgroundColor: hlColor,
+            backgroundColor: c,
             fontWeight: FontWeight.bold,
           ),
         ));
