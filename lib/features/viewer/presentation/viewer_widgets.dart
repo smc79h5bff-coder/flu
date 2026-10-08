@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart'
     hide colorToHex, hexToColor;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'providers/grouped_color_providers.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart'
     show ruleSubtitle;
 import '../../preprocessing/domain/preprocessing_rule.dart';
@@ -261,14 +261,32 @@ class DisplaySettingsSheet extends ConsumerWidget {
                         charDeleteFgProvider),
                     _colorRow(context, ref, '右侧行内改动字 · 底色',
                         charInsertBgProvider),
-                    _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
-                        charInsertFgProvider),
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
+            charInsertFgProvider),
+
+        // ========== 跨行块视图专属颜色（只在跨行块视图下显示） ==========
+        if (ref.watch(viewModeProvider) == ViewMode.grouped) ...[
+          const Divider(height: 32),
+          Text(
+            '跨行块视图专属颜色',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          _colorRow(context, ref, '忽略空白相同的块 · 底色',
+              groupedEqualIgnoringWsBgProvider),
+          _colorRow(context, ref, '空白差异高亮（含行尾 ↵）',
+              groupedWsHighlightProvider),
+          _colorRow(context, ref, '查找命中 · 底色',
+              groupedFindYellowProvider),
+          _colorRow(context, ref, '当前查找命中 · 底色',
+              groupedFindPinkProvider),
+        ],
+
+        const SizedBox(height: 24),
+      ],
+    ),
+  ),
+),
         ),
       ),
     );
