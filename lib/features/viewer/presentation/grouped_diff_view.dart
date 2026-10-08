@@ -1,8 +1,9 @@
 // grouped_diff_view.dart
 //
 // 新视图：跨行相同块。
-// 特点：把「左 1 行 = 右 N 行，忽略空白后相同」的多个行当成一块显示，
-//      只高亮空白字符，不整行标红。
+// 核心：忽略空白（空格、Tab、换行）后内容相同的多个行，视为一块，
+//      只高亮空白字符本身，不整行标红。
+// 真正有差异的块，做字符级 diff，只高亮不同的字符。
 // 不影响现有 4 个视图。
 
 import 'package:diff_match_patch/diff_match_patch.dart';
@@ -18,13 +19,12 @@ import 'providers/diff_viewer_providers.dart';
 enum GroupedBlockKind {
   /// 完全相等（连空白都一样）
   equal,
-  /// 忽略空白后相等（只差空格/换行）
+  /// 忽略空白后相等（只差空格 / Tab / 换行）
   equalIgnoringWs,
   /// 有真正的差异
   different,
 }
 
-/// 一个块：左侧若干行、右侧若干行，视为一个整体。
 class GroupedBlock {
   const GroupedBlock({
     required this.leftStart,
@@ -36,17 +36,13 @@ class GroupedBlock {
     this.rightHighlights = const [],
   });
 
-  /// 左侧行范围 [leftStart, leftEnd)，行号基于原始 A 文本。
   final int leftStart;
   final int leftEnd;
-  /// 右侧行范围 [rightStart, rightEnd)，行号基于原始 B 文本。
   final int rightStart;
   final int rightEnd;
-
   final GroupedBlockKind kind;
 
-  /// 每行要高亮的字符位置，外层下标对应块内行偏移。
-  /// 例如 [[0, 5], [2]] 表示块第 0 行位置 0、5 高亮，块第 1 行位置 2 高亮。
+  /// 每行要高亮的字符位置。外层下标对应块内行偏移。
   final List<List<int>> leftHighlights;
   final List<List<int>> rightHighlights;
 
@@ -69,14 +65,13 @@ class GroupedDiffData {
 // ==================== 算法 ====================
 
 bool _isWhitespace(int c) =>
-    c == 0x20 || // 空格
-    c == 0x09 || // Tab
-    c == 0x0A || // 换行
-    c == 0x0D || // 回车
-    c == 0x0B || // 垂直 Tab
-    c == 0x0C;   // 换页
+    c == 0x20 ||
+    c == 0x09 ||
+    c == 0x0A ||
+    c == 0x0D ||
+    c == 0x0B ||
+    c == 0x0C;
 
-/// 主入口：算跨行块。
 GroupedDiffData computeGroupedDiff(String a, String b) {
   final linesA = a.split('\n');
   final linesB = b.split('\n');
@@ -117,7 +112,7 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
     String.fromCharCodes(normB),
   );
 
-  // 3. 把 diff 区间映射回行范围，合并成块
+  // 3. 把 diff 段映射回行范围
   final rawBlocks = <_RawBlock>[];
   var posA = 0, posB = 0;
   var curLineA = 0, curLineB = 0;
@@ -172,9 +167,7 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
   // 4. 合并相邻的「不同」块
   final merged = <_RawBlock>[];
   for (final rb in rawBlocks) {
-    if (merged.isNotEmpty &&
-        !merged.last.isEqual &&
-        !rb.isEqual) {
+    if (merged.isNotEmpty && !merged.last.isEqual && !rb.isEqual) {
       final last = merged.removeLast();
       merged.add(_RawBlock(
         leftStart: last.leftStart,
@@ -188,35 +181,36 @@ GroupedDiffData computeGroupedDiff(String a, String b) {
     }
   }
 
-  // 5. 生成最终 GroupedBlock，加高亮信息
+  // 5. 生成最终 GroupedBlock + 高亮
   final blocks = <GroupedBlock>[];
   for (final rb in merged) {
     final kind = rb.isEqual
-        ? _classifyEqual(a, b, linesA, linesB, rb)
+        ? _classifyEqual(linesA, linesB, rb)
         : GroupedBlockKind.different;
 
-    final leftHi = _highlightsFor(
-      a: a,
-      lines: linesA,
-      start: rb.leftStart,
-      end: rb.leftEnd,
-      other: b,
-      otherLines: linesB,
-      otherStart: rb.rightStart,
-      otherEnd: rb.rightEnd,
-      kind: kind,
-    );
-    final rightHi = _highlightsFor(
-      a: b,
-      lines: linesB,
-      start: rb.rightStart,
-      end: rb.rightEnd,
-      other: a,
-      otherLines: linesA,
-      otherStart: rb.leftStart,
-      otherEnd: rb.leftEnd,
-      kind: kind,
-    );
+    List<List<int>> leftHi = const [];
+    List<List<int>> rightHi = const [];
+
+    if (kind != GroupedBlockKind.equal) {
+      final leftBlob =
+          linesA.sublist(rb.leftStart, rb.leftEnd).join('\n');
+      final rightBlob =
+          linesB.sublist(rb.rightStart, rb.rightEnd).join('\n');
+
+      leftHi = _computeSideHighlights(
+        selfBlob: leftBlob,
+        selfLineCount: rb.leftEnd - rb.leftStart,
+        otherBlob: rightBlob,
+      );
+      rightHi = _computeSideHighlights(
+        selfBlob: rightBlob,
+        selfLineCount: rb.rightEnd - rb.rightStart,
+        otherBlob: leftBlob,
+      );
+    } else {
+      leftHi = List.generate(rb.leftEnd - rb.leftStart, (_) => <int>[]);
+      rightHi = List.generate(rb.rightEnd - rb.rightStart, (_) => <int>[]);
+    }
 
     blocks.add(GroupedBlock(
       leftStart: rb.leftStart,
@@ -244,13 +238,11 @@ class _RawBlock {
   final bool isEqual;
 }
 
-/// 判断「相等」块是严格相等还是只忽略空白后相等。
 GroupedBlockKind _classifyEqual(
-  String a, String b,
-  List<String> linesA, List<String> linesB,
+  List<String> linesA,
+  List<String> linesB,
   _RawBlock rb,
 ) {
-  // 取两侧原文
   final leftText = linesA.sublist(rb.leftStart, rb.leftEnd).join('\n');
   final rightText = linesB.sublist(rb.rightStart, rb.rightEnd).join('\n');
   if (leftText == rightText) return GroupedBlockKind.equal;
@@ -259,93 +251,64 @@ GroupedBlockKind _classifyEqual(
 
 /// 计算某一侧的每行高亮位置。
 ///
-/// - equalIgnoringWs：把该侧所有空白字符位置标出来
-/// - different：把该侧与对侧真正不同的字符标出来
-List<List<int>> _highlightsFor({
-  required String a,
-  required List<String> lines,
-  required int start,
-  required int end,
-  required String other,
-  required List<String> otherLines,
-  required int otherStart,
-  required int otherEnd,
-  required GroupedBlockKind kind,
+/// 做的是「本侧 vs 对侧」的字符级 diff：
+///   - DIFF_DELETE 段 = 本侧独有 → 标记
+///   - DIFF_INSERT 段 = 对侧独有 → 跳过
+/// 这样不论空白还是非空白差异，都能精确定位到字符。
+///
+/// 换行符位置（行末那一列）会被跳过，因为它不是可显示的字符。
+List<List<int>> _computeSideHighlights({
+  required String selfBlob,
+  required int selfLineCount,
+  required String otherBlob,
 }) {
-  final result = <List<int>>[];
-  if (end <= start) return result;
+  final result = List.generate(selfLineCount, (_) => <int>[]);
+  if (selfBlob.isEmpty) return result;
 
-  if (kind == GroupedBlockKind.equalIgnoringWs) {
-    // 把每行内的空白字符位置全部标出
-    for (var li = start; li < end; li++) {
-      final text = lines[li];
-      final positions = <int>[];
-      for (var i = 0; i < text.length; i++) {
-        if (_isWhitespace(text.codeUnitAt(i))) positions.add(i);
-      }
-      result.add(positions);
-    }
-    return result;
+  final dmp = DiffMatchPatch();
+  final diffs = dmp.diff(selfBlob, otherBlob);
+
+  // 预计算行起始 + 行长度
+  final starts = <int>[0];
+  for (var i = 0; i < selfBlob.length; i++) {
+    if (selfBlob.codeUnitAt(i) == 0x0A) starts.add(i + 1);
+  }
+  final lengths = <int>[];
+  for (var i = 0; i < starts.length; i++) {
+    final end =
+        i + 1 < starts.length ? starts[i + 1] - 1 : selfBlob.length;
+    lengths.add(end - starts[i]);
   }
 
-  if (kind == GroupedBlockKind.different) {
-    // 该块内：把两侧对应文本拼接后做字符级 diff，找出真正的差异位置
-    final sideText = lines.sublist(start, end).join('\n');
-    final otherText = otherLines.sublist(otherStart, otherEnd).join('\n');
-    final dmp = DiffMatchPatch();
-    final diffs = dmp.diff(otherText, sideText); // 顺序：对面在前，本侧在后
-
-    // 每个本侧 diff 段（DELETE/INSERT）都标记为差异
-    // 注意：dmp.diff(other, self) 里 DELETE 表示 other 独有，
-    // INSERT 表示 self 独有。self 里要标的是 INSERT。
-    final perLine = <int>{};
-    for (var i = 0; i < end - start; i++) perLine.add(i);
-    final lineMarks = <int, Set<int>>{};
-    for (final k in perLine.keys) lineMarks[k] = <int>{};
-
-    // 本侧文本相对本侧行起始的字符位置
-    // 简化：把 self 文本遍历一遍，遇到 INSERT 段就标在该位置
-    var selfPos = 0;
-    for (final d in diffs) {
-      final len = d.text.length;
-      if (d.operation == DIFF_EQUAL || d.operation == DIFF_DELETE) {
-        // 属于 other 侧，跳过
-        if (d.operation == DIFF_DELETE) continue;
-        selfPos += len;
-      } else if (d.operation == DIFF_INSERT) {
-        // 本侧独有 → 标记为差异
-        for (var i = 0; i < len; i++) {
-          // 把 selfPos + i 映射到行、列
-          var acc = 0;
-          var lineOffset = -1;
-          for (var k = 0; k < end - start; k++) {
-            final lineLen = lines[start + k].length + 1; // +1 是换行
-            if (selfPos + i < acc + lineLen) {
-              lineOffset = k;
-              break;
-            }
-            acc += lineLen;
-          }
-          if (lineOffset >= 0) {
-            final col = selfPos + i - acc;
-            lineMarks[lineOffset]!.add(col);
+  var pos = 0;
+  for (final d in diffs) {
+    final len = d.text.length;
+    if (d.operation == DIFF_EQUAL) {
+      pos += len;
+    } else if (d.operation == DIFF_DELETE) {
+      for (var i = 0; i < len; i++) {
+        final p = pos + i;
+        // 二分找行
+        var lo = 0, hi = starts.length - 1;
+        while (lo < hi) {
+          final mid = (lo + hi + 1) >> 1;
+          if (starts[mid] <= p) {
+            lo = mid;
+          } else {
+            hi = mid - 1;
           }
         }
-        selfPos += len;
+        final lineIdx = lo;
+        final col = p - starts[lineIdx];
+        if (lineIdx < selfLineCount && col < lengths[lineIdx]) {
+          result[lineIdx].add(col);
+        }
       }
+      pos += len;
     }
-
-    for (var k = 0; k < end - start; k++) {
-      final marks = lineMarks[k]!.toList()..sort();
-      result.add(marks);
-    }
-    return result;
+    // DIFF_INSERT：对侧独有，本侧不高亮
   }
 
-  // equal：无高亮
-  for (var i = 0; i < end - start; i++) {
-    result.add(const []);
-  }
   return result;
 }
 
@@ -373,6 +336,8 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   GroupedDiffData? _data;
   LineHeightTable? _heightTable;
   String? _key;
+  double? _heightWidth;
+  double? _heightFont;
 
   @override
   Widget build(BuildContext context) {
@@ -394,9 +359,17 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final halfW = (viewportW - 1) / 2;
     final contentW = halfW - (showLine ? 42.0 : 12.0);
 
-    // 高度表：每一块的高度 = max(左侧行数, 右侧行数) × 单行高
-    if (_heightTable == null) {
-      _heightTable = _buildHeightTable(data, contentW, fontSize, mq.textScaler);
+    if (_heightTable == null ||
+        _heightWidth != contentW ||
+        _heightFont != fontSize) {
+      _heightTable = _buildHeightTable(
+        data,
+        contentW,
+        fontSize,
+        mq.textScaler,
+      );
+      _heightWidth = contentW;
+      _heightFont = fontSize;
     }
 
     final table = _heightTable!;
@@ -414,7 +387,6 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
             showLineNumbers: showLine,
             bodyFontSize: fontSize,
             gutterFontSize: widget.gutterFontSize,
-            contentWidth: contentW,
           ),
         ),
         divider,
@@ -427,7 +399,6 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
             showLineNumbers: showLine,
             bodyFontSize: fontSize,
             gutterFontSize: widget.gutterFontSize,
-            contentWidth: contentW,
           ),
         ),
       ],
@@ -445,20 +416,25 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     const extraPad = 8.0;
 
     for (final block in data.blocks) {
-      final leftRows = block.leftLength;
-      final rightRows = block.rightLength;
-      final rows = leftRows > rightRows ? leftRows : rightRows;
-      // 粗算：每行按最长行的折行高度；块高度 = 行数 × 单行高 + padding
-      final sample = rows > 0 && leftRows > 0
-          ? data.linesA[block.leftStart]
-          : (rightRows > 0 ? data.linesB[block.rightStart] : '');
-      final h = measureTextHeight(
-        text: sample.isEmpty ? 'M' : sample,
-        maxWidth: width,
-        style: style,
-        textScaler: scaler,
-      );
-      heights.add(h * rows + extraPad);
+      double leftH = 0;
+      for (var i = block.leftStart; i < block.leftEnd; i++) {
+        leftH += measureTextHeight(
+          text: data.linesA[i].isEmpty ? ' ' : data.linesA[i],
+          maxWidth: width,
+          style: style,
+          textScaler: scaler,
+        );
+      }
+      double rightH = 0;
+      for (var i = block.rightStart; i < block.rightEnd; i++) {
+        rightH += measureTextHeight(
+          text: data.linesB[i].isEmpty ? ' ' : data.linesB[i],
+          maxWidth: width,
+          style: style,
+          textScaler: scaler,
+        );
+      }
+      heights.add((leftH > rightH ? leftH : rightH) + extraPad);
     }
     return LineHeightTable.fromHeights(heights);
   }
@@ -475,7 +451,6 @@ class _SidePane extends StatelessWidget {
     required this.showLineNumbers,
     required this.bodyFontSize,
     required this.gutterFontSize,
-    required this.contentWidth,
   });
 
   final GroupedDiffData data;
@@ -485,7 +460,6 @@ class _SidePane extends StatelessWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
-  final double contentWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -499,15 +473,13 @@ class _SidePane extends StatelessWidget {
       itemCount: blocks.length,
       itemExtentBuilder: (index, dimensions) => table.heightOf(index),
       itemBuilder: (ctx, i) {
-        final block = blocks[i];
         return _BlockTile(
-          block: block,
+          block: blocks[i],
           data: data,
           side: side,
           showLineNumbers: showLineNumbers,
           bodyFontSize: bodyFontSize,
           gutterFontSize: gutterFontSize,
-          contentWidth: contentWidth,
         );
       },
     );
@@ -522,7 +494,6 @@ class _BlockTile extends StatelessWidget {
     required this.showLineNumbers,
     required this.bodyFontSize,
     required this.gutterFontSize,
-    required this.contentWidth,
   });
 
   final GroupedBlock block;
@@ -531,7 +502,9 @@ class _BlockTile extends StatelessWidget {
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
-  final double contentWidth;
+
+  static const Color _wsHighlight = Color(0xFFFFF59D);
+  static const Color _charHighlight = Color(0xFFFFB74D);
 
   @override
   Widget build(BuildContext context) {
@@ -539,7 +512,8 @@ class _BlockTile extends StatelessWidget {
     final startLine = isLeft ? block.leftStart : block.rightStart;
     final endLine = isLeft ? block.leftEnd : block.rightEnd;
     final lines = isLeft ? data.linesA : data.linesB;
-    final highlights = isLeft ? block.leftHighlights : block.rightHighlights;
+    final highlights =
+        isLeft ? block.leftHighlights : block.rightHighlights;
 
     final bg = _bgColor(context);
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
@@ -548,24 +522,27 @@ class _BlockTile extends StatelessWidget {
             : Colors.black);
     final outline = Theme.of(context).colorScheme.outline;
 
-    final children = <Widget>[];
+    final baseStyle = TextStyle(
+      fontSize: bodyFontSize,
+      color: defaultFg,
+      height: 1.35,
+    );
+
+    final rowWidgets = <Widget>[];
     for (var li = startLine; li < endLine; li++) {
       final localIdx = li - startLine;
       final marks = localIdx < highlights.length
           ? highlights[localIdx].toSet()
           : const <int>{};
-      final lineText = lines[li];
+
       final spans = _buildSpans(
-        text: lineText,
+        text: lines[li],
         markPositions: marks,
-        baseStyle: TextStyle(
-          fontSize: bodyFontSize,
-          color: defaultFg,
-          height: 1.35,
-        ),
+        baseStyle: baseStyle,
+        kind: block.kind,
       );
 
-      children.add(Row(
+      rowWidgets.add(Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (showLineNumbers) ...[
@@ -574,15 +551,16 @@ class _BlockTile extends StatelessWidget {
               child: Text(
                 '${li + 1}',
                 textAlign: TextAlign.end,
-                style: TextStyle(fontSize: gutterFontSize, color: outline),
+                style: TextStyle(
+                  fontSize: gutterFontSize,
+                  color: outline,
+                ),
               ),
             ),
             const SizedBox(width: 4),
           ],
           Expanded(
-            child: Text.rich(
-              TextSpan(children: spans),
-            ),
+            child: Text.rich(TextSpan(children: spans)),
           ),
         ],
       ));
@@ -594,20 +572,18 @@ class _BlockTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
+          children: rowWidgets,
         ),
       ),
     );
   }
 
   Color _bgColor(BuildContext context) {
-    final s = Theme.of(context).colorScheme;
     switch (block.kind) {
       case GroupedBlockKind.equal:
         return Colors.transparent;
       case GroupedBlockKind.equalIgnoringWs:
-        // 淡蓝，标记「忽略空白后相同」
-        return const Color(0xFFE3F2FD);
+        return const Color(0xFFE3F2FD); // 淡蓝：忽略空白后相同
       case GroupedBlockKind.different:
         return side == _Side.left
             ? const Color(0xFFFFEEEE)
@@ -619,6 +595,7 @@ class _BlockTile extends StatelessWidget {
     required String text,
     required Set<int> markPositions,
     required TextStyle baseStyle,
+    required GroupedBlockKind kind,
   }) {
     if (text.isEmpty) {
       return [TextSpan(text: ' ', style: baseStyle)];
@@ -626,6 +603,12 @@ class _BlockTile extends StatelessWidget {
     if (markPositions.isEmpty) {
       return [TextSpan(text: text, style: baseStyle)];
     }
+
+    // equalIgnoringWs：标黄（空白）；different：标橙（真差异）
+    final hlColor = kind == GroupedBlockKind.equalIgnoringWs
+        ? _wsHighlight
+        : _charHighlight;
+
     final spans = <InlineSpan>[];
     var i = 0;
     while (i < text.length) {
@@ -639,7 +622,7 @@ class _BlockTile extends StatelessWidget {
         spans.add(TextSpan(
           text: chunk,
           style: baseStyle.copyWith(
-            backgroundColor: const Color(0xFFFFF59D),
+            backgroundColor: hlColor,
             fontWeight: FontWeight.bold,
           ),
         ));
