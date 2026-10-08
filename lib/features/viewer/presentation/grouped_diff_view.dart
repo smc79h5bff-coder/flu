@@ -10,11 +10,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../diff/domain/diff_entry.dart';
-import '../../../diff/domain/diff_operation.dart';
-import '../../../diff/domain/diff_result.dart';
+import '../../diff/domain/diff_entry.dart';
+import '../../diff/domain/diff_operation.dart';
+import '../../diff/domain/diff_result.dart';
 import '../../import/presentation/providers/import_providers.dart';
-import '../line_height_calculator.dart';
+import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
 
 // ==================== 日志 ====================
