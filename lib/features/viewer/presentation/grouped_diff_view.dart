@@ -385,7 +385,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   double _blockOffset(int idx) {
     final visible = _visible;
     if (visible == null) return 0;
-    final lineH = ref.read(bodyFontSizeProvider) * 1.35 + 2;
+    final lineH = ref.read(bodyFontSizeProvider) * 1.1 + 2;
     double acc = 0;
     for (var i = 0; i < idx && i < visible.length; i++) {
       acc += _chunkHeights[i] ?? (visible[i].visualLength * lineH + 8);
@@ -396,7 +396,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   int? _currentBlockIdx() {
     if (!_leftCtrl.hasClients || _visible == null) return null;
     final off = _leftCtrl.offset;
-    final lineH = ref.read(bodyFontSizeProvider) * 1.35 + 2;
+    final lineH = ref.read(bodyFontSizeProvider) * 1.1 + 2;
     double acc = 0;
     for (var i = 0; i < _visible!.length; i++) {
       final h = _chunkHeights[i] ?? (_visible![i].visualLength * lineH + 8);
@@ -620,11 +620,11 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
         : ref.read(bodyFontSizeProvider);
     final width = _cacheWidth ?? 100.0;
     final scaler = _cacheScaler ?? TextScaler.noScaling;
-    final style = TextStyle(fontSize: fs, height: 1.35);
+    final style = TextStyle(fontSize: fs, height: 1.1);
 
     final showLine = ref.read(showLineNumbersProvider);
     final gutterFs = ref.read(gutterFontSizeProvider);
-    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.35);
+    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.1);
     final gutterH = showLine
         ? measureTextHeight(
             text: '0',
@@ -816,7 +816,7 @@ class _BlockTile extends StatelessWidget {
         (Theme.of(context).brightness == Brightness.dark
             ? Colors.white : Colors.black);
     final outline = Theme.of(context).colorScheme.outline;
-    final base = TextStyle(fontSize: fs, color: fg, height: 1.35);
+    final base = TextStyle(fontSize: fs, color: fg, height: 1.1);
 
     final rows = <Widget>[];
     for (var li = start; li < end; li++) {
@@ -840,7 +840,7 @@ class _BlockTile extends StatelessWidget {
                   overflow: TextOverflow.clip,
                   style: TextStyle(
                     fontSize: gutterFontSize,
-                    height: 1.35,
+                    height: 1.1,
                     color: outline)),
               ),
               const SizedBox(width: 4),
@@ -851,7 +851,7 @@ class _BlockTile extends StatelessWidget {
         ),
       ));
     }
-    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.35));
+    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.1));
 
     final body = ColoredBox(
       color: bg,
