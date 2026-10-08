@@ -2451,13 +2451,14 @@ Padding(
         ),
       ),
       Expanded(
-        flex: 3,
-        child: _viewChip(
-          label: '跨行块',
-          value: ViewMode.grouped,
-          current: viewMode,
-        ),
-      ),
+  flex: 3,
+  child: _viewChip(
+    label: '跨行块',
+    value: ViewMode.grouped,
+    current: viewMode,
+    onLongPress: _showGroupedContextMenu,
+  ),
+),
       // ★ 并排已隐藏；上下视图保留，占小一点
       Expanded(
         flex: 1,
@@ -2587,16 +2588,18 @@ Padding(
     );
   }
 
-  Widget _viewChip({
-    required String label,
-    required ViewMode value,
-    required ViewMode current,
-    bool compact = false,
-  }) {
-    final selected = value == current;
-    final s = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: () => _switchView(value),
+ Widget _viewChip({
+  required String label,
+  required ViewMode value,
+  required ViewMode current,
+  bool compact = false,
+  VoidCallback? onLongPress,
+}) {
+  final selected = value == current;
+  final s = Theme.of(context).colorScheme;
+  return GestureDetector(
+    onTap: () => _switchView(value),
+    onLongPress: onLongPress,
       child: Container(
         height: 28,
         alignment: Alignment.center,
