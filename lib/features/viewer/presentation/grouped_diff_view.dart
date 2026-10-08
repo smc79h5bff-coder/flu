@@ -737,8 +737,14 @@ void jumpToPrevDiff() {
     return h;
   }
 
-  List<GroupedBlock> _filter(List<GroupedBlock> blocks) {
-    const ctx = 2;
+ List<GroupedBlock> _filter(List<GroupedBlock> blocks, int ctx) {
+  if (ctx <= 0) {
+    // 仅差异块
+    return <GroupedBlock>[
+      for (final b in blocks)
+        if (b.kind != GroupedBlockKind.equal) b,
+    ];
+  }
     final diffIdx = <int>[];
     for (var i = 0; i < blocks.length; i++) {
       if (blocks[i].kind != GroupedBlockKind.equal) diffIdx.add(i);
