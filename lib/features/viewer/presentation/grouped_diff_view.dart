@@ -376,7 +376,7 @@ void _tryRestoreOffset() {
     }
   }
 
-  const int _kLongSegThreshold = 3;   // 段长 > 3 才算"长段"
+ static const int _kLongSegThreshold = 3;   // 段长 > 3 才算"长段"
 
 /// 返回 idx 所在差异段的起止；idx 是相同块返回 null。
 ({int start, int end})? _segmentAt(int idx, List<GroupedBlock> visible) {
