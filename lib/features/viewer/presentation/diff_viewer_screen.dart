@@ -2947,12 +2947,15 @@ Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: value
-            ? BoxDecoration(
-                border: Border.all(color: Colors.orange, width: 1.5),
-                borderRadius: BorderRadius.circular(4),
-              )
-            : null,
+       decoration: value
+    ? BoxDecoration(
+        border: Border.all(
+          color: Colors.orange.shade300,
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(4),
+      )
+    : null,
         child: Text(
           label,
           style: TextStyle(
