@@ -1268,7 +1268,50 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
       },
     );
   }
-
+Future<void> _showGroupedContextMenu() async {
+  final current = ref.read(groupedContextLinesProvider).round();
+  final picked = await showModalBottomSheet<int>(
+    context: context,
+    builder: (c) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              '跨行块视图 · 上下文行数',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const Divider(height: 1),
+          for (final n in const <int>[0, 1, 2, 3, 5, 8, 10])
+            ListTile(
+              leading: Icon(
+                n == 0 ? Icons.crop_square : Icons.view_agenda_outlined,
+                size: 20,
+              ),
+              title: Text(
+                n == 0 ? '仅显示差异块' : '上下各 $n 行相同内容',
+              ),
+              trailing: current == n
+                  ? Icon(Icons.check,
+                      color: Theme.of(context).colorScheme.primary)
+                  : null,
+              onTap: () => Navigator.pop(c, n),
+            ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.close),
+            title: const Text('取消'),
+            onTap: () => Navigator.pop(c),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (picked == null || !mounted) return;
+  ref.read(groupedContextLinesProvider.notifier).update(picked.toDouble());
+}
   Future<void> _pickDefaultViewMode() async {
     final current = ref.read(defaultViewModeProvider);
     final picked = await showDialog<ViewMode>(
