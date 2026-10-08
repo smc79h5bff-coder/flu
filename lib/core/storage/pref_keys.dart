@@ -28,7 +28,11 @@ class PrefKeys {
   static const String colorCharDeleteFg = '${_p}color.charDeleteFg';
   static const String colorCharInsertBg = '${_p}color.charInsertBg';
   static const String colorCharInsertFg = '${_p}color.charInsertFg';
-
+// 跨行块视图专属颜色
+static const colorGroupedEqualIgnoringWsBg = 'colorGroupedEqualIgnoringWsBg';
+static const colorGroupedWsHighlight = 'colorGroupedWsHighlight';
+static const colorGroupedFindYellow = 'colorGroupedFindYellow';
+static const colorGroupedFindPink = 'colorGroupedFindPink';
   // ==================== 规则 ====================
   static const String keywordRulesText = '${_p}rules.keyword';
   static const String regexRulesText = '${_p}rules.regex';
