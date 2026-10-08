@@ -9,14 +9,10 @@ import '../../diff/domain/diff_result.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
+import 'providers/grouped_color_providers.dart';
 import 'viewer_widgets.dart';
 
-// ==================== 固定颜色 ====================
-
-const Color _kEqualIgnoringWsBg = Color(0xFFF7FAFF);
-const Color _kWsHighlight = Color(0xFFFFD600);
-const Color _kFindYellow = Color(0xFFFFF59D);
-const Color _kFindPink = Color(0xFFFF4081);
+// ==================== 固定常量 ====================
 
 const int _kMaxLinesPerChunk = 25;
 
@@ -226,11 +222,17 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   final Map<int, double> _chunkHeights = {};
   double? _cacheWidth;
   double? _cacheFont;
+  double? _cacheCtxFont;        // ★ 新增：上下文行字号缓存标记
+  double? _cacheGutterFont;     // ★ 新增：行号字号缓存标记
+  bool? _cacheShowLine;         // ★ 新增：是否显示行号缓存标记
   TextScaler? _cacheScaler;
 
   String _findQuery = '';
   List<({int blockIdx, bool isLeft})> _matches = const [];
   int _matchPos = -1;
+
+  /// ★ 给外部（DiffViewerScreen）读取，用于同步查找栏按钮可用状态
+  int get matchCount => _matches.length;
 
   @override
   void initState() {
@@ -509,6 +511,10 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       charDeleteFg: ref.watch(charDeleteFgProvider),
       charInsertBg: ref.watch(charInsertBgProvider),
       charInsertFg: ref.watch(charInsertFgProvider),
+      equalIgnoringWsBg: ref.watch(groupedEqualIgnoringWsBgProvider),
+      wsHighlight: ref.watch(groupedWsHighlightProvider),
+      findYellow: ref.watch(groupedFindYellowProvider),
+      findPink: ref.watch(groupedFindPinkProvider),
     );
 
     final mq = MediaQuery.of(context);
@@ -516,12 +522,19 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final halfW = (viewportW - 1) / 2;
     final contentW = halfW - (showLine ? 42.0 : 8.0);
 
+    // ★ 缓存清理条件加上 ctxFs / gutterFs / showLine
     if (_cacheWidth != contentW ||
         _cacheFont != bodyFs ||
+        _cacheCtxFont != ctxFs ||
+        _cacheGutterFont != gutterFs ||
+        _cacheShowLine != showLine ||
         _cacheScaler != mq.textScaler) {
       _chunkHeights.clear();
       _cacheWidth = contentW;
       _cacheFont = bodyFs;
+      _cacheCtxFont = ctxFs;
+      _cacheGutterFont = gutterFs;
+      _cacheShowLine = showLine;
       _cacheScaler = mq.textScaler;
     }
 
@@ -586,20 +599,36 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final scaler = _cacheScaler ?? TextScaler.noScaling;
     final style = TextStyle(fontSize: fs, height: 1.35);
 
+    // ★ 行号也要占高度，逐行取 max(文字高, 行号高)
+    final showLine = ref.read(showLineNumbersProvider);
+    final gutterFs = ref.read(gutterFontSizeProvider);
+    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.35);
+    final gutterH = showLine
+        ? measureTextHeight(
+            text: '0',
+            maxWidth: 30,
+            style: gutterStyle,
+            textScaler: scaler,
+          )
+        : 0.0;
+
     double lh = 0;
     for (var i = b.leftStart; i < b.leftEnd; i++) {
       if (i < 0 || i >= data.linesA.length) continue;
-      lh += measureTextHeight(
+      final textH = measureTextHeight(
         text: data.linesA[i].isEmpty ? ' ' : data.linesA[i],
         maxWidth: width, style: style, textScaler: scaler);
+      lh += textH > gutterH ? textH : gutterH;
     }
     double rh = 0;
     for (var i = b.rightStart; i < b.rightEnd; i++) {
       if (i < 0 || i >= data.linesB.length) continue;
-      rh += measureTextHeight(
+      final textH = measureTextHeight(
         text: data.linesB[i].isEmpty ? ' ' : data.linesB[i],
         maxWidth: width, style: style, textScaler: scaler);
+      rh += textH > gutterH ? textH : gutterH;
     }
+
     final blank = measureTextHeight(
       text: ' ', maxWidth: width, style: style, textScaler: scaler);
     if (lh == 0) lh = blank;
@@ -645,10 +674,16 @@ class _Colors {
     required this.charDeleteFg,
     required this.charInsertBg,
     required this.charInsertFg,
+    required this.equalIgnoringWsBg,
+    required this.wsHighlight,
+    required this.findYellow,
+    required this.findPink,
   });
   final Color diffLeftBg, diffRightBg;
   final Color charDeleteBg, charDeleteFg;
   final Color charInsertBg, charInsertFg;
+  final Color equalIgnoringWsBg, wsHighlight;
+  final Color findYellow, findPink;
 }
 
 enum _Side { left, right }
@@ -781,7 +816,12 @@ class _BlockTile extends StatelessWidget {
                 width: 30,
                 child: Text('${li + 1}',
                   textAlign: TextAlign.end,
-                  style: TextStyle(fontSize: gutterFontSize, color: outline)),
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  style: TextStyle(
+                    fontSize: gutterFontSize,
+                    height: 1.35,
+                    color: outline)),
               ),
               const SizedBox(width: 4),
             ],
@@ -810,7 +850,7 @@ class _BlockTile extends StatelessWidget {
       case GroupedBlockKind.equal:
         return Colors.transparent;
       case GroupedBlockKind.equalIgnoringWs:
-        return _kEqualIgnoringWsBg;
+        return colors.equalIgnoringWsBg;
       case GroupedBlockKind.different:
         return side == _Side.left ? colors.diffLeftBg : colors.diffRightBg;
     }
@@ -843,7 +883,8 @@ class _BlockTile extends StatelessWidget {
           out.add(TextSpan(
             text: chunk,
             style: base.copyWith(
-              backgroundColor: isWs ? _kWsHighlight : diffCharBg,
+              backgroundColor:
+                  isWs ? colors.wsHighlight : diffCharBg,
               color: isWs ? base.color : diffCharFg,
               fontWeight: FontWeight.bold,
             ),
@@ -859,7 +900,8 @@ class _BlockTile extends StatelessWidget {
       out.add(TextSpan(
         text: '↵',
         style: base.copyWith(
-          backgroundColor: _kWsHighlight, fontWeight: FontWeight.bold),
+          backgroundColor: colors.wsHighlight,
+          fontWeight: FontWeight.bold),
       ));
     }
     return out;
@@ -871,7 +913,7 @@ class _BlockTile extends StatelessWidget {
       out.add(TextSpan(text: text, style: base));
       return;
     }
-    final bg = isCurrentMatch ? _kFindPink : _kFindYellow;
+    final bg = isCurrentMatch ? colors.findPink : colors.findYellow;
     var s = 0;
     int idx;
     while ((idx = text.indexOf(q, s)) != -1) {
