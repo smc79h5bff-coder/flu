@@ -644,8 +644,14 @@ void jumpToPrevDiff() {
       _cacheScaler = mq.textScaler;
     }
 
-    _visible ??= _filter(data.blocks);
-    final visible = _visible!;
+   final ctxLines = ref.watch(groupedContextLinesProvider).round();
+if (_lastCtxLines != ctxLines) {
+  _lastCtxLines = ctxLines;
+  _visible = null;
+  _chunkHeights.clear();
+}
+_visible ??= _filter(data.blocks, ctxLines);
+final visible = _visible!;
     if (visible.isEmpty) {
       return const Center(child: Text('两份文档完全相同'));
     }
