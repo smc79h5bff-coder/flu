@@ -81,6 +81,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String _scannedQuery = '';
   String? _noResultHint;
 
+  // ★ 新增：诊断相关
+  String? _findWarning;
+  String? _replaceHint;
+
   bool _regexEnable = false;
   bool _caseInsensitive = false;
   bool _wholeWord = false;
@@ -181,6 +185,220 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
   }
 
+  // ==================== 查找/替换诊断（新增） ====================
+
+  ({String name, String detail}) _translateRegexError(Object e) {
+    var msg = e.toString();
+    for (final p in const ['FormatException: ', 'Exception: ']) {
+      if (msg.startsWith(p)) {
+        msg = msg.substring(p.length);
+        break;
+      }
+    }
+    const table = <String, (String, String)>{
+      'Unterminated character class': (
+        '字符类 [ 没有闭合',
+        '正则里每个 [ 都要有一个 ] 配对。\n'
+            '比如 [abc 应改成 [abc]，[0-9 应改成 [0-9]。',
+      ),
+      'Unterminated group': (
+        '括号 ( 没有闭合',
+        '每个 ( 都要有一个 ) 配对。\n'
+            '比如 (abc 应改成 (abc)，((a)(b) 应改成 ((a)(b))。',
+      ),
+      'Nothing to repeat': (
+        '量词前面没有可重复的内容',
+        '*、+、?、{n} 这些符号前面必须有东西让它们重复。\n'
+            '比如 *abc 应改成 a*bc；想匹配任意字符，应改成 .*abc。',
+      ),
+      'Lone quantifier brackets': (
+        '出现了单独的 { 或 }',
+        '{ 和 } 在正则里是量词符号（如 {2,5} 表示重复 2 到 5 次）。\n'
+            '如果只是想要字面的花括号，请写成 \\{ 和 \\}。',
+      ),
+      'Range out of order': (
+        '字符类的范围顺序反了',
+        '比如 [z-a] 里 z 比 a 大，是无效的。\n'
+            '范围要从小到大写，比如 [a-z]。',
+      ),
+      'Invalid range': (
+        '量词范围写法不对',
+        '{n,m} 里 n 必须小于等于 m，且都是非负整数。\n'
+            '比如 {5,2} 应改成 {2,5}。',
+      ),
+      'Invalid escape': (
+        '含非法的转义字符',
+        '反斜杠只能转义有限的字符：\\d \\w \\s \\. \\* \\\\ 等。\n'
+            '如果你想搜字面的反斜杠，请写两个反斜杠 \\\\。',
+      ),
+      'Invalid Unicode escape': (
+        'Unicode 转义写法不对',
+        '\\u 后面必须跟 4 位十六进制数字，比如 \\u4e2d 表示"中"。',
+      ),
+      'Invalid decimal escape': (
+        '十进制转义写法不对',
+        '\\1 \\2 在正则里表示反向引用（引用前面捕获到的内容），\n'
+            '但引用的组必须已经存在。',
+      ),
+      'Invalid group': (
+        '分组写法不对',
+        '常见错误：\n'
+            '· (?:abc) 非捕获组，? 后面必须是 : 或 = 或 ! 或 <\n'
+            '· (?<name>...) 命名组，name 只能用字母、数字、下划线',
+      ),
+      'Invalid capture group name': (
+        '捕获组名字不合法',
+        '(?<名字>...) 里的名字只能用字母、数字、下划线，不能有空格或中文。',
+      ),
+      'Duplicate capture group name': (
+        '捕获组名字重复',
+        '同一个正则里 (?<name>...) 的 name 不能重复出现。',
+      ),
+      'Invalid named reference': (
+        '引用了不存在的命名组',
+        '\\k<name> 里的 name 必须在前面的 (?<name>...) 里定义过。',
+      ),
+      'Trailing': (
+        '末尾是反斜杠 \\，后面缺字符',
+        '反斜杠必须后跟一个字符才有效。\n'
+            '如果只想搜字面的反斜杠，请写两个反斜杠 \\\\。',
+      ),
+    };
+    for (final entry in table.entries) {
+      if (msg.contains(entry.key)) {
+        return (name: entry.value.$1, detail: entry.value.$2);
+      }
+    }
+    return (
+      name: '语法有误',
+      detail: 'Dart 返回的原始错误：$msg\n'
+          '常见排查：\n'
+          '· 方括号 [ ] 是否配对\n'
+          '· 圆括号 ( ) 是否配对\n'
+          '· 反斜杠 \\ 后面是否有字符\n'
+          '· { n,m } 里的数字是否从小到大',
+    );
+  }
+
+  int _countCaptureGroups(String pattern) {
+    var count = 0;
+    var i = 0;
+    var inClass = false;
+    while (i < pattern.length) {
+      final c = pattern.codeUnitAt(i);
+      if (c == 0x5C) { i += 2; continue; }
+      if (inClass) {
+        if (c == 0x5D) inClass = false;
+        i++;
+        continue;
+      }
+      if (c == 0x5B) { inClass = true; i++; continue; }
+      if (c == 0x28) {
+        if (i + 1 < pattern.length && pattern.codeUnitAt(i + 1) == 0x3F) {
+          if (i + 2 < pattern.length) {
+            final c3 = pattern.codeUnitAt(i + 2);
+            if (c3 == 0x3A || c3 == 0x21 || c3 == 0x3D) {
+              i += 3;
+              continue;
+            }
+            if (c3 == 0x3C && i + 3 < pattern.length) {
+              final c4 = pattern.codeUnitAt(i + 3);
+              if (c4 == 0x3D || c4 == 0x21) {
+                i += 4;
+                continue;
+              }
+              count++;
+              i += 3;
+              continue;
+            }
+          }
+          i += 2;
+          continue;
+        }
+        count++;
+      }
+      i++;
+    }
+    return count;
+  }
+
+  int? _captureGroupCount() {
+    if (!_regexEnable) return null;
+    var src = _findQuery;
+    if (src.isEmpty) return null;
+    if (_wholeWord) src = r'\b' + src + r'\b';
+    try {
+      RegExp(src);
+    } catch (_) {
+      return null;
+    }
+    return _countCaptureGroups(src);
+  }
+
+  String? _diagnoseFind(String q) {
+    if (q.isEmpty) return null;
+    if (_regexEnable) {
+      var src = q;
+      if (_wholeWord) src = r'\b' + src + r'\b';
+      try {
+        RegExp(src, caseSensitive: !_caseInsensitive, multiLine: true);
+      } catch (e) {
+        final info = _translateRegexError(e);
+        throw _RegexError(name: info.name, detail: info.detail);
+      }
+    }
+    if (_wholeWord && RegExp(r'[\u4e00-\u9fff]').hasMatch(q)) {
+      return '「整词」对中文无效\n'
+          '「整词」的原理是在搜索词前后加 \\b（单词边界标记），\n'
+          '但 \\b 只认英文字母、数字、下划线，中文字符不算单词，\n'
+          '所以搜"北京"这类纯中文时，开着「整词」多半搜不到任何结果。\n'
+          '建议：搜中文时把「整词」关掉。';
+    }
+    return null;
+  }
+
+  String? _diagnoseReplace() {
+    final repl = _replaceController.text;
+    if (repl.isEmpty) return null;
+    if (!_regexEnable) return null;
+    final bslash = RegExp(r'\\[1-9]').firstMatch(repl);
+    if (bslash != null) {
+      final n = bslash.group(0)![1];
+      return '替换文本里的 ${bslash.group(0)} 不会生效\n'
+          '本功能引用捕获组要用 \$ 符号，不是反斜杠。\n'
+          '第 1 个捕获组写 \$1，第 2 个写 \$2，以此类推。\n'
+          '请把 ${bslash.group(0)} 改成 \$$n。';
+    }
+    final groups = _captureGroupCount();
+    if (groups != null) {
+      for (final m in RegExp(r'\$(\d+)').allMatches(repl)) {
+        final n = int.parse(m.group(1)!);
+        if (n > groups) {
+          final groupWord = groups == 0 ? '没有捕获组' : '只有 $groups 个捕获组';
+          return '替换文本里的 \$$n 超出范围\n'
+              '当前正则有 $groupWord，\n'
+              '\$$n 会被替换成空字符串（不是你想的内容）。\n'
+              '请检查是不是想用 \$1、\$2、\$3；\n'
+              '如果需要更多捕获组，请在正则里多加括号 ()。';
+        }
+      }
+    }
+    if (RegExp(r'\$(?!\d)').hasMatch(repl)) {
+      return '替换文本里的 \$ 用法提示\n'
+          '本功能里 \$ 后面必须紧跟数字（如 \$1、\$2）才表示捕获组。\n'
+          '现在这个 \$ 后面是别的字符，会被当成字面的 \$ 输出。\n'
+          '· 如果想引用捕获组：改成 \$1、\$2 之类；\n'
+          '· 如果想输出字面的 \$ 字符：目前暂不支持转义，请改用其他符号。';
+    }
+    return null;
+  }
+
+  void _onReplaceInput(String _) {
+    final hint = _diagnoseReplace();
+    if (hint == _replaceHint) return;
+    setState(() => _replaceHint = hint);
+  }
+
   String _expandReplacement(String tpl, Match m) {
     final out = StringBuffer();
     final re = RegExp(r'\$(\d+)');
@@ -274,6 +492,23 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _findChanged(String q, {bool autoScroll = true}) {
+    // ★ 搜索条件诊断（正则语法 / 整词+中文）
+    _findWarning = null;
+    try {
+      final warn = _diagnoseFind(q);
+      _findWarning = warn;
+    } on _RegexError catch (e) {
+      _findQuery = q;
+      _scannedQuery = q;
+      setState(() {
+        _matchEntries = const [];
+        _matchPos = -1;
+        _noResultHint = '正则语法错误：${e.name}\n${e.detail}';
+      });
+      (_groupedKey.currentState as dynamic)?.updateFindQuery('');
+      return;
+    }
+
     // ★ grouped 视图：转交给它自己的查找
  // ★ grouped 视图：主 screen 自己算匹配（与其他视图一致），
 // 然后通知 grouped 更新高亮并滚动到第一个
@@ -308,7 +543,9 @@ final isLiteral = !_regexEnable && !_caseInsensitive && !_wholeWord;
 setState(() {
   _matchEntries = matches;
   _matchPos = matches.isEmpty ? -1 : 0;
-  if (q.isNotEmpty && matches.isEmpty) {
+  if (_findWarning != null) {
+    _noResultHint = _findWarning;
+  } else if (q.isNotEmpty && matches.isEmpty) {
     _noResultHint = '没找到「$q」';
   } else if (q.isNotEmpty && !isLiteral) {
     _noResultHint = '高级搜索已开，搜索结果暂不支持显示高亮';
@@ -400,7 +637,7 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
     setState(() {
       _matchEntries = matches;
       _matchPos = matches.isEmpty ? -1 : newPos;
-      _noResultHint = hint;
+      _noResultHint = _findWarning ?? hint;
     });
     if (autoScroll && matches.isNotEmpty) {
       _scrollToEntry(matches[newPos]);
@@ -437,6 +674,12 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
   void _replaceCurrentInline() {
     _ensureFindApplied();
     _recordFindHistory();
+    final hint = _diagnoseReplace();
+    if (hint != null) {
+      setState(() => _replaceHint = hint);
+      _toast(hint);
+      return;
+    }
     if (_findQuery.isEmpty || _matchEntries.isEmpty || _matchPos < 0) {
       _toast('没有可替换的内容');
       return;
@@ -447,6 +690,12 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
   void _replaceAllInline() {
     _ensureFindApplied();
     _recordFindHistory();
+    final hint = _diagnoseReplace();
+    if (hint != null) {
+      setState(() => _replaceHint = hint);
+      _toast(hint);
+      return;
+    }
     if (_findQuery.isEmpty || _matchEntries.isEmpty) {
       _toast('没有可替换的内容');
       return;
@@ -592,6 +841,8 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
       _matchEntries = const [];
       _matchPos = -1;
       _noResultHint = null;
+      _findWarning = null;
+      _replaceHint = null;
     });
   }
 
@@ -3084,6 +3335,7 @@ Padding(
                       isDense: true,
                       border: InputBorder.none,
                     ),
+                    onChanged: _onReplaceInput,
                   ),
                 ),
                 TextButton(
@@ -3104,6 +3356,36 @@ Padding(
                 ),
               ],
             ),
+            if (_replaceHint != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 4, bottom: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  border: Border.all(color: Colors.red.shade200),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber,
+                        size: 15, color: Colors.red.shade800),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _replaceHint!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.45,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               children: [
                 const SizedBox(width: 8),
@@ -3302,4 +3584,10 @@ class _PageUpIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_PageUpIconPainter old) => old.color != color;
+}
+
+class _RegexError implements Exception {
+  const _RegexError({required this.name, required this.detail});
+  final String name;
+  final String detail;
 }
