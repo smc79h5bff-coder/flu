@@ -121,8 +121,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   DiffResult? _lastDiagDiff;
 
-  // ★ 新增：跨行块视图的 key，用来调用它的方法
-  final GlobalKey<GroupedDiffViewState> _groupedKey = GlobalKey();
+  // ★ 跨行块视图的 key，用来调用它的方法
+  final GlobalKey _groupedKey = GlobalKey();
 
   @override
   void initState() {
@@ -276,7 +276,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (ref.read(viewModeProvider) == ViewMode.grouped) {
       _findQuery = q;
       _scannedQuery = q;
-      _groupedKey.currentState?.updateFindQuery(q);
+      (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
       setState(() {
         _matchEntries = const [];
         _matchPos = -1;
@@ -527,7 +527,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     if (!mounted) return;
     // ★ grouped 视图：清掉它自己的查找状态
     if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      _groupedKey.currentState?.clearFind();
+      (_groupedKey.currentState as dynamic)?.clearFind();
     }
     _findDebounce?.cancel();
     _findController.clear();
@@ -860,7 +860,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _nextMatch() {
     // ★ grouped 视图：转交
     if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      _groupedKey.currentState?.nextMatch();
+      (_groupedKey.currentState as dynamic)?.nextMatch();
       return;
     }
 
@@ -875,7 +875,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   void _prevMatch() {
     // ★ grouped 视图：转交
     if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      _groupedKey.currentState?.prevMatch();
+      (_groupedKey.currentState as dynamic)?.prevMatch();
       return;
     }
 
@@ -2098,14 +2098,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   key: const Key('page-up'),
                   onTap: () {
                     if (viewMode == ViewMode.grouped) {
-                      _groupedKey.currentState?.pageUp();
+                      (_groupedKey.currentState as dynamic)?.pageUp();
                     } else {
                       _pageUp();
                     }
                   },
                   onLongPress: () {
                     if (viewMode == ViewMode.grouped) {
-                      _groupedKey.currentState?.jumpToTop();
+                      (_groupedKey.currentState as dynamic)?.jumpToTop();
                     } else {
                       _jumpToDocTop();
                     }
@@ -2129,14 +2129,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                   key: const Key('page-down'),
                   onTap: () {
                     if (viewMode == ViewMode.grouped) {
-                      _groupedKey.currentState?.pageDown();
+                      (_groupedKey.currentState as dynamic)?.pageDown();
                     } else {
                       _pageDown();
                     }
                   },
                   onLongPress: () {
                     if (viewMode == ViewMode.grouped) {
-                      _groupedKey.currentState?.jumpToBottom();
+                      (_groupedKey.currentState as dynamic)?.jumpToBottom();
                     } else {
                       _jumpToDocBottom();
                     }
@@ -2157,14 +2157,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             key: const Key('prev-diff'),
             onTap: () {
               if (viewMode == ViewMode.grouped) {
-                _groupedKey.currentState?.jumpToPrevDiff();
+                (_groupedKey.currentState as dynamic)?.jumpToPrevDiff();
               } else {
                 _jumpToPrevDiff();
               }
             },
             onLongPress: () {
               if (viewMode == ViewMode.grouped) {
-                _groupedKey.currentState?.jumpToTop();
+                (_groupedKey.currentState as dynamic)?.jumpToTop();
               } else {
                 _jumpToDocTop();
               }
@@ -2178,14 +2178,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             key: const Key('next-diff'),
             onTap: () {
               if (viewMode == ViewMode.grouped) {
-                _groupedKey.currentState?.jumpToNextDiff();
+                (_groupedKey.currentState as dynamic)?.jumpToNextDiff();
               } else {
                 _jumpToNextDiff();
               }
             },
             onLongPress: () {
               if (viewMode == ViewMode.grouped) {
-                _groupedKey.currentState?.jumpToBottom();
+                (_groupedKey.currentState as dynamic)?.jumpToBottom();
               } else {
                 _jumpToDocBottom();
               }
