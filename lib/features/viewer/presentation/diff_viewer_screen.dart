@@ -329,29 +329,36 @@ if (isLiteral) {
   return;
 }
 
-    _findQuery = q;
-    _scannedQuery = q;
-    final diff = _diff;
-    final matches = <int>[];
-    var hasGlobalHits = false;
-    String? hint;
 
-    if (q.isNotEmpty && diff != null) {
-      final p = _buildFindPattern();
-for (var i = 0; i < diff.entries.length; i++) {
-  final e = diff.entries[i];
-  var hit = false;
-  if (_entryMatchesOnLeft(e) &&
-      p.allMatches(_entryLeftText(e)).isNotEmpty) {
-    hit = true;
+
+
+
+ _findQuery = q;
+_scannedQuery = q;
+final diff = _diff;
+final matches = <int>[];
+var hasGlobalHits = false;
+String? hint;
+
+if (q.isNotEmpty && diff != null) {
+  final p = _buildFindPattern();
+  final mode = ref.read(viewModeProvider);
+  final visible = _visibleEntriesFor(mode, diff);
+  for (var i = 0; i < diff.entries.length; i++) {
+    if (!visible.contains(i)) continue;
+    final e = diff.entries[i];
+    var hit = false;
+    if (_entryMatchesOnLeft(e) &&
+        p.allMatches(_entryLeftText(e)).isNotEmpty) {
+      hit = true;
+    }
+    if (!hit &&
+        _entryMatchesOnRight(e) &&
+        p.allMatches(_entryRightText(e)).isNotEmpty) {
+      hit = true;
+    }
+    if (hit) matches.add(i);
   }
-  if (!hit &&
-      _entryMatchesOnRight(e) &&
-      p.allMatches(_entryRightText(e)).isNotEmpty) {
-    hit = true;
-  }
-  if (hit) matches.add(i);
-}
 
       if (matches.isEmpty && _isDiffOnlyMode(mode)) {
         for (var i = 0; i < diff.entries.length; i++) {
