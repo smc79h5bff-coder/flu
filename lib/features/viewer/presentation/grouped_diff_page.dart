@@ -207,7 +207,6 @@ List<List<int>> _blobHighlight(
 }
 
 // ==================== 视图 ====================
-
 class GroupedDiffView extends ConsumerStatefulWidget {
   const GroupedDiffView({super.key});
 
