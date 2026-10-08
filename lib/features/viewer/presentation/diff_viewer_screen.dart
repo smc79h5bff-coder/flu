@@ -3369,8 +3369,8 @@ Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  border: Border.all(color: Colors.red.shade300),
+                  color: Colors.red.shade20,
+                  border: Border.all(color: Colors.red.shade800),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -3392,9 +3392,10 @@ Padding(
                         ].join('\n\n'),
                         style: TextStyle(
                           fontSize: 12,
-                          height: 1.5,
+                          height: 1.2,
                           fontWeight: FontWeight.bold,
-                          color: Colors.red.shade900,
+                       
+color: const Color(0xFF000000),              // 文字
                         ),
                       ),
                     ),
