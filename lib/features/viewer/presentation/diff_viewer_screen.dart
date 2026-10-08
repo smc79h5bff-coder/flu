@@ -300,17 +300,29 @@ if (q.isNotEmpty && diff != null) {
     if (hit) matches.add(i);
   }
 }
-  setState(() {
+  // 只有纯字面搜索（三个开关全关）才涂色；
+// 否则涂色可能和计数对不上，直接不涂 + 提示。
+final isLiteral = !_regexEnable && !_caseInsensitive && !_wholeWord;
+setState(() {
   _matchEntries = matches;
   _matchPos = matches.isEmpty ? -1 : 0;
-  // ★ 搜不到时给个提示，跟其他视图一致
   if (q.isNotEmpty && matches.isEmpty) {
     _noResultHint = '没找到「$q」';
+  } else if (q.isNotEmpty && !isLiteral) {
+    _noResultHint = '当前搜索条件不支持高亮，替换仍可正常进行';
   } else {
     _noResultHint = null;
   }
 });
-(_groupedKey.currentState as dynamic)?.updateFindQuery(q);
+if (isLiteral) {
+  (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
+} else {
+  (_groupedKey.currentState as dynamic)?.updateFindQuery('');
+}
+
+
+
+  
   if (autoScroll && matches.isNotEmpty) {
     (_groupedKey.currentState as dynamic)?.scrollToEntry(matches[0]);
   }
