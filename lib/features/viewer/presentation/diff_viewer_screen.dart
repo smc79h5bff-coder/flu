@@ -273,20 +273,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   void _findChanged(String q, {bool autoScroll = true}) {
     // ★ grouped 视图：转交给它自己的查找
-   // ★ grouped 视图：转交给它自己的查找
+ // ★ grouped 视图：转交给它自己的查找
+// 匹配数由 GroupedDiffView 通过 onMatchCountChanged 回调同步回来，
+// 这里不用再手动 setState（那样反而会在时序上抢跑）。
 if (ref.read(viewModeProvider) == ViewMode.grouped) {
   _findQuery = q;
   _scannedQuery = q;
-  final state = _groupedKey.currentState;
-  (state as dynamic)?.updateFindQuery(q);
-  // ★ 把 grouped 视图的匹配数同步回来，让查找栏按钮可用
-  final count = (state as dynamic)?.matchCount as int? ?? 0;
-  setState(() {
-    _matchEntries =
-        List<int>.generate(count, (i) => i, growable: false);
-    _matchPos = count > 0 ? 0 : -1;
-    _noResultHint = null;
-  });
+  (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
+  setState(() => _noResultHint = null);
   return;
 }
 
@@ -2061,7 +2055,18 @@ if (ref.read(viewModeProvider) == ViewMode.grouped) {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
-      ViewMode.grouped => GroupedDiffView(key: _groupedKey),
+    ViewMode.grouped => GroupedDiffView(
+    key: _groupedKey,
+    onMatchCountChanged: (count) {
+      if (!mounted) return;
+      if (ref.read(viewModeProvider) != ViewMode.grouped) return;
+      setState(() {
+        _matchEntries =
+            List<int>.generate(count, (i) => i, growable: false);
+        _matchPos = count > 0 ? 0 : -1;
+      });
+    },
+  ),
     };
 
     if (!noWrap) return inner;
