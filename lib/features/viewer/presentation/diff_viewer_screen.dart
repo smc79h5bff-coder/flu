@@ -273,17 +273,22 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   void _findChanged(String q, {bool autoScroll = true}) {
     // ★ grouped 视图：转交给它自己的查找
-    if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      _findQuery = q;
-      _scannedQuery = q;
-      (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
-      setState(() {
-        _matchEntries = const [];
-        _matchPos = -1;
-        _noResultHint = null;
-      });
-      return;
-    }
+   // ★ grouped 视图：转交给它自己的查找
+if (ref.read(viewModeProvider) == ViewMode.grouped) {
+  _findQuery = q;
+  _scannedQuery = q;
+  final state = _groupedKey.currentState;
+  (state as dynamic)?.updateFindQuery(q);
+  // ★ 把 grouped 视图的匹配数同步回来，让查找栏按钮可用
+  final count = (state as dynamic)?.matchCount as int? ?? 0;
+  setState(() {
+    _matchEntries =
+        List<int>.generate(count, (i) => i, growable: false);
+    _matchPos = count > 0 ? 0 : -1;
+    _noResultHint = null;
+  });
+  return;
+}
 
     _findQuery = q;
     _scannedQuery = q;
@@ -592,12 +597,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     }
 
     final mq = MediaQuery.of(context);
-    final configKey = '${mq.size.width}|'
-        '${ref.read(bodyFontSizeProvider)}|'
-        '${ref.read(contextFontSizeProvider)}|'
-        '${ref.read(noWrapProvider)}|'
-        '${ref.read(showLineNumbersProvider)}|'
-        '${ref.read(importRevisionProvider)}';
+  final configKey = '${mq.size.width}|'
+    '${ref.read(bodyFontSizeProvider)}|'
+    '${ref.read(contextFontSizeProvider)}|'
+    '${ref.read(gutterFontSizeProvider)}|'
+    '${ref.read(noWrapProvider)}|'
+    '${ref.read(showLineNumbersProvider)}|'
+    '${ref.read(importRevisionProvider)}';
 
     if (!identical(_heightFuturesFor, diff) ||
         _heightFuturesConfigKey != configKey) {
@@ -637,16 +643,22 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     );
     final rev = ref.read(importRevisionProvider);
 
-    String cacheKey(String name) => buildLineHeightCacheKey(
-          contentFingerprint: fp,
-          importRevision: rev,
-          viewModeName: name,
-          viewportWidth: viewportW,
-          bodyFontSize: bodySize,
-          showLineNumbers: showLine,
-          noWrap: noWrap,
-          devicePixelRatio: dpr,
-        );
+    String cacheKey(String name) {
+  final base = buildLineHeightCacheKey(
+    contentFingerprint: fp,
+    importRevision: rev,
+    viewModeName: name,
+    viewportWidth: viewportW,
+    bodyFontSize: bodySize,
+    showLineNumbers: showLine,
+    noWrap: noWrap,
+    devicePixelRatio: dpr,
+  );
+  // ★ 上下文行字号、行号字号也影响行高，拼进 key
+  final ctxFs = ref.read(contextFontSizeProvider);
+  final gutterFs = ref.read(gutterFontSizeProvider);
+  return '$base|ctx:$ctxFs|gut:$gutterFs';
+}
 
     if (mode == ViewMode.merged) {
       final order = cachedMergedOrder(diff);
@@ -2357,55 +2369,63 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           _buildEncodingBanner(),
           if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '差异行+上下2行',
-                    value: ViewMode.diffOnly,
-                    current: viewMode,
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '仅显示差异行',
-                    value: ViewMode.diffOnlyPlain,
-                    current: viewMode,
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: _viewChip(
-                    label: '跨行块',
-                    value: ViewMode.grouped,
-                    current: viewMode,
-                  ),
-                ),
-                Expanded(
-                  flex: 1,
-                  child: _viewChip(
-                    label: '并排',
-                    value: ViewMode.sideBySide,
-                    current: viewMode,
-                    compact: true,
-                  ),
-                ),
-                Expanded(
-                  flex: 1,
-                  child: _viewChip(
-                    label: '上下',
-                    value: ViewMode.merged,
-                    current: viewMode,
-                    compact: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
+
+
+
+
+
+
+
+
+
+Padding(
+  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+  child: Row(
+    children: [
+      Expanded(
+        flex: 3,
+        child: _viewChip(
+          label: '差异行+上下2行',
+          value: ViewMode.diffOnly,
+          current: viewMode,
+        ),
+      ),
+      Expanded(
+        flex: 3,
+        child: _viewChip(
+          label: '仅显示差异行',
+          value: ViewMode.diffOnlyPlain,
+          current: viewMode,
+        ),
+      ),
+      Expanded(
+        flex: 3,
+        child: _viewChip(
+          label: '跨行块',
+          value: ViewMode.grouped,
+          current: viewMode,
+        ),
+      ),
+      // ★ 并排已隐藏；上下视图保留，占小一点
+      Expanded(
+        flex: 1,
+        child: _viewChip(
+          label: '上下',
+          value: ViewMode.merged,
+          current: viewMode,
+          compact: true,
+        ),
+      ),
+    ],
+  ),
+),
+
+
+
+
+
+
+          
           _buildToolbar(),
           if (_processing) _buildProcessingBanner(),
           Expanded(
