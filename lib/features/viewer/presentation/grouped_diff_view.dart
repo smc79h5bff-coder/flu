@@ -33,6 +33,9 @@ const Color _kDiffRightBg = Color(0xFFEEFFEE);
 const Color _kCharHighlight = Color(0xFFEF6C00);
 const Color _kWsHighlight = Color(0xFFFFD600);
 
+/// 每个块最多几行。超过就切成多片，让 ListView 懒测。
+const int _kMaxLinesPerChunk = 25;
+
 // ==================== 高亮缓存 ====================
 
 final Map<String, List<List<int>>> _hlCache = {};
@@ -125,7 +128,7 @@ GroupedDiffData buildGroupedData(
   _log('行数: A=${linesA.length} B=${linesB.length} '
       'entries=${diff.entries.length}');
 
-  final blocks = <GroupedBlock>[];
+  final raw = <GroupedBlock>[];
   var ai = 0, bi = 0, i = 0;
   final entries = diff.entries;
 
@@ -137,19 +140,19 @@ GroupedDiffData buildGroupedData(
       final la = linesA[ai];
       final ra = linesB[bi];
       if (la == ra) {
-        blocks.add(GroupedBlock(
+        raw.add(GroupedBlock(
           leftStart: ai, leftEnd: ai + 1,
           rightStart: bi, rightEnd: bi + 1,
           kind: GroupedBlockKind.equal,
         ));
       } else if (_strip(la) == _strip(ra)) {
-        blocks.add(GroupedBlock(
+        raw.add(GroupedBlock(
           leftStart: ai, leftEnd: ai + 1,
           rightStart: bi, rightEnd: bi + 1,
           kind: GroupedBlockKind.equalIgnoringWs,
         ));
       } else {
-        blocks.add(GroupedBlock(
+        raw.add(GroupedBlock(
           leftStart: ai, leftEnd: ai + 1,
           rightStart: bi, rightEnd: bi + 1,
           kind: GroupedBlockKind.different,
@@ -171,7 +174,7 @@ GroupedDiffData buildGroupedData(
         final leftBlob = linesA.sublist(startA, endA).join('\n');
         final rightBlob = linesB.sublist(startB, endB).join('\n');
         final sameWs = _strip(leftBlob) == _strip(rightBlob);
-        blocks.add(GroupedBlock(
+        raw.add(GroupedBlock(
           leftStart: startA, leftEnd: endA,
           rightStart: startB, rightEnd: endB,
           kind: sameWs
@@ -179,18 +182,41 @@ GroupedDiffData buildGroupedData(
               : GroupedBlockKind.different,
         ));
       } else if (endA > startA) {
-        blocks.add(GroupedBlock(
+        raw.add(GroupedBlock(
           leftStart: startA, leftEnd: endA,
           rightStart: startB, rightEnd: startB,
           kind: GroupedBlockKind.different,
         ));
       } else if (endB > startB) {
-        blocks.add(GroupedBlock(
+        raw.add(GroupedBlock(
           leftStart: startA, leftEnd: startA,
           rightStart: startB, rightEnd: endB,
           kind: GroupedBlockKind.different,
         ));
       }
+    }
+  }
+
+  // 切块：任何一个块超过 _kMaxLinesPerChunk 行，就切
+  final blocks = <GroupedBlock>[];
+  for (final b in raw) {
+    if (b.visualLength <= _kMaxLinesPerChunk) {
+      blocks.add(b);
+      continue;
+    }
+    var l = b.leftStart, r = b.rightStart;
+    while (l < b.leftEnd || r < b.rightEnd) {
+      final lRem = b.leftEnd - l;
+      final rRem = b.rightEnd - r;
+      final lTake = lRem > _kMaxLinesPerChunk ? _kMaxLinesPerChunk : lRem;
+      final rTake = rRem > _kMaxLinesPerChunk ? _kMaxLinesPerChunk : rRem;
+      blocks.add(GroupedBlock(
+        leftStart: l, leftEnd: l + lTake,
+        rightStart: r, rightEnd: r + rTake,
+        kind: b.kind,
+      ));
+      l += lTake;
+      r += rTake;
     }
   }
 
@@ -200,7 +226,8 @@ GroupedDiffData buildGroupedData(
       .where((b) => b.kind == GroupedBlockKind.equalIgnoringWs).length;
   final eqCount = blocks
       .where((b) => b.kind == GroupedBlockKind.equal).length;
-  _log('块数: total=${blocks.length} diff=$diffCount ws=$wsCount eq=$eqCount');
+  _log('原始块数=${raw.length} 切块后=${blocks.length} '
+      'diff=$diffCount ws=$wsCount eq=$eqCount');
   _log('=== buildGroupedData 结束 ===');
 
   return GroupedDiffData(linesA: linesA, linesB: linesB, blocks: blocks);
@@ -295,9 +322,14 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   GroupedDiffData? _data;
   DiffResult? _dataForDiff;
   List<GroupedBlock>? _visible;
-  LineHeightTable? _table;
-  double? _tableWidth;
-  double? _tableFont;
+
+  /// 懒测量高度缓存。key = 可见块索引。
+  final Map<int, double> _chunkHeights = {};
+
+  /// 缓存有效性的条件：宽度、字号。变化就清空。
+  double? _cacheWidth;
+  double? _cacheFont;
+  TextScaler? _cacheScaler;
 
   late final ScrollController _leftCtrl;
   late final ScrollController _rightCtrl;
@@ -368,7 +400,7 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
           _dataForDiff = diff;
           _data = buildGroupedData(diff, a, b);
           _visible = null;
-          _table = null;
+          _chunkHeights.clear();
         }
         return _buildBody(context, _data!);
       },
@@ -381,42 +413,55 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final mq = MediaQuery.of(context);
     final viewportW = mq.size.width;
     final halfW = (viewportW - 1) / 2;
-    final contentW = halfW - (showLine ? 42.0 : 12.0);
+    // 行号区 30 + gap 4 = 34；padding 左右各 4 = 8
+    final contentW = halfW - (showLine ? 42.0 : 8.0);
+
+    // 缓存失效检查
+    if (_cacheWidth != contentW ||
+        _cacheFont != fontSize ||
+        _cacheScaler != mq.textScaler) {
+      _chunkHeights.clear();
+      _cacheWidth = contentW;
+      _cacheFont = fontSize;
+      _cacheScaler = mq.textScaler;
+    }
 
     _visible ??= _filter(data.blocks, widget.contextLines);
     final visible = _visible!;
     _log('可见块数: ${visible.length}');
 
-    if (_table == null || _tableWidth != contentW || _tableFont != fontSize) {
-      _table = _buildTable(data, visible, contentW, fontSize, mq.textScaler);
-      _tableWidth = contentW;
-      _tableFont = fontSize;
-    }
-    final table = _table!;
-    final s = Theme.of(context).colorScheme;
-    final divider = Container(width: 1, color: s.outlineVariant);
-
     if (visible.isEmpty) {
       return const Center(child: Text('两份文档完全相同'));
     }
+
+    final s = Theme.of(context).colorScheme;
+    final divider = Container(width: 1, color: s.outlineVariant);
 
     final content = Row(
       children: [
         Expanded(
           child: _SidePane(
-            data: data, blocks: visible, table: table,
-            side: _Side.left, controller: _leftCtrl,
-            showLineNumbers: showLine, bodyFontSize: fontSize,
+            data: data,
+            blocks: visible,
+            side: _Side.left,
+            controller: _leftCtrl,
+            showLineNumbers: showLine,
+            bodyFontSize: fontSize,
             gutterFontSize: widget.gutterFontSize,
+            heightForBlock: _heightForBlock,
           ),
         ),
         divider,
         Expanded(
           child: _SidePane(
-            data: data, blocks: visible, table: table,
-            side: _Side.right, controller: _rightCtrl,
-            showLineNumbers: showLine, bodyFontSize: fontSize,
+            data: data,
+            blocks: visible,
+            side: _Side.right,
+            controller: _rightCtrl,
+            showLineNumbers: showLine,
+            bodyFontSize: fontSize,
             gutterFontSize: widget.gutterFontSize,
+            heightForBlock: _heightForBlock,
           ),
         ),
       ],
@@ -447,6 +492,47 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
         ),
       ],
     );
+  }
+
+  /// 懒测量：第一次访问某个块时，测左右两侧，取较大值，缓存。
+  double _heightForBlock(int blockIndex) {
+    final cached = _chunkHeights[blockIndex];
+    if (cached != null) return cached;
+
+    final visible = _visible;
+    final data = _data;
+    if (visible == null || data == null ||
+        blockIndex < 0 || blockIndex >= visible.length) {
+      return 24.0;
+    }
+    final b = visible[blockIndex];
+    final width = _cacheWidth ?? 100.0;
+    final scaler = _cacheScaler ?? TextScaler.noScaling;
+    final style = TextStyle(fontSize: widget.bodyFontSize, height: 1.35);
+
+    double lh = 0;
+    for (var i = b.leftStart; i < b.leftEnd; i++) {
+      if (i < 0 || i >= data.linesA.length) continue;
+      lh += measureTextHeight(
+        text: data.linesA[i].isEmpty ? ' ' : data.linesA[i],
+        maxWidth: width, style: style, textScaler: scaler,
+      );
+    }
+    double rh = 0;
+    for (var i = b.rightStart; i < b.rightEnd; i++) {
+      if (i < 0 || i >= data.linesB.length) continue;
+      rh += measureTextHeight(
+        text: data.linesB[i].isEmpty ? ' ' : data.linesB[i],
+        maxWidth: width, style: style, textScaler: scaler,
+      );
+    }
+    final blank = measureTextHeight(
+      text: ' ', maxWidth: width, style: style, textScaler: scaler);
+    if (lh == 0) lh = blank;
+    if (rh == 0) rh = blank;
+    final h = (lh > rh ? lh : rh) + 8; // vertical padding
+    _chunkHeights[blockIndex] = h;
+    return h;
   }
 
   void _showLogs(BuildContext context) {
@@ -519,42 +605,26 @@ class _GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final sorted = keep.toList()..sort();
     return [for (final i in sorted) blocks[i]];
   }
-
-  /// 固定行高，O(块数)，不 measure。
-  LineHeightTable _buildTable(
-    GroupedDiffData data,
-    List<GroupedBlock> blocks,
-    double width,
-    double fontSize,
-    TextScaler scaler,
-  ) {
-    final lineH = fontSize * 1.35 + 2;
-    const pad = 8.0;
-    final heights = <double>[
-      for (final b in blocks) b.visualLength * lineH + pad,
-    ];
-    return LineHeightTable.fromHeights(heights);
-  }
 }
 
 enum _Side { left, right }
 
 class _SidePane extends StatelessWidget {
   const _SidePane({
-    required this.data, required this.blocks, required this.table,
-    required this.side, required this.controller,
-    required this.showLineNumbers, required this.bodyFontSize,
-    required this.gutterFontSize,
+    required this.data, required this.blocks, required this.side,
+    required this.controller, required this.showLineNumbers,
+    required this.bodyFontSize, required this.gutterFontSize,
+    required this.heightForBlock,
   });
 
   final GroupedDiffData data;
   final List<GroupedBlock> blocks;
-  final LineHeightTable table;
   final _Side side;
   final ScrollController? controller;
   final bool showLineNumbers;
   final double bodyFontSize;
   final double gutterFontSize;
+  final double Function(int blockIndex) heightForBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -562,26 +632,36 @@ class _SidePane extends StatelessWidget {
       controller: controller,
       addAutomaticKeepAlives: false,
       addRepaintBoundaries: false,
-      cacheExtent: 100,
+      cacheExtent: 300,
       itemCount: blocks.length,
-      itemExtentBuilder: (i, _) =>
-          i < table.length ? table.heightOf(i) : 24.0,
-      itemBuilder: (ctx, i) => _BlockTile(
-        block: blocks[i], data: data, side: side,
-        showLineNumbers: showLineNumbers,
-        bodyFontSize: bodyFontSize, gutterFontSize: gutterFontSize,
-      ),
+      itemBuilder: (ctx, i) {
+        final h = heightForBlock(i);
+        return SizedBox(
+          height: h,
+          child: _BlockTile(
+            blockIndex: i,
+            block: blocks[i],
+            data: data,
+            side: side,
+            showLineNumbers: showLineNumbers,
+            bodyFontSize: bodyFontSize,
+            gutterFontSize: gutterFontSize,
+          ),
+        );
+      },
     );
   }
 }
 
 class _BlockTile extends StatelessWidget {
   const _BlockTile({
+    required this.blockIndex,
     required this.block, required this.data, required this.side,
     required this.showLineNumbers, required this.bodyFontSize,
     required this.gutterFontSize,
   });
 
+  final int blockIndex;
   final GroupedBlock block;
   final GroupedDiffData data;
   final _Side side;
