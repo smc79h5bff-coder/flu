@@ -54,6 +54,18 @@ class BodyFontSizeNotifier extends DoublePrefNotifier {
       : super(key: PrefKeys.bodyFontSize, initial: 14.0); // ★ 修正
 }
 
+
+final groupedContextLinesProvider =
+    NotifierProvider<GroupedContextLinesNotifier, double>(
+  GroupedContextLinesNotifier.new,
+);
+
+class GroupedContextLinesNotifier extends DoublePrefNotifier {
+  GroupedContextLinesNotifier()
+      : super(key: PrefKeys.groupedContextLines, initial: 2.0);
+}
+
+
 final gutterFontSizeProvider =
     NotifierProvider<GutterFontSizeNotifier, double>(
   GutterFontSizeNotifier.new,
