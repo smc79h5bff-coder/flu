@@ -297,11 +297,16 @@ if (ref.read(viewModeProvider) == ViewMode.grouped) {
     }
   }
   setState(() {
-    _matchEntries = matches;
-    _matchPos = matches.isEmpty ? -1 : 0;
+  _matchEntries = matches;
+  _matchPos = matches.isEmpty ? -1 : 0;
+  // ★ 搜不到时给个提示，跟其他视图一致
+  if (q.isNotEmpty && matches.isEmpty) {
+    _noResultHint = '没找到「$q」';
+  } else {
     _noResultHint = null;
-  });
-  (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
+  }
+});
+(_groupedKey.currentState as dynamic)?.updateFindQuery(q);
   if (autoScroll && matches.isNotEmpty) {
     (_groupedKey.currentState as dynamic)?.scrollToEntry(matches[0]);
   }
@@ -317,24 +322,20 @@ if (ref.read(viewModeProvider) == ViewMode.grouped) {
 
     if (q.isNotEmpty && diff != null) {
       final p = _buildFindPattern();
-      final mode = ref.read(viewModeProvider);
-
-      final visible = _visibleEntriesFor(mode, diff);
-      for (var i = 0; i < diff.entries.length; i++) {
-        if (!visible.contains(i)) continue;
-        final e = diff.entries[i];
-        var hit = false;
-        if (_entryMatchesOnLeft(e) &&
-            p.allMatches(_entryLeftText(e)).isNotEmpty) {
-          hit = true;
-        }
-        if (!hit &&
-            _entryMatchesOnRight(e) &&
-            p.allMatches(_entryRightText(e)).isNotEmpty) {
-          hit = true;
-        }
-        if (hit) matches.add(i);
-      }
+for (var i = 0; i < diff.entries.length; i++) {
+  final e = diff.entries[i];
+  var hit = false;
+  if (_entryMatchesOnLeft(e) &&
+      p.allMatches(_entryLeftText(e)).isNotEmpty) {
+    hit = true;
+  }
+  if (!hit &&
+      _entryMatchesOnRight(e) &&
+      p.allMatches(_entryRightText(e)).isNotEmpty) {
+    hit = true;
+  }
+  if (hit) matches.add(i);
+}
 
       if (matches.isEmpty && _isDiffOnlyMode(mode)) {
         for (var i = 0; i < diff.entries.length; i++) {
