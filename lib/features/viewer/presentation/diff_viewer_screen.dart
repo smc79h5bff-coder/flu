@@ -105,6 +105,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String? _heightFuturesConfigKey;
   int? _jumpedToEntry;
 
+  double? _pendingGroupedRestoreOffset;
+  
   _HeightBundle? _activeHeights;
 
   double? _cachedContentWidth;
@@ -1755,9 +1757,18 @@ Future<void> _showGroupedContextMenu() async {
   }
 
   void _rememberCurrentRowForReset() {
-    final diff = _diff;
-    if (diff == null) return;
-    final topRow = _currentTopRow();
+  final diff = _diff;
+  if (diff == null) return;
+
+  // ★ grouped 视图没有"行号映射"，改用滚动像素位置
+  if (ref.read(viewModeProvider) == ViewMode.grouped) {
+    final state = _groupedKey.currentState;
+    _pendingGroupedRestoreOffset =
+        (state as dynamic)?.currentScrollOffset as double?;
+    return;
+  }
+
+  final topRow = _currentTopRow();
     if (topRow == null) return;
     final mode = ref.read(viewModeProvider);
     final map = _entryToRowMapOf(diff, mode);
@@ -1796,17 +1807,39 @@ Future<void> _showGroupedContextMenu() async {
     _cachedContentWidth = null;
     _cachedContentWidthFor = null;
     _cachedContentWidthConfig = null;
-    DiffTextIndex.invalidate();
-    setState(() {});
 
-    if (_pendingJumpEntry == null && _pendingJumpOrigLine == null) {
+
+    
+     DiffTextIndex.invalidate();
+  setState(() {});
+
+  // ★ grouped 视图：用 offset 恢复，不跳开头
+  if (ref.read(viewModeProvider) == ViewMode.grouped) {
+    final o = _pendingGroupedRestoreOffset;
+    _pendingGroupedRestoreOffset = null;
+    // 清掉给"按行跳回"用的字段，grouped 用不上
+    _pendingJumpEntry = null;
+    _pendingJumpOrigLine = null;
+    _pendingJumpQueued = false;
+    if (o != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (_scrollController.hasClients) _scrollController.jumpTo(0);
-        if (_hScrollController.hasClients) _hScrollController.jumpTo(0);
+        if (ref.read(viewModeProvider) != ViewMode.grouped) return;
+        (_groupedKey.currentState as dynamic)?.restoreScrollOffset(o);
       });
     }
+    return;
   }
+
+  if (_pendingJumpEntry == null && _pendingJumpOrigLine == null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      if (_hScrollController.hasClients) _hScrollController.jumpTo(0);
+    });
+  }
+}
+  
 
   void _toast(String msg) {
     if (!mounted) return;
