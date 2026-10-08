@@ -19,6 +19,7 @@ import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 import 'diagnostic_screen.dart';
 import 'diff_text_index.dart';
+import 'grouped_diff_view.dart'; // ★ 1 新增 import
 import 'line_height_cache.dart';
 import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
@@ -248,6 +249,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         for (final ei in cachedMergedOrder(diff)) {
           s.add(ei);
         }
+        break;
+      case ViewMode.grouped:
+        // ★ 2 grouped 视图不走这套可见性逻辑
         break;
     }
     return s;
@@ -564,6 +568,11 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   // ==================== 高度表 ====================
 
   Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
+    // ★ 3 grouped 视图自带高度计算，返回空 bundle
+    if (mode == ViewMode.grouped) {
+      return Future<_HeightBundle>.value(const _HeightBundle());
+    }
+
     final mq = MediaQuery.of(context);
     final configKey = '${mq.size.width}|'
         '${ref.read(bodyFontSizeProvider)}|'
@@ -770,6 +779,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         return h.diffOnly;
       case ViewMode.diffOnlyPlain:
         return h.diffOnlyPlain;
+      case ViewMode.grouped:
+        // ★ 4 grouped 视图自己管高度
+        return null;
     }
   }
 
@@ -997,6 +1009,15 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     final current = ref.read(viewModeProvider);
     if (current == newMode) return;
 
+    // ★ 5 grouped 视图自带一对 ScrollController，与主 ScrollController 不通用，
+    // 也无需做位置跳转询问。直接切。
+    if (newMode == ViewMode.grouped || current == ViewMode.grouped) {
+      _log('切视图: ${_viewModeName(newMode)}');
+      ref.read(viewModeProvider.notifier).state = newMode;
+      setState(() {});
+      return;
+    }
+
     final diff = _diff;
     if (diff != null) {
       unawaited(_getHeightFuture(diff, newMode));
@@ -1032,6 +1053,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
         return '差异行+上下文';
       case ViewMode.diffOnlyPlain:
         return '仅差异行';
+      case ViewMode.grouped:
+        // ★ 6 新视图名称
+        return '跨行块';
     }
   }
 
@@ -2006,6 +2030,12 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
+      // ★ 7 新视图：自带滚动 + 高度，不接主 ScrollController
+      ViewMode.grouped => GroupedDiffView(
+          showLineNumbers: ref.watch(showLineNumbersProvider),
+          bodyFontSize: ref.watch(bodyFontSizeProvider),
+          gutterFontSize: ref.watch(gutterFontSizeProvider),
+        ),
     };
 
     if (!noWrap) return inner;
@@ -2295,6 +2325,15 @@ title: Row(
                   child: _viewChip(
                     label: '仅显示差异行',
                     value: ViewMode.diffOnlyPlain,
+                    current: viewMode,
+                  ),
+                ),
+                // ★ chip 栏新增「跨行块」
+                Expanded(
+                  flex: 2,
+                  child: _viewChip(
+                    label: '跨行块',
+                    value: ViewMode.grouped,
                     current: viewMode,
                   ),
                 ),
