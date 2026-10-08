@@ -2594,7 +2594,7 @@ Padding(
           border: Border(
             bottom: BorderSide(
               color: selected ? s.primary : Colors.transparent,
-              width: 2,
+              width: 6,
             ),
           ),
         ),
