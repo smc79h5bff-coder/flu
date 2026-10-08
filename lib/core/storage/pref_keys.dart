@@ -14,7 +14,8 @@ class PrefKeys {
   static const String syncScroll = '${_p}display.syncScroll';
   static const String contextFontSize = '${_p}display.contextFontSize';
   static const String defaultViewMode = '${_p}viewer.defaultViewMode';
-
+// 跨行块视图的上下文行数（0 = 仅差异块）
+static const groupedContextLines = 'groupedContextLines';
   // ==================== 12 个差异颜色 ====================
   static const String colorDeleteRowBg = '${_p}color.deleteRowBg';
   static const String colorDeleteRowFg = '${_p}color.deleteRowFg';
