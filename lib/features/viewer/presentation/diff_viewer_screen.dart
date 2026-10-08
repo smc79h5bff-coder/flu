@@ -2353,16 +2353,26 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
                   ],
                 ),
               ),
-              PopupMenuItem<String>(
-                value: 'noWrap',
-                child: Row(
-                  children: [
-                    Icon(noWrap ? Icons.wrap_text : Icons.notes),
-                    const SizedBox(width: 10),
-                    Text(noWrap ? '关闭不换行' : '开启不换行'),
-                  ],
-                ),
-              ),
+             PopupMenuItem<String>(
+  value: 'noWrap',
+  // ★ 跨行块视图不支持不换行，置灰 + 点击提示
+  enabled: viewMode != ViewMode.grouped,
+  child: Row(
+    children: [
+      Icon(
+        viewMode == ViewMode.grouped
+            ? Icons.block
+            : (noWrap ? Icons.wrap_text : Icons.notes),
+      ),
+      const SizedBox(width: 10),
+      Text(
+        viewMode == ViewMode.grouped
+            ? '跨行块视图不支持不换行'
+            : (noWrap ? '关闭不换行' : '开启不换行'),
+      ),
+    ],
+  ),
+),
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'diagnostic',
