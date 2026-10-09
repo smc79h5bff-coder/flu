@@ -676,37 +676,45 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
 
   // ==================== 替换 ====================
 
-  void _replaceCurrentInline() {
-    _ensureFindApplied();
-    _recordFindHistory();
-    final hint = _diagnoseReplace();
-    if (hint != null) {
-      setState(() => _replaceHint = hint);
-      _toast(hint);
-      return;
-    }
-    if (_findQuery.isEmpty || _matchEntries.isEmpty || _matchPos < 0) {
-      _toast('没有可替换的内容');
-      return;
-    }
-    _doReplace(replacement: _replaceController.text, all: false);
+ void _replaceCurrentInline() {
+  _ensureFindApplied();
+  _recordFindHistory();
+  if (_findQuery.isEmpty) {
+    _toast('请先输入查找内容');
+    return;
   }
+  final hint = _diagnoseReplace();
+  if (hint != null) {
+    setState(() => _replaceHint = hint);
+    _toast(hint);
+    return;
+  }
+  if (_matchEntries.isEmpty || _matchPos < 0) {
+    _toast('没有可替换的内容');
+    return;
+  }
+  _doReplace(replacement: _replaceController.text, all: false);
+}
 
   void _replaceAllInline() {
-    _ensureFindApplied();
-    _recordFindHistory();
-    final hint = _diagnoseReplace();
-    if (hint != null) {
-      setState(() => _replaceHint = hint);
-      _toast(hint);
-      return;
-    }
-    if (_findQuery.isEmpty || _matchEntries.isEmpty) {
-      _toast('没有可替换的内容');
-      return;
-    }
-    _doReplace(replacement: _replaceController.text, all: true);
+  _ensureFindApplied();
+  _recordFindHistory();
+  if (_findQuery.isEmpty) {
+    _toast('请先输入查找内容');
+    return;
   }
+  final hint = _diagnoseReplace();
+  if (hint != null) {
+    setState(() => _replaceHint = hint);
+    _toast(hint);
+    return;
+  }
+  if (_matchEntries.isEmpty) {
+    _toast('没有可替换的内容');
+    return;
+  }
+  _doReplace(replacement: _replaceController.text, all: true);
+}
 
   void _doReplace({required String replacement, required bool all}) {
     final diff = _diff;
@@ -1174,10 +1182,17 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
     }
   }
 
-  void _nextMatch() {
+ void _nextMatch() {
   _ensureFindApplied();
   _recordFindHistory();
-  if (_matchEntries.isEmpty) return;
+  if (_findQuery.isEmpty) {
+    _toast('请先输入查找内容');
+    return;
+  }
+  if (_matchEntries.isEmpty) {
+    _toast('没有找到「$_findQuery」');
+    return;
+  }
   final next = (_matchPos + 1) % _matchEntries.length;
   setState(() => _matchPos = next);
   if (ref.read(viewModeProvider) == ViewMode.grouped) {
@@ -1187,10 +1202,17 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
   }
 }
 
-  void _prevMatch() {
+ void _prevMatch() {
   _ensureFindApplied();
   _recordFindHistory();
-  if (_matchEntries.isEmpty) return;
+  if (_findQuery.isEmpty) {
+    _toast('请先输入查找内容');
+    return;
+  }
+  if (_matchEntries.isEmpty) {
+    _toast('没有找到「$_findQuery」');
+    return;
+  }
   final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
   setState(() => _matchPos = prev);
   if (ref.read(viewModeProvider) == ViewMode.grouped) {
@@ -3293,11 +3315,24 @@ Padding(
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.history),
-                  tooltip: '查找历史',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _showFindHistory,
-                ),
+  icon: const Icon(Icons.search),
+  tooltip: '立即搜索',
+  visualDensity: VisualDensity.compact,
+  onPressed: () {
+    if (_findQuery.isEmpty) {
+      _toast('请先输入查找内容');
+      return;
+    }
+    _findDebounce?.cancel();
+    _findChanged(_findController.text, autoScroll: false);
+  },
+),
+IconButton(
+  icon: const Icon(Icons.history),
+  tooltip: '查找历史',
+  visualDensity: VisualDensity.compact,
+  onPressed: _showFindHistory,
+),
               ],
             ),
             if (_noResultHint != null)
