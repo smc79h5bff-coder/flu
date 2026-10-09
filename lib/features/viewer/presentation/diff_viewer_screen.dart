@@ -887,8 +887,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 高度表：懒加载 + 后台补精确 ====================
 
-  void _startHeightComputation(DiffResult diff, ViewMode mode) {
-    if (mode == ViewMode.grouped) return;
+ void _startHeightComputation(DiffResult diff, ViewMode mode) {
+  CrashLogger.instance.mark('启动高度计算: ${mode.name}');
+  if (mode == ViewMode.grouped) return;
 
     final mq = MediaQuery.of(context);
     final configKey = '${mq.size.width}|'
@@ -968,174 +969,181 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   ViewerDiag.mark('高度: 开始 (${mode.name})');
   _log('开始计算高度: ${mode.name}');
 
-    final mq = MediaQuery.of(context);
-    final viewportW = mq.size.width;
-    final dpr = mq.devicePixelRatio;
-    final scaler = mq.textScaler;
+  final mq = MediaQuery.of(context);
+  final viewportW = mq.size.width;
+  final dpr = mq.devicePixelRatio;
+  final scaler = mq.textScaler;
 
-    final noWrap = ref.read(noWrapProvider);
-    final showLine = ref.read(showLineNumbersProvider);
-    final bodySize = ref.read(bodyFontSizeProvider);
-    final style = TextStyle(fontSize: bodySize, height: 1.35);
+  final noWrap = ref.read(noWrapProvider);
+  final showLine = ref.read(showLineNumbersProvider);
+  final bodySize = ref.read(bodyFontSizeProvider);
+  final style = TextStyle(fontSize: bodySize, height: 1.35);
 
-    final fp = contentFingerprint(
-      ref.read(originalRawTextProvider) ?? '',
-      ref.read(modifiedRawTextProvider) ?? '',
+  final fp = contentFingerprint(
+    ref.read(originalRawTextProvider) ?? '',
+    ref.read(modifiedRawTextProvider) ?? '',
+  );
+  final rev = ref.read(importRevisionProvider);
+
+  String cacheKey(String name) {
+    final base = buildLineHeightCacheKey(
+      contentFingerprint: fp,
+      importRevision: rev,
+      viewModeName: name,
+      viewportWidth: viewportW,
+      bodyFontSize: bodySize,
+      showLineNumbers: showLine,
+      noWrap: noWrap,
+      devicePixelRatio: dpr,
     );
-    final rev = ref.read(importRevisionProvider);
+    final ctxFs = ref.read(contextFontSizeProvider);
+    final gutterFs = ref.read(gutterFontSizeProvider);
+    return '$base|ctx:$ctxFs|gut:$gutterFs';
+  }
 
-    String cacheKey(String name) {
-      final base = buildLineHeightCacheKey(
-        contentFingerprint: fp,
-        importRevision: rev,
-        viewModeName: name,
-        viewportWidth: viewportW,
-        bodyFontSize: bodySize,
-        showLineNumbers: showLine,
-        noWrap: noWrap,
-        devicePixelRatio: dpr,
-      );
-      final ctxFs = ref.read(contextFontSizeProvider);
-      final gutterFs = ref.read(gutterFontSizeProvider);
-      return '$base|ctx:$ctxFs|gut:$gutterFs';
-    }
-
-    if (mode == ViewMode.merged) {
-      final order = cachedMergedOrder(diff);
-      final rowW = showLine ? viewportW - 50.0 : viewportW - 16.0;
-      final k = cacheKey('merged');
-      final cached = LineHeightCache.instance.get(k);
-      if (cached != null) {
-        ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
-        _log('高度完成(缓存): ${mode.name}');
-        return _HeightBundle(merged: cached);
-      }
-      final table = await computeLineHeights(
-        itemCount: order.length,
-        widthForItem: (_) => rowW,
-        textForItem: (i) => diff.entries[order[i]].text,
-        style: style,
-        textScaler: scaler,
-        noWrap: noWrap,
-        extraVerticalPadding: 8,
-      );
-      LineHeightCache.instance.put(k, table);
-      ViewerDiag.mark('高度: 完成 (${mode.name})');
-      _log('高度完成: ${mode.name}');
-      return _HeightBundle(merged: table);
-    }
-
-    if (mode == ViewMode.sideBySide) {
-      final rows = cachedAlignedRows(diff);
-      final panelW = (viewportW - 1) / 2;
-      final contentW = panelW - 52.0;
-      final k = cacheKey('sbs_sync');
-      final cached = LineHeightCache.instance.get(k);
-      if (cached != null) {
-        ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
-        _log('高度完成(缓存): ${mode.name}');
-        return _HeightBundle(sbsSync: cached);
-      }
-      final table = await computeLineHeightsForTwoPane(
-        itemCount: rows.length,
-        leftWidth: contentW,
-        rightWidth: contentW,
-        leftTextForItem: (i) {
-          final spec = rows[i];
-          if (spec.del != null) return diff.entries[spec.del!].text;
-          return '';
-        },
-        rightTextForItem: (i) {
-          final spec = rows[i];
-          if (spec.ins != null) return diff.entries[spec.ins!].text;
-          return '';
-        },
-        style: style,
-        textScaler: scaler,
-        noWrap: noWrap,
-        extraVerticalPadding: 12,
-      );
-      LineHeightCache.instance.put(k, table);
-      ViewerDiag.mark('高度: 完成 (${mode.name})');
-      _log('高度完成: ${mode.name}');
-      return _HeightBundle(sbsSync: table);
-    }
-
-    final isPlain = mode == ViewMode.diffOnlyPlain;
-    final rows =
-        isPlain ? cachedDiffOnlyPlainRows(diff) : cachedDiffOnlyRows(diff);
-    final panelW = (viewportW - 1) / 2;
-    final contentW = panelW - 44.0;
-    final k = cacheKey(isPlain ? 'diff_only_plain' : 'diff_only');
+  if (mode == ViewMode.merged) {
+    final order = cachedMergedOrder(diff);
+    final rowW = showLine ? viewportW - 50.0 : viewportW - 16.0;
+    final k = cacheKey('merged');
     final cached = LineHeightCache.instance.get(k);
     if (cached != null) {
+      CrashLogger.instance.mark('高度表命中缓存: merged');
       ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
       _log('高度完成(缓存): ${mode.name}');
-      return isPlain
-          ? _HeightBundle(diffOnlyPlain: cached)
-          : _HeightBundle(diffOnly: cached);
+      return _HeightBundle(merged: cached);
     }
-
-    final bool needContextOverride = !isPlain;
-
-    bool isContextRow(int i) {
-      if (i < 0 || i >= rows.length) return false;
-      final spec = rows[i];
-      return spec.ins == null &&
-          spec.del != null &&
-          diff.entries[spec.del!].operation == DiffOperation.equal;
-    }
-
-    final ctxSize = ref.read(contextFontSizeProvider);
-    final contextStyle = TextStyle(
-      fontSize: ctxSize,
-      height: 1.35,
+    final table = await computeLineHeights(
+      itemCount: order.length,
+      widthForItem: (_) => rowW,
+      textForItem: (i) => diff.entries[order[i]].text,
+      style: style,
+      textScaler: scaler,
+      noWrap: noWrap,
+      extraVerticalPadding: 8,
     );
+    LineHeightCache.instance.put(k, table);
+    CrashLogger.instance.mark('高度表完成: merged (${order.length}行)');
+    ViewerDiag.mark('高度: 完成 (${mode.name})');
+    _log('高度完成: ${mode.name}');
+    return _HeightBundle(merged: table);
+  }
 
+  if (mode == ViewMode.sideBySide) {
+    final rows = cachedAlignedRows(diff);
+    final panelW = (viewportW - 1) / 2;
+    final contentW = panelW - 52.0;
+    final k = cacheKey('sbs_sync');
+    final cached = LineHeightCache.instance.get(k);
+    if (cached != null) {
+      CrashLogger.instance.mark('高度表命中缓存: sbs');
+      ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
+      _log('高度完成(缓存): ${mode.name}');
+      return _HeightBundle(sbsSync: cached);
+    }
     final table = await computeLineHeightsForTwoPane(
       itemCount: rows.length,
       leftWidth: contentW,
       rightWidth: contentW,
       leftTextForItem: (i) {
         final spec = rows[i];
-        if (spec.del != null) {
-          final e = diff.entries[spec.del!];
-          if (e.operation == DiffOperation.replace && e.oldText.isNotEmpty) {
-            return e.oldText;
-          }
-          return e.text;
-        }
+        if (spec.del != null) return diff.entries[spec.del!].text;
         return '';
       },
       rightTextForItem: (i) {
         final spec = rows[i];
-        if (spec.ins != null) {
-          final e = diff.entries[spec.ins!];
-          if (e.operation == DiffOperation.replace && e.newText.isNotEmpty) {
-            return e.newText;
-          }
-          return e.text;
-        }
+        if (spec.ins != null) return diff.entries[spec.ins!].text;
         return '';
       },
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 4,
-      styleForItem: needContextOverride
-          ? (i) => isContextRow(i) ? contextStyle : null
-          : null,
-      noWrapForItem: needContextOverride
-          ? (i) => isContextRow(i) ? true : noWrap
-          : null,
+      extraVerticalPadding: 12,
     );
     LineHeightCache.instance.put(k, table);
+    CrashLogger.instance.mark('高度表完成: sbs (${rows.length}行)');
     ViewerDiag.mark('高度: 完成 (${mode.name})');
     _log('高度完成: ${mode.name}');
-    return isPlain
-        ? _HeightBundle(diffOnlyPlain: table)
-        : _HeightBundle(diffOnly: table);
+    return _HeightBundle(sbsSync: table);
   }
+
+  final isPlain = mode == ViewMode.diffOnlyPlain;
+  final rows =
+      isPlain ? cachedDiffOnlyPlainRows(diff) : cachedDiffOnlyRows(diff);
+  final panelW = (viewportW - 1) / 2;
+  final contentW = panelW - 44.0;
+  final k = cacheKey(isPlain ? 'diff_only_plain' : 'diff_only');
+  final cached = LineHeightCache.instance.get(k);
+  if (cached != null) {
+    CrashLogger.instance.mark('高度表命中缓存: diffOnly');
+    ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
+    _log('高度完成(缓存): ${mode.name}');
+    return isPlain
+        ? _HeightBundle(diffOnlyPlain: cached)
+        : _HeightBundle(diffOnly: cached);
+  }
+
+  final bool needContextOverride = !isPlain;
+
+  bool isContextRow(int i) {
+    if (i < 0 || i >= rows.length) return false;
+    final spec = rows[i];
+    return spec.ins == null &&
+        spec.del != null &&
+        diff.entries[spec.del!].operation == DiffOperation.equal;
+  }
+
+  final ctxSize = ref.read(contextFontSizeProvider);
+  final contextStyle = TextStyle(
+    fontSize: ctxSize,
+    height: 1.35,
+  );
+
+  final table = await computeLineHeightsForTwoPane(
+    itemCount: rows.length,
+    leftWidth: contentW,
+    rightWidth: contentW,
+    leftTextForItem: (i) {
+      final spec = rows[i];
+      if (spec.del != null) {
+        final e = diff.entries[spec.del!];
+        if (e.operation == DiffOperation.replace && e.oldText.isNotEmpty) {
+          return e.oldText;
+        }
+        return e.text;
+      }
+      return '';
+    },
+    rightTextForItem: (i) {
+      final spec = rows[i];
+      if (spec.ins != null) {
+        final e = diff.entries[spec.ins!];
+        if (e.operation == DiffOperation.replace && e.newText.isNotEmpty) {
+          return e.newText;
+        }
+        return e.text;
+      }
+      return '';
+    },
+    style: style,
+    textScaler: scaler,
+    noWrap: noWrap,
+    extraVerticalPadding: 4,
+    styleForItem: needContextOverride
+        ? (i) => isContextRow(i) ? contextStyle : null
+        : null,
+    noWrapForItem: needContextOverride
+        ? (i) => isContextRow(i) ? true : noWrap
+        : null,
+  );
+  LineHeightCache.instance.put(k, table);
+  CrashLogger.instance.mark(
+      '高度表完成: ${isPlain ? "diffOnlyPlain" : "diffOnly"} (${rows.length}行)');
+  ViewerDiag.mark('高度: 完成 (${mode.name})');
+  _log('高度完成: ${mode.name}');
+  return isPlain
+      ? _HeightBundle(diffOnlyPlain: table)
+      : _HeightBundle(diffOnly: table);
+}
 
   LineHeightTable? _activeTableFor(ViewMode mode) {
     final h = _activeHeights;
