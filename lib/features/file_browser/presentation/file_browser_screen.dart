@@ -5028,11 +5028,14 @@ return Container(
       selected: selected,
       selectedTileColor: const Color(0xFFF4FFF5),
       
-        leading: Icon(
-  zipIcon,
-          color: Colors.blue.shade600,
-        
-      ),
+        leading: GestureDetector(
+  behavior: HitTestBehavior.opaque,
+  onTap: () => _toggleSelectionByKey(item.key),
+  child: Icon(
+    zipIcon,
+    color: Colors.blue.shade600,
+  ),
+),
       title: Text(
         item.displayName,
         maxLines: 2,
@@ -5143,19 +5146,22 @@ return Container(
         ),
         selected: selected,
         selectedTileColor: const Color(0xFFF4FFF5),
-        leading: Icon(
-  isZipInner
-                ? Icons.insert_drive_file_outlined
-                : (item.isDir
-                    ? Icons.folder
-                    : Icons.insert_drive_file_outlined),
-            color: isZipInner
-                ? Colors.blueGrey.shade300
-                : (item.isDir
-                    ? Colors.black87
-                    : _fileColor(item.displayName)),
-          
-        ),
+        leading: GestureDetector(
+  behavior: HitTestBehavior.opaque,
+  onTap: () => _toggleSelectionByKey(item.key),
+  child: Icon(
+    isZipInner
+        ? Icons.insert_drive_file_outlined
+        : (item.isDir
+            ? Icons.folder
+            : Icons.insert_drive_file_outlined),
+    color: isZipInner
+        ? Colors.blueGrey.shade300
+        : (item.isDir
+            ? Colors.black87
+            : _fileColor(item.displayName)),
+  ),
+),
         title: Text(
           item.displayName,
           maxLines: 2,
@@ -5495,15 +5501,19 @@ return Container(
         ),
         selected: selected,
         selectedTileColor: const Color(0xFFF4FFF5),
-        leading: Padding(
-  padding: const EdgeInsets.only(top: 4),
-  child: Icon(
-    item.isZip
-        ? Icons.folder_zip
-        : Icons.insert_drive_file_outlined,
-    color: isZipInner
-        ? Colors.blueGrey.shade300
-        : _fileColor(item.displayName),
+  leading: GestureDetector(
+  behavior: HitTestBehavior.opaque,
+  onTap: () => _toggleSelectionByKey(item.key),
+  child: Padding(
+    padding: const EdgeInsets.only(top: 4),
+    child: Icon(
+      item.isZip
+          ? Icons.folder_zip
+          : Icons.insert_drive_file_outlined,
+      color: isZipInner
+          ? Colors.blueGrey.shade300
+          : _fileColor(item.displayName),
+    ),
   ),
 ),
         title: Text(
