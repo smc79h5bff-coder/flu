@@ -3106,11 +3106,23 @@ Future<void> _showDirInfoDialog() async {
   // ==================== 文件操作 ====================
 
   void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
-  }
+  if (!mounted) return;
+  final ms = msg.length <= 10 ? 1500 : 2000;
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.clearSnackBars();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        msg,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      duration: Duration(milliseconds: ms),
+    ),
+  );
+}
 
   Future<bool> _confirm(String title, String message) async {
     if (!mounted) return false;
