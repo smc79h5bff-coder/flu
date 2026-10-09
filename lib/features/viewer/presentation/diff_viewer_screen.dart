@@ -81,7 +81,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String _scannedQuery = '';
   String? _noResultHint;
 
-  // ★ 新增：诊断相关
   String? _findWarning;
   String? _replaceHint;
   String? _regexErrorHint;
@@ -105,13 +104,16 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   Map<int, int>? _entryToRowMap;
   DiffResult? _entryToRowMapFor;
   ViewMode? _entryToRowMapMode;
+
+  // 后台精确高度表
   final Map<ViewMode, Future<_HeightBundle>> _heightFutures = {};
+  final Map<ViewMode, _HeightBundle> _heightExactResults = {};
   DiffResult? _heightFuturesFor;
   String? _heightFuturesConfigKey;
   int? _jumpedToEntry;
 
   double? _pendingGroupedRestoreOffset;
-  
+
   _HeightBundle? _activeHeights;
 
   double? _cachedContentWidth;
@@ -128,7 +130,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   DiffResult? _lastDiagDiff;
 
-  // ★ 跨行块视图的 key，用来调用它的方法
   final GlobalKey _groupedKey = GlobalKey();
 
   @override
@@ -185,8 +186,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       return RegExp(r'(?!)');
     }
   }
-
-  // ==================== 查找/替换诊断（新增） ====================
 
   ({String name, String detail}) _translateRegexError(Object e) {
     var msg = e.toString();
@@ -493,7 +492,6 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _findChanged(String q, {bool autoScroll = true}) {
-    // ★ 搜索条件诊断（正则语法 / 整词+中文）
     _findWarning = null;
     try {
       final warn = _diagnoseFind(q);
@@ -509,100 +507,85 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       (_groupedKey.currentState as dynamic)?.updateFindQuery('');
       return;
     }
-    // 正则没错了 → 清掉旧的正则错误提示
     if (_regexErrorHint != null) {
       setState(() => _regexErrorHint = null);
     }
 
-    // ★ grouped 视图：转交给它自己的查找
- // ★ grouped 视图：主 screen 自己算匹配（与其他视图一致），
-// 然后通知 grouped 更新高亮并滚动到第一个
-if (ref.read(viewModeProvider) == ViewMode.grouped) {
-  _findQuery = q;
-  _scannedQuery = q;
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      _findQuery = q;
+      _scannedQuery = q;
 
+      final diff = _diff;
+      final matches = <int>[];
+      if (q.isNotEmpty && diff != null) {
+        final p = _buildFindPattern();
+        for (var i = 0; i < diff.entries.length; i++) {
+          final e = diff.entries[i];
+          var hit = false;
+          if (_entryMatchesOnLeft(e) &&
+              p.allMatches(_entryLeftText(e)).isNotEmpty) {
+            hit = true;
+          }
+          if (!hit &&
+              _entryMatchesOnRight(e) &&
+              p.allMatches(_entryRightText(e)).isNotEmpty) {
+            hit = true;
+          }
+          if (hit) matches.add(i);
+        }
+      }
+      final isLiteral = !_regexEnable && !_caseInsensitive && !_wholeWord;
+      setState(() {
+        _matchEntries = matches;
+        _matchPos = matches.isEmpty ? -1 : 0;
+        if (_findWarning != null) {
+          _noResultHint = _findWarning;
+        } else if (q.isNotEmpty && matches.isEmpty) {
+          _noResultHint = '没找到「$q」';
+        } else if (q.isNotEmpty && !isLiteral) {
+          _noResultHint = '高级搜索已开，搜索结果暂不支持显示高亮';
+        } else {
+          _noResultHint = null;
+        }
+      });
+      if (isLiteral) {
+        (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
+      } else {
+        (_groupedKey.currentState as dynamic)?.updateFindQuery('');
+      }
 
-
-  final diff = _diff;
-final matches = <int>[];
-if (q.isNotEmpty && diff != null) {
-  final p = _buildFindPattern();
-  for (var i = 0; i < diff.entries.length; i++) {
-    final e = diff.entries[i];
-    var hit = false;
-    if (_entryMatchesOnLeft(e) &&
-        p.allMatches(_entryLeftText(e)).isNotEmpty) {
-      hit = true;
+      if (autoScroll && matches.isNotEmpty) {
+        (_groupedKey.currentState as dynamic)?.scrollToEntry(matches[0]);
+      }
+      return;
     }
-    if (!hit &&
-        _entryMatchesOnRight(e) &&
-        p.allMatches(_entryRightText(e)).isNotEmpty) {
-      hit = true;
-    }
-    if (hit) matches.add(i);
-  }
-}
-  // 只有纯字面搜索（三个开关全关）才涂色；
-// 否则涂色可能和计数对不上，直接不涂 + 提示。
-final isLiteral = !_regexEnable && !_caseInsensitive && !_wholeWord;
-setState(() {
-  _matchEntries = matches;
-  _matchPos = matches.isEmpty ? -1 : 0;
-  if (_findWarning != null) {
-    _noResultHint = _findWarning;
-  } else if (q.isNotEmpty && matches.isEmpty) {
-    _noResultHint = '没找到「$q」';
-  } else if (q.isNotEmpty && !isLiteral) {
-    _noResultHint = '高级搜索已开，搜索结果暂不支持显示高亮';
-  } else {
-    _noResultHint = null;
-  }
-});
-if (isLiteral) {
-  (_groupedKey.currentState as dynamic)?.updateFindQuery(q);
-} else {
-  (_groupedKey.currentState as dynamic)?.updateFindQuery('');
-}
 
+    _findQuery = q;
+    _scannedQuery = q;
+    final diff = _diff;
+    final matches = <int>[];
+    var hasGlobalHits = false;
+    String? hint;
 
-
-  
-  if (autoScroll && matches.isNotEmpty) {
-    (_groupedKey.currentState as dynamic)?.scrollToEntry(matches[0]);
-  }
-  return;
-}
-
-
-
-
-
- _findQuery = q;
-_scannedQuery = q;
-final diff = _diff;
-final matches = <int>[];
-var hasGlobalHits = false;
-String? hint;
-
-if (q.isNotEmpty && diff != null) {
-  final p = _buildFindPattern();
-  final mode = ref.read(viewModeProvider);
-  final visible = _visibleEntriesFor(mode, diff);
-  for (var i = 0; i < diff.entries.length; i++) {
-    if (!visible.contains(i)) continue;
-    final e = diff.entries[i];
-    var hit = false;
-    if (_entryMatchesOnLeft(e) &&
-        p.allMatches(_entryLeftText(e)).isNotEmpty) {
-      hit = true;
-    }
-    if (!hit &&
-        _entryMatchesOnRight(e) &&
-        p.allMatches(_entryRightText(e)).isNotEmpty) {
-      hit = true;
-    }
-    if (hit) matches.add(i);
-  }
+    if (q.isNotEmpty && diff != null) {
+      final p = _buildFindPattern();
+      final mode = ref.read(viewModeProvider);
+      final visible = _visibleEntriesFor(mode, diff);
+      for (var i = 0; i < diff.entries.length; i++) {
+        if (!visible.contains(i)) continue;
+        final e = diff.entries[i];
+        var hit = false;
+        if (_entryMatchesOnLeft(e) &&
+            p.allMatches(_entryLeftText(e)).isNotEmpty) {
+          hit = true;
+        }
+        if (!hit &&
+            _entryMatchesOnRight(e) &&
+            p.allMatches(_entryRightText(e)).isNotEmpty) {
+          hit = true;
+        }
+        if (hit) matches.add(i);
+      }
 
       if (matches.isEmpty && _isDiffOnlyMode(mode)) {
         for (var i = 0; i < diff.entries.length; i++) {
@@ -618,11 +601,10 @@ if (q.isNotEmpty && diff != null) {
         }
       }
     }
-// ★ 开了正则/忽略大小写/整词时，涂色可能跟计数对不上，给提示
-if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
-  const warn = '高级搜索已开，搜索结果暂不支持显示高亮';
-  hint = hint == null ? warn : '$hint\n$warn';
-}
+    if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
+      const warn = '高级搜索已开，搜索结果暂不支持显示高亮';
+      hint = hint == null ? warn : '$hint\n$warn';
+    }
     int newPos = 0;
     if (matches.isNotEmpty && diff != null) {
       final mode = ref.read(viewModeProvider);
@@ -676,45 +658,45 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
 
   // ==================== 替换 ====================
 
- void _replaceCurrentInline() {
-  _ensureFindApplied();
-  _recordFindHistory();
-  if (_findQuery.isEmpty) {
-    _toast('请先输入查找内容');
-    return;
+  void _replaceCurrentInline() {
+    _ensureFindApplied();
+    _recordFindHistory();
+    if (_findQuery.isEmpty) {
+      _toast('请先输入查找内容');
+      return;
+    }
+    final hint = _diagnoseReplace();
+    if (hint != null) {
+      setState(() => _replaceHint = hint);
+      _toast(hint);
+      return;
+    }
+    if (_matchEntries.isEmpty || _matchPos < 0) {
+      _toast('没有可替换的内容');
+      return;
+    }
+    _doReplace(replacement: _replaceController.text, all: false);
   }
-  final hint = _diagnoseReplace();
-  if (hint != null) {
-    setState(() => _replaceHint = hint);
-    _toast(hint);
-    return;
-  }
-  if (_matchEntries.isEmpty || _matchPos < 0) {
-    _toast('没有可替换的内容');
-    return;
-  }
-  _doReplace(replacement: _replaceController.text, all: false);
-}
 
   void _replaceAllInline() {
-  _ensureFindApplied();
-  _recordFindHistory();
-  if (_findQuery.isEmpty) {
-    _toast('请先输入查找内容');
-    return;
+    _ensureFindApplied();
+    _recordFindHistory();
+    if (_findQuery.isEmpty) {
+      _toast('请先输入查找内容');
+      return;
+    }
+    final hint = _diagnoseReplace();
+    if (hint != null) {
+      setState(() => _replaceHint = hint);
+      _toast(hint);
+      return;
+    }
+    if (_matchEntries.isEmpty) {
+      _toast('没有可替换的内容');
+      return;
+    }
+    _doReplace(replacement: _replaceController.text, all: true);
   }
-  final hint = _diagnoseReplace();
-  if (hint != null) {
-    setState(() => _replaceHint = hint);
-    _toast(hint);
-    return;
-  }
-  if (_matchEntries.isEmpty) {
-    _toast('没有可替换的内容');
-    return;
-  }
-  _doReplace(replacement: _replaceController.text, all: true);
-}
 
   void _doReplace({required String replacement, required bool all}) {
     final diff = _diff;
@@ -840,7 +822,6 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
     }
 
     if (!mounted) return;
-    // ★ grouped 视图：清掉它自己的查找状态
     if (ref.read(viewModeProvider) == ViewMode.grouped) {
       (_groupedKey.currentState as dynamic)?.clearFind();
     }
@@ -902,35 +883,79 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
     return map;
   }
 
-  // ==================== 高度表 ====================
+  // ==================== 高度表：懒加载 + 后台补精确 ====================
 
-  Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
-    if (mode == ViewMode.grouped) {
-      return Future<_HeightBundle>.value(const _HeightBundle());
-    }
+  void _startHeightComputation(DiffResult diff, ViewMode mode) {
+    if (mode == ViewMode.grouped) return;
 
     final mq = MediaQuery.of(context);
-  final configKey = '${mq.size.width}|'
-    '${ref.read(bodyFontSizeProvider)}|'
-    '${ref.read(contextFontSizeProvider)}|'
-    '${ref.read(gutterFontSizeProvider)}|'
-    '${ref.read(noWrapProvider)}|'
-    '${ref.read(showLineNumbersProvider)}|'
-    '${ref.read(importRevisionProvider)}';
+    final configKey = '${mq.size.width}|'
+        '${ref.read(bodyFontSizeProvider)}|'
+        '${ref.read(contextFontSizeProvider)}|'
+        '${ref.read(gutterFontSizeProvider)}|'
+        '${ref.read(noWrapProvider)}|'
+        '${ref.read(showLineNumbersProvider)}|'
+        '${ref.read(importRevisionProvider)}';
 
     if (!identical(_heightFuturesFor, diff) ||
         _heightFuturesConfigKey != configKey) {
       _heightFutures.clear();
+      _heightExactResults.clear();
       _heightFuturesFor = diff;
       _heightFuturesConfigKey = configKey;
     }
 
-    final existing = _heightFutures[mode];
-    if (existing != null) return existing;
+    if (_heightFutures.containsKey(mode)) return;
 
     final f = _computeHeightBundle(diff, mode);
     _heightFutures[mode] = f;
-    return f;
+    f.then((exact) {
+      if (!mounted) return;
+      if (!identical(_heightFuturesFor, diff)) return;
+      _heightExactResults[mode] = exact;
+      if (ref.read(viewModeProvider) == mode) {
+        ViewerDiag.mark('精确高度表就绪，切回精确 (${mode.name})');
+        _log('精确高度表就绪: ${mode.name}');
+        setState(() {
+          _activeHeights = exact;
+        });
+      }
+    }).catchError((Object e, StackTrace st) {
+      debugPrint('高度表计算失败: $e\n$st');
+    });
+  }
+
+  _HeightBundle _getQuickBundle(DiffResult diff, ViewMode mode) {
+    if (mode == ViewMode.grouped) return const _HeightBundle();
+
+    final cached = _heightExactResults[mode];
+    if (cached != null) return cached;
+
+    final fs = ref.read(bodyFontSizeProvider);
+    final h = fs * 1.35 * 1.5 + 8;
+
+    int rows;
+    switch (mode) {
+      case ViewMode.merged:
+        rows = cachedMergedOrder(diff).length;
+      case ViewMode.sideBySide:
+        rows = cachedAlignedRows(diff).length;
+      case ViewMode.diffOnly:
+        rows = cachedDiffOnlyRows(diff).length;
+      case ViewMode.diffOnlyPlain:
+        rows = cachedDiffOnlyPlainRows(diff).length;
+      case ViewMode.grouped:
+        return const _HeightBundle();
+    }
+
+    final table = LineHeightTable.fromHeights(List<double>.filled(rows, h));
+    return switch (mode) {
+      ViewMode.merged => _HeightBundle(merged: table),
+      ViewMode.sideBySide => _HeightBundle(sbsSync: table),
+      ViewMode.diffOnly => _HeightBundle(diffOnly: table),
+      ViewMode.diffOnlyPlain => _HeightBundle(diffOnlyPlain: table),
+      ViewMode.grouped => const _HeightBundle(),
+    };
   }
 
   Future<_HeightBundle> _computeHeightBundle(
@@ -957,21 +982,20 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
     final rev = ref.read(importRevisionProvider);
 
     String cacheKey(String name) {
-  final base = buildLineHeightCacheKey(
-    contentFingerprint: fp,
-    importRevision: rev,
-    viewModeName: name,
-    viewportWidth: viewportW,
-    bodyFontSize: bodySize,
-    showLineNumbers: showLine,
-    noWrap: noWrap,
-    devicePixelRatio: dpr,
-  );
-  // ★ 上下文行字号、行号字号也影响行高，拼进 key
-  final ctxFs = ref.read(contextFontSizeProvider);
-  final gutterFs = ref.read(gutterFontSizeProvider);
-  return '$base|ctx:$ctxFs|gut:$gutterFs';
-}
+      final base = buildLineHeightCacheKey(
+        contentFingerprint: fp,
+        importRevision: rev,
+        viewModeName: name,
+        viewportWidth: viewportW,
+        bodyFontSize: bodySize,
+        showLineNumbers: showLine,
+        noWrap: noWrap,
+        devicePixelRatio: dpr,
+      );
+      final ctxFs = ref.read(contextFontSizeProvider);
+      final gutterFs = ref.read(gutterFontSizeProvider);
+      return '$base|ctx:$ctxFs|gut:$gutterFs';
+    }
 
     if (mode == ViewMode.merged) {
       final order = cachedMergedOrder(diff);
@@ -1182,45 +1206,45 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
     }
   }
 
- void _nextMatch() {
-  _ensureFindApplied();
-  _recordFindHistory();
-  if (_findQuery.isEmpty) {
-    _toast('请先输入查找内容');
-    return;
+  void _nextMatch() {
+    _ensureFindApplied();
+    _recordFindHistory();
+    if (_findQuery.isEmpty) {
+      _toast('请先输入查找内容');
+      return;
+    }
+    if (_matchEntries.isEmpty) {
+      _toast('没有找到「$_findQuery」');
+      return;
+    }
+    final next = (_matchPos + 1) % _matchEntries.length;
+    setState(() => _matchPos = next);
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[next]);
+    } else {
+      _scrollToEntry(_matchEntries[next]);
+    }
   }
-  if (_matchEntries.isEmpty) {
-    _toast('没有找到「$_findQuery」');
-    return;
-  }
-  final next = (_matchPos + 1) % _matchEntries.length;
-  setState(() => _matchPos = next);
-  if (ref.read(viewModeProvider) == ViewMode.grouped) {
-    (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[next]);
-  } else {
-    _scrollToEntry(_matchEntries[next]);
-  }
-}
 
- void _prevMatch() {
-  _ensureFindApplied();
-  _recordFindHistory();
-  if (_findQuery.isEmpty) {
-    _toast('请先输入查找内容');
-    return;
+  void _prevMatch() {
+    _ensureFindApplied();
+    _recordFindHistory();
+    if (_findQuery.isEmpty) {
+      _toast('请先输入查找内容');
+      return;
+    }
+    if (_matchEntries.isEmpty) {
+      _toast('没有找到「$_findQuery」');
+      return;
+    }
+    final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
+    setState(() => _matchPos = prev);
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[prev]);
+    } else {
+      _scrollToEntry(_matchEntries[prev]);
+    }
   }
-  if (_matchEntries.isEmpty) {
-    _toast('没有找到「$_findQuery」');
-    return;
-  }
-  final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
-  setState(() => _matchPos = prev);
-  if (ref.read(viewModeProvider) == ViewMode.grouped) {
-    (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[prev]);
-  } else {
-    _scrollToEntry(_matchEntries[prev]);
-  }
-}
 
   void _openEdit() {
     Navigator.of(context).push(
@@ -1375,7 +1399,7 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
 
     final diff = _diff;
     if (diff != null) {
-      unawaited(_getHeightFuture(diff, newMode));
+      _startHeightComputation(diff, newMode);
     }
 
     final searchEntry = _currentMatchEntry;
@@ -1549,50 +1573,52 @@ if (q.isNotEmpty && (_regexEnable || _caseInsensitive || _wholeWord)) {
       },
     );
   }
-Future<void> _showGroupedContextMenu() async {
-  final current = ref.read(groupedContextLinesProvider).round();
-  final picked = await showModalBottomSheet<int>(
-    context: context,
-    builder: (c) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              '跨行块视图 · 上下文行数',
-              style: TextStyle(fontWeight: FontWeight.w600),
+
+  Future<void> _showGroupedContextMenu() async {
+    final current = ref.read(groupedContextLinesProvider).round();
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                '跨行块视图 · 上下文行数',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
-          ),
-          const Divider(height: 1),
-          for (final n in const <int>[0, 1, 2, 3, 5, 8, 10])
+            const Divider(height: 1),
+            for (final n in const <int>[0, 1, 2, 3, 5, 8, 10])
+              ListTile(
+                leading: Icon(
+                  n == 0 ? Icons.crop_square : Icons.view_agenda_outlined,
+                  size: 20,
+                ),
+                title: Text(
+                  n == 0 ? '仅显示差异块' : '上下各 $n 行相同内容',
+                ),
+                trailing: current == n
+                    ? Icon(Icons.check,
+                        color: Theme.of(context).colorScheme.primary)
+                    : null,
+                onTap: () => Navigator.pop(c, n),
+              ),
+            const Divider(height: 1),
             ListTile(
-              leading: Icon(
-                n == 0 ? Icons.crop_square : Icons.view_agenda_outlined,
-                size: 20,
-              ),
-              title: Text(
-                n == 0 ? '仅显示差异块' : '上下各 $n 行相同内容',
-              ),
-              trailing: current == n
-                  ? Icon(Icons.check,
-                      color: Theme.of(context).colorScheme.primary)
-                  : null,
-              onTap: () => Navigator.pop(c, n),
+              leading: const Icon(Icons.close),
+              title: const Text('取消'),
+              onTap: () => Navigator.pop(c),
             ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.close),
-            title: const Text('取消'),
-            onTap: () => Navigator.pop(c),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
-  if (picked == null || !mounted) return;
-  ref.read(groupedContextLinesProvider.notifier).update(picked.toDouble());
-}
+    );
+    if (picked == null || !mounted) return;
+    ref.read(groupedContextLinesProvider.notifier).update(picked.toDouble());
+  }
+
   Future<void> _pickDefaultViewMode() async {
     final current = ref.read(defaultViewModeProvider);
     final picked = await showDialog<ViewMode>(
@@ -2036,18 +2062,17 @@ Future<void> _showGroupedContextMenu() async {
   }
 
   void _rememberCurrentRowForReset() {
-  final diff = _diff;
-  if (diff == null) return;
+    final diff = _diff;
+    if (diff == null) return;
 
-  // ★ grouped 视图没有"行号映射"，改用滚动像素位置
-  if (ref.read(viewModeProvider) == ViewMode.grouped) {
-    final state = _groupedKey.currentState;
-    _pendingGroupedRestoreOffset =
-        (state as dynamic)?.currentScrollOffset as double?;
-    return;
-  }
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      final state = _groupedKey.currentState;
+      _pendingGroupedRestoreOffset =
+          (state as dynamic)?.currentScrollOffset as double?;
+      return;
+    }
 
-  final topRow = _currentTopRow();
+    final topRow = _currentTopRow();
     if (topRow == null) return;
     final mode = ref.read(viewModeProvider);
     final map = _entryToRowMapOf(diff, mode);
@@ -2081,44 +2106,40 @@ Future<void> _showGroupedContextMenu() async {
     _entryToRowMapFor = null;
     _entryToRowMapMode = null;
     _heightFutures.clear();
+    _heightExactResults.clear();
     _heightFuturesFor = null;
     _heightFuturesConfigKey = null;
     _cachedContentWidth = null;
     _cachedContentWidthFor = null;
     _cachedContentWidthConfig = null;
 
+    DiffTextIndex.invalidate();
+    setState(() {});
 
-    
-     DiffTextIndex.invalidate();
-  setState(() {});
+    if (ref.read(viewModeProvider) == ViewMode.grouped) {
+      final o = _pendingGroupedRestoreOffset;
+      _pendingGroupedRestoreOffset = null;
+      _pendingJumpEntry = null;
+      _pendingJumpOrigLine = null;
+      _pendingJumpQueued = false;
+      if (o != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (ref.read(viewModeProvider) != ViewMode.grouped) return;
+          (_groupedKey.currentState as dynamic)?.restoreScrollOffset(o);
+        });
+      }
+      return;
+    }
 
-  // ★ grouped 视图：用 offset 恢复，不跳开头
-  if (ref.read(viewModeProvider) == ViewMode.grouped) {
-    final o = _pendingGroupedRestoreOffset;
-    _pendingGroupedRestoreOffset = null;
-    // 清掉给"按行跳回"用的字段，grouped 用不上
-    _pendingJumpEntry = null;
-    _pendingJumpOrigLine = null;
-    _pendingJumpQueued = false;
-    if (o != null) {
+    if (_pendingJumpEntry == null && _pendingJumpOrigLine == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (ref.read(viewModeProvider) != ViewMode.grouped) return;
-        (_groupedKey.currentState as dynamic)?.restoreScrollOffset(o);
+        if (_scrollController.hasClients) _scrollController.jumpTo(0);
+        if (_hScrollController.hasClients) _hScrollController.jumpTo(0);
       });
     }
-    return;
   }
-
-  if (_pendingJumpEntry == null && _pendingJumpOrigLine == null) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (_scrollController.hasClients) _scrollController.jumpTo(0);
-      if (_hScrollController.hasClients) _hScrollController.jumpTo(0);
-    });
-  }
-}
-  
 
   void _toast(String msg) {
     if (!mounted) return;
@@ -2268,81 +2289,67 @@ Future<void> _showGroupedContextMenu() async {
       _log('diff 已就绪，准备渲染');
     }
 
-    final future = _getHeightFuture(diff, viewMode);
-    return FutureBuilder<_HeightBundle>(
-      future: future,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('对比结果')),
-            body: const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  '正在计算显示布局…',
-                  style: TextStyle(fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          );
-        }
-        ViewerDiag.mark('视图就绪');
-        final heights = snapshot.data!;
-        _activeHeights = heights;
+    // 1. 启动/复用后台精确计算（异步，不阻塞）
+    _startHeightComputation(diff, viewMode);
 
-        if ((_pendingJumpEntry != null || _pendingJumpOrigLine != null) &&
-            !_pendingJumpQueued) {
-          _pendingJumpQueued = true;
+    // 2. 立刻渲染：优先用精确表（如果已缓存），否则用快速估算
+    final exact = _heightExactResults[viewMode];
+    final heights = exact ?? _getQuickBundle(diff, viewMode);
+    _activeHeights = heights;
 
-          int? targetEntry = _pendingJumpEntry;
-          if (targetEntry == null && _pendingJumpOrigLine != null) {
-            targetEntry = _findEntryByOrigLine(diff, _pendingJumpOrigLine!);
-            _log('按 origLine=${_pendingJumpOrigLine} 反查到 entry=$targetEntry');
+    ViewerDiag.mark(exact == null ? '视图就绪(估算)' : '视图就绪(精确)');
+
+    // 3. 待处理跳转
+    if ((_pendingJumpEntry != null || _pendingJumpOrigLine != null) &&
+        !_pendingJumpQueued) {
+      _pendingJumpQueued = true;
+
+      int? targetEntry = _pendingJumpEntry;
+      if (targetEntry == null && _pendingJumpOrigLine != null) {
+        targetEntry = _findEntryByOrigLine(diff, _pendingJumpOrigLine!);
+        _log('按 origLine=${_pendingJumpOrigLine} 反查到 entry=$targetEntry');
+      }
+      final target = targetEntry ?? -1;
+      _pendingJumpEntry = null;
+      _pendingJumpOrigLine = null;
+      _log('准备跳转: target=$target mode=${viewMode.name}');
+
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        _pendingJumpEntry = null;
+        _pendingJumpOrigLine = null;
+        _pendingJumpQueued = false;
+
+        for (var attempt = 0; attempt < 5; attempt++) {
+          if (!mounted) return;
+          if (!_scrollController.hasClients) {
+            await WidgetsBinding.instance.endOfFrame;
+            continue;
           }
-          final target = targetEntry ?? -1;
-          _pendingJumpEntry = null;
-          _pendingJumpOrigLine = null;
-          _log('准备跳转: target=$target mode=${viewMode.name}');
-
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            if (!mounted) return;
-            _pendingJumpEntry = null;
-            _pendingJumpOrigLine = null;
-            _pendingJumpQueued = false;
-
-            for (var attempt = 0; attempt < 5; attempt++) {
-              if (!mounted) return;
-              if (!_scrollController.hasClients) {
-                await WidgetsBinding.instance.endOfFrame;
-                continue;
-              }
-              if (_scrollController.position.maxScrollExtent > 0 ||
-                  attempt >= 4) {
-                break;
-              }
-              await WidgetsBinding.instance.endOfFrame;
-            }
-            if (!mounted) return;
-
-            if (target < 0) {
-              _log('跳转: 走 target<0 分支 → 跳到开头');
-              if (_scrollController.hasClients) {
-                _scrollController.jumpTo(0);
-              }
-            } else {
-              _log('跳转: 走 _scrollToEntry($target)');
-              _scrollToEntry(target);
-            }
-          });
+          if (_scrollController.position.maxScrollExtent > 0 ||
+              attempt >= 4) {
+            break;
+          }
+          await WidgetsBinding.instance.endOfFrame;
         }
+        if (!mounted) return;
 
-        return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
-      },
-    );
+        if (target < 0) {
+          _log('跳转: 走 target<0 分支 → 跳到开头');
+          if (_scrollController.hasClients) {
+            _scrollController.jumpTo(0);
+          }
+        } else {
+          _log('跳转: 走 _scrollToEntry($target)');
+          _scrollToEntry(target);
+        }
+      });
+    }
+
+    return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
   }
 
-  // ==================== 内容宽度（不换行模式横向滚动用） ====================
+  // ==================== 内容宽度 ====================
 
   double _getContentWidth(DiffResult diff, ViewMode mode, double viewportW) {
     final noWrap = ref.read(noWrapProvider);
@@ -2458,7 +2465,7 @@ Future<void> _showGroupedContextMenu() async {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
         ),
-    ViewMode.grouped => GroupedDiffView(key: _groupedKey),
+      ViewMode.grouped => GroupedDiffView(key: _groupedKey),
     };
 
     if (!noWrap) return inner;
@@ -2708,26 +2715,25 @@ Future<void> _showGroupedContextMenu() async {
                   ],
                 ),
               ),
-             PopupMenuItem<String>(
-  value: 'noWrap',
-  // ★ 跨行块视图不支持不换行，置灰 + 点击提示
-  enabled: viewMode != ViewMode.grouped,
-  child: Row(
-    children: [
-      Icon(
-        viewMode == ViewMode.grouped
-            ? Icons.block
-            : (noWrap ? Icons.wrap_text : Icons.notes),
-      ),
-      const SizedBox(width: 10),
-      Text(
-        viewMode == ViewMode.grouped
-            ? '跨行块视图不支持不换行'
-            : (noWrap ? '关闭不换行' : '开启不换行'),
-      ),
-    ],
-  ),
-),
+              PopupMenuItem<String>(
+                value: 'noWrap',
+                enabled: viewMode != ViewMode.grouped,
+                child: Row(
+                  children: [
+                    Icon(
+                      viewMode == ViewMode.grouped
+                          ? Icons.block
+                          : (noWrap ? Icons.wrap_text : Icons.notes),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      viewMode == ViewMode.grouped
+                          ? '跨行块视图不支持不换行'
+                          : (noWrap ? '关闭不换行' : '开启不换行'),
+                    ),
+                  ],
+                ),
+              ),
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'diagnostic',
@@ -2777,63 +2783,48 @@ Future<void> _showGroupedContextMenu() async {
           if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
 
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: _viewChip(
+                    label: '差异行+上下2行',
+                    value: ViewMode.diffOnly,
+                    current: viewMode,
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: _viewChip(
+                    label: '仅显示差异行',
+                    value: ViewMode.diffOnlyPlain,
+                    current: viewMode,
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: _viewChip(
+                    label: '跨行块',
+                    value: ViewMode.grouped,
+                    current: viewMode,
+                    onLongPress: _showGroupedContextMenu,
+                  ),
+                ),
+                Expanded(
+                  flex: 1,
+                  child: _viewChip(
+                    label: '上下',
+                    value: ViewMode.merged,
+                    current: viewMode,
+                    compact: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-
-
-
-
-
-
-
-Padding(
-  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-  child: Row(
-    children: [
-      Expanded(
-        flex: 3,
-        child: _viewChip(
-          label: '差异行+上下2行',
-          value: ViewMode.diffOnly,
-          current: viewMode,
-        ),
-      ),
-      Expanded(
-        flex: 3,
-        child: _viewChip(
-          label: '仅显示差异行',
-          value: ViewMode.diffOnlyPlain,
-          current: viewMode,
-        ),
-      ),
-      Expanded(
-  flex: 3,
-  child: _viewChip(
-    label: '跨行块',
-    value: ViewMode.grouped,
-    current: viewMode,
-    onLongPress: _showGroupedContextMenu,
-  ),
-),
-      // ★ 并排已隐藏；上下视图保留，占小一点
-      Expanded(
-        flex: 1,
-        child: _viewChip(
-          label: '上下',
-          value: ViewMode.merged,
-          current: viewMode,
-          compact: true,
-        ),
-      ),
-    ],
-  ),
-),
-
-
-
-
-
-
-          
           _buildToolbar(),
           if (_processing) _buildProcessingBanner(),
           Expanded(
@@ -2943,18 +2934,18 @@ Padding(
     );
   }
 
- Widget _viewChip({
-  required String label,
-  required ViewMode value,
-  required ViewMode current,
-  bool compact = false,
-  VoidCallback? onLongPress,
-}) {
-  final selected = value == current;
-  final s = Theme.of(context).colorScheme;
-  return GestureDetector(
-    onTap: () => _switchView(value),
-    onLongPress: onLongPress,
+  Widget _viewChip({
+    required String label,
+    required ViewMode value,
+    required ViewMode current,
+    bool compact = false,
+    VoidCallback? onLongPress,
+  }) {
+    final selected = value == current;
+    final s = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => _switchView(value),
+      onLongPress: onLongPress,
       child: Container(
         height: 28,
         alignment: Alignment.center,
@@ -3214,43 +3205,43 @@ Padding(
         _pendingOrigChanges.length + _pendingModChanges.length;
 
     Widget toggle({
-  required String label,
-  required bool value,
-  required VoidCallback onTap,
-  VoidCallback? onLongPress,
-}) {
-  return InkWell(
-    onTap: onTap,
-    onLongPress: onLongPress,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-       decoration: value
-    ? BoxDecoration(
-        border: Border.all(
-          color: Colors.orange.shade300,
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(4),
-      )
-    : null,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: value ? FontWeight.bold : FontWeight.normal,
-            color: value
-                ? AppColors.accentPurple
-                : Theme.of(context).colorScheme.onSurfaceVariant,
+      required String label,
+      required bool value,
+      required VoidCallback onTap,
+      VoidCallback? onLongPress,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: value
+                ? BoxDecoration(
+                    border: Border.all(
+                      color: Colors.orange.shade300,
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  )
+                : null,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: value ? FontWeight.bold : FontWeight.normal,
+                color: value
+                    ? AppColors.accentPurple
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
         ),
-      ),
-    ),
-  );
+      );
     }
 
-    // ★ 新的三选一胶囊（左侧 / 右侧 / 两侧）
+    // 三选一胶囊（左侧 / 右侧 / 两侧）
     Widget sidePill({
       required String label,
       required bool selected,
@@ -3258,14 +3249,13 @@ Padding(
     }) {
       final s = Theme.of(context).colorScheme;
       return Material(
-        color: Colors.transparent, // 让水波纹透出来
+        color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(6),
           splashColor: AppColors.accentPurple.withOpacity(0.18),
           highlightColor: AppColors.accentPurple.withOpacity(0.08),
           child: Container(
-            // 左右内边距大一些 → 单颗更宽，防误点
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
@@ -3317,26 +3307,26 @@ Padding(
                     onSubmitted: (_) => _nextMatch(),
                   ),
                 ),
-  IconButton(
-  icon: const Icon(Icons.search),
-  color: AppColors.accentPurple,
-  tooltip: '立即搜索',
-  visualDensity: VisualDensity.compact,
-  onPressed: () {
-    if (_findQuery.isEmpty) {
-      _toast('请先输入查找内容');
-      return;
-    }
-    _findDebounce?.cancel();
-    _findChanged(_findController.text, autoScroll: false);
-  },
-),
-IconButton(
-  icon: const Icon(Icons.history),
-  tooltip: '查找历史',
-  visualDensity: VisualDensity.compact,
-  onPressed: _showFindHistory,
-),
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  color: AppColors.accentPurple,
+                  tooltip: '立即搜索',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    if (_findQuery.isEmpty) {
+                      _toast('请先输入查找内容');
+                      return;
+                    }
+                    _findDebounce?.cancel();
+                    _findChanged(_findController.text, autoScroll: false);
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.history),
+                  tooltip: '查找历史',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _showFindHistory,
+                ),
               ],
             ),
             if (_noResultHint != null)
@@ -3346,7 +3336,7 @@ IconButton(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-            color: const Color(0xFFFFF8F0),
+                  color: const Color(0xFFFFF8F0),
                   border: Border.all(color: Colors.orange.shade300),
                   borderRadius: BorderRadius.circular(4),
                 ),
@@ -3388,16 +3378,16 @@ IconButton(
                     visualDensity: VisualDensity.compact,
                     foregroundColor: AppColors.accentPurple,
                   ),
-             onPressed: _findQuery.isEmpty ? null : _replaceCurrentInline,
-child: const Text('替换当前'),
+                  onPressed: _findQuery.isEmpty ? null : _replaceCurrentInline,
+                  child: const Text('替换当前'),
                 ),
                 TextButton(
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     foregroundColor: AppColors.accentPurple,
                   ),
-           onPressed: _findQuery.isEmpty ? null : _replaceAllInline,
-child: const Text('全部替换'),
+                  onPressed: _findQuery.isEmpty ? null : _replaceAllInline,
+                  child: const Text('全部替换'),
                 ),
               ],
             ),
@@ -3429,12 +3419,11 @@ child: const Text('全部替换'),
                           if (_replaceHint != null)
                             '替换框：$_replaceHint',
                         ].join('\n\n'),
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           height: 1.2,
                           fontWeight: FontWeight.bold,
-                       
-color: const Color(0xFF000000),              // 文字
+                          color: Color(0xFF000000),
                         ),
                       ),
                     ),
@@ -3445,12 +3434,11 @@ color: const Color(0xFF000000),              // 文字
               children: [
                 const SizedBox(width: 8),
 
-                // ── 左侧 ──
                 sidePill(
                   label: '左侧',
                   selected: _searchLeft && !_searchRight,
                   onTap: () {
-                    if (_searchLeft && !_searchRight) return; // 已选中
+                    if (_searchLeft && !_searchRight) return;
                     setState(() {
                       _searchLeft = true;
                       _searchRight = false;
@@ -3460,7 +3448,6 @@ color: const Color(0xFF000000),              // 文字
                 ),
                 const SizedBox(width: 10),
 
-                // ── 右侧 ──
                 sidePill(
                   label: '右侧',
                   selected: !_searchLeft && _searchRight,
@@ -3475,7 +3462,6 @@ color: const Color(0xFF000000),              // 文字
                 ),
                 const SizedBox(width: 10),
 
-                // ── 两侧 ──
                 sidePill(
                   label: '两侧',
                   selected: _searchLeft && _searchRight,
@@ -3495,14 +3481,14 @@ color: const Color(0xFF000000),              // 文字
                   color: AppColors.accentPurple,
                   tooltip: '上一个',
                   visualDensity: VisualDensity.compact,
-       onPressed: _findQuery.isEmpty ? null : _prevMatch,
+                  onPressed: _findQuery.isEmpty ? null : _prevMatch,
                 ),
                 IconButton(
                   icon: const Icon(Icons.arrow_downward),
                   color: AppColors.accentPurple,
                   tooltip: '下一个',
                   visualDensity: VisualDensity.compact,
-            onPressed: _findQuery.isEmpty ? null : _nextMatch,
+                  onPressed: _findQuery.isEmpty ? null : _nextMatch,
                 ),
               ],
             ),
