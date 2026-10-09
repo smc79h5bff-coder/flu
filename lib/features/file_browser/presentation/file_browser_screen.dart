@@ -451,7 +451,8 @@ static const Set<String> _archiveExts = {
   bool _searchActive = false;
   int _searchTaskId = 0;
   DateTime _lastUiRefresh = DateTime.now();
-
+/// 最近一次点击整行的 x 坐标（局部坐标，相对行左边）。
+double _lastTapX = double.infinity;
   // ==================== zip 展开状态 ====================
 
   /// 已展开的 zip 的 key（磁盘路径）。
