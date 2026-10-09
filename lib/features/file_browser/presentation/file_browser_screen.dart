@@ -3223,7 +3223,7 @@ Future<void> _showDirInfoDialog() async {
       _toast('压缩包内的文件不支持移动');
       return;
     }
-    final target = await _pickDirectory('移动到哪？');
+   final target = await _pickDirectory('移动到哪？', paths);
     if (target == null) return;
 
     var ok = 0;
@@ -3260,7 +3260,7 @@ Future<void> _showDirInfoDialog() async {
       _toast('压缩包内的文件不支持复制');
       return;
     }
-    final target = await _pickDirectory('复制到哪？');
+   final target = await _pickDirectory('复制到哪？', paths);
     if (target == null) return;
 
     var ok = 0;
@@ -3463,16 +3463,17 @@ if (ok != true) return;
     _navigateTo(target);
   }
 
-  Future<String?> _pickDirectory(String title) async {
-    return showDialog<String>(
-      context: context,
-      builder: (_) => DirectoryPickerDialog(
-        title: title,
-        rootPath: _topPath,
-        initialPath: _currentPath,
-      ),
-    );
-  }
+  Future<String?> _pickDirectory(String title, List<String> pickedPaths) async {
+  return showDialog<String>(
+    context: context,
+    builder: (_) => DirectoryPickerDialog(
+      title: title,
+      rootPath: _topPath,
+      initialPath: _currentPath,
+      pickedPaths: pickedPaths,
+    ),
+  );
+}
 
   // ==================== 面包屑 ====================
 
