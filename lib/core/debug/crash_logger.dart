@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// 崩溃/异常诊断日志。
@@ -14,7 +14,7 @@ import 'package:path_provider/path_provider.dart';
 ///   3. isolate 里抛出的错
 ///   4. 主线程卡顿（独立 isolate 看门狗，≥3 秒记录一次）
 ///   5. 内存占用（每 10 秒采一次）
-///   6. 最近 30 条关键操作
+///   6. 最近 30 条关键操作（每次 mark 立即写盘）
 ///   7. 启动环境信息
 ///
 /// 写到 App 文档目录：crash_log.txt + crash_log_watchdog.txt
@@ -23,23 +23,20 @@ class CrashLogger {
   CrashLogger._();
   static final CrashLogger instance = CrashLogger._();
 
-  static const int _maxBytes = 1024 * 1024; // 主日志上限 1MB
-  static const int _keepBytes = 512 * 1024; // 截断后保留最近 512KB
-  static const int _recentOpsMax = 30; // 最近操作条数
+  static const int _maxBytes = 1024 * 1024;
+  static const int _keepBytes = 512 * 1024;
+  static const int _recentOpsMax = 30;
 
   File? _file;
   File? _watchdogFile;
   bool _initialized = false;
 
-  // 最近操作环形缓冲
   final _recentOps = <String>[];
 
-  // 心跳（主线程 → 看门狗）
   Timer? _heartbeat;
   SendPort? _watchdogPort;
   final _watchdogRecv = ReceivePort();
 
-  // 内存监控
   Timer? _memTimer;
   int _lastRss = 0;
 
@@ -69,21 +66,21 @@ class CrashLogger {
     FlutterError.onError = (details) {
       prev?.call(details);
       log(
-  'FlutterError',
-  details.exceptionAsString(),
-  details.stack,
-  _dumpRecentOps(),
-);
+        'FlutterError',
+        details.exceptionAsString(),
+        details.stack,
+        _dumpRecentOps(),
+      );
     };
 
     // 2) 未捕获异步异常
     PlatformDispatcher.instance.onError = (error, stack) {
-     log(
-  'Uncaught',
-  error.toString(),
-  stack,
-  _dumpRecentOps(),
-);
+      log(
+        'Uncaught',
+        error.toString(),
+        stack,
+        _dumpRecentOps(),
+      );
       return false;
     };
 
@@ -123,17 +120,17 @@ class CrashLogger {
     } catch (_) {}
   }
 
-  /// 记录一条关键操作。进环形缓冲，崩溃时随日志一起写出。
+  /// 记录一条关键操作。进环形缓冲，并且立即写盘。
   /// 用法：CrashLogger.instance.mark('切视图: diffOnly');
   void mark(String op) {
-  final ts = DateTime.now().toIso8601String();
-  final line = '[$ts] [Mark] $op';
-  _recentOps.add(line);
-  if (_recentOps.length > _recentOpsMax) {
-    _recentOps.removeAt(0);
+    final ts = DateTime.now().toIso8601String();
+    final line = '[$ts] [Mark] $op';
+    _recentOps.add(line);
+    if (_recentOps.length > _recentOpsMax) {
+      _recentOps.removeAt(0);
+    }
+    _writeSync('$line\n---\n');
   }
-  _writeSync('$line\n---\n');
-}
 
   String _dumpRecentOps() {
     if (_recentOps.isEmpty) return '（无最近操作）';
@@ -181,7 +178,17 @@ class CrashLogger {
           _watchdogPort = msg;
           _heartbeat = Timer.periodic(
             const Duration(milliseconds: 500),
-            (_) => _watchdogPort?.send('ping'),
+            (_) {
+              // 只有 App 在前台才发心跳。
+              // 后台被系统冻结时，主线程本来就不该工作，不算"卡顿"。
+              final st = WidgetsBinding.instance.lifecycleState;
+              if (st == AppLifecycleState.resumed ||
+                  st == null) {
+                _watchdogPort?.send('ping');
+              } else {
+                _watchdogPort?.send('paused');
+              }
+            },
           );
         }
       });
@@ -260,7 +267,9 @@ void _watchdogEntry(List<dynamic> args) async {
   bool alerted = false;
 
   recv.listen((msg) {
-    if (msg == 'ping') {
+    // ping 和 paused 都算"主线程还活着"，重置计时。
+    // paused = App 在后台，不算卡顿。
+    if (msg == 'ping' || msg == 'paused') {
       lastPing = DateTime.now();
       alerted = false;
     }
