@@ -19,11 +19,13 @@ class DirectoryPickerDialog extends ConsumerStatefulWidget {
     required this.title,
     required this.rootPath,
     required this.initialPath,
+    this.pickedPaths = const [],
   });
 
   final String title;
   final String rootPath;
   final String initialPath;
+  final List<String> pickedPaths;
 
   @override
   ConsumerState<DirectoryPickerDialog> createState() =>
@@ -64,6 +66,16 @@ class _DirectoryPickerDialogState
     _filterCtrl.dispose();
     _pageCtrl.dispose();
     super.dispose();
+  }
+
+  void _showPickedItems() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _PickedItemsSheet(
+        title: widget.title,
+        paths: widget.pickedPaths,
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -183,6 +195,17 @@ class _DirectoryPickerDialogState
               tooltip: '取消',
               onPressed: () => Navigator.pop(context),
             ),
+            actions: [
+              if (widget.pickedPaths.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.content_paste, size: 18),
+                    label: Text('${widget.pickedPaths.length}'),
+                    onPressed: _showPickedItems,
+                  ),
+                ),
+            ],
           ),
           body: SafeArea(
             child: Column(
@@ -614,6 +637,350 @@ class _DirectoryPickerDialogState
           );
         }
       },
+    );
+  }
+}
+
+// ==================== 要移动/复制的项目清单 ====================
+
+typedef _ItemStat = ({int bytes, int fileCount, bool truncated});
+
+class _PickedItemsSheet extends StatefulWidget {
+  const _PickedItemsSheet({required this.title, required this.paths});
+  final String title;
+  final List<String> paths;
+
+  @override
+  State<_PickedItemsSheet> createState() => _PickedItemsSheetState();
+}
+
+class _PickedItemsSheetState extends State<_PickedItemsSheet> {
+  static const int _limit = 2000;
+
+  final Map<String, _ItemStat> _stats = {};
+  final Map<String, bool> _isDir = {};
+  bool _showPath = true;
+  int _pathMode = 1; // 0=完整 1=中间省略 2=结尾省略
+
+  String get _verb {
+    if (widget.title.contains('移动')) return '移动';
+    if (widget.title.contains('复制')) return '复制';
+    return '处理';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  Future<void> _start() async {
+    // 第一遍：所有文件（瞬间完成）
+    for (final p in widget.paths) {
+      if (!mounted) return;
+      try {
+        if (!Directory(p).existsSync()) {
+          _isDir[p] = false;
+          final st = File(p).statSync();
+          _stats[p] = (bytes: st.size, fileCount: 1, truncated: false);
+        }
+      } catch (_) {
+        _isDir[p] = false;
+        _stats[p] = (bytes: 0, fileCount: 0, truncated: true);
+      }
+    }
+    if (mounted) setState(() {});
+
+    // 第二遍：文件夹异步扫
+    for (final p in widget.paths) {
+      if (!mounted) return;
+      if (_stats.containsKey(p)) continue;
+      try {
+        if (Directory(p).existsSync()) {
+          _isDir[p] = true;
+          if (mounted) setState(() {});
+          final r = await _scanDir(p);
+          if (!mounted) return;
+          _stats[p] = r;
+        }
+      } catch (_) {
+        _stats[p] = (bytes: 0, fileCount: 0, truncated: true);
+      }
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<_ItemStat> _scanDir(String rootPath) async {
+    var fileCount = 0;
+    var dirCount = 0;
+    var bytes = 0;
+    final stack = <String>[rootPath];
+    var lastYield = DateTime.now();
+    while (stack.isNotEmpty) {
+      if (fileCount + dirCount > _limit) {
+        return (bytes: bytes, fileCount: fileCount, truncated: true);
+      }
+      final p = stack.removeLast();
+      List<FileSystemEntity> entries;
+      try {
+        entries = Directory(p).listSync(followLinks: false);
+      } catch (_) {
+        continue;
+      }
+      for (final e in entries) {
+        if (e is File) {
+          fileCount++;
+          try {
+            bytes += e.statSync().size;
+          } catch (_) {}
+        } else if (e is Directory) {
+          dirCount++;
+          stack.add(e.path);
+        }
+      }
+      final now = DateTime.now();
+      if (now.difference(lastYield).inMilliseconds > 30) {
+        lastYield = now;
+        if (mounted) setState(() {});
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+    return (bytes: bytes, fileCount: fileCount, truncated: false);
+  }
+
+  String _fmt(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+  }
+
+  String _shortenPath(String fullPath) {
+    const rootPath = '/storage/emulated/0';
+    const topPath = '/storage';
+
+    if (fullPath == rootPath) return '~/';
+    if (fullPath.startsWith('$rootPath/')) {
+      return '~${fullPath.substring(rootPath.length)}';
+    }
+
+    if (fullPath.startsWith('$topPath/emulated/')) {
+      final rest = fullPath.substring('$topPath/emulated/'.length);
+      final slash = rest.indexOf('/');
+      final num = slash < 0 ? rest : rest.substring(0, slash);
+      if (RegExp(r'^\d+$').hasMatch(num) && num != '0') {
+        final remainder = slash < 0 ? '' : rest.substring(slash);
+        return '双开($num)$remainder';
+      }
+    }
+
+    if (fullPath.startsWith('$topPath/')) {
+      final rest = fullPath.substring('$topPath/'.length);
+      final slash = rest.indexOf('/');
+      final seg = slash < 0 ? rest : rest.substring(0, slash);
+      if (RegExp(r'^[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}$').hasMatch(seg)) {
+        final remainder = slash < 0 ? '' : rest.substring(slash);
+        return '外部存储($seg)$remainder';
+      }
+    }
+
+    const mntPrefix = '/mnt/media_rw/';
+    if (fullPath.startsWith(mntPrefix)) {
+      final rest = fullPath.substring(mntPrefix.length);
+      final slash = rest.indexOf('/');
+      final seg = slash < 0 ? rest : rest.substring(0, slash);
+      if (RegExp(r'^[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}$').hasMatch(seg)) {
+        final remainder = slash < 0 ? '' : rest.substring(slash);
+        return '外部存储($seg)$remainder';
+      }
+    }
+
+    return fullPath;
+  }
+
+  String _applyPathMode(String path) {
+    const maxLen = 40;
+    if (_pathMode == 0 || path.length <= maxLen) return path;
+
+    if (_pathMode == 1) {
+      const head = 20;
+      const tail = 17;
+      return '${path.substring(0, head)}…${path.substring(path.length - tail)}';
+    }
+    return '${path.substring(0, maxLen - 1)}…';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+
+    final totalFiles = _stats.values.fold<int>(0, (a, e) => a + e.fileCount);
+    final totalBytes = _stats.values.fold<int>(0, (a, e) => a + e.bytes);
+    final anyTruncated = _stats.values.any((e) => e.truncated);
+    final allDone = _stats.length == widget.paths.length;
+
+    String totalStr;
+    if (!allDone) {
+      totalStr = '正在统计…';
+    } else if (anyTruncated) {
+      totalStr = '总计约 ${_fmt(totalBytes)}（部分未统计）';
+    } else {
+      totalStr = '共 $totalFiles 个文件，${_fmt(totalBytes)}';
+    }
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 600),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.content_paste, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '要${_verb}的 ${widget.paths.length} 项',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Row(
+                children: [
+                  FilterChip(
+                    label: const Text(
+                      '显示路径',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    selected: _showPath,
+                    onSelected: (v) => setState(() => _showPath = v),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  if (_showPath) ...[
+                    const SizedBox(width: 8),
+                    ActionChip(
+                      label: Text(
+                        const ['完整', '中间省略', '结尾省略'][_pathMode],
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => setState(
+                        () => _pathMode = (_pathMode + 1) % 3,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: widget.paths.length,
+                itemBuilder: (ctx, i) {
+                  final p = widget.paths[i];
+                  final name = p.split('/').last;
+                  final isDir = _isDir[p] ?? false;
+                  final stat = _stats[p];
+
+                  String sizeText;
+                  if (stat == null) {
+                    sizeText = '计算中…';
+                  } else if (stat.truncated) {
+                    sizeText = '文件过多，未统计';
+                  } else if (isDir) {
+                    sizeText = '${stat.fileCount} 个文件，${_fmt(stat.bytes)}';
+                  } else {
+                    sizeText = _fmt(stat.bytes);
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              isDir
+                                  ? Icons.folder
+                                  : Icons.insert_drive_file_outlined,
+                              size: 16,
+                              color: isDir ? Colors.black87 : s.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              sizeText,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: s.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_showPath)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 22, top: 2),
+                            child: Text(
+                              _applyPathMode(_shortenPath(p)),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: s.onSurfaceVariant,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Text(
+                totalStr,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
