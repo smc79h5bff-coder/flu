@@ -166,13 +166,6 @@ class _SearchHit {
 
 // ==================== 统一列表项 ====================
 
-/// 列表里的一个条目。可能是磁盘文件、磁盘目录、zip、zip 内文件、zip 内目录。
-///
-/// [key] 是唯一标识：
-///   · 磁盘文件/目录：就是完整路径
-///   · zip 内文件/目录：'zip://<zip 完整路径>§<zip 内路径>'
-///
-/// [ownerZipKey] 非空表示此项属于某个展开的 zip（用于粘性头部和缩进）。
 class _DisplayItem {
   const _DisplayItem({
     required this.key,
@@ -205,32 +198,15 @@ class _DisplayItem {
   final EntryInfo? diskEntry;
   final _SearchHit? searchHit;
 
-  /// 若非空，此项属于该 zip（zip 的 key = 磁盘路径）。
   final String? ownerZipKey;
-
-  /// zip 内路径（相对于 ownerZipKey 对应 zip 的根）。
-  /// 若此项来自嵌套 zip，用 'inner.zip>readme.txt' 这种形式。
   final String? innerPath;
-
-  /// 显示用的完整嵌套路径（可能带 '>' 前缀）。
-  /// 跟 [innerPath] 的区别：
-  ///   · innerPath          = 当前层 archive 内的实际路径，用于 findFile
-  ///   · innerPathForDisplay = 带嵌套前缀的完整路径，用于显示
   final String? innerPathForDisplay;
-
-  /// 此项所在层的 archive。用于读取内容。只有 zip 内项才有。
   final Archive? innerArchive;
 
-  /// 是否为磁盘上的真实文件（用于判断能不能操作）。
   bool get isDiskItem => diskEntry != null || searchHit != null;
-
-  /// 是不是可以展开的（zip 文件）。
   bool get canExpand => isZip;
-
-  /// 提取磁盘路径（仅磁盘项有）。
   String? get diskPath => diskEntry?.path ?? searchHit?.path;
 
-  /// 加 prefix 得到显示路径（面包屑样）。
   String get fullDisplayPath {
     if (ownerZipKey == null) return displayName;
     final zipName = ownerZipKey!.split('/').last;
@@ -241,10 +217,7 @@ class _DisplayItem {
 
 // ==================== 虚拟 key 工具 ====================
 
-/// zip 内项的 key 前缀。
 const String _zipInnerPrefix = 'zip://';
-
-/// 分隔符：zip 磁盘路径 + '§' + zip 内路径。
 const String _zipInnerSep = '§';
 
 bool _isZipInnerKey(String key) => key.startsWith(_zipInnerPrefix);
@@ -352,7 +325,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   static const String _rootPath = '/storage/emulated/0';
   static const String _topPath = '/storage';
 
-  // 弹窗统一参数
   static const EdgeInsets _dlgInset = EdgeInsets.all(4);
   static const EdgeInsets _dlgTitlePad =
       EdgeInsets.fromLTRB(12, 8, 12, 0);
@@ -360,14 +332,12 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   static const EdgeInsets _dlgActionsPad =
       EdgeInsets.fromLTRB(4, 0, 4, 4);
 
-  // 网格常量
   static const double _gridCellPadH = 8.0;
   static const double _gridCellPadV = 6.0;
   static const double _gridDividerThickness = 0.5;
   static const Color _gridDividerColor = Color(0xFFE0E0E0);
   static const Color _gridSelectedBg = Color(0xFFFFF3FB);
 
-  // 扩展名集合
   static const Set<String> _textExts = {
     '.txt', '.md', '.markdown', '.log', '.lst', '.diz', '.nfo',
     '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.conf', '.cfg',
@@ -451,26 +421,19 @@ static const Set<String> _archiveExts = {
   bool _searchActive = false;
   int _searchTaskId = 0;
   DateTime _lastUiRefresh = DateTime.now();
-/// 最近一次点击整行的 x 坐标（局部坐标，相对行左边）。
-double _lastTapX = double.infinity;
+
+  // ★ 新增：最近一次整行点击的 x 坐标（相对行左边）。
+  // 用来判断点的是不是左侧图标区（图标区点=选中，其它=打开）。
+  double _lastTapX = double.infinity;
+
   // ==================== zip 展开状态 ====================
 
-  /// 已展开的 zip 的 key（磁盘路径）。
   final Set<String> _expandedZipKeys = <String>{};
-
-  /// 已加载的 zip 内容。key = zip 磁盘路径。
   final Map<String, Archive> _zipArchives = <String, Archive>{};
-
-  /// 正在加载的 zip。key = zip 磁盘路径。
   final Set<String> _loadingZipKeys = <String>{};
-
-  /// zip 展开失败原因。key = zip 磁盘路径。
   final Map<String, String> _zipErrors = <String, String>{};
 
-  /// 当前固定显示的粘性头部对应的 zip key。null = 不显示。
   /// ★ 粘性头部已停用，此字段保留但始终为 null。
-  /// 当前固定显示的粘性头部对应的 zip key。null = 不显示。
-/// ★ 粘性头部已停用，此字段保留但始终为 null。
 String? _stickyZipKey;
 
 // ==================== 过滤状态 ====================
@@ -478,23 +441,16 @@ String? _stickyZipKey;
 List<_SearchHit> _filterDeepResults = const [];
 int _filterTaskId = 0;
 List<_DisplayItem>? _visibleItems;
-
-/// 缓存：每次 build 后重新计算的 display 列表。
 List<_DisplayItem>? _cachedDisplayItems;
+List<String?>? _cachedOwnerZipPerIndex;
 
-  /// 缓存：每个 index 对应的 ownerZipKey（用于粘性头部判定）。
-  List<String?>? _cachedOwnerZipPerIndex;
-
-  /// 单次打开压缩包的大小上限。zip / tar / tar.gz / tgz 一视同仁。
   static const int _maxZipBytes = 50 * 1024 * 1024;
 
-  /// 点击后直接弹系统 App 选择器的后缀。
-  /// 不弹"打开方式 / 分享"两选一，直接出系统列表。
   static const Set<String> _forceSystemPickerExts = {
     '.7z', '.rar', '.dzip', '.iso', '.tz', '.gz',
     '.epub', '.pdf', '.doc', '.docx',
   };
-
+  
   // ==================== 生命周期 ====================
 
   @override
@@ -547,14 +503,8 @@ List<_DisplayItem>? _cachedDisplayItems;
 
   void _onPositionsChanged() {
     _recordCurrentScroll();
-    // ★ 粘性头部已停用：改用图标区分展开/折叠，不再调用
-    //   _updateStickyZip()。之前它会在 _stickyZipKey 变化时
-    //   setState 导致 build 里 Stack 结构切换，ScrollablePositionedList
-    //   被销毁重建，滚动位置丢失（表现为"往上滑突然跳回顶端"）。
   }
 
-  /// 根据当前可见列表项，更新粘性 zip 头部。
-  /// ★ 已停用，保留方法备查。
   // ignore: unused_element
   void _updateStickyZip() {
     final items = _cachedDisplayItems;
@@ -592,8 +542,6 @@ List<_DisplayItem>? _cachedDisplayItems;
     }
   }
 
-  /// 判断在 topIdx 这个滚动位置，哪个 zip 应该变粘性。
-  /// ★ 已停用，保留方法备查。
   // ignore: unused_element
   String? _computeStickyZipForIndex(int topIdx, List<_DisplayItem> items) {
     if (topIdx < 0 || topIdx >= items.length) return null;
@@ -620,7 +568,6 @@ List<_DisplayItem>? _cachedDisplayItems;
 
   // ==================== 显示列表构建 ====================
 
-  /// 把磁盘条目 + zip 展开内容合并成一个扁平列表，供列表 UI 渲染。
   List<_DisplayItem> _buildDisplayItems() {
     final out = <_DisplayItem>[];
 
@@ -654,7 +601,6 @@ List<_DisplayItem>? _cachedDisplayItems;
       return out;
     }
 
-    // 普通浏览模式
     final entries = _entries ?? const <EntryInfo>[];
     for (final info in entries) {
       final isZip = !info.isDir && _isExpandableArchiveName(info.name);
@@ -686,11 +632,6 @@ List<_DisplayItem>? _cachedDisplayItems;
     return out;
   }
 
-  /// 把某个 zip 内 `at` 路径下的子节点（递归）加到 out 里。
-  ///
-  /// [zipDiskPath] 是最外层 zip 的磁盘路径（用于拼 key）。
-  /// [innerPrefix] 是"已经走过的 zip 内路径"，顶层 zip 直接子节点传 ''。
-  /// [parentOwnerKey] 是此项归属的 zip key（粘性头部用）。
   void _appendZipChildren({
     required List<_DisplayItem> out,
     required String zipDiskPath,
@@ -728,7 +669,6 @@ List<_DisplayItem>? _cachedDisplayItems;
 
     final children = _directZipChildren(zipArchive, at);
     for (final c in children) {
-      // 显示用的完整路径（带嵌套前缀）
       final innerFullForDisplay = innerPrefix.isEmpty
           ? c.fullPath
           : '$innerPrefix>${c.fullPath}';
@@ -779,8 +719,6 @@ List<_DisplayItem>? _cachedDisplayItems;
     }
   }
 
-// ===== 第 1/3 条结束，接第 2/3 条 =====
-
   // ==================== 加载目录 ====================
 
   Future<void> _load({
@@ -800,7 +738,6 @@ List<_DisplayItem>? _cachedDisplayItems;
 final sortField = ref.read(sortFieldProvider);
 final sortAsc = ref.read(sortAscProvider);
 final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
-    // 换目录时收起所有 zip
     if (_expandedZipKeys.isNotEmpty) {
       _expandedZipKeys.clear();
       _stickyZipKey = null;
@@ -1133,7 +1070,6 @@ _expandedZipKeys.clear();
 
   void _toggleSelectAll() {
     final all = _cachedDisplayItems ?? const <_DisplayItem>[];
-    // 全选时只选"实际可选择"的（非目录、非 loading/error 提示）
     final selectable = all
         .where((it) => !it.isDir && !it.key.startsWith('__loading__') &&
             !it.key.startsWith('__error__'))
@@ -1164,16 +1100,6 @@ _expandedZipKeys.clear();
 
   // ==================== zip 展开 / 收起 ====================
 
-
-/// 修复 zip 里的乱码文件名。
-///
-/// 老 Windows / WinRAR 打的 zip，文件名是 GBK 字节，但没设 UTF-8 标记位。
-/// archive 包遇到没标记位的 zip，一律按 latin1 解，就成乱码了。
-///
-/// 判断逻辑：
-///   · 文件名字符里有 > 0xFF 的字符 → 说明已经正确解码（UTF-8/中文），不动
-///   · 全是 ASCII → 不动
-///   · 有 0x80~0xFF 的字符 → 按 latin1 反推回字节，再试 UTF-8、GBK
 Archive _fixZipNames(Archive archive) {
   var anyChanged = false;
   final newArchive = Archive();
@@ -1190,21 +1116,18 @@ String _fixZipName(String name) {
 
   var hasHigh = false;
   for (final r in name.runes) {
-    if (r > 0xFF) return name; // 有非 latin1 字符，说明已正确解码
+    if (r > 0xFF) return name;
     if (r >= 0x80) hasHigh = true;
   }
-  if (!hasHigh) return name; // 纯 ASCII
+  if (!hasHigh) return name;
 
-  // 有 0x80~0xFF 的字符，可能是 latin1 解出的 GBK/UTF-8 字节
   final bytes = Uint8List.fromList(name.codeUnits);
 
-  // 先试 UTF-8
   try {
     final utf8Name = utf8.decode(bytes);
     if (utf8Name != name) return utf8Name;
   } catch (_) {}
 
-  // 再试 GBK
   try {
     final gbkName = gbk.decode(bytes);
     if (gbkName != name) return gbkName;
@@ -1213,22 +1136,18 @@ String _fixZipName(String name) {
   return name;
 }
 
-  /// 快速判断 zip 是否加密：读文件头前 8 字节，看通用用途标志位。
-  /// 不完整解压，几毫秒返回。
   Future<bool> _isEncryptedZip(String path) async {
     try {
       final raf = await File(path).open();
       try {
         final header = await raf.read(8);
         if (header.length < 8) return false;
-        // 本地文件头签名：50 4B 03 04 = 'PK\x03\x04'
         if (header[0] != 0x50 ||
             header[1] != 0x4B ||
             header[2] != 0x03 ||
             header[3] != 0x04) {
           return false;
         }
-        // 通用用途位标志的第 0 位 = 加密
         return (header[6] & 0x01) != 0;
       } finally {
         await raf.close();
@@ -1238,9 +1157,6 @@ String _fixZipName(String name) {
     }
   }
 
-  /// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
-  
-/// 按文件名后缀选解码器。zip / tar / tar.gz / tgz 都支持。
 Archive _decodeArchiveBytes(String name, Uint8List bytes) {
   final lower = name.toLowerCase();
  if (lower.endsWith('.zip')) {
@@ -1257,15 +1173,11 @@ Archive _decodeArchiveBytes(String name, Uint8List bytes) {
   throw Exception('不支持的压缩格式：$name');
 }
 
-/// 自己解析 tar。相比 archive 包的 TarDecoder，多了文件名编码回退：
-/// 先严格 UTF-8 解，失败再 GBK 解，最后 latin1 兜底。
-/// 支持 ustar prefix 和 GNU LongName（typeflag 'L'）。
 Archive _parseTarWithGbk(Uint8List bytes) {
   final archive = Archive();
   var offset = 0;
   Uint8List? pendingLongNameBytes;
 
-  // 去掉尾部 \0，然后依次尝试 UTF-8 / GBK / latin1
   String decodeName(List<int> raw) {
     var end = raw.length;
     while (end > 0 && raw[end - 1] == 0) {
@@ -1282,7 +1194,6 @@ Archive _parseTarWithGbk(Uint8List bytes) {
     return String.fromCharCodes(slice);
   }
 
-  // 读八进制数字（tar header 里 size 是这个格式）
   int readOctal(Uint8List buf, int start, int len) {
     var result = 0;
     for (var i = start; i < start + len; i++) {
@@ -1299,7 +1210,6 @@ Archive _parseTarWithGbk(Uint8List bytes) {
   while (offset + 512 <= bytes.length) {
     final header = Uint8List.sublistView(bytes, offset, offset + 512);
 
-    // 全零 header = 结束标记
     var allZero = true;
     for (var i = 0; i < 512; i++) {
       if (header[i] != 0) {
@@ -1312,7 +1222,6 @@ Archive _parseTarWithGbk(Uint8List bytes) {
     var name = decodeName(header.sublist(0, 100));
     final size = readOctal(header, 124, 12);
     final type = header[156];
-    // ustar 长路径的 prefix（老格式，路径 > 100 字节时分两段存）
     final prefix = decodeName(header.sublist(345, 500));
     if (prefix.isNotEmpty) {
       name = '$prefix/$name';
@@ -1321,7 +1230,6 @@ Archive _parseTarWithGbk(Uint8List bytes) {
     offset += 512;
     if (offset + size > bytes.length) break;
 
-    // typeflag 0x4C = 'L'，GNU LongName：下一段内容是真正的文件名
     if (type == 0x4C) {
       pendingLongNameBytes =
           Uint8List.fromList(bytes.sublist(offset, offset + size));
@@ -1329,13 +1237,11 @@ Archive _parseTarWithGbk(Uint8List bytes) {
       continue;
     }
 
-    // typeflag 0x78 = 'x'（pax 扩展头）/ 0x67 = 'g'（全局扩展头）：跳过
     if (type == 0x78 || type == 0x67) {
       offset += alignTo512(size);
       continue;
     }
 
-    // typeflag '\0'（0x00）/ '0'（0x30）= 普通文件，'5'（0x35）= 目录
     if (type == 0x00 || type == 0x30 || type == 0x35) {
       if (pendingLongNameBytes != null) {
         name = decodeName(pendingLongNameBytes);
@@ -1347,7 +1253,6 @@ Archive _parseTarWithGbk(Uint8List bytes) {
           ? Uint8List(0)
           : Uint8List.fromList(bytes.sublist(offset, offset + size));
 
-      // 目录名末尾的 '/' 去掉，与 zip 内目录处理保持一致
       final cleanName = isDir && name.endsWith('/')
           ? name.substring(0, name.length - 1)
           : name;
@@ -1357,23 +1262,17 @@ Archive _parseTarWithGbk(Uint8List bytes) {
       }
       offset += alignTo512(size);
     } else {
-      // 其它类型（链接等）：跳过内容
       offset += alignTo512(size);
     }
   }
 
   return archive;
 }
-  
-
-  /// 展开一个 zip。已加载则直接展开；未加载则读盘 + 解码。
- 
 
 Future<void> _expandZip(String zipDiskPath) async {
   if (_expandedZipKeys.contains(zipDiskPath)) return;
   if (_loadingZipKeys.contains(zipDiskPath)) return;
 
-  // ① 先看大小。超过上限 → 直接弹系统选择器，不尝试解码。
   try {
     final length = await File(zipDiskPath).length();
     if (length > _maxZipBytes) {
@@ -1408,7 +1307,6 @@ Future<void> _expandZip(String zipDiskPath) async {
   } catch (e) {
     if (!mounted) return;
 
-    // ② 解码崩了 → 大概率加密或损坏 → 弹系统选择器。
     setState(() {
       _loadingZipKeys.remove(zipDiskPath);
       _expandedZipKeys.remove(zipDiskPath);
@@ -1421,12 +1319,6 @@ Future<void> _expandZip(String zipDiskPath) async {
   }
 }
 
-
-    
-
-  /// 递归扫描 archive 里所有嵌套 zip，解码并缓存。
-  /// 顶层 zip 的 key = zipDiskPath；嵌套 zip 的 key = _makeZipInnerKey(...)。
-  /// [innerPrefix] 是"已经走过的嵌套路径"（顶层传空字符串）。
   void _collectNestedZips(
     String ownerZipDiskPath,
     Archive archive,
@@ -1458,14 +1350,11 @@ Future<void> _expandZip(String zipDiskPath) async {
           _zipArchives[nestedKey] = inner;
           _expandedZipKeys.add(nestedKey);
           _collectNestedZips(ownerZipDiskPath, inner, '', innerFull);
-        } catch (_) {
-          // 打不开的嵌套 zip 忽略
-        }
+        } catch (_) {}
       }
     }
   }
 
-  /// 收起一个 zip（顶层）。只清顶层 key，嵌套的顺带清掉。
   void _collapseZip(String zipDiskPath) {
     setState(() {
       _expandedZipKeys.remove(zipDiskPath);
@@ -1481,10 +1370,8 @@ Future<void> _expandZip(String zipDiskPath) async {
     });
   }
 
-  /// 点 zip 头：展开或收起。
   Future<void> _toggleZipExpand(_DisplayItem zipItem) async {
     if (zipItem.isZipInner) {
-      // 嵌套 zip：找它的 key 递归收起
       setState(() {
         _expandedZipKeys.remove(zipItem.key);
         _expandedZipKeys.removeWhere((k) => k.startsWith(zipItem.key));
@@ -1498,8 +1385,6 @@ Future<void> _expandZip(String zipDiskPath) async {
     }
   }
 
-  /// zip 顶部粘性头点击 = 收起。
-  /// ★ 已停用，保留方法备查。
   // ignore: unused_element
   void _onStickyZipTap(String zipDiskPath) {
     _collapseZip(zipDiskPath);
@@ -1507,46 +1392,38 @@ Future<void> _expandZip(String zipDiskPath) async {
 
   // ==================== 打开 / 查看 ====================
 
-  /// 点击一个列表项。可能是磁盘文件、目录、zip、zip 内文件、zip 内目录。
   Future<void> _handleTapItem(_DisplayItem item) async {
-    // 加载/错误提示行：忽略
     if (item.key.startsWith('__loading__') ||
         item.key.startsWith('__error__')) {
       return;
     }
 
-    // zip 头：展开/收起
     if (item.isZip) {
       await _toggleZipExpand(item);
       return;
     }
 
-    // zip 内目录：点 = 什么都不做（默认展开到最深）
     if (item.isZipInner && item.isDir) {
       return;
     }
 
-    // zip 内文件：点击 = 打开
     if (item.isZipInner) {
       await _openZipInnerFile(item);
       return;
     }
 
-    // 磁盘目录
     if (item.isDir) {
       final p = item.diskPath;
       if (p != null) _navigateTo(p);
       return;
     }
 
-    // 磁盘文件
     final p = item.diskPath;
     if (p != null) {
       await _openFile(p, item.displayName, item.size);
     }
   }
 
-  /// 打开 zip 内文件。
   Future<void> _openZipInnerFile(_DisplayItem item) async {
     final ext = _extOf(item.displayName);
     final isText = _textExts.contains(ext);
@@ -1558,7 +1435,6 @@ Future<void> _expandZip(String zipDiskPath) async {
     }
 
     if (isText) {
-      // 文本：写到临时文件，走正常文件打开流程
       final tmp = await _writeTempFile(bytes, item.displayName);
       if (tmp == null) {
         _toast('无法创建临时文件');
@@ -1587,7 +1463,6 @@ Future<void> _expandZip(String zipDiskPath) async {
           }
       }
     } else {
-      // 非文本：临时写到缓存目录，然后弹打开方式/分享
       final tmp = await _writeTempFile(bytes, item.displayName);
       if (tmp == null) {
         _toast('无法创建临时文件');
@@ -1598,7 +1473,6 @@ Future<void> _expandZip(String zipDiskPath) async {
     }
   }
 
-  /// 从 zip 内项读原始字节。
   Uint8List? _readZipInnerBytes(_DisplayItem item) {
     final archive = item.innerArchive;
     final path = item.innerPath;
@@ -1615,7 +1489,6 @@ Future<void> _expandZip(String zipDiskPath) async {
     }
   }
 
-  /// 把字节写到临时目录，返回路径。
   Future<String?> _writeTempFile(Uint8List bytes, String fileName) async {
     try {
       final dir = Directory.systemTemp;
@@ -1642,41 +1515,31 @@ Future<void> _openFile(
   if (!isText) {
     final lowerName = name.toLowerCase();
 
-    // 可展开压缩包（zip / tar / tar.gz / tgz）
     if (_isExpandableArchiveName(name)) {
-      // 加密 zip → 直接弹系统选择器
       if (lowerName.endsWith('.zip') && await _isEncryptedZip(path)) {
         if (!mounted) return;
         await openFileWithSystemPicker(path, context);
         return;
       }
-      // 网格模式不支持展开 → 弹系统选择器
-      // 网格模式：直接弹系统选择器
 if (!allowExpand) {
   if (!mounted) return;
   await openFileWithSystemPicker(path, context);
   return;
 }
-        
-      // 列表模式 / 搜索结果页：直接展开
       await _expandZip(path);
       return;
     }
 
-    // 强制系统选择器的后缀（7z/rar/dzip/iso/tz/gz
-    // /epub/pdf/doc/docx）：直接弹系统选择器
     if (_forceSystemPickerExts.any((ext) => lowerName.endsWith(ext))) {
       if (!mounted) return;
       await openFileWithSystemPicker(path, context);
       return;
     }
 
-    // 其它非文本：弹"打开方式 / 分享"两选一
     await showOpenOrShareSheet(context, path, name);
     return;
   }
 
-  // 文本文件
   final configured = ref.read(fileOpenModeProvider);
   FileOpenMode resolved;
   if (configured == FileOpenMode.ask) {
@@ -2128,7 +1991,6 @@ void _clearFilter() {
     );
   }
 
-
   List<String> _dedupFolders(List<String> folders) {
     final sorted = List<String>.from(folders)..sort();
     final out = <String>[];
@@ -2277,8 +2139,6 @@ final sortAsc = ref.read(searchSortAscProvider);
 
   // ==================== 对比 / MD5 / 属性 / 复制路径 ====================
 
-  /// 从 _selectedPaths 集合里取所有"可参与对比的项"：
-  /// 每一项可能是磁盘路径，也可能是 zip 内文件的 key。
   List<_DisplayItem> _resolveSelectedItems() {
     final items = _cachedDisplayItems ?? const <_DisplayItem>[];
     final out = <_DisplayItem>[];
@@ -2327,7 +2187,6 @@ final sortAsc = ref.read(searchSortAscProvider);
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
 
-      // 左
       final leftBytes = await _readBytesOfItem(items[0]);
       if (leftBytes == null) throw Exception('读取左侧文件失败');
       final leftParsed = await compute(
@@ -2338,7 +2197,6 @@ final sortAsc = ref.read(searchSortAscProvider);
       leftName = leftParsed.fileName;
       leftPath = items[0].isDiskItem ? items[0].diskPath : null;
 
-      // 右
       final rightBytes = await _readBytesOfItem(items[1]);
       if (rightBytes == null) throw Exception('读取右侧文件失败');
       final rightParsed = await compute(
@@ -2378,7 +2236,6 @@ final sortAsc = ref.read(searchSortAscProvider);
     }
   }
 
-  /// 从一个 DisplayItem 读原始字节。
   Future<Uint8List?> _readBytesOfItem(_DisplayItem item) async {
     if (item.isZipInner) {
       return _readZipInnerBytes(item);
@@ -2555,7 +2412,6 @@ final sortAsc = ref.read(searchSortAscProvider);
     if (items.isEmpty) return;
     final it = items[0];
 
-    // zip 内文件：不能 stat，只能显示内存里的信息
     if (it.isZipInner) {
       if (!mounted) return;
       await showDialog<void>(
@@ -2593,7 +2449,6 @@ final sortAsc = ref.read(searchSortAscProvider);
       return;
     }
 
-    // 磁盘项：原来的逻辑
     final path = it.diskPath;
     if (path == null) return;
     final name = it.displayName;
@@ -2638,7 +2493,6 @@ final sortAsc = ref.read(searchSortAscProvider);
     );
   }
 
-  /// 底栏「打开方式」。
   Future<void> _openWithApp() async {
     if (_selectedPaths.length != 1) return;
     final items = _resolveSelectedItems();
@@ -2668,7 +2522,6 @@ final sortAsc = ref.read(searchSortAscProvider);
     await openFileWithSystemPicker(p, context);
   }
 
-  /// 底栏「分享」。
   Future<void> _shareSelected() async {
     if (_selectedPaths.isEmpty) return;
     final items = _resolveSelectedItems();
@@ -2715,10 +2568,6 @@ final sortAsc = ref.read(searchSortAscProvider);
 
   // ==================== 视图弹窗 ====================
 
-
-
-
-
   String _sortLabel(SortField f) {
     switch (f) {
       case SortField.name:
@@ -2729,6 +2578,7 @@ final sortAsc = ref.read(searchSortAscProvider);
         return '大小';
     }
   }
+
 // ==================== 当前目录信息 ====================
 
 Future<void> _showDirInfoDialog() async {
@@ -2925,6 +2775,7 @@ Future<void> _showDirInfoDialog() async {
     },
   );
 }
+
   // ==================== 收藏 / 配置 ====================
 
   void _toggleFavorite() {
@@ -3015,13 +2866,6 @@ Future<void> _showDirInfoDialog() async {
                   Expanded(
                     child: favorites.isEmpty
                         ? const Center(child: Text('还没有收藏任何目录'))
-                 
-                      
-                      
-                      
-                      
-                      
-                      
                       : ListView.builder(
     itemCount: favorites.length,
     itemBuilder: (ctx, i) {
@@ -3073,13 +2917,6 @@ Future<void> _showDirInfoDialog() async {
       );
     },
   ),
-
-
-
-
-
-
-                      
                   ),
                 ],
               ),
@@ -3151,7 +2988,6 @@ Future<void> _showDirInfoDialog() async {
     return ok == true;
   }
 
-  /// 从选中的 key 里提取所有磁盘路径（zip 内项返回 null）。
   List<String> _selectedDiskPaths() {
     final out = <String>[];
     for (final p in _selectedPaths) {
@@ -3625,8 +3461,7 @@ if (ok != true) return;
     }
     return fullPath;
   }
-
-// ===== 第 2/3 条结束，接第 3/3 条 =====
+  
   // ==================== build ====================
 
  @override
@@ -4348,11 +4183,6 @@ modeRow(
                         top: 4,
                         bottom: 8,
                       ),
-
-
-
-
-                        
                       child: FilledButton.tonalIcon(
   style: FilledButton.styleFrom(
     backgroundColor: scope == SearchScope.custom
@@ -4364,13 +4194,6 @@ modeRow(
   label: const Text('管理搜索范围'),
   onPressed: () => _showSearchFolderPicker(),
 ),
-
-
-
-
-
-
-                        
                     ),
                     const SizedBox(height: 4),
                     const Divider(height: 1),
@@ -4471,8 +4294,6 @@ RadioListTile<bool>(
   );
 }
 
-/// 按当前"搜索结果排序"设置，就地重排 `_searchResults`。
-/// 弹窗里改设置后立刻调用，不重扫磁盘。
 void _resortSearchResults() {
   if (_searchResults.isEmpty) return;
   final sortField = ref.read(searchSortFieldProvider);
@@ -4497,9 +4318,7 @@ _searchResults.sort((a, b) {
   setState(() {});
 }
 /// 有压缩包展开时，在搜索栏下方固定显示一条提示条。
-/// 无论列表滚到多深都能看到，"全部收起"一键折叠所有展开的压缩包。
 Widget _buildExpandedZipBar() {
-  // 只数顶层（磁盘上的）压缩包，嵌套 zip 的 key 会带前缀，不算。
   final topLevelCount =
       _expandedZipKeys.where((k) => !_isZipInnerKey(k)).length;
   if (topLevelCount == 0) return const SizedBox.shrink();
@@ -4594,7 +4413,6 @@ Widget _buildExpandedZipBar() {
 
   // ==================== 底部栏 ====================
 
-  /// 判断当前选中项里是否只包含"磁盘项"。用于禁用不支持的按钮。
   bool get _selectionAllDisk {
     if (_selectedPaths.isEmpty) return false;
     for (final k in _selectedPaths) {
@@ -4652,18 +4470,10 @@ Widget _buildExpandedZipBar() {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 第一行：可左右滑动
             SizedBox(
               height: 38,
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-
-
-
-
-
-
-
 child: Row(
   children: [
     SizedBox(
@@ -4753,24 +4563,9 @@ child: Row(
     ),
   ],
 ),
-
-
-
-                  
-                
-
-
-
-
-
-
-
-
-                  
               ),
             ),
             const SizedBox(height: 4),
-            // 第二行
             Row(
               children: [
                 Expanded(
@@ -4903,8 +4698,6 @@ Widget _buildListBody() {
   final colorScheme = Theme.of(context).colorScheme;
 
   final items = _visibleItems ?? const <_DisplayItem>[];
-    // ★ 粘性头部已停用：直接返回列表，结构恒定，
-    //   不会再因为 Stack 结构切换而丢失滚动位置。
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
@@ -4920,6 +4713,10 @@ Widget _buildListBody() {
   }
 
   /// 渲染一个 display item。磁盘项、zip 头、zip 内项各有不同样式。
+  ///
+  /// ★ 改动点：整行用 Listener 记录点击的 x 坐标。
+  ///   左侧图标区（宽度 48 + depth*18）点 = 选中/取消；
+  ///   其它区点 = 打开（或选择模式下切换选中）。
   Widget _buildDisplayItemTile(
     _DisplayItem item,
     double fontName,
@@ -4979,64 +4776,48 @@ Widget _buildListBody() {
 
     final selected = _selectedPaths.contains(item.key);
 
+    // 左侧图标区宽度（含缩进）。点这块 = 选中/取消。
+    final iconZoneRight = 48.0 + item.depth * 18.0;
+
     // zip 头（顶层或嵌套）：和普通文件一样的 ListTile，
     // 只用图标区分展开/折叠（折叠=空心蓝，展开=实心蓝）。
-
-// 只用图标区分展开/折叠（折叠=空心蓝，展开=实心蓝）。
 if (item.isZip) {
   final isExpanded = _expandedZipKeys.contains(item.key);
-  // 只有"顶层压缩包 + 已展开"时用实心图标；
-  // 嵌套压缩包始终空心。
   final isTopLevel = item.ownerZipKey == null;
   final zipIcon = (isTopLevel && isExpanded)
     ? Icons.folder_zip_outlined
     : Icons.folder_zip;
   final metaLine = _buildItemMetaLine(item);
 
-
-
-
-    
-return Container(
+return Listener(
+  onPointerDown: (e) => _lastTapX = e.localPosition.dx,
+  child: Container(
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
             top: BorderSide(
-  
-              color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 1,
             ),
             bottom: BorderSide(
-   
-              color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 1,
             ),
             left: BorderSide(
-   
-              color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 2,
             ),
             right: BorderSide(
-   
-              color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 2,
             ),
           ),
         )
       : null,
   child: ListTile(
-
-
-
-
-        
       dense: true,
-
-         minVerticalPadding: 0,                                              // ← 加这行
-  visualDensity: const VisualDensity(horizontal: 0, vertical: -4),   // ← 加这行
-
-
-        
+         minVerticalPadding: 0,
+  visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
       contentPadding: EdgeInsets.only(
   left: item.depth * 18.0,
   right: 8,
@@ -5045,17 +4826,13 @@ selected: selected,
 selectedTileColor: const Color(0xFFF4FFF5),
 leading: SizedBox(
   width: 48,
-  child: GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: () => _toggleSelectionByKey(item.key),
-    child: Padding(
-      padding: const EdgeInsets.only(left: 8),
-      child: Center(
-        child: Icon(
-          zipIcon,
-          size: 28,
-          color: Colors.blue.shade600,
-        ),
+  child: Padding(
+    padding: const EdgeInsets.only(left: 8),
+    child: Center(
+      child: Icon(
+        zipIcon,
+        size: 28,
+        color: Colors.blue.shade600,
       ),
     ),
   ),
@@ -5081,6 +4858,11 @@ leading: SizedBox(
               overflow: TextOverflow.ellipsis,
             ),
       onTap: () {
+        // ★ 左侧图标区点 = 选中/取消
+        if (_lastTapX < iconZoneRight) {
+          _toggleSelectionByKey(item.key);
+          return;
+        }
         if (_selectionMode) {
           _toggleSelectionByKey(item.key);
           return;
@@ -5089,7 +4871,8 @@ leading: SizedBox(
       },
       onLongPress: () => _onLongPressItem(item),
     ),
-  );
+  ),
+);
 }
 
     // zip 内目录
@@ -5126,38 +4909,32 @@ leading: SizedBox(
     final isZipInner = item.isZipInner;
     final metaLine = _buildItemMetaLine(item);
 
-
-
-      return Container(
+return Listener(
+  onPointerDown: (e) => _lastTapX = e.localPosition.dx,
+  child: Container(
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
             top: BorderSide(
-              color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 1,
             ),
             bottom: BorderSide(
-              color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 1,
             ),
             left: BorderSide(
-             color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 2,
             ),
             right: BorderSide(
-              color: const Color(0xFFB000FF),   // 紫色
+              color: const Color(0xFFB000FF),
               width: 2,
             ),
           ),
         )
       : null,
   child: ListTile(
-
-
-
-
-
-    
   dense: true,
   minVerticalPadding: 0,
   visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
@@ -5170,25 +4947,21 @@ leading: SizedBox(
       selectedTileColor: const Color(0xFFF4FFF5),
       leading: SizedBox(
         width: 48,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _toggleSelectionByKey(item.key),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: Center(
-              child: Icon(
-                isZipInner
-                    ? Icons.insert_drive_file_outlined
-                    : (item.isDir
-                        ? Icons.folder
-                        : Icons.insert_drive_file_outlined),
-                size: 28,
-                color: isZipInner
-                    ? Colors.blueGrey.shade300
-                    : (item.isDir
-                        ? Colors.black87
-                        : _fileColor(item.displayName)),
-              ),
+        child: Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Center(
+            child: Icon(
+              isZipInner
+                  ? Icons.insert_drive_file_outlined
+                  : (item.isDir
+                      ? Icons.folder
+                      : Icons.insert_drive_file_outlined),
+              size: 28,
+              color: isZipInner
+                  ? Colors.blueGrey.shade300
+                  : (item.isDir
+                      ? Colors.black87
+                      : _fileColor(item.displayName)),
             ),
           ),
         ),
@@ -5217,6 +4990,11 @@ leading: SizedBox(
                 overflow: TextOverflow.ellipsis,
               ),
         onTap: () {
+          // ★ 左侧图标区点 = 选中/取消
+          if (_lastTapX < iconZoneRight) {
+            _toggleSelectionByKey(item.key);
+            return;
+          }
           if (_selectionMode) {
             _toggleSelectionByKey(item.key);
             return;
@@ -5225,7 +5003,8 @@ leading: SizedBox(
         },
         onLongPress: () => _onLongPressItem(item),
       ),
-    );
+    ),
+  );
   }
 
   String _buildItemMetaLine(_DisplayItem item) {
@@ -5329,7 +5108,6 @@ leading: SizedBox(
         if (info.isDir) {
           _navigateTo(e.path);
         } else {
-          // ★ 网格模式不支持展开压缩包，只弹"打开方式 / 分享"
           _openFile(e.path, info.name, info.size, allowExpand: false);
         }
       },
@@ -5471,7 +5249,6 @@ leading: SizedBox(
 
     final items = _cachedDisplayItems ?? const <_DisplayItem>[];
 
-    // ★ 粘性头部已停用：直接返回列表。
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
@@ -5487,6 +5264,10 @@ leading: SizedBox(
   }
 
   /// 搜索结果模式的列表项渲染（跟普通列表不同：显示路径副标题）。
+  ///
+  /// ★ 改动点：整行用 Listener 记录点击的 x 坐标。
+  ///   左侧图标区（宽度 48 + depth*18）点 = 选中/取消；
+  ///   其它区点 = 打开（或选择模式下切换选中）。
   Widget _buildSearchResultTile(
     _DisplayItem item,
     double fontName,
@@ -5497,8 +5278,6 @@ leading: SizedBox(
         item.key.startsWith('__error__')) {
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
     }
-
-    
 
     if (item.isZipInner && item.isDir) {
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
@@ -5511,96 +5290,98 @@ leading: SizedBox(
         ? item.fullDisplayPath
         : (item.diskPath ?? '');
 
-    return Container(
-      foregroundDecoration: selected
-          ? BoxDecoration(
-              border: Border.all(
-                
-                  color: const Color(0xFFFF00C3),   // 紫色
-                width: 1,
-              ),
-            )
-          : null,
-      child: ListTile(
-        dense: true,
-        isThreeLine: true,
-          minVerticalPadding: 0,                                              // ← 加这行
-  visualDensity: const VisualDensity(horizontal: 0, vertical: -4),   // ← 加这行
-      
-          
-          
-          
-       contentPadding: EdgeInsets.only(
-  left: item.depth * 18.0,
-  right: 8,
-),
-selected: selected,
-selectedTileColor: const Color(0xFFF4FFF5),
-leading: SizedBox(
-  width: 48,
-  child: GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: () => _toggleSelectionByKey(item.key),
-    child: Padding(
-      padding: const EdgeInsets.only(left: 8, top: 4),
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: Icon(
-          item.isZip
-              ? Icons.folder_zip
-              : Icons.insert_drive_file_outlined,
-          size: 28,
-          color: isZipInner
-              ? Colors.blueGrey.shade300
-              : _fileColor(item.displayName),
-        ),
-      ),
-    ),
-  ),
-),
-        title: Text(
-          item.displayName,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: fontName,
-            fontWeight: FontWeight.bold,
-            color: isZipInner
-                ? colorScheme.onSurface.withOpacity(0.85)
-                : null,
+    // 左侧图标区宽度（含缩进）。点这块 = 选中/取消。
+    final iconZoneRight = 48.0 + item.depth * 18.0;
+
+    return Listener(
+      onPointerDown: (e) => _lastTapX = e.localPosition.dx,
+      child: Container(
+        foregroundDecoration: selected
+            ? BoxDecoration(
+                border: Border.all(
+                  color: const Color(0xFFFF00C3),
+                  width: 1,
+                ),
+              )
+            : null,
+        child: ListTile(
+          dense: true,
+          isThreeLine: true,
+          minVerticalPadding: 0,
+          visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
+          contentPadding: EdgeInsets.only(
+            left: item.depth * 18.0,
+            right: 8,
           ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (metaLine.isNotEmpty)
+          selected: selected,
+          selectedTileColor: const Color(0xFFF4FFF5),
+          leading: SizedBox(
+            width: 48,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8, top: 4),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Icon(
+                  item.isZip
+                      ? Icons.folder_zip
+                      : Icons.insert_drive_file_outlined,
+                  size: 28,
+                  color: isZipInner
+                      ? Colors.blueGrey.shade300
+                      : _fileColor(item.displayName),
+                ),
+              ),
+            ),
+          ),
+          title: Text(
+            item.displayName,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: fontName,
+              fontWeight: FontWeight.bold,
+              color: isZipInner
+                  ? colorScheme.onSurface.withOpacity(0.85)
+                  : null,
+            ),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (metaLine.isNotEmpty)
+                Text(
+                  metaLine,
+                  style: TextStyle(
+                    fontSize: fontMeta,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               Text(
-                metaLine,
+                pathLine,
                 style: TextStyle(
                   fontSize: fontMeta,
-                  color: colorScheme.onSurfaceVariant,
+                  color: colorScheme.onSurface,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                softWrap: true,
               ),
-            Text(
-              pathLine,
-              style: TextStyle(
-                fontSize: fontMeta,
-                color: colorScheme.onSurface,
-              ),
-              softWrap: true,
-            ),
-          ],
+            ],
+          ),
+          onTap: () {
+            // ★ 左侧图标区点 = 选中/取消
+            if (_lastTapX < iconZoneRight) {
+              _toggleSelectionByKey(item.key);
+              return;
+            }
+            if (_selectionMode) {
+              _toggleSelectionByKey(item.key);
+              return;
+            }
+            _handleTapItem(item);
+          },
+          onLongPress: () => _onLongPressItem(item),
         ),
-        onTap: () {
-          if (_selectionMode) {
-            _toggleSelectionByKey(item.key);
-            return;
-          }
-          _handleTapItem(item);
-        },
-        onLongPress: () => _onLongPressItem(item),
       ),
     );
   }
@@ -5668,8 +5449,6 @@ class _TextInputDialogState extends State<_TextInputDialog> {
     );
   }
 }
-
-
 
 class _SearchFolderPickerDialog extends StatefulWidget {
   const _SearchFolderPickerDialog({
@@ -6195,9 +5974,6 @@ class _PropertiesDialog extends StatefulWidget {
 }
 
 class _PropertiesDialogState extends State<_PropertiesDialog> {
-  // ★修复：_PropertiesDialogState 不能访问 _FileBrowserScreenState 的
-  // private static 常量，这里本地补一份（文件底部还有 _dlgInsetG 等全局常量，
-  // 直接使用也可以）。
   static const EdgeInsets _dlgInset = EdgeInsets.all(4);
   static const EdgeInsets _dlgTitlePad = EdgeInsets.fromLTRB(12, 8, 12, 0);
   static const EdgeInsets _dlgContentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
@@ -6373,6 +6149,7 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
     );
   }
 }
+
 // ==================== 搜索设置弹窗用的小部件 ====================
 
 class _SearchSettingsSectionTitle extends StatelessWidget {
@@ -6395,7 +6172,6 @@ class _SearchSettingsSectionTitle extends StatelessWidget {
 }
 
 /// "圆圈里带圆点"的单选标记。
-/// 选中：圈 + 点都是 color 色；未选中：灰色空心圈。
 class _RadioDot extends StatelessWidget {
   const _RadioDot({required this.selected, required this.color});
 
@@ -6456,7 +6232,6 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
   }
 
   Future<void> _start() async {
-  // 第一遍：同步处理所有文件项（瞬间完成）
   for (final p in widget.paths) {
     try {
       if (!Directory(p).existsSync()) {
@@ -6470,10 +6245,9 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
   }
   if (mounted) setState(() {});
 
-  // 第二遍：异步处理文件夹项
   for (final p in widget.paths) {
     if (!mounted) return;
-    if (_stats.containsKey(p)) continue; // 文件已处理，跳过
+    if (_stats.containsKey(p)) continue;
     try {
       if (Directory(p).existsSync()) {
         _isDir[p] = true;
@@ -6518,7 +6292,6 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
           stack.add(e.path);
         }
       }
-      // 每 30ms 让出一帧，保证弹窗不卡
       final now = DateTime.now();
       if (now.difference(lastYield).inMilliseconds > 30) {
         lastYield = now;
@@ -6629,4 +6402,3 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
     );
   }
 }
-
