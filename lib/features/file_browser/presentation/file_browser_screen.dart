@@ -3698,8 +3698,9 @@ if (!_searchActive &&
         IconButton(
           icon: Icon(
             isFav ? Icons.star : Icons.star_border,
-            color: isFav ? Colors.amber : null,
-          ),
+            color: isFav ? const Color(0xFFACF500) : null,
+  ),
+          
           tooltip: isFav ? '取消收藏此目录' : '收藏此目录',
           onPressed: _toggleFavorite,
         ),
