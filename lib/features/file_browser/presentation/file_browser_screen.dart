@@ -3310,11 +3310,12 @@ Future<void> _showDirInfoDialog() async {
       return;
     }
     final n = paths.length;
-    final ok = await _confirm(
-      '删除 $n 项？',
-      '选中的 $n 项将从磁盘删除，无法恢复。',
-    );
-    if (!ok) return;
+final ok = await showDialog<bool>(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) => _DeleteConfirmDialog(paths: paths),
+);
+if (ok != true) return;
 
     final deletedPaths = <String>{};
     var fail = 0;
@@ -6400,3 +6401,204 @@ class _RadioDot extends StatelessWidget {
     );
   }
 }
+
+// ==================== 删除确认弹窗（异步统计） ====================
+
+typedef _PathStat = ({int files, int bytes, bool truncated, bool done});
+
+class _DeleteConfirmDialog extends StatefulWidget {
+  const _DeleteConfirmDialog({required this.paths});
+  final List<String> paths;
+
+  @override
+  State<_DeleteConfirmDialog> createState() => _DeleteConfirmDialogState();
+}
+
+class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
+  static const int _limit = 10000;
+
+  final Map<String, _PathStat> _stats = {};
+  final Map<String, bool> _isDir = {};
+  bool _allDone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  Future<void> _start() async {
+  // 第一遍：同步处理所有文件项（瞬间完成）
+  for (final p in widget.paths) {
+    try {
+      if (!Directory(p).existsSync()) {
+        _isDir[p] = false;
+        final st = File(p).statSync();
+        _stats[p] = (files: 1, bytes: st.size, truncated: false, done: true);
+      }
+    } catch (_) {
+      _stats[p] = (files: 0, bytes: 0, truncated: true, done: true);
+    }
+  }
+  if (mounted) setState(() {});
+
+  // 第二遍：异步处理文件夹项
+  for (final p in widget.paths) {
+    if (!mounted) return;
+    if (_stats.containsKey(p)) continue; // 文件已处理，跳过
+    try {
+      if (Directory(p).existsSync()) {
+        _isDir[p] = true;
+        if (mounted) setState(() {});
+        final r = await _scanDir(p);
+        if (!mounted) return;
+        _stats[p] = r;
+      }
+    } catch (_) {
+      _stats[p] = (files: 0, bytes: 0, truncated: true, done: true);
+    }
+    if (mounted) setState(() {});
+  }
+  if (mounted) setState(() => _allDone = true);
+}
+
+  Future<_PathStat> _scanDir(String rootPath) async {
+    var fileCount = 0;
+    var dirCount = 0;
+    var bytes = 0;
+    final stack = <String>[rootPath];
+    var lastYield = DateTime.now();
+    while (stack.isNotEmpty) {
+      if (fileCount + dirCount > _limit) {
+        return (files: fileCount, bytes: bytes, truncated: true, done: true);
+      }
+      final p = stack.removeLast();
+      List<FileSystemEntity> entries;
+      try {
+        entries = Directory(p).listSync(followLinks: false);
+      } catch (_) {
+        continue;
+      }
+      for (final e in entries) {
+        if (e is File) {
+          fileCount++;
+          try {
+            bytes += e.statSync().size;
+          } catch (_) {}
+        } else if (e is Directory) {
+          dirCount++;
+          stack.add(e.path);
+        }
+      }
+      // 每 30ms 让出一帧，保证弹窗不卡
+      final now = DateTime.now();
+      if (now.difference(lastYield).inMilliseconds > 30) {
+        lastYield = now;
+        if (mounted) setState(() {});
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+    return (files: fileCount, bytes: bytes, truncated: false, done: true);
+  }
+
+  String _fmt(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = widget.paths.length;
+
+    final totalFiles = _stats.values.fold<int>(0, (s, e) => s + e.files);
+    final totalBytes = _stats.values.fold<int>(0, (s, e) => s + e.bytes);
+    final anyTruncated = _stats.values.any((e) => e.truncated);
+
+    final lines = <Widget>[];
+    for (final p in widget.paths) {
+      final name = p.split('/').last;
+      final stat = _stats[p];
+      final isDir = _isDir[p] ?? false;
+
+      String text;
+      if (stat == null) {
+        text = '· ${isDir ? "$name/" : name} —— 正在统计…';
+      } else if (stat.truncated) {
+        text = '· $name/ —— 文件超过 $_limit 个，未完全统计';
+      } else if (isDir) {
+        text = '· $name/ —— ${stat.files} 个文件，${_fmt(stat.bytes)}';
+      } else {
+        text = '· $name —— ${_fmt(stat.bytes)}';
+      }
+
+      lines.add(Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 13, height: 1.5),
+        ),
+      ));
+    }
+
+    String totalStr;
+    if (!_allDone) {
+      totalStr = '正在统计…';
+    } else if (anyTruncated) {
+      totalStr = '总计约 ${_fmt(totalBytes)}（部分未统计）';
+    } else {
+      totalStr = '共 $totalFiles 个文件，${_fmt(totalBytes)}';
+    }
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(4),
+      titlePadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      contentPadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      actionsPadding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+      title: Text('删除 $n 项？'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...lines,
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Text(
+                totalStr,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '选中的 $n 项将从磁盘删除，无法恢复。',
+                style: const TextStyle(fontSize: 13, color: Colors.red),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
