@@ -5037,18 +5037,26 @@ return Container(
 
         
       contentPadding: EdgeInsets.only(
-        left: 8.0 + item.depth * 18.0,
-        right: 8,
+  left: item.depth * 18.0,
+  right: 8,
+),
+selected: selected,
+selectedTileColor: const Color(0xFFF4FFF5),
+leading: SizedBox(
+  width: 48,
+  child: GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: () => _toggleSelectionByKey(item.key),
+    child: Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Center(
+        child: Icon(
+          zipIcon,
+          size: 28,
+          color: Colors.blue.shade600,
+        ),
       ),
-      selected: selected,
-      selectedTileColor: const Color(0xFFF4FFF5),
-      
-        leading: GestureDetector(
-  behavior: HitTestBehavior.opaque,
-  onTap: () => _toggleSelectionByKey(item.key),
-  child: Icon(
-    zipIcon,
-    color: Colors.blue.shade600,
+    ),
   ),
 ),
       title: Text(
@@ -5154,29 +5162,36 @@ return Container(
   visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
 
   contentPadding: EdgeInsets.only(
-
-            
-          left: 8.0 + item.depth * 18.0,
-          right: 8,
+        left: item.depth * 18.0,
+        right: 8,
+      ),
+      selected: selected,
+      selectedTileColor: const Color(0xFFF4FFF5),
+      leading: SizedBox(
+        width: 48,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _toggleSelectionByKey(item.key),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: Center(
+              child: Icon(
+                isZipInner
+                    ? Icons.insert_drive_file_outlined
+                    : (item.isDir
+                        ? Icons.folder
+                        : Icons.insert_drive_file_outlined),
+                size: 28,
+                color: isZipInner
+                    ? Colors.blueGrey.shade300
+                    : (item.isDir
+                        ? Colors.black87
+                        : _fileColor(item.displayName)),
+              ),
+            ),
+          ),
         ),
-        selected: selected,
-        selectedTileColor: const Color(0xFFF4FFF5),
-        leading: GestureDetector(
-  behavior: HitTestBehavior.opaque,
-  onTap: () => _toggleSelectionByKey(item.key),
-  child: Icon(
-    isZipInner
-        ? Icons.insert_drive_file_outlined
-        : (item.isDir
-            ? Icons.folder
-            : Icons.insert_drive_file_outlined),
-    color: isZipInner
-        ? Colors.blueGrey.shade300
-        : (item.isDir
-            ? Colors.black87
-            : _fileColor(item.displayName)),
-  ),
-),
+      ),
         title: Text(
           item.displayName,
           maxLines: 2,
@@ -5510,24 +5525,35 @@ return Container(
         isThreeLine: true,
           minVerticalPadding: 0,                                              // ← 加这行
   visualDensity: const VisualDensity(horizontal: 0, vertical: -4),   // ← 加这行
-        contentPadding: EdgeInsets.only(
-          left: 8.0 + item.depth * 18.0,
-          right: 8,
+      
+          
+          
+          
+       contentPadding: EdgeInsets.only(
+  left: item.depth * 18.0,
+  right: 8,
+),
+selected: selected,
+selectedTileColor: const Color(0xFFF4FFF5),
+leading: SizedBox(
+  width: 48,
+  child: GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: () => _toggleSelectionByKey(item.key),
+    child: Padding(
+      padding: const EdgeInsets.only(left: 8, top: 4),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Icon(
+          item.isZip
+              ? Icons.folder_zip
+              : Icons.insert_drive_file_outlined,
+          size: 28,
+          color: isZipInner
+              ? Colors.blueGrey.shade300
+              : _fileColor(item.displayName),
         ),
-        selected: selected,
-        selectedTileColor: const Color(0xFFF4FFF5),
-  leading: GestureDetector(
-  behavior: HitTestBehavior.opaque,
-  onTap: () => _toggleSelectionByKey(item.key),
-  child: Padding(
-    padding: const EdgeInsets.only(top: 4),
-    child: Icon(
-      item.isZip
-          ? Icons.folder_zip
-          : Icons.insert_drive_file_outlined,
-      color: isZipInner
-          ? Colors.blueGrey.shade300
-          : _fileColor(item.displayName),
+      ),
     ),
   ),
 ),
