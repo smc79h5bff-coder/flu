@@ -18,7 +18,7 @@ import '../../import/presentation/providers/import_providers.dart';
 import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/preprocessing_rule.dart';
 
-import '../../core/debug/crash_logger.dart';
+import '../../../core/debug/crash_logger.dart';
 import 'diagnostic_screen.dart';
 import 'diff_text_index.dart';
 import 'grouped_diff_view.dart';
