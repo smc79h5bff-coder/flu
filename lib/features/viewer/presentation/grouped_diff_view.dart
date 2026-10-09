@@ -3,7 +3,7 @@
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import '../../../core/debug/crash_logger.dart';
 import '../../diff/domain/diff_operation.dart';
 import '../../diff/domain/diff_result.dart';
 import '../../import/presentation/providers/import_providers.dart';
