@@ -78,12 +78,12 @@ class CrashLogger {
 
     // 2) 未捕获异步异常
     PlatformDispatcher.instance.onError = (error, stack) {
-      log(
-        'Uncaught',
-        error.toString(),
-        stack,
-        extra: _dumpRecentOps(),
-      );
+     log(
+  'Uncaught',
+  error.toString(),
+  stack,
+  _dumpRecentOps(),
+);
       return false;
     };
 
