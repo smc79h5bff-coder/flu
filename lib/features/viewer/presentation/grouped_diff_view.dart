@@ -251,6 +251,8 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     _rightCtrl.removeListener(_syncR);
     _leftCtrl.dispose();
     _rightCtrl.dispose();
+    // ★ 切走后释放全局行内高亮缓存，避免大文件累积占用内存
+    _hlCache.clear();
     super.dispose();
   }
 
@@ -299,36 +301,34 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     });
   }
 
+  double? _pendingRestoreOffset;
 
-double? _pendingRestoreOffset;
-
-/// 返回左栏当前滚动像素位置。给主 screen 记住用。
-double? get currentScrollOffset {
-  if (!_leftCtrl.hasClients) return null;
-  return _leftCtrl.offset;
-}
-
-/// 恢复左栏滚动位置。内容变了可能偏几行，但不会跳回开头。
-void restoreScrollOffset(double offset) {
-  _pendingRestoreOffset = offset;
-  _tryRestoreOffset();
-}
-
-void _tryRestoreOffset() {
-  final o = _pendingRestoreOffset;
-  if (o == null) return;
-  if (!_leftCtrl.hasClients) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _tryRestoreOffset();
-    });
-    return;
+  /// 返回左栏当前滚动像素位置。给主 screen 记住用。
+  double? get currentScrollOffset {
+    if (!_leftCtrl.hasClients) return null;
+    return _leftCtrl.offset;
   }
-  final max = _leftCtrl.position.maxScrollExtent;
-  _leftCtrl.jumpTo(o.clamp(0.0, max));
-  _pendingRestoreOffset = null;
-}
 
-  
+  /// 恢复左栏滚动位置。内容变了可能偏几行，但不会跳回开头。
+  void restoreScrollOffset(double offset) {
+    _pendingRestoreOffset = offset;
+    _tryRestoreOffset();
+  }
+
+  void _tryRestoreOffset() {
+    final o = _pendingRestoreOffset;
+    if (o == null) return;
+    if (!_leftCtrl.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tryRestoreOffset();
+      });
+      return;
+    }
+    final max = _leftCtrl.position.maxScrollExtent;
+    _leftCtrl.jumpTo(o.clamp(0.0, max));
+    _pendingRestoreOffset = null;
+  }
+
   /// 滚动到指定的 entry 索引。由主 screen 在按下"下一个/上一个"时调用。
   void scrollToEntry(int entryIdx) {
     final blockIdx = _blockIdxForEntry(entryIdx);
@@ -376,91 +376,76 @@ void _tryRestoreOffset() {
     }
   }
 
- static const int _kLongSegThreshold = 3;   // 段长 > 3 才算"长段"
+  static const int _kLongSegThreshold = 3;   // 段长 > 3 才算"长段"
 
-/// 返回 idx 所在差异段的起止；idx 是相同块返回 null。
-({int start, int end})? _segmentAt(int idx, List<GroupedBlock> visible) {
-  if (idx < 0 || idx >= visible.length) return null;
-  if (visible[idx].kind == GroupedBlockKind.equal) return null;
-  var start = idx;
-  while (start > 0 &&
-      visible[start - 1].kind != GroupedBlockKind.equal) {
-    start--;
-  }
-  var end = idx;
-  while (end + 1 < visible.length &&
-      visible[end + 1].kind != GroupedBlockKind.equal) {
-    end++;
-  }
-  return (start: start, end: end);
-}
-
-void jumpToNextDiff() {
-  final visible = _visible;
-  if (visible == null || !_leftCtrl.hasClients) return;
-  final cur = _currentBlockIdx() ?? -1;
-
-  int? target;
-  final seg = _segmentAt(cur, visible);
-
-  if (seg == null) {
-    // 站在相同块上：找下一段段首
-    var i = cur + 1;
-    while (i < visible.length &&
-        visible[i].kind == GroupedBlockKind.equal) {
-      i++;
+  /// 返回 idx 所在差异段的起止；idx 是相同块返回 null。
+  ({int start, int end})? _segmentAt(int idx, List<GroupedBlock> visible) {
+    if (idx < 0 || idx >= visible.length) return null;
+    if (visible[idx].kind == GroupedBlockKind.equal) return null;
+    var start = idx;
+    while (start > 0 &&
+        visible[start - 1].kind != GroupedBlockKind.equal) {
+      start--;
     }
-    if (i < visible.length) target = i;
-  } else {
-    final len = seg.end - seg.start + 1;
-    if (cur < seg.end) {
-      // 段内但不在段尾：短段逐个跳，长段一次到段尾
-      target = len > _kLongSegThreshold ? seg.end : cur + 1;
-    } else {
-      // 段尾：跳到下一段段首
-      var i = seg.end + 1;
+    var end = idx;
+    while (end + 1 < visible.length &&
+        visible[end + 1].kind != GroupedBlockKind.equal) {
+      end++;
+    }
+    return (start: start, end: end);
+  }
+
+  void jumpToNextDiff() {
+    final visible = _visible;
+    if (visible == null || !_leftCtrl.hasClients) return;
+    final cur = _currentBlockIdx() ?? -1;
+
+    int? target;
+    final seg = _segmentAt(cur, visible);
+
+    if (seg == null) {
+      // 站在相同块上：找下一段段首
+      var i = cur + 1;
       while (i < visible.length &&
           visible[i].kind == GroupedBlockKind.equal) {
         i++;
       }
       if (i < visible.length) target = i;
-    }
-  }
-
-  if (target == null) {
-    _toast('到底了');
-    return;
-  }
-  setState(() => _jumpedBlockIdx = target);
-  _leftCtrl.jumpTo(
-      _blockOffset(target).clamp(0, _leftCtrl.position.maxScrollExtent));
-}
-
-void jumpToPrevDiff() {
-  final visible = _visible;
-  if (visible == null || !_leftCtrl.hasClients) return;
-  final cur = _currentBlockIdx() ?? visible.length;
-
-  int? target;
-  final seg = _segmentAt(cur, visible);
-
-  if (seg == null) {
-    var i = cur - 1;
-    while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
-      i--;
-    }
-    if (i >= 0) {
-      while (i > 0 && visible[i - 1].kind != GroupedBlockKind.equal) {
-        i--;
-      }
-      target = i;
-    }
-  } else {
-    final len = seg.end - seg.start + 1;
-    if (cur > seg.start) {
-      target = len > _kLongSegThreshold ? seg.start : cur - 1;
     } else {
-      var i = seg.start - 1;
+      final len = seg.end - seg.start + 1;
+      if (cur < seg.end) {
+        // 段内但不在段尾：短段逐个跳，长段一次到段尾
+        target = len > _kLongSegThreshold ? seg.end : cur + 1;
+      } else {
+        // 段尾：跳到下一段段首
+        var i = seg.end + 1;
+        while (i < visible.length &&
+            visible[i].kind == GroupedBlockKind.equal) {
+          i++;
+        }
+        if (i < visible.length) target = i;
+      }
+    }
+
+    if (target == null) {
+      _toast('到底了');
+      return;
+    }
+    setState(() => _jumpedBlockIdx = target);
+    _leftCtrl.jumpTo(
+        _blockOffset(target).clamp(0, _leftCtrl.position.maxScrollExtent));
+  }
+
+  void jumpToPrevDiff() {
+    final visible = _visible;
+    if (visible == null || !_leftCtrl.hasClients) return;
+    final cur = _currentBlockIdx() ?? visible.length;
+
+    int? target;
+    final seg = _segmentAt(cur, visible);
+
+    if (seg == null) {
+      var i = cur - 1;
       while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
         i--;
       }
@@ -470,17 +455,32 @@ void jumpToPrevDiff() {
         }
         target = i;
       }
+    } else {
+      final len = seg.end - seg.start + 1;
+      if (cur > seg.start) {
+        target = len > _kLongSegThreshold ? seg.start : cur - 1;
+      } else {
+        var i = seg.start - 1;
+        while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
+          i--;
+        }
+        if (i >= 0) {
+          while (i > 0 && visible[i - 1].kind != GroupedBlockKind.equal) {
+            i--;
+          }
+          target = i;
+        }
+      }
     }
-  }
 
-  if (target == null) {
-    _toast('到顶了');
-    return;
+    if (target == null) {
+      _toast('到顶了');
+      return;
+    }
+    setState(() => _jumpedBlockIdx = target);
+    _leftCtrl.jumpTo(
+        _blockOffset(target).clamp(0, _leftCtrl.position.maxScrollExtent));
   }
-  setState(() => _jumpedBlockIdx = target);
-  _leftCtrl.jumpTo(
-      _blockOffset(target).clamp(0, _leftCtrl.position.maxScrollExtent));
-}
 
   // ==================== 内部 ====================
 
@@ -674,14 +674,14 @@ void jumpToPrevDiff() {
       _cacheScaler = mq.textScaler;
     }
 
-   final ctxLines = ref.watch(groupedContextLinesProvider).round();
-if (_lastCtxLines != ctxLines) {
-  _lastCtxLines = ctxLines;
-  _visible = null;
-  _chunkHeights.clear();
-}
-_visible ??= _filter(data.blocks, ctxLines);
-final visible = _visible!;
+    final ctxLines = ref.watch(groupedContextLinesProvider).round();
+    if (_lastCtxLines != ctxLines) {
+      _lastCtxLines = ctxLines;
+      _visible = null;
+      _chunkHeights.clear();
+    }
+    _visible ??= _filter(data.blocks, ctxLines);
+    final visible = _visible!;
     if (visible.isEmpty) {
       return const Center(child: Text('两份文档完全相同'));
     }
@@ -747,30 +747,30 @@ final visible = _visible!;
           )
         : 0.0;
 
-    // ★ 每行同时按常规和粗体测量，取较大值
-double measureLine(String text) {
-  final t = text.isEmpty ? ' ' : text;
-  final h1 = measureTextHeight(
-    text: t, maxWidth: width, style: style, textScaler: scaler);
-  final h2 = measureTextHeight(
-    text: t,
-    maxWidth: width,
-    style: style.copyWith(fontWeight: FontWeight.bold),
-    textScaler: scaler);
-  final h = h1 > h2 ? h1 : h2;
-  return h > gutterH ? h : gutterH;
-}
+    // 每行同时按常规和粗体测量，取较大值
+    double measureLine(String text) {
+      final t = text.isEmpty ? ' ' : text;
+      final h1 = measureTextHeight(
+        text: t, maxWidth: width, style: style, textScaler: scaler);
+      final h2 = measureTextHeight(
+        text: t,
+        maxWidth: width,
+        style: style.copyWith(fontWeight: FontWeight.bold),
+        textScaler: scaler);
+      final h = h1 > h2 ? h1 : h2;
+      return h > gutterH ? h : gutterH;
+    }
 
-double lh = 0;
-for (var i = b.leftStart; i < b.leftEnd; i++) {
-  if (i < 0 || i >= data.linesA.length) continue;
-  lh += measureLine(data.linesA[i]);
-}
-double rh = 0;
-for (var i = b.rightStart; i < b.rightEnd; i++) {
-  if (i < 0 || i >= data.linesB.length) continue;
-  rh += measureLine(data.linesB[i]);
-}
+    double lh = 0;
+    for (var i = b.leftStart; i < b.leftEnd; i++) {
+      if (i < 0 || i >= data.linesA.length) continue;
+      lh += measureLine(data.linesA[i]);
+    }
+    double rh = 0;
+    for (var i = b.rightStart; i < b.rightEnd; i++) {
+      if (i < 0 || i >= data.linesB.length) continue;
+      rh += measureLine(data.linesB[i]);
+    }
 
     final blank = measureTextHeight(
       text: ' ', maxWidth: width, style: style, textScaler: scaler);
@@ -781,14 +781,14 @@ for (var i = b.rightStart; i < b.rightEnd; i++) {
     return h;
   }
 
- List<GroupedBlock> _filter(List<GroupedBlock> blocks, int ctx) {
-  if (ctx <= 0) {
-    // 仅差异块
-    return <GroupedBlock>[
-      for (final b in blocks)
-        if (b.kind != GroupedBlockKind.equal) b,
-    ];
-  }
+  List<GroupedBlock> _filter(List<GroupedBlock> blocks, int ctx) {
+    if (ctx <= 0) {
+      // 仅差异块
+      return <GroupedBlock>[
+        for (final b in blocks)
+          if (b.kind != GroupedBlockKind.equal) b,
+      ];
+    }
     final diffIdx = <int>[];
     for (var i = 0; i < blocks.length; i++) {
       if (blocks[i].kind != GroupedBlockKind.equal) diffIdx.add(i);
