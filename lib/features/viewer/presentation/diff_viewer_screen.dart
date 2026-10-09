@@ -3314,8 +3314,9 @@ Padding(
                     onSubmitted: (_) => _nextMatch(),
                   ),
                 ),
-                IconButton(
+  IconButton(
   icon: const Icon(Icons.search),
+  color: AppColors.accentPurple,
   tooltip: '立即搜索',
   visualDensity: VisualDensity.compact,
   onPressed: () {
