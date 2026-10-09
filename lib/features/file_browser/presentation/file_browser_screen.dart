@@ -3879,7 +3879,7 @@ const PopupMenuItem<String>(
                 ),
                 suffixIcon: hasText
                     ? _suffixButton(
-                        icon: Icons.clear,
+                icon: Icons.disabled_by_default,   // 原 Icons.clear
                         tooltip: '清空',
                         fg: suffixFg,
                         bg: suffixBg,
