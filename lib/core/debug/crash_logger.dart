@@ -126,12 +126,14 @@ class CrashLogger {
   /// 记录一条关键操作。进环形缓冲，崩溃时随日志一起写出。
   /// 用法：CrashLogger.instance.mark('切视图: diffOnly');
   void mark(String op) {
-    final ts = DateTime.now().toIso8601String();
-    _recentOps.add('[$ts] $op');
-    if (_recentOps.length > _recentOpsMax) {
-      _recentOps.removeAt(0);
-    }
+  final ts = DateTime.now().toIso8601String();
+  final line = '[$ts] [Mark] $op';
+  _recentOps.add(line);
+  if (_recentOps.length > _recentOpsMax) {
+    _recentOps.removeAt(0);
   }
+  _writeSync('$line\n---\n');
+}
 
   String _dumpRecentOps() {
     if (_recentOps.isEmpty) return '（无最近操作）';
