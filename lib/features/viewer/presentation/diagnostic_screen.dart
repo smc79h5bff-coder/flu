@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import '../../core/debug/crash_logger.dart';
+import '../../../core/debug/crash_logger.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'providers/diff_viewer_providers.dart';
 
