@@ -99,15 +99,9 @@ double _singleLineHeight(TextStyle style, TextScaler textScaler) {
   return textScaler.scale(fs) * lh;
 }
 
-/// 主线程让出的安全阈值。累计计算超过这个时长就让出一次，防止 ANR。
-/// Android 5 秒判定无响应，我们提前到 4 秒。
-const int _yieldThresholdMs = 4000;
+/// 让出阈值：16ms = 一帧。之前是 4000ms，太大，容易 ANR。
+const int _yieldThresholdMs = 16;
 
-/// 分帧计算一批文本的高度表。
-///
-/// **方案乙**：全程跑完只在超过 [_yieldThresholdMs] 时让出一次主线程，
-/// 让出后计时归零。小文件（1~3 万行）几乎不让出，一次算完最快；
-/// 大文件也不至于 ANR。
 Future<LineHeightTable> computeLineHeights({
   required int itemCount,
   required double Function(int index) widthForItem,
@@ -120,7 +114,6 @@ Future<LineHeightTable> computeLineHeights({
 }) async {
   if (itemCount == 0) return LineHeightTable.empty;
 
-  // 不换行模式：所有行高度一样，O(1)。
   if (noWrap) {
     final w = widthForItem(0);
     final h = _singleLineHeight(style, textScaler) + extraVerticalPadding;
@@ -152,8 +145,8 @@ Future<LineHeightTable> computeLineHeights({
       extraVerticalPadding: extraVerticalPadding,
     );
 
-    // 每 500 行检查一次计时器，避免每行都查（查也有一点开销）。
-    if ((i & 0x1FF) == 0x1FF && sw.elapsedMilliseconds >= _yieldThresholdMs) {
+    // 每项都检查，超过 16ms 就让出
+    if (sw.elapsedMilliseconds >= _yieldThresholdMs) {
       onProgress?.call(i + 1, itemCount);
       await Future<void>.delayed(Duration.zero);
       sw.reset();
@@ -164,11 +157,6 @@ Future<LineHeightTable> computeLineHeights({
   return LineHeightTable.fromHeights(heights);
 }
 
-/// 并排 / 仅差异模式：每一行有两栏，高度取两栏的较大值。
-///
-/// [styleForItem] / [noWrapForItem]：可选。传了的话，每一行可以用不同的
-/// 字号 / 换行策略（例如"相同行不换行 + 小字号"）。不传就用全局的
-/// [style] / [noWrap]，行为和以前完全一样。
 Future<LineHeightTable> computeLineHeightsForTwoPane({
   required int itemCount,
   required double leftWidth,
@@ -185,7 +173,6 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
 }) async {
   if (itemCount == 0) return LineHeightTable.empty;
 
-  // 有 override → 逐行独立计算。
   if (styleForItem != null || noWrapForItem != null) {
     final heights = List<double>.filled(itemCount, 0);
     final sw = Stopwatch()..start();
@@ -242,8 +229,7 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
         heights[i] = hL > hR ? hL : hR;
       }
 
-      if ((i & 0x1FF) == 0x1FF &&
-          sw.elapsedMilliseconds >= _yieldThresholdMs) {
+      if (sw.elapsedMilliseconds >= _yieldThresholdMs) {
         onProgress?.call(i + 1, itemCount);
         await Future<void>.delayed(Duration.zero);
         sw.reset();
@@ -253,7 +239,6 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
     return LineHeightTable.fromHeights(heights);
   }
 
-  // 无 override → 走原来的快路径，行为不变。
   if (noWrap) {
     final hL = measureTextHeight(
       text: 'M',
@@ -313,7 +298,7 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
       heights[i] = hL > hR ? hL : hR;
     }
 
-    if ((i & 0x1FF) == 0x1FF && sw.elapsedMilliseconds >= _yieldThresholdMs) {
+    if (sw.elapsedMilliseconds >= _yieldThresholdMs) {
       onProgress?.call(i + 1, itemCount);
       await Future<void>.delayed(Duration.zero);
       sw.reset();
