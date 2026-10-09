@@ -3250,36 +3250,39 @@ Padding(
   );
     }
 
-    Widget sideToggle({
+    // ★ 新的三选一胶囊（左侧 / 右侧 / 两侧）
+    Widget sidePill({
       required String label,
-      required bool value,
+      required bool selected,
       required VoidCallback onTap,
     }) {
-      return InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                value ? Icons.check_box : Icons.check_box_outline_blank,
-                size: 16,
-                color: value
-                    ? AppColors.accentPurple
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
+      final s = Theme.of(context).colorScheme;
+      return Material(
+        color: Colors.transparent, // 让水波纹透出来
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          splashColor: AppColors.accentPurple.withOpacity(0.18),
+          highlightColor: AppColors.accentPurple.withOpacity(0.08),
+          child: Container(
+            // 左右内边距大一些 → 单颗更宽，防误点
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color:
+                    selected ? AppColors.accentPurple : Colors.transparent,
+                width: 1.5,
               ),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: value
-                      ? AppColors.accentPurple
-                      : Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected ? AppColors.accentPurple : s.onSurfaceVariant,
               ),
-            ],
+            ),
           ),
         ),
       );
@@ -3441,30 +3444,51 @@ color: const Color(0xFF000000),              // 文字
             Row(
               children: [
                 const SizedBox(width: 8),
-                sideToggle(
-                  label: '查左侧',
-                  value: _searchLeft,
+
+                // ── 左侧 ──
+                sidePill(
+                  label: '左侧',
+                  selected: _searchLeft && !_searchRight,
                   onTap: () {
-                    if (_searchLeft && !_searchRight) {
-                      _toast('至少要开一个（左/右）');
-                      return;
-                    }
-                    setState(() => _searchLeft = !_searchLeft);
+                    if (_searchLeft && !_searchRight) return; // 已选中
+                    setState(() {
+                      _searchLeft = true;
+                      _searchRight = false;
+                    });
                     _findChanged(_findController.text);
                   },
                 ),
-                sideToggle(
-                  label: '查右侧',
-                  value: _searchRight,
+                const SizedBox(width: 10),
+
+                // ── 右侧 ──
+                sidePill(
+                  label: '右侧',
+                  selected: !_searchLeft && _searchRight,
                   onTap: () {
-                    if (_searchRight && !_searchLeft) {
-                      _toast('至少要开一个（左/右）');
-                      return;
-                    }
-                    setState(() => _searchRight = !_searchRight);
+                    if (!_searchLeft && _searchRight) return;
+                    setState(() {
+                      _searchLeft = false;
+                      _searchRight = true;
+                    });
                     _findChanged(_findController.text);
                   },
                 ),
+                const SizedBox(width: 10),
+
+                // ── 两侧 ──
+                sidePill(
+                  label: '两侧',
+                  selected: _searchLeft && _searchRight,
+                  onTap: () {
+                    if (_searchLeft && _searchRight) return;
+                    setState(() {
+                      _searchLeft = true;
+                      _searchRight = true;
+                    });
+                    _findChanged(_findController.text);
+                  },
+                ),
+
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.arrow_upward),
