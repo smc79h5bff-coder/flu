@@ -960,12 +960,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     };
   }
 
-  Future<_HeightBundle> _computeHeightBundle(
-    DiffResult diff,
-    ViewMode mode,
-  ) async {
-    ViewerDiag.mark('高度: 开始 (${mode.name})');
-    _log('开始计算高度: ${mode.name}');
+ Future<_HeightBundle> _computeHeightBundle(
+  DiffResult diff,
+  ViewMode mode,
+) async {
+  CrashLogger.instance.mark('开始算高度表: ${mode.name}');
+  ViewerDiag.mark('高度: 开始 (${mode.name})');
+  _log('开始计算高度: ${mode.name}');
 
     final mq = MediaQuery.of(context);
     final viewportW = mq.size.width;
@@ -1314,14 +1315,16 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   }
 
   void _jumpToDocTop() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(0);
-  }
+  CrashLogger.instance.mark('跳到文首');
+  if (!_scrollController.hasClients) return;
+  _scrollController.jumpTo(0);
+}
 
   void _jumpToDocBottom() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-  }
+  CrashLogger.instance.mark('跳到文末');
+  if (!_scrollController.hasClients) return;
+  _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+}
 
   void _pageDown() {
     if (!_scrollController.hasClients) return;
@@ -1341,9 +1344,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _scrollController.jumpTo(target);
   }
 
-  void _jumpToNextDiff() {
-    final diff = _diff;
-    if (diff == null) return;
+ void _jumpToNextDiff() {
+  CrashLogger.instance.mark('跳到下一处差异');
+  final diff = _diff;
+  if (diff == null) return;
     final mode = ref.read(viewModeProvider);
     final map = _entryToRowMapOf(diff, mode);
     final currentRow = _currentTopRow();
@@ -1363,9 +1367,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
     _toast('到底了');
   }
 
-  void _jumpToPrevDiff() {
-    final diff = _diff;
-    if (diff == null) return;
+ void _jumpToPrevDiff() {
+  CrashLogger.instance.mark('跳到上一处差异');
+  final diff = _diff;
+  if (diff == null) return;
     final mode = ref.read(viewModeProvider);
     final map = _entryToRowMapOf(diff, mode);
     final currentRow = _currentTopRow();
@@ -1388,9 +1393,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
   // ==================== 切视图 ====================
 
-  Future<void> _switchView(ViewMode newMode) async {
-    final current = ref.read(viewModeProvider);
-    if (current == newMode) return;
+ Future<void> _switchView(ViewMode newMode) async {
+  CrashLogger.instance.mark('切视图 -> ${_viewModeName(newMode)}');
+  final current = ref.read(viewModeProvider);
+  if (current == newMode) return;
 
     if (newMode == ViewMode.grouped || current == ViewMode.grouped) {
       _log('切视图: ${_viewModeName(newMode)}');
