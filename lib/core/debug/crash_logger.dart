@@ -69,11 +69,11 @@ class CrashLogger {
     FlutterError.onError = (details) {
       prev?.call(details);
       log(
-        'FlutterError',
-        details.exceptionAsString(),
-        details.stack,
-        extra: _dumpRecentOps(),
-      );
+  'FlutterError',
+  details.exceptionAsString(),
+  details.stack,
+  _dumpRecentOps(),
+);
     };
 
     // 2) 未捕获异步异常
