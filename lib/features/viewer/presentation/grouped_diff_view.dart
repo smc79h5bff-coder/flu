@@ -747,22 +747,30 @@ final visible = _visible!;
           )
         : 0.0;
 
-    double lh = 0;
-    for (var i = b.leftStart; i < b.leftEnd; i++) {
-      if (i < 0 || i >= data.linesA.length) continue;
-      final textH = measureTextHeight(
-        text: data.linesA[i].isEmpty ? ' ' : data.linesA[i],
-        maxWidth: width, style: style, textScaler: scaler);
-      lh += textH > gutterH ? textH : gutterH;
-    }
-    double rh = 0;
-    for (var i = b.rightStart; i < b.rightEnd; i++) {
-      if (i < 0 || i >= data.linesB.length) continue;
-      final textH = measureTextHeight(
-        text: data.linesB[i].isEmpty ? ' ' : data.linesB[i],
-        maxWidth: width, style: style, textScaler: scaler);
-      rh += textH > gutterH ? textH : gutterH;
-    }
+    // ★ 每行同时按常规和粗体测量，取较大值
+double measureLine(String text) {
+  final t = text.isEmpty ? ' ' : text;
+  final h1 = measureTextHeight(
+    text: t, maxWidth: width, style: style, textScaler: scaler);
+  final h2 = measureTextHeight(
+    text: t,
+    maxWidth: width,
+    style: style.copyWith(fontWeight: FontWeight.bold),
+    textScaler: scaler);
+  final h = h1 > h2 ? h1 : h2;
+  return h > gutterH ? h : gutterH;
+}
+
+double lh = 0;
+for (var i = b.leftStart; i < b.leftEnd; i++) {
+  if (i < 0 || i >= data.linesA.length) continue;
+  lh += measureLine(data.linesA[i]);
+}
+double rh = 0;
+for (var i = b.rightStart; i < b.rightEnd; i++) {
+  if (i < 0 || i >= data.linesB.length) continue;
+  rh += measureLine(data.linesB[i]);
+}
 
     final blank = measureTextHeight(
       text: ' ', maxWidth: width, style: style, textScaler: scaler);
