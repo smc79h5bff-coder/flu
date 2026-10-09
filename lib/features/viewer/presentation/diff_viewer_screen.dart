@@ -3307,7 +3307,7 @@ Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
+            color: const Color(0xFFFFF8F0),
                   border: Border.all(color: Colors.orange.shade300),
                   borderRadius: BorderRadius.circular(4),
                 ),
