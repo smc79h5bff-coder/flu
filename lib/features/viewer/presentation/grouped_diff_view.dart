@@ -361,20 +361,52 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   }
 
   void jumpToTop() {
-    if (_leftCtrl.hasClients) _leftCtrl.jumpTo(0);
-    if (_jumpedBlockIdx != null) {
-      setState(() => _jumpedBlockIdx = null);
+  CrashLogger.instance.mark('grouped: 跳到第一个差异块');
+  if (!_leftCtrl.hasClients) return;
+  final visible = _visible;
+  if (visible == null || visible.isEmpty) {
+    _leftCtrl.jumpTo(0);
+    return;
+  }
+  // 找第一个非相同块
+  for (var i = 0; i < visible.length; i++) {
+    if (visible[i].kind != GroupedBlockKind.equal) {
+      setState(() => _jumpedBlockIdx = i);
+      _leftCtrl.jumpTo(
+          _blockOffset(i).clamp(0, _leftCtrl.position.maxScrollExtent));
+      return;
     }
   }
+  // 全是相同块，直接跳 0
+  _leftCtrl.jumpTo(0);
+  if (_jumpedBlockIdx != null) {
+    setState(() => _jumpedBlockIdx = null);
+  }
+}
 
-  void jumpToBottom() {
-    if (_leftCtrl.hasClients) {
-      _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
-    }
-    if (_jumpedBlockIdx != null) {
-      setState(() => _jumpedBlockIdx = null);
+void jumpToBottom() {
+  CrashLogger.instance.mark('grouped: 跳到最后一个差异块');
+  if (!_leftCtrl.hasClients) return;
+  final visible = _visible;
+  if (visible == null || visible.isEmpty) {
+    _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
+    return;
+  }
+  // 找最后一个非相同块
+  for (var i = visible.length - 1; i >= 0; i--) {
+    if (visible[i].kind != GroupedBlockKind.equal) {
+      setState(() => _jumpedBlockIdx = i);
+      _leftCtrl.jumpTo(
+          _blockOffset(i).clamp(0, _leftCtrl.position.maxScrollExtent));
+      return;
     }
   }
+  // 全是相同块，直接跳末尾
+  _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
+  if (_jumpedBlockIdx != null) {
+    setState(() => _jumpedBlockIdx = null);
+  }
+}
 
   static const int _kLongSegThreshold = 3;   // 段长 > 3 才算"长段"
 
