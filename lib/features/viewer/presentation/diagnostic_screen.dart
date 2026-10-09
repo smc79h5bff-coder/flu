@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/debug/crash_logger.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'providers/diff_viewer_providers.dart';
 
@@ -187,6 +188,15 @@ class DiagnosticScreen extends ConsumerWidget {
                 ref.read(diagHistoryEnabledProvider.notifier).state = v,
             onTap: () => _showHistory(context, ref),
           ),
+          // ★ 新增：崩溃日志
+          ListTile(
+            leading: const Icon(Icons.bug_report),
+            title: const Text('崩溃日志'),
+            subtitle: const Text('点开查看，可清空'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showCrashLog(context),
+          ),
+          const Divider(height: 1),
         ],
       ),
     );
@@ -394,6 +404,46 @@ class DiagnosticScreen extends ConsumerWidget {
                 ),
         ),
         actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ★ 新增：崩溃日志弹窗
+  Future<void> _showCrashLog(BuildContext context) async {
+    final text = await CrashLogger.instance.read();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('崩溃日志', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.75,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text.isEmpty ? '（暂无）' : text,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await CrashLogger.instance.clear();
+              if (c.mounted) Navigator.pop(c);
+            },
+            child: const Text('清空'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(c),
             child: const Text('关闭'),
