@@ -147,7 +147,10 @@ Timer? _floatTimer;
 
   @override
   void dispose() {
+  
     _findDebounce?.cancel();
+_floatTimer?.cancel();
+_floatEntry?.remove();
     _findController.dispose();
     _replaceController.dispose();
     _scrollController.dispose();
