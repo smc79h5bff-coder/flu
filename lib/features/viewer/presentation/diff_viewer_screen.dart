@@ -1255,6 +1255,7 @@ if (!jumped) {
     next == _matchEntries.length - 1) {
   _toast('已经是最后一个结果，再点回到第一个');
 }
+    }
 
   void _prevMatch() {
     _ensureFindApplied();
