@@ -1909,7 +1909,21 @@ void _clearFilter() {
     setState(() => _searchActive = true);
     _startSearch(q);
   }
-
+/// 只清空输入框，退出搜索交给 AppBar 的返回箭头。
+void _clearSearchInput() {
+  _searchTaskId++;
+  _searchCtrl.clear();
+  _selectionMode = false;
+  _selectedPaths.clear();
+  _anchorPath = null;
+  _expandedZipKeys.clear();
+  _stickyZipKey = null;
+  setState(() {
+    _searchResults = [];
+    _searching = false;
+    // 注意：_searchActive 保持 true，留在搜索模式
+  });
+}
   void _clearSearch() {
     _searchTaskId++;
     _searchCtrl.clear();
