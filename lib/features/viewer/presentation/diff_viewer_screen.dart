@@ -2515,9 +2515,14 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 43,
-        titleSpacing: 1,
-        title: Row(
+  toolbarHeight: 43,
+  leading: IconButton(
+    icon: const Icon(Icons.disabled_by_default),
+    tooltip: '关闭',
+    onPressed: () => Navigator.of(context).maybePop(),
+  ),
+  titleSpacing: 1,
+  title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Builder(builder: (ctx) {
