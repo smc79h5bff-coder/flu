@@ -3877,17 +3877,17 @@ const PopupMenuItem<String>(
                   horizontal: 10,
                   vertical: 12,
                 ),
-                suffixIcon: hasText
-                    ? _suffixButton(
-                icon: Icons.disabled_by_default,   // 原 Icons.clear
-                        tooltip: '清空',
-                        fg: suffixFg,
-                        bg: suffixBg,
-                        onTap: isFilter ? _clearFilter : _clearSearch,
-                      )
-                    : _suffixButton(
-                        icon: Icons.history,
-                        tooltip: '搜索历史',
+             suffixIcon: hasText
+    ? _suffixButton(
+        icon: Icons.backspace_outlined,   // 原 Icons.clear
+        tooltip: '清空输入',                // 原 '清空'
+        fg: suffixFg,
+        bg: suffixBg,
+        onTap: isFilter ? _clearFilter : _clearSearchInput,  // 原 _clearSearch
+      )
+    : _suffixButton(
+        icon: Icons.history,
+        tooltip: '搜索历史',
                         fg: suffixFg,
                         bg: suffixBg,
                         onTap: _showSearchHistory,
