@@ -3676,7 +3676,8 @@ const PopupMenuItem<String>(
               value: 'favorites',
               child: Row(
                 children: [
-                  const Icon(Icons.bookmarks_outlined),
+   
+      const Icon(Icons.folder_special),  
                   const SizedBox(width: 10),
                   Text('已收藏目录 (${favorites.length})'),
                 ],
