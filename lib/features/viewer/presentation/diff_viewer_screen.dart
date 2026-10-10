@@ -631,6 +631,11 @@ _floatEntry?.remove();
       _matchEntries = matches;
       _matchPos = matches.isEmpty ? -1 : newPos;
       _noResultHint = _findWarning ?? hint;
+if (_noResultHint == null &&
+    q.isNotEmpty &&
+    (_regexEnable || _caseInsensitive || _wholeWord)) {
+  _noResultHint = '高级搜索已开，搜索结果暂不支持显示高亮';
+}
     });
     if (autoScroll && matches.isNotEmpty) {
       _scrollToEntry(matches[newPos]);
