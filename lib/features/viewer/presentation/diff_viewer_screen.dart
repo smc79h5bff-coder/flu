@@ -2947,14 +2947,14 @@ void _toast(String msg) {
   );
 }
 Widget _buildFloatingPageDown() {
-  const size = 150.0;
+  const size = 110.0;
   final pos = ref.watch(floatingPageDownPosProvider);
   final mq = MediaQuery.of(context);
   final screenW = mq.size.width;
   final screenH = mq.size.height;
 
   final borderColor =
-      const Color(0xFFD4D4DC).withValues(alpha: 0.30);
+      const Color(0xFFD4D4DC).withValues(alpha: 0.60);
 
   final button = GestureDetector(
     behavior: HitTestBehavior.opaque,
