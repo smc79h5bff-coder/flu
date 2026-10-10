@@ -125,7 +125,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   int? _pendingJumpEntry;
   int? _pendingJumpOrigLine;
   bool _pendingJumpQueued = false;
-
+OverlayEntry? _floatEntry;
+Timer? _floatTimer;
   Timer? _findDebounce;
   bool _processing = false;
   String _processingText = '';
