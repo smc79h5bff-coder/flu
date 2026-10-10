@@ -77,16 +77,20 @@ GroupedDiffData buildGroupedData(DiffResult diff, String a, String b) {
       if (ai >= linesA.length || bi >= linesB.length) break;
       final la = linesA[ai], ra = linesB[bi];
       if (la == ra) {
-        raw.add(GroupedBlock(leftStart: ai, leftEnd: ai + 1,
-          rightStart: bi, rightEnd: bi + 1, kind: GroupedBlockKind.equal));
+        raw.add(GroupedBlock(
+            leftStart: ai, leftEnd: ai + 1,
+            rightStart: bi, rightEnd: bi + 1,
+            kind: GroupedBlockKind.equal));
       } else if (_strip(la) == _strip(ra)) {
-        raw.add(GroupedBlock(leftStart: ai, leftEnd: ai + 1,
-          rightStart: bi, rightEnd: bi + 1,
-          kind: GroupedBlockKind.equalIgnoringWs));
+        raw.add(GroupedBlock(
+            leftStart: ai, leftEnd: ai + 1,
+            rightStart: bi, rightEnd: bi + 1,
+            kind: GroupedBlockKind.equalIgnoringWs));
       } else {
-        raw.add(GroupedBlock(leftStart: ai, leftEnd: ai + 1,
-          rightStart: bi, rightEnd: bi + 1,
-          kind: GroupedBlockKind.different));
+        raw.add(GroupedBlock(
+            leftStart: ai, leftEnd: ai + 1,
+            rightStart: bi, rightEnd: bi + 1,
+            kind: GroupedBlockKind.different));
       }
       ai++; bi++; i++;
     } else {
@@ -161,7 +165,8 @@ List<List<int>> _blobHighlight(
     String selfBlob, int selfLines, String otherBlob, bool onlyWs) {
   final r = List.generate(selfLines, (_) => <int>[]);
   if (selfBlob.isEmpty) return r;
-  if (selfBlob.length > 100000 || otherBlob.length > 100000) return r;
+  // 阈值从 100000 降到 20000，超长文本跳过字符 diff
+  if (selfBlob.length > 20000 || otherBlob.length > 20000) return r;
   try {
     final dmp = DiffMatchPatch()..diffTimeout = 2.0;
     final diffs = dmp.diff(selfBlob, otherBlob);
@@ -217,7 +222,18 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   GroupedDiffData? _data;
   DiffResult? _dataForDiff;
   List<GroupedBlock>? _visible;
+
+  // ★ 精确高度缓存（异步填充）
   final Map<int, double> _chunkHeights = {};
+
+  // ★ 高亮缓存（异步填充），key = "blockIdx:left" 或 "blockIdx:right"
+  final Map<String, List<List<int>>> _highlightsCache = {};
+
+  // ★ 任务队列
+  final Set<int> _pendingHeights = {};
+  final Set<String> _pendingHighlights = {};
+  bool _processing = false;
+
   double? _cacheWidth;
   double? _cacheFont;
   double? _cacheCtxFont;
@@ -226,13 +242,9 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   int? _lastCtxLines;
   TextScaler? _cacheScaler;
 
-  // 只用于文字高亮
   String _findQuery = '';
-
-  // 当前跳到的 block（差异跳转 / 查找跳转都用它）
   int? _jumpedBlockIdx;
 
-  // 行号缓存
   DiffResult? _metaFor;
   List<({int orig, int mod})>? _metaCache;
 
@@ -251,7 +263,9 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     _rightCtrl.removeListener(_syncR);
     _leftCtrl.dispose();
     _rightCtrl.dispose();
-    // ★ 切走后释放全局行内高亮缓存，避免大文件累积占用内存
+    _pendingHeights.clear();
+    _pendingHighlights.clear();
+    _highlightsCache.clear();
     _hlCache.clear();
     super.dispose();
   }
@@ -286,13 +300,11 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
 
   // ==================== 给外部（主 screen）的公开方法 ====================
 
-  /// 更新高亮词。只影响文字颜色，不做跳转。
   void updateFindQuery(String q) {
     if (_findQuery == q) return;
     setState(() => _findQuery = q);
   }
 
-  /// 清掉查找状态。
   void clearFind() {
     if (_findQuery.isEmpty && _jumpedBlockIdx == null) return;
     setState(() {
@@ -303,13 +315,11 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
 
   double? _pendingRestoreOffset;
 
-  /// 返回左栏当前滚动像素位置。给主 screen 记住用。
   double? get currentScrollOffset {
     if (!_leftCtrl.hasClients) return null;
     return _leftCtrl.offset;
   }
 
-  /// 恢复左栏滚动位置。内容变了可能偏几行，但不会跳回开头。
   void restoreScrollOffset(double offset) {
     _pendingRestoreOffset = offset;
     _tryRestoreOffset();
@@ -329,19 +339,18 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     _pendingRestoreOffset = null;
   }
 
-  /// 滚动到指定的 entry 索引。由主 screen 在按下"下一个/上一个"时调用。
   bool scrollToEntry(int entryIdx) {
-  final blockIdx = _blockIdxForEntry(entryIdx);
-  if (blockIdx == null) return false;
-  setState(() => _jumpedBlockIdx = blockIdx);
-  final off = _blockOffset(blockIdx);
-  if (_leftCtrl.hasClients) {
-    _leftCtrl.jumpTo(off.clamp(0, _leftCtrl.position.maxScrollExtent));
+    final blockIdx = _blockIdxForEntry(entryIdx);
+    if (blockIdx == null) return false;
+    setState(() => _jumpedBlockIdx = blockIdx);
+    final off = _blockOffset(blockIdx);
+    if (_leftCtrl.hasClients) {
+      _leftCtrl.jumpTo(off.clamp(0, _leftCtrl.position.maxScrollExtent));
+    }
+    return true;
   }
-  return true;
-}
 
-  // ==================== 差异跳转（工具栏按钮用）====================
+  // ==================== 差异跳转 ====================
 
   void pageUp() {
     if (!_leftCtrl.hasClients) return;
@@ -362,56 +371,51 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   }
 
   void jumpToTop() {
-  CrashLogger.instance.mark('grouped: 跳到第一个差异块');
-  if (!_leftCtrl.hasClients) return;
-  final visible = _visible;
-  if (visible == null || visible.isEmpty) {
+    CrashLogger.instance.mark('grouped: 跳到第一个差异块');
+    if (!_leftCtrl.hasClients) return;
+    final visible = _visible;
+    if (visible == null || visible.isEmpty) {
+      _leftCtrl.jumpTo(0);
+      return;
+    }
+    for (var i = 0; i < visible.length; i++) {
+      if (visible[i].kind != GroupedBlockKind.equal) {
+        setState(() => _jumpedBlockIdx = i);
+        _leftCtrl.jumpTo(
+            _blockOffset(i).clamp(0, _leftCtrl.position.maxScrollExtent));
+        return;
+      }
+    }
     _leftCtrl.jumpTo(0);
-    return;
-  }
-  // 找第一个非相同块
-  for (var i = 0; i < visible.length; i++) {
-    if (visible[i].kind != GroupedBlockKind.equal) {
-      setState(() => _jumpedBlockIdx = i);
-      _leftCtrl.jumpTo(
-          _blockOffset(i).clamp(0, _leftCtrl.position.maxScrollExtent));
-      return;
+    if (_jumpedBlockIdx != null) {
+      setState(() => _jumpedBlockIdx = null);
     }
   }
-  // 全是相同块，直接跳 0
-  _leftCtrl.jumpTo(0);
-  if (_jumpedBlockIdx != null) {
-    setState(() => _jumpedBlockIdx = null);
-  }
-}
 
-void jumpToBottom() {
-  CrashLogger.instance.mark('grouped: 跳到最后一个差异块');
-  if (!_leftCtrl.hasClients) return;
-  final visible = _visible;
-  if (visible == null || visible.isEmpty) {
+  void jumpToBottom() {
+    CrashLogger.instance.mark('grouped: 跳到最后一个差异块');
+    if (!_leftCtrl.hasClients) return;
+    final visible = _visible;
+    if (visible == null || visible.isEmpty) {
+      _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
+      return;
+    }
+    for (var i = visible.length - 1; i >= 0; i--) {
+      if (visible[i].kind != GroupedBlockKind.equal) {
+        setState(() => _jumpedBlockIdx = i);
+        _leftCtrl.jumpTo(
+            _blockOffset(i).clamp(0, _leftCtrl.position.maxScrollExtent));
+        return;
+      }
+    }
     _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
-    return;
-  }
-  // 找最后一个非相同块
-  for (var i = visible.length - 1; i >= 0; i--) {
-    if (visible[i].kind != GroupedBlockKind.equal) {
-      setState(() => _jumpedBlockIdx = i);
-      _leftCtrl.jumpTo(
-          _blockOffset(i).clamp(0, _leftCtrl.position.maxScrollExtent));
-      return;
+    if (_jumpedBlockIdx != null) {
+      setState(() => _jumpedBlockIdx = null);
     }
   }
-  // 全是相同块，直接跳末尾
-  _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
-  if (_jumpedBlockIdx != null) {
-    setState(() => _jumpedBlockIdx = null);
-  }
-}
 
-  static const int _kLongSegThreshold = 3;   // 段长 > 3 才算"长段"
+  static const int _kLongSegThreshold = 3;
 
-  /// 返回 idx 所在差异段的起止；idx 是相同块返回 null。
   ({int start, int end})? _segmentAt(int idx, List<GroupedBlock> visible) {
     if (idx < 0 || idx >= visible.length) return null;
     if (visible[idx].kind == GroupedBlockKind.equal) return null;
@@ -437,7 +441,6 @@ void jumpToBottom() {
     final seg = _segmentAt(cur, visible);
 
     if (seg == null) {
-      // 站在相同块上：找下一段段首
       var i = cur + 1;
       while (i < visible.length &&
           visible[i].kind == GroupedBlockKind.equal) {
@@ -447,10 +450,8 @@ void jumpToBottom() {
     } else {
       final len = seg.end - seg.start + 1;
       if (cur < seg.end) {
-        // 段内但不在段尾：短段逐个跳，长段一次到段尾
         target = len > _kLongSegThreshold ? seg.end : cur + 1;
       } else {
-        // 段尾：跳到下一段段首
         var i = seg.end + 1;
         while (i < visible.length &&
             visible[i].kind == GroupedBlockKind.equal) {
@@ -546,7 +547,6 @@ void jumpToBottom() {
     return _visible!.length - 1;
   }
 
-  /// 给定 entry 索引，找它落在哪个可见 block 里。
   int? _blockIdxForEntry(int entryIdx) {
     final diff = _dataForDiff;
     final visible = _visible;
@@ -554,14 +554,12 @@ void jumpToBottom() {
     if (entryIdx < 0 || entryIdx >= diff.entries.length) return null;
     final meta = _computeLineMeta(diff);
     final m = meta[entryIdx];
-    // 优先看左侧行号
     if (m.orig >= 0) {
       for (var i = 0; i < visible.length; i++) {
         final b = visible[i];
         if (m.orig >= b.leftStart && m.orig < b.leftEnd) return i;
       }
     }
-    // 再看右侧
     if (m.mod >= 0) {
       for (var i = 0; i < visible.length; i++) {
         final b = visible[i];
@@ -660,6 +658,9 @@ void jumpToBottom() {
           _data = buildGroupedData(diff, a, b);
           _visible = null;
           _chunkHeights.clear();
+          _highlightsCache.clear();
+          _pendingHeights.clear();
+          _pendingHighlights.clear();
           _metaFor = null;
           _metaCache = null;
         }
@@ -699,6 +700,9 @@ void jumpToBottom() {
         _cacheShowLine != showLine ||
         _cacheScaler != mq.textScaler) {
       _chunkHeights.clear();
+      _highlightsCache.clear();
+      _pendingHeights.clear();
+      _pendingHighlights.clear();
       _cacheWidth = contentW;
       _cacheFont = bodyFs;
       _cacheCtxFont = ctxFs;
@@ -712,6 +716,9 @@ void jumpToBottom() {
       _lastCtxLines = ctxLines;
       _visible = null;
       _chunkHeights.clear();
+      _highlightsCache.clear();
+      _pendingHeights.clear();
+      _pendingHighlights.clear();
     }
     _visible ??= _filter(data.blocks, ctxLines);
     final visible = _visible!;
@@ -730,6 +737,7 @@ void jumpToBottom() {
           bodyFontSize: bodyFs, contextFontSize: ctxFs,
           gutterFontSize: gutterFs,
           heightForBlock: _heightForBlock,
+          highlightsFor: (i) => _getHighlightOrNull(i, _Side.left),
           findQuery: _findQuery,
           jumpedBlockIdx: _jumpedBlockIdx,
           colors: colors,
@@ -742,6 +750,7 @@ void jumpToBottom() {
           bodyFontSize: bodyFs, contextFontSize: ctxFs,
           gutterFontSize: gutterFs,
           heightForBlock: _heightForBlock,
+          highlightsFor: (i) => _getHighlightOrNull(i, _Side.right),
           findQuery: _findQuery,
           jumpedBlockIdx: _jumpedBlockIdx,
           colors: colors,
@@ -751,9 +760,57 @@ void jumpToBottom() {
     );
   }
 
+  // ==================== ★ 异步懒算核心 ====================
+
+  /// 高度查询（build 时同步调用）
   double _heightForBlock(int blockIndex) {
     final cached = _chunkHeights[blockIndex];
     if (cached != null) return cached;
+    _requestHeight(blockIndex);
+    return _estimateHeight(blockIndex);
+  }
+
+  /// 高亮查询（build 时同步调用）。返回 null 表示还在排队/计算中。
+  List<List<int>>? _getHighlightOrNull(int blockIndex, _Side side) {
+    final key = _hlKeyFor(blockIndex, side);
+    final cached = _highlightsCache[key];
+    if (cached != null) return cached;
+    if (!_pendingHighlights.contains(key)) {
+      _pendingHighlights.add(key);
+      _scheduleProcess();
+    }
+    return null;
+  }
+
+  String _hlKeyFor(int blockIndex, _Side side) =>
+      '$blockIndex:${side == _Side.left ? "L" : "R"}';
+
+  void _requestHeight(int i) {
+    if (_pendingHeights.contains(i)) return;
+    _pendingHeights.add(i);
+    _scheduleProcess();
+  }
+
+  /// 估算高度：假设每行 1 行（不折行）
+  double _estimateHeight(int blockIndex) {
+    final visible = _visible;
+    if (visible == null ||
+        blockIndex < 0 ||
+        blockIndex >= visible.length) {
+      return 24.0;
+    }
+    final b = visible[blockIndex];
+    final isContext = b.kind == GroupedBlockKind.equal;
+    final fs = isContext
+        ? ref.read(contextFontSizeProvider)
+        : ref.read(bodyFontSizeProvider);
+    final lineH = fs * 1.1 + 2;
+    final lines = b.visualLength > 0 ? b.visualLength : 1;
+    return lines * lineH + 8;
+  }
+
+  /// 精确高度计算（在"帧之间"跑，不阻塞）
+  double _computeHeight(int blockIndex) {
     final visible = _visible;
     final data = _data;
     if (visible == null || data == null ||
@@ -780,17 +837,11 @@ void jumpToBottom() {
           )
         : 0.0;
 
-    // 每行同时按常规和粗体测量，取较大值
+    // ★ 不再测粗体，省一半成本
     double measureLine(String text) {
       final t = text.isEmpty ? ' ' : text;
-      final h1 = measureTextHeight(
+      final h = measureTextHeight(
         text: t, maxWidth: width, style: style, textScaler: scaler);
-      final h2 = measureTextHeight(
-        text: t,
-        maxWidth: width,
-        style: style.copyWith(fontWeight: FontWeight.bold),
-        textScaler: scaler);
-      final h = h1 > h2 ? h1 : h2;
       return h > gutterH ? h : gutterH;
     }
 
@@ -809,14 +860,87 @@ void jumpToBottom() {
       text: ' ', maxWidth: width, style: style, textScaler: scaler);
     if (lh == 0) lh = blank;
     if (rh == 0) rh = blank;
-    final h = (lh > rh ? lh : rh) + 8;
-    _chunkHeights[blockIndex] = h;
-    return h;
+    return (lh > rh ? lh : rh) + 8;
+  }
+
+  /// 字符级高亮计算（在"帧之间"跑，不阻塞）
+  List<List<int>> _computeHighlight(int blockIndex, _Side side) {
+    final visible = _visible;
+    final data = _data;
+    if (visible == null || data == null ||
+        blockIndex < 0 || blockIndex >= visible.length) {
+      return const [];
+    }
+    final b = visible[blockIndex];
+    final isLeft = side == _Side.left;
+    final start = isLeft ? b.leftStart : b.rightStart;
+    final end = isLeft ? b.leftEnd : b.rightEnd;
+    final lines = isLeft ? data.linesA : data.linesB;
+    final otherLines = isLeft ? data.linesB : data.linesA;
+    final otherStart = isLeft ? b.rightStart : b.leftStart;
+    final otherEnd = isLeft ? b.rightEnd : b.leftEnd;
+
+    if (b.kind == GroupedBlockKind.equal || end <= start) {
+      return List.generate(end - start, (_) => <int>[], growable: false);
+    }
+    final selfBlob = lines.sublist(start, end).join('\n');
+    final otherBlob = otherLines.sublist(otherStart, otherEnd).join('\n');
+    final onlyWs = b.kind == GroupedBlockKind.equalIgnoringWs;
+    return _hlCached(selfBlob, end - start, otherBlob, onlyWs);
+  }
+
+  /// 调度处理：每帧处理一个任务
+  void _scheduleProcess() {
+    if (_processing) return;
+    _processing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _processOne());
+  }
+
+  void _processOne() {
+    if (!mounted) {
+      _processing = false;
+      return;
+    }
+
+    bool didWork = false;
+
+    // 高度优先（先解决滚动条 & 跳转准确性）
+    if (_pendingHeights.isNotEmpty) {
+      // 选最小的索引（通常也是当前可见区域靠上的）
+      int minIdx = _pendingHeights.first;
+      for (final i in _pendingHeights) {
+        if (i < minIdx) minIdx = i;
+      }
+      _pendingHeights.remove(minIdx);
+      try {
+        _chunkHeights[minIdx] = _computeHeight(minIdx);
+        didWork = true;
+      } catch (_) {}
+    } else if (_pendingHighlights.isNotEmpty) {
+      final key = _pendingHighlights.first;
+      _pendingHighlights.remove(key);
+      try {
+        final parts = key.split(':');
+        final idx = int.parse(parts[0]);
+        final side = parts[1] == 'L' ? _Side.left : _Side.right;
+        _highlightsCache[key] = _computeHighlight(idx, side);
+        didWork = true;
+      } catch (_) {}
+    }
+
+    if (didWork && mounted) {
+      setState(() {});
+    }
+
+    if (_pendingHeights.isNotEmpty || _pendingHighlights.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _processOne());
+    } else {
+      _processing = false;
+    }
   }
 
   List<GroupedBlock> _filter(List<GroupedBlock> blocks, int ctx) {
     if (ctx <= 0) {
-      // 仅差异块
       return <GroupedBlock>[
         for (final b in blocks)
           if (b.kind != GroupedBlockKind.equal) b,
@@ -876,6 +1000,7 @@ class _SidePane extends StatelessWidget {
     required this.controller, required this.showLineNumbers,
     required this.bodyFontSize, required this.contextFontSize,
     required this.gutterFontSize, required this.heightForBlock,
+    required this.highlightsFor,
     required this.findQuery, required this.jumpedBlockIdx,
     required this.colors, required this.onLineLongPress,
   });
@@ -889,6 +1014,7 @@ class _SidePane extends StatelessWidget {
   final double contextFontSize;
   final double gutterFontSize;
   final double Function(int) heightForBlock;
+  final List<List<int>>? Function(int) highlightsFor;
   final String findQuery;
   final int? jumpedBlockIdx;
   final _Colors colors;
@@ -900,7 +1026,7 @@ class _SidePane extends StatelessWidget {
       controller: controller,
       addAutomaticKeepAlives: false,
       addRepaintBoundaries: false,
-      cacheExtent: 300,
+      cacheExtent: 80,
       itemCount: blocks.length,
       itemBuilder: (ctx, i) {
         final h = heightForBlock(i);
@@ -914,6 +1040,7 @@ class _SidePane extends StatelessWidget {
             gutterFontSize: gutterFontSize,
             findQuery: findQuery,
             isCurrent: jumpedBlockIdx == i,
+            highlights: highlightsFor(i),
             colors: colors,
             onLineLongPress: onLineLongPress,
           ),
@@ -934,6 +1061,7 @@ class _BlockTile extends StatelessWidget {
     required this.showLineNumbers, required this.bodyFontSize,
     required this.contextFontSize, required this.gutterFontSize,
     required this.findQuery, required this.isCurrent,
+    required this.highlights,
     required this.colors, required this.onLineLongPress,
   });
 
@@ -946,6 +1074,8 @@ class _BlockTile extends StatelessWidget {
   final double gutterFontSize;
   final String findQuery;
   final bool isCurrent;
+  /// null = 还在排队/计算中，暂时不显示字符级高亮
+  final List<List<int>>? highlights;
   final _Colors colors;
   final void Function(int lineIdx, bool isLeft) onLineLongPress;
 
@@ -955,19 +1085,10 @@ class _BlockTile extends StatelessWidget {
     final start = isLeft ? block.leftStart : block.rightStart;
     final end = isLeft ? block.leftEnd : block.rightEnd;
     final lines = isLeft ? data.linesA : data.linesB;
-    final otherLines = isLeft ? data.linesB : data.linesA;
-    final otherStart = isLeft ? block.rightStart : block.leftStart;
-    final otherEnd = isLeft ? block.rightEnd : block.leftEnd;
 
-    List<List<int>> hi;
-    if (block.kind == GroupedBlockKind.equal || end <= start) {
-      hi = List.generate(end - start, (_) => <int>[], growable: false);
-    } else {
-      final selfBlob = lines.sublist(start, end).join('\n');
-      final otherBlob = otherLines.sublist(otherStart, otherEnd).join('\n');
-      final onlyWs = block.kind == GroupedBlockKind.equalIgnoringWs;
-      hi = _hlCached(selfBlob, end - start, otherBlob, onlyWs);
-    }
+    // ★ 高亮用父级传进来的。null 时表示还没算好，先不高亮。
+    final hi = highlights ??
+        List.generate(end - start, (_) => <int>[], growable: false);
 
     final isContext = block.kind == GroupedBlockKind.equal;
     final fs = isContext ? contextFontSize : bodyFontSize;
