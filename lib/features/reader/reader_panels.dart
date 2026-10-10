@@ -2399,7 +2399,7 @@ class _BookmarkHighlightManagerState
               height: kToolbarHeight,
               child: _selectionMode && _isHighlightTab
                   ? IconButton(
-                      icon: const Icon(Icons.folder_outlined),
+                      icon: const Icon(Icons.drive_file_move_outlined),
                       tooltip: '移入分组',
                       onPressed: selectedCount == 0 ? null : _moveToGroup,
                     )
