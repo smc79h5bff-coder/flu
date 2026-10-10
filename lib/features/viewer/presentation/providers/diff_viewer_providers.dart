@@ -854,3 +854,42 @@ class FindHistoryNotifier extends StringListPrefNotifier {
     update(state.where((s) => s != q).toList());
   }
 }
+
+
+/// 悬浮下翻页按钮：是否显示。
+final floatingPageDownEnabledProvider =
+    NotifierProvider<FloatingPageDownEnabledNotifier, bool>(
+  FloatingPageDownEnabledNotifier.new,
+);
+
+class FloatingPageDownEnabledNotifier extends BoolPrefNotifier {
+  FloatingPageDownEnabledNotifier()
+      : super(key: 'jianming.viewer.floatingPageDown', initial: false);
+}
+
+/// 悬浮下翻页按钮的位置。
+enum FloatingPageDownPos { centerLeft, rightEdge }
+
+final floatingPageDownPosProvider =
+    NotifierProvider<FloatingPageDownPosNotifier, FloatingPageDownPos>(
+  FloatingPageDownPosNotifier.new,
+);
+
+class FloatingPageDownPosNotifier
+    extends PersistentNotifier<FloatingPageDownPos> {
+  @override
+  String get key => 'jianming.viewer.floatingPageDownPos';
+
+  @override
+  FloatingPageDownPos get defaultValue => FloatingPageDownPos.rightEdge;
+
+  @override
+  FloatingPageDownPos decode(String raw) =>
+      FloatingPageDownPos.values.firstWhere(
+        (e) => e.name == raw,
+        orElse: () => FloatingPageDownPos.rightEdge,
+      );
+
+  @override
+  String encode(FloatingPageDownPos value) => value.name;
+}
