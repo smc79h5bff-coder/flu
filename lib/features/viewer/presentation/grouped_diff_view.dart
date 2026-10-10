@@ -646,7 +646,8 @@ int? _computeShortFileEndBlockIdx(GroupedDiffData data) {
     }
   }
   // 极端兜底：一个都没有，落在第一个可见块下
-  return 0;
+  // 兜底：可见列表全是长文件独有，落在最底
+return visible.length - 1;
 }
 
   Future<void> _onLineLongPress(int lineIdx, bool isLeft) async {
