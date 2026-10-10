@@ -34,7 +34,7 @@ class AppTheme {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.all(Radius.circular(2)),
         ),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
@@ -42,14 +42,14 @@ class AppTheme {
         modalBackgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.all(Radius.circular(2)),
         ),
       ),
       popupMenuTheme: const PopupMenuThemeData(
         color: Colors.white,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.all(Radius.circular(2)),
         ),
       ),
       drawerTheme: const DrawerThemeData(
