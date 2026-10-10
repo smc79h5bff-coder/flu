@@ -3340,7 +3340,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
                       return;
                     }
                     _findDebounce?.cancel();
-                    _findChanged(_findController.text, autoScroll: false);
+                    _findChanged(_findController.text);
                   },
                 ),
                 IconButton(
