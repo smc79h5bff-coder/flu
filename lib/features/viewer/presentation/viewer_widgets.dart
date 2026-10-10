@@ -250,48 +250,85 @@ SwitchListTile(
       .read(floatingPageDownEnabledProvider.notifier)
       .update(v),
 ),
+
+
+
+
+
 if (ref.watch(floatingPageDownEnabledProvider)) ...[
-  Text(
-    '位置',
-    style: Theme.of(context).textTheme.labelMedium,
+  const SizedBox(height: 4),
+  _numInput(
+    context: context,
+    label: 'X 坐标',
+    value: ref.watch(floatingPageDownXProvider),
+    hint: '-10 ~ 110，距屏幕左边百分比',
+    min: -10,
+    max: 110,
+    suffix: '%',
+    onChanged: (v) => ref
+        .read(floatingPageDownXProvider.notifier)
+        .update(v),
   ),
-  const SizedBox(height: 6),
-  Row(
-    children: [
-      Expanded(
-        child: ChoiceChip(
-          label: const SizedBox(
-            width: double.infinity,
-            child: Text('中线偏左偏下',
-                textAlign: TextAlign.center),
-          ),
-          selected: ref
-                  .watch(floatingPageDownPosProvider) ==
-              FloatingPageDownPos.centerLeft,
-          onSelected: (_) => ref
-              .read(floatingPageDownPosProvider.notifier)
-              .update(FloatingPageDownPos.centerLeft),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: ChoiceChip(
-          label: const SizedBox(
-            width: double.infinity,
-            child: Text('屏幕最右偏下',
-                textAlign: TextAlign.center),
-          ),
-          selected: ref
-                  .watch(floatingPageDownPosProvider) ==
-              FloatingPageDownPos.rightEdge,
-          onSelected: (_) => ref
-              .read(floatingPageDownPosProvider.notifier)
-              .update(FloatingPageDownPos.rightEdge),
-        ),
-      ),
-    ],
+  _numInput(
+    context: context,
+    label: 'Y 坐标',
+    value: ref.watch(floatingPageDownYProvider),
+    hint: '-10 ~ 110，距屏幕顶部百分比',
+    min: -10,
+    max: 110,
+    suffix: '%',
+    onChanged: (v) => ref
+        .read(floatingPageDownYProvider.notifier)
+        .update(v),
+  ),
+  _numInput(
+    context: context,
+    label: '大小',
+    value: ref.watch(floatingPageDownSizeProvider),
+    hint: '5 ~ 300 像素（建议 40 以上）',
+    min: 5,
+    max: 300,
+    suffix: 'px',
+    onChanged: (v) => ref
+        .read(floatingPageDownSizeProvider.notifier)
+        .update(v),
+  ),
+  _numInput(
+    context: context,
+    label: '透明度',
+    value: ref.watch(floatingPageDownOpacityProvider),
+    hint: '0 ~ 100%（0 = 完全透明，仍可点击）',
+    min: 0,
+    max: 100,
+    suffix: '%',
+    onChanged: (v) => ref
+        .read(floatingPageDownOpacityProvider.notifier)
+        .update(v),
+  ),
+  _numInput(
+    context: context,
+    label: '边框粗细',
+    value: ref.watch(floatingPageDownBorderWidthProvider),
+    hint: '0.1 ~ 20 像素',
+    min: 0.1,
+    max: 20,
+    suffix: 'px',
+    showDecimal: true,
+    onChanged: (v) => ref
+        .read(floatingPageDownBorderWidthProvider.notifier)
+        .update(v),
+  ),
+  _colorRow(
+    context,
+    ref,
+    '边框颜色',
+    floatingPageDownColorProvider,
   ),
 ],
+
+
+
+
                       
                     // ========== 差异颜色 ==========
                     const Divider(height: 32),
@@ -394,6 +431,68 @@ _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
     );
   }
 
+Widget _numInput({
+  required BuildContext context,
+  required String label,
+  required double value,
+  required String hint,
+  required double min,
+  required double max,
+  required ValueChanged<double> onChanged,
+  String suffix = '',
+  bool showDecimal = false,
+}) {
+  final display = showDecimal && value != value.roundToDouble()
+      ? value.toStringAsFixed(1)
+      : value.round().toString();
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(label, style: const TextStyle(fontSize: 13)),
+        ),
+        SizedBox(
+          width: 76,
+          child: TextFormField(
+            key: ValueKey('$label-$display'),
+            initialValue: display,
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+              signed: true,
+            ),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13),
+            decoration: InputDecoration(
+              isDense: true,
+              border: const OutlineInputBorder(),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              suffixText: suffix.isEmpty ? null : suffix,
+            ),
+            onFieldSubmitted: (raw) {
+              final n = double.tryParse(raw.trim());
+              if (n == null) return;
+              onChanged(n.clamp(min, max));
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            hint,
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+    
   Future<void> _pickColor(
     BuildContext context,
     WidgetRef ref,
