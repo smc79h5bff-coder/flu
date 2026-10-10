@@ -5253,10 +5253,14 @@ return Listener(
 
   Widget _buildSearchResultsList() {
     if (_searchResults.isEmpty) {
-      return Center(
-        child: Text(_searching ? '正在扫描...' : '未找到匹配'),
-      );
-    }
+  return Center(
+    child: Text(
+      _searchCtrl.text.trim().isEmpty
+          ? '请输入关键词后搜索'
+          : (_searching ? '正在扫描...' : '未找到匹配'),
+    ),
+  );
+}
     final colorScheme = Theme.of(context).colorScheme;
     final fontName = ref.watch(browserFontListNameProvider);
     final fontMeta = ref.watch(browserFontListMetaProvider);
