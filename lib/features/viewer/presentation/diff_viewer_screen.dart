@@ -2159,12 +2159,59 @@ Timer? _floatTimer;
     }
   }
 
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
-  }
+  void _showFloatHint(String msg) {
+  if (!mounted) return;
+  _floatTimer?.cancel();
+  _floatEntry?.remove();
+  _floatEntry = null;
+
+  final overlay = Overlay.of(context);
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => Positioned(
+      left: 0,
+      right: 0,
+      top: MediaQuery.of(context).size.height * 0.35,
+      child: IgnorePointer(
+        child: Center(
+          child: Material(
+            color: Colors.black.withValues(alpha: 0.82),
+            elevation: 8,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              child: Text(
+                msg,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  overlay.insert(entry);
+  _floatEntry = entry;
+  _floatTimer = Timer(const Duration(milliseconds: 1800), () {
+    if (identical(_floatEntry, entry)) {
+      entry.remove();
+      _floatEntry = null;
+    }
+  });
+}
+
+void _toast(String msg) {
+  _showFloatHint(msg);
+}
 
   // ---------- 删除文件 ----------
 
