@@ -2628,7 +2628,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.search),
+          icon: const Icon(Icons.find_in_page),
             iconSize: 26,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             tooltip: '查找 / 替换',
