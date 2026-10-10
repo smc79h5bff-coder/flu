@@ -867,29 +867,70 @@ class FloatingPageDownEnabledNotifier extends BoolPrefNotifier {
       : super(key: 'jianming.viewer.floatingPageDown', initial: false);
 }
 
-/// 悬浮下翻页按钮的位置。
-enum FloatingPageDownPos { centerLeft, rightEdge }
 
-final floatingPageDownPosProvider =
-    NotifierProvider<FloatingPageDownPosNotifier, FloatingPageDownPos>(
-  FloatingPageDownPosNotifier.new,
+final floatingPageDownXProvider =
+    NotifierProvider<FloatingPageDownXNotifier, double>(
+  FloatingPageDownXNotifier.new,
 );
 
-class FloatingPageDownPosNotifier
-    extends PersistentNotifier<FloatingPageDownPos> {
-  @override
-  String get key => 'jianming.viewer.floatingPageDownPos';
-
-  @override
-  FloatingPageDownPos get defaultValue => FloatingPageDownPos.rightEdge;
-
-  @override
-  FloatingPageDownPos decode(String raw) =>
-      FloatingPageDownPos.values.firstWhere(
-        (e) => e.name == raw,
-        orElse: () => FloatingPageDownPos.rightEdge,
-      );
-
-  @override
-  String encode(FloatingPageDownPos value) => value.name;
+class FloatingPageDownXNotifier extends DoublePrefNotifier {
+  FloatingPageDownXNotifier()
+      : super(key: 'jianming.viewer.floatingPageDown.x', initial: 75.0);
 }
+
+final floatingPageDownYProvider =
+    NotifierProvider<FloatingPageDownYNotifier, double>(
+  FloatingPageDownYNotifier.new,
+);
+
+class FloatingPageDownYNotifier extends DoublePrefNotifier {
+  FloatingPageDownYNotifier()
+      : super(key: 'jianming.viewer.floatingPageDown.y', initial: 58.0);
+}
+
+final floatingPageDownSizeProvider =
+    NotifierProvider<FloatingPageDownSizeNotifier, double>(
+  FloatingPageDownSizeNotifier.new,
+);
+
+class FloatingPageDownSizeNotifier extends DoublePrefNotifier {
+  FloatingPageDownSizeNotifier()
+      : super(key: 'jianming.viewer.floatingPageDown.size', initial: 110.0);
+}
+
+final floatingPageDownOpacityProvider =
+    NotifierProvider<FloatingPageDownOpacityNotifier, double>(
+  FloatingPageDownOpacityNotifier.new,
+);
+
+class FloatingPageDownOpacityNotifier extends DoublePrefNotifier {
+  FloatingPageDownOpacityNotifier()
+      : super(key: 'jianming.viewer.floatingPageDown.opacity', initial: 60.0);
+}
+
+final floatingPageDownBorderWidthProvider =
+    NotifierProvider<FloatingPageDownBorderWidthNotifier, double>(
+  FloatingPageDownBorderWidthNotifier.new,
+);
+
+class FloatingPageDownBorderWidthNotifier extends DoublePrefNotifier {
+  FloatingPageDownBorderWidthNotifier()
+      : super(
+          key: 'jianming.viewer.floatingPageDown.borderWidth',
+          initial: 2.0,
+        );
+}
+
+final floatingPageDownColorProvider =
+    NotifierProvider<FloatingPageDownColorNotifier, Color>(
+  FloatingPageDownColorNotifier.new,
+);
+
+class FloatingPageDownColorNotifier extends ColorPrefNotifier {
+  FloatingPageDownColorNotifier()
+      : super(
+          key: 'jianming.viewer.floatingPageDown.color',
+          initial: const Color(0xFFD4D4DC),
+        );
+}
+
