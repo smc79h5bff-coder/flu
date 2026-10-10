@@ -2946,42 +2946,44 @@ void _toast(String msg) {
     ),
   );
 }
+
+
+
+
+
 Widget _buildFloatingPageDown() {
-  const size = 110.0;
-  final pos = ref.watch(floatingPageDownPosProvider);
+  final size = ref.watch(floatingPageDownSizeProvider);
+  final x = ref.watch(floatingPageDownXProvider);
+  final y = ref.watch(floatingPageDownYProvider);
+  final opacity = ref.watch(floatingPageDownOpacityProvider);
+  final borderWidth = ref.watch(floatingPageDownBorderWidthProvider);
+  final color = ref.watch(floatingPageDownColorProvider);
+
   final mq = MediaQuery.of(context);
   final screenW = mq.size.width;
   final screenH = mq.size.height;
 
-  final borderColor =
-      const Color(0xFFD4D4DC).withValues(alpha: 0.60);
+  final left = screenW * (x / 100) - size / 2;
+  final top = screenH * (y / 100) - size / 2;
 
-  final button = GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: _onFloatingPageDownTap,
-    child: Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        border: Border.all(color: borderColor, width: 2),
+  return Positioned(
+    left: left,
+    top: top,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _onFloatingPageDownTap,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: color.withValues(alpha: opacity / 100),
+            width: borderWidth,
+          ),
+        ),
       ),
     ),
   );
-
-  switch (pos) {
-    case FloatingPageDownPos.centerLeft:
-      return Positioned(
-        left: screenW / 2 - size + 4,
-        top: screenH * 0.58,
-        child: button,
-      );
-    case FloatingPageDownPos.rightEdge:
-      return Positioned(
-        right: 0,
-        top: screenH * 0.55,
-        child: button,
-      );
-  }
 }
 
 void _onFloatingPageDownTap() {
@@ -2992,6 +2994,11 @@ void _onFloatingPageDownTap() {
     _pageDown();
   }
 }
+
+
+
+
+  
   // ==================== 按钮栏 ====================
 
   Widget _buildToolbar() {
