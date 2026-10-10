@@ -616,34 +616,38 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
 
   /// ★ 计算"短文件最后一行"所在的可视 block 索引。
   /// 两个文件行数差距 < 100 时不提示（返回 null）。
-  int? _computeShortFileEndBlockIdx(GroupedDiffData data) {
-    if (data.linesA.isEmpty || data.linesB.isEmpty) return null;
-    final lenA = data.linesA.length;
-    final lenB = data.linesB.length;
-    if (lenA == lenB) return null;
-    // ★ 差距小于 100 行不触发提示
-    const int minDiff = 100;
-    if ((lenA - lenB).abs() < minDiff) return null;
+  /// ★ 计算"短文件最后一行"所在的可视 block 索引。
+/// 两个文件行数差距 < 100 时不提示（返回 null）。
+///
+/// 找不到精确位置时（比如最后一行被 ctx 过滤掉了），
+/// 退而求其次：返回"最后一个还包含短文件内容的可见块"。
+int? _computeShortFileEndBlockIdx(GroupedDiffData data) {
+  if (data.linesA.isEmpty || data.linesB.isEmpty) return null;
+  final lenA = data.linesA.length;
+  final lenB = data.linesB.length;
+  if (lenA == lenB) return null;
+  // ★ 差距小于 100 行不触发提示
+  const int minDiff = 100;
+  if ((lenA - lenB).abs() < minDiff) return null;
 
-    final shortIsLeft = lenA < lenB;
-    _shortIsLeft = shortIsLeft;
-    final shortLastLine = (shortIsLeft ? lenA : lenB) - 1;
-    final diff = _dataForDiff;
-    final visible = _visible;
-    if (diff == null || visible == null) return null;
+  final shortIsLeft = lenA < lenB;
+  _shortIsLeft = shortIsLeft;
+  final shortLineCount = shortIsLeft ? lenA : lenB;
+  final visible = _visible;
+  if (visible == null || visible.isEmpty) return null;
 
-    final meta = _computeLineMeta(diff);
-    int? entryIdx;
-    for (var i = meta.length - 1; i >= 0; i--) {
-      final line = shortIsLeft ? meta[i].orig : meta[i].mod;
-      if (line == shortLastLine) {
-        entryIdx = i;
-        break;
-      }
+  // 从后往前找：最后一个"还包含短文件内容"的可见块。
+  // 判断标准：该块在短文件那一侧的起始行号 < 短文件总行数。
+  for (var i = visible.length - 1; i >= 0; i--) {
+    final b = visible[i];
+    final blockStart = shortIsLeft ? b.leftStart : b.rightStart;
+    if (blockStart < shortLineCount) {
+      return i;
     }
-    if (entryIdx == null) return null;
-    return _blockIdxForEntry(entryIdx);
   }
+  // 极端兜底：一个都没有，落在第一个可见块下
+  return 0;
+}
 
   Future<void> _onLineLongPress(int lineIdx, bool isLeft) async {
     final provider = isLeft
