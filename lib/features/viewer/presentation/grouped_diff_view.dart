@@ -330,15 +330,16 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   }
 
   /// 滚动到指定的 entry 索引。由主 screen 在按下"下一个/上一个"时调用。
-  void scrollToEntry(int entryIdx) {
-    final blockIdx = _blockIdxForEntry(entryIdx);
-    if (blockIdx == null) return;
-    setState(() => _jumpedBlockIdx = blockIdx);
-    final off = _blockOffset(blockIdx);
-    if (_leftCtrl.hasClients) {
-      _leftCtrl.jumpTo(off.clamp(0, _leftCtrl.position.maxScrollExtent));
-    }
+  bool scrollToEntry(int entryIdx) {
+  final blockIdx = _blockIdxForEntry(entryIdx);
+  if (blockIdx == null) return false;
+  setState(() => _jumpedBlockIdx = blockIdx);
+  final off = _blockOffset(blockIdx);
+  if (_leftCtrl.hasClients) {
+    _leftCtrl.jumpTo(off.clamp(0, _leftCtrl.position.maxScrollExtent));
   }
+  return true;
+}
 
   // ==================== 差异跳转（工具栏按钮用）====================
 
