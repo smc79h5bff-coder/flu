@@ -3386,13 +3386,16 @@ void _toast(String msg) {
                   tooltip: '立即搜索',
                   visualDensity: VisualDensity.compact,
                   onPressed: () {
-                    if (_findQuery.isEmpty) {
-                      _toast('请先输入查找内容');
-                      return;
-                    }
-                    _findDebounce?.cancel();
-                    _findChanged(_findController.text);
-                  },
+  if (_findQuery.isEmpty) {
+    _toast('请先输入查找内容');
+    return;
+  }
+  _findDebounce?.cancel();
+  _findChanged(_findController.text);
+  if (_matchEntries.isEmpty) {
+    _toast('没有找到「$_findQuery」');
+  }
+},
                 ),
                 IconButton(
                   icon: const Icon(Icons.history),
