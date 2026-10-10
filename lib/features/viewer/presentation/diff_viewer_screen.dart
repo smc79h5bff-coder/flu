@@ -1237,14 +1237,24 @@ if (_noResultHint == null &&
       _toast('没有找到「$_findQuery」');
       return;
     }
-    final next = (_matchPos + 1) % _matchEntries.length;
-    setState(() => _matchPos = next);
-    if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[next]);
-    } else {
-      _scrollToEntry(_matchEntries[next]);
-    }
-  }
+   final next = (_matchPos + 1) % _matchEntries.length;
+setState(() => _matchPos = next);
+
+bool jumped = true;
+if (ref.read(viewModeProvider) == ViewMode.grouped) {
+  jumped = (_groupedKey.currentState as dynamic)
+          ?.scrollToEntry(_matchEntries[next]) as bool? ??
+      false;
+} else {
+  _scrollToEntry(_matchEntries[next]);
+}
+
+if (!jumped) {
+  _toast('这处在折叠的相同行里，点下一个继续');
+} else if (_matchEntries.length > 1 &&
+    next == _matchEntries.length - 1) {
+  _toast('已经是最后一个结果，再点回到第一个');
+}
 
   void _prevMatch() {
     _ensureFindApplied();
@@ -1258,12 +1268,22 @@ if (_noResultHint == null &&
       return;
     }
     final prev = (_matchPos - 1 + _matchEntries.length) % _matchEntries.length;
-    setState(() => _matchPos = prev);
-    if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      (_groupedKey.currentState as dynamic)?.scrollToEntry(_matchEntries[prev]);
-    } else {
-      _scrollToEntry(_matchEntries[prev]);
-    }
+setState(() => _matchPos = prev);
+
+bool jumped = true;
+if (ref.read(viewModeProvider) == ViewMode.grouped) {
+  jumped = (_groupedKey.currentState as dynamic)
+          ?.scrollToEntry(_matchEntries[prev]) as bool? ??
+      false;
+} else {
+  _scrollToEntry(_matchEntries[prev]);
+}
+
+if (!jumped) {
+  _toast('这处在折叠的相同行里，点上一个继续');
+} else if (_matchEntries.length > 1 && prev == 0) {
+  _toast('已经是第一个结果，再点回到最后一个');
+}
   }
 
   void _openEdit() {
