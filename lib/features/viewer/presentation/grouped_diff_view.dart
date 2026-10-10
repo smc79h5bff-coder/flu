@@ -1140,26 +1140,36 @@ class _SidePane extends StatelessWidget {
       addRepaintBoundaries: false,
       cacheExtent: 80,
       itemCount: blocks.length,
+
+
+
+
+      
       itemBuilder: (ctx, i) {
-        final h = heightForBlock(i);
-        final b = blocks[i];
+  final h = heightForBlock(i);
+  final b = blocks[i];
 
-        // ★ 这一侧是不是"短文件那侧"？
-        final isShortSide = (side == _Side.left && shortIsLeft) ||
-            (side == _Side.right && !shortIsLeft);
+  final isShortSide = (side == _Side.left && shortIsLeft) ||
+      (side == _Side.right && !shortIsLeft);
 
-        // ★ 这个块在当前 side 上的起始行号
-        final blockStart =
-            side == _Side.left ? b.leftStart : b.rightStart;
+  final blockStart =
+      side == _Side.left ? b.leftStart : b.rightStart;
 
-        // ★ 只有"短文件那侧"、且已经超出短文件范围，才黑
-        final afterShortEnd = isShortSide &&
-            shortFileEndBlockIdx != null &&
-            blockStart >= shortLineCount;
+  final afterShortEnd = isShortSide &&
+      shortFileEndBlockIdx != null &&
+      blockStart >= shortLineCount;
 
-        return SizedBox(
-          height: h,
-          child: _BlockTile(
+  // ★ 橙条会增加 22px，ListView 必须知道
+  final showMark = shortFileEndBlockIdx == i;
+  final actualH = showMark ? h + 22 : h;
+
+  return SizedBox(
+    height: actualH,
+    child: _BlockTile(
+
+
+
+            
             block: b, data: data, side: side,
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
