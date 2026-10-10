@@ -231,7 +231,68 @@ class DisplaySettingsSheet extends ConsumerWidget {
                         ),
                       ],
                     ),
-
+// ========== 悬浮下翻页按钮 ==========
+const Divider(height: 32),
+Text(
+  '悬浮下翻页按钮',
+  style: Theme.of(context).textTheme.titleSmall,
+),
+const SizedBox(height: 4),
+SwitchListTile(
+  contentPadding: EdgeInsets.zero,
+  title: const Text('显示'),
+  subtitle: const Text(
+    '空心的正方形框，点击向下翻一屏',
+    style: TextStyle(fontSize: 11),
+  ),
+  value: ref.watch(floatingPageDownEnabledProvider),
+  onChanged: (v) => ref
+      .read(floatingPageDownEnabledProvider.notifier)
+      .update(v),
+),
+if (ref.watch(floatingPageDownEnabledProvider)) ...[
+  Text(
+    '位置',
+    style: Theme.of(context).textTheme.labelMedium,
+  ),
+  const SizedBox(height: 6),
+  Row(
+    children: [
+      Expanded(
+        child: ChoiceChip(
+          label: const SizedBox(
+            width: double.infinity,
+            child: Text('中线偏左偏下',
+                textAlign: TextAlign.center),
+          ),
+          selected: ref
+                  .watch(floatingPageDownPosProvider) ==
+              FloatingPageDownPos.centerLeft,
+          onSelected: (_) => ref
+              .read(floatingPageDownPosProvider.notifier)
+              .update(FloatingPageDownPos.centerLeft),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: ChoiceChip(
+          label: const SizedBox(
+            width: double.infinity,
+            child: Text('屏幕最右偏下',
+                textAlign: TextAlign.center),
+          ),
+          selected: ref
+                  .watch(floatingPageDownPosProvider) ==
+              FloatingPageDownPos.rightEdge,
+          onSelected: (_) => ref
+              .read(floatingPageDownPosProvider.notifier)
+              .update(FloatingPageDownPos.rightEdge),
+        ),
+      ),
+    ],
+  ),
+],
+                      
                     // ========== 差异颜色 ==========
                     const Divider(height: 32),
                     Text(
