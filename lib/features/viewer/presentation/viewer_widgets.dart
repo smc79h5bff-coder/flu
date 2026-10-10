@@ -254,78 +254,8 @@ SwitchListTile(
 
 
 
-
-if (ref.watch(floatingPageDownEnabledProvider)) ...[
-  const SizedBox(height: 4),
-  _numInput(
-    context: context,
-    label: 'X 坐标',
-    value: ref.watch(floatingPageDownXProvider),
-    hint: '-10 ~ 110，距屏幕左边百分比',
-    min: -10,
-    max: 110,
-    suffix: '%',
-    onChanged: (v) => ref
-        .read(floatingPageDownXProvider.notifier)
-        .update(v),
-  ),
-  _numInput(
-    context: context,
-    label: 'Y 坐标',
-    value: ref.watch(floatingPageDownYProvider),
-    hint: '-10 ~ 110，距屏幕顶部百分比',
-    min: -10,
-    max: 110,
-    suffix: '%',
-    onChanged: (v) => ref
-        .read(floatingPageDownYProvider.notifier)
-        .update(v),
-  ),
-  _numInput(
-    context: context,
-    label: '大小',
-    value: ref.watch(floatingPageDownSizeProvider),
-    hint: '5 ~ 300 像素（建议 40 以上）',
-    min: 5,
-    max: 300,
-    suffix: 'px',
-    onChanged: (v) => ref
-        .read(floatingPageDownSizeProvider.notifier)
-        .update(v),
-  ),
-  _numInput(
-    context: context,
-    label: '透明度',
-    value: ref.watch(floatingPageDownOpacityProvider),
-    hint: '0 ~ 100%（0 = 完全透明，仍可点击）',
-    min: 0,
-    max: 100,
-    suffix: '%',
-    onChanged: (v) => ref
-        .read(floatingPageDownOpacityProvider.notifier)
-        .update(v),
-  ),
-  _numInput(
-    context: context,
-    label: '边框粗细',
-    value: ref.watch(floatingPageDownBorderWidthProvider),
-    hint: '0.1 ~ 20 像素',
-    min: 0.1,
-    max: 20,
-    suffix: 'px',
-    showDecimal: true,
-    onChanged: (v) => ref
-        .read(floatingPageDownBorderWidthProvider.notifier)
-        .update(v),
-  ),
-  _colorRow(
-    context,
-    ref,
-    '边框颜色',
-    floatingPageDownColorProvider,
-  ),
-],
-
+if (ref.watch(floatingPageDownEnabledProvider))
+  const _FloatingPageDownSettings(),
 
 
 
@@ -967,3 +897,233 @@ class FindHistoryDialog extends ConsumerWidget {
     );
   }
 }
+
+class _FloatingPageDownSettings extends ConsumerStatefulWidget {
+  const _FloatingPageDownSettings();
+
+  @override
+  ConsumerState<_FloatingPageDownSettings> createState() =>
+      _FloatingPageDownSettingsState();
+}
+
+class _FloatingPageDownSettingsState
+    extends ConsumerState<_FloatingPageDownSettings> {
+  late final TextEditingController _xCtrl;
+  late final TextEditingController _yCtrl;
+  late final TextEditingController _sizeCtrl;
+  late final TextEditingController _opacityCtrl;
+  late final TextEditingController _borderCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _xCtrl = TextEditingController(
+        text: ref.read(floatingPageDownXProvider).round().toString());
+    _yCtrl = TextEditingController(
+        text: ref.read(floatingPageDownYProvider).round().toString());
+    _sizeCtrl = TextEditingController(
+        text: ref.read(floatingPageDownSizeProvider).round().toString());
+    _opacityCtrl = TextEditingController(
+        text: ref.read(floatingPageDownOpacityProvider).round().toString());
+    _borderCtrl = TextEditingController(
+        text: ref.read(floatingPageDownBorderWidthProvider).toString());
+  }
+
+  @override
+  void dispose() {
+    _xCtrl.dispose();
+    _yCtrl.dispose();
+    _sizeCtrl.dispose();
+    _opacityCtrl.dispose();
+    _borderCtrl.dispose();
+    super.dispose();
+  }
+
+  void _apply() {
+    final x = double.tryParse(_xCtrl.text.trim());
+    if (x != null) {
+      ref.read(floatingPageDownXProvider.notifier).update(x.clamp(-10, 110));
+    }
+    final y = double.tryParse(_yCtrl.text.trim());
+    if (y != null) {
+      ref.read(floatingPageDownYProvider.notifier).update(y.clamp(-10, 110));
+    }
+    final size = double.tryParse(_sizeCtrl.text.trim());
+    if (size != null) {
+      ref.read(floatingPageDownSizeProvider.notifier).update(size.clamp(5, 300));
+    }
+    final opacity = double.tryParse(_opacityCtrl.text.trim());
+    if (opacity != null) {
+      ref.read(floatingPageDownOpacityProvider.notifier).update(opacity.clamp(0, 100));
+    }
+    final border = double.tryParse(_borderCtrl.text.trim());
+    if (border != null) {
+      ref.read(floatingPageDownBorderWidthProvider.notifier).update(border.clamp(0.1, 20));
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已应用'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  void _reset() {
+    setState(() {
+      _xCtrl.text = '75';
+      _yCtrl.text = '58';
+      _sizeCtrl.text = '110';
+      _opacityCtrl.text = '60';
+      _borderCtrl.text = '2';
+    });
+  }
+
+  Widget _input({
+    required String label,
+    required TextEditingController ctrl,
+    required String hint,
+    String suffix = '',
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(label, style: const TextStyle(fontSize: 13)),
+          ),
+          SizedBox(
+            width: 76,
+            child: TextField(
+              controller: ctrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                isDense: true,
+                border: const OutlineInputBorder(),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                suffixText: suffix.isEmpty ? null : suffix,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hint,
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ref.watch(floatingPageDownColorProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 4),
+        _input(
+          label: 'X 坐标',
+          ctrl: _xCtrl,
+          hint: '-10 ~ 110，距屏幕左边百分比',
+          suffix: '%',
+        ),
+        _input(
+          label: 'Y 坐标',
+          ctrl: _yCtrl,
+          hint: '-10 ~ 110，距屏幕顶部百分比',
+          suffix: '%',
+        ),
+        _input(
+          label: '大小',
+          ctrl: _sizeCtrl,
+          hint: '5 ~ 300 像素（建议 40 以上）',
+          suffix: 'px',
+        ),
+        _input(
+          label: '透明度',
+          ctrl: _opacityCtrl,
+          hint: '0 ~ 100%（0 = 完全透明，仍可点击）',
+          suffix: '%',
+        ),
+        _input(
+          label: '边框粗细',
+          ctrl: _borderCtrl,
+          hint: '0.1 ~ 20 像素',
+          suffix: 'px',
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 80,
+                child: Text('边框颜色',
+                    style: TextStyle(fontSize: 13)),
+              ),
+              Text(
+                colorToHex(color),
+                style: const TextStyle(
+                    fontFamily: 'monospace', fontSize: 12),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: () async {
+                  final picked = await pickColorDialog(context, color);
+                  if (picked != null) {
+                    ref
+                        .read(floatingPageDownColorProvider.notifier)
+                        .update(picked);
+                  }
+                },
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: color,
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _reset,
+                child: const Text('恢复默认值'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.icon(
+                icon: const Icon(Icons.check, size: 18),
+                label: const Text('应用'),
+                onPressed: _apply,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
