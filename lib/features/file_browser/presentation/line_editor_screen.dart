@@ -838,7 +838,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
               onPressed: _jumpToLine,
             ),
             IconButton(
-              icon: const Icon(Icons.search),
+              icon: const Icon(Icons.find_in_page),   // 原 Icons.search
               tooltip: '查找 / 替换',
               onPressed: () => setState(() => _showFind = !_showFind),
             ),
