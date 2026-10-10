@@ -1441,13 +1441,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   String _viewModeName(ViewMode m) {
     switch (m) {
       case ViewMode.merged:
-        return '合并';
+        return '全文上下合并';
       case ViewMode.sideBySide:
-        return '并排';
+        return '全文左右并排';
       case ViewMode.diffOnly:
-        return '差异行+上下文';
+        return '差异行+上下2行';
       case ViewMode.diffOnlyPlain:
-        return '仅差异行';
+        return '仅显示差异行';
       case ViewMode.grouped:
         return '跨行块';
     }
@@ -1642,8 +1642,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
       builder: (c) => SimpleDialog(
         title: const Text('进入对比页时默认显示'),
         children: [
-          for (final m in ViewMode.values)
-            RadioListTile<ViewMode>(
+      for (final m in ViewMode.values)
+  if (m != ViewMode.sideBySide)
+    RadioListTile<ViewMode>(
               value: m,
               groupValue: current,
               title: Text(_viewModeName(m)),
