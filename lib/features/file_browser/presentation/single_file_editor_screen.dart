@@ -885,7 +885,8 @@ class _SingleFileEditorScreenState
               onPressed: _jumpToLine,
             ),
             IconButton(
-              icon: const Icon(Icons.search),
+              
+                icon: const Icon(Icons.find_in_page),
               tooltip: '查找 / 替换',
               onPressed: () => setState(() {
                 _showFind = !_showFind;
