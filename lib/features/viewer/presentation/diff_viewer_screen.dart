@@ -3304,7 +3304,7 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
             Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: const Icon(Icons.disabled_by_default),
                   tooltip: '关闭查找',
                   visualDensity: VisualDensity.compact,
                   onPressed: _closeFindBar,
