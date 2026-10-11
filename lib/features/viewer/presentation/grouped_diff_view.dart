@@ -332,9 +332,8 @@ int _restoreAttempts = 0;
  void restoreScrollOffset(double offset) {
   _pendingRestoreOffset = offset;
   _restoreAttempts = 0;
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (mounted) _tryRestoreOffset();
-  });
+  // ★ 不立即跳。等 build 里检测到新数据到达后再跳，
+  //   否则会跳到"旧数据"的位置，然后新数据到达时又归 0。
 }
 
  void _tryRestoreOffset() {
@@ -739,7 +738,12 @@ return visible.length - 1;
         if (diff == null) {
           return const Center(child: Text('请先导入两份文档'));
         }
-        if (!identical(_dataForDiff, diff)) {
+
+
+
+
+        
+ if (!identical(_dataForDiff, diff)) {
   _dataForDiff = diff;
   _data = buildGroupedData(diff, a, b);
   _visible = null;
@@ -754,7 +758,7 @@ return visible.length - 1;
   _metaFor = null;
   _metaCache = null;
 
-  // ★ 新数据就绪。如果有待恢复的位置，重启恢复。
+  // ★ 新数据到达。此刻才恢复位置（等布局完成后再跳）。
   if (_pendingRestoreOffset != null) {
     _restoreAttempts = 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
