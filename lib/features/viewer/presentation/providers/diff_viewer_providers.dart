@@ -934,3 +934,4 @@ class FloatingPageDownColorNotifier extends ColorPrefNotifier {
         );
 }
 
+final groupedRestoreOffsetProvider = StateProvider<double?>((ref) => null);
