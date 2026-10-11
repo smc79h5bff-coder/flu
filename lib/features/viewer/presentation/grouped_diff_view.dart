@@ -1285,17 +1285,17 @@ class _BlockTile extends StatelessWidget {
     }
     if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.1));
 
-    final content = ColoredBox(
-      color: bg,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: rows,
-        ),
-      ),
-    );
-
+final content = ColoredBox(
+  color: bg,
+  child: Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
+    ),
+  ),
+);
 
 
 
