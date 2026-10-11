@@ -2113,11 +2113,14 @@ if (!jumped) {
     if (diff == null) return;
 
     if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      final state = _groupedKey.currentState;
-      _pendingGroupedRestoreOffset =
-          (state as dynamic)?.currentScrollOffset as double?;
-      return;
-    }
+  final state = _groupedKey.currentState;
+  final off = (state as dynamic)?.currentScrollOffset as double?;
+  CrashLogger.instance.mark('[restore] 主screen 记位置 off=$off');
+  if (off != null) {
+    ref.read(groupedRestoreOffsetProvider.notifier).state = off;
+  }
+  return;
+}
 
     final topRow = _currentTopRow();
     if (topRow == null) return;
