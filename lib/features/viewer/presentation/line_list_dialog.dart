@@ -243,22 +243,40 @@ class _LineListDialogState extends ConsumerState<LineListDialog> {
     Navigator.of(context).pop();
   }
 
+
+
+  
   ({String text, int hits}) _removeAll(String text, List<String> entries) {
-    var out = text;
-    var hits = 0;
-    for (final e in entries) {
-      if (e.isEmpty) continue;
-      if (!out.contains(e)) continue;
-      var i = 0;
-      while ((i = out.indexOf(e, i)) != -1) {
-        hits++;
-        i += e.length;
-      }
-      out = out.replaceAll(e, '');
-    }
-    return (text: out, hits: hits);
+  if (text.isEmpty || entries.isEmpty) {
+    return (text: text, hits: 0);
   }
 
+  // 长模式优先，让更具体的匹配先命中。
+  final sorted = List<String>.from(entries)
+    ..sort((a, b) => b.length.compareTo(a.length));
+
+  // 去掉空串（避免 AC 出错）。
+  final cleaned = sorted.where((e) => e.isNotEmpty).toList();
+  if (cleaned.isEmpty) return (text: text, hits: 0);
+
+  final ac = AhoCorasick(
+    patterns: cleaned,
+    replacements: List<String>.filled(cleaned.length, ''),
+    priorities: List<int>.generate(cleaned.length, (i) => i),
+  );
+
+  var hits = 0;
+  ac.findAllMatches(text, (start, end, patternIndex) {
+    hits++;
+  });
+
+  return (text: ac.replaceAll(text), hits: hits);
+}
+
+
+
+
+  
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
