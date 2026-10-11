@@ -22,6 +22,7 @@ import '../../../core/debug/crash_logger.dart';
 import 'diagnostic_screen.dart';
 import 'diff_text_index.dart';
 import 'grouped_diff_view.dart';
+import 'line_list_dialog.dart';
 import 'line_height_cache.dart';
 import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
