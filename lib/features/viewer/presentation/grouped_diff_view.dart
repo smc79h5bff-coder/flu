@@ -323,7 +323,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   }
 
   double? _pendingRestoreOffset;
-
+int _restoreAttempts = 0;
   double? get currentScrollOffset {
     if (!_leftCtrl.hasClients) return null;
     return _leftCtrl.offset;
@@ -331,22 +331,46 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
 
   void restoreScrollOffset(double offset) {
     _pendingRestoreOffset = offset;
+    _restoreAttempts = 0;
     _tryRestoreOffset();
-  }
+}
 
   void _tryRestoreOffset() {
     final o = _pendingRestoreOffset;
     if (o == null) return;
+
+    // 试了 10 帧还不行就放弃（文件太短，本来就不用滚）
+    if (_restoreAttempts >= 10) {
+      _pendingRestoreOffset = null;
+      _restoreAttempts = 0;
+      return;
+    }
+
+    // ListView 还没挂载 → 等下一帧再试
     if (!_leftCtrl.hasClients) {
+      _restoreAttempts++;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _tryRestoreOffset();
       });
       return;
     }
+
     final max = _leftCtrl.position.maxScrollExtent;
+
+    // ★ 关键修复：列表还没算完高度时 max 是 0，
+    // 这时跳转会 clamp 到 0（顶部）。等下一帧再试。
+    if (max <= 0) {
+      _restoreAttempts++;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tryRestoreOffset();
+      });
+      return;
+    }
+
     _leftCtrl.jumpTo(o.clamp(0.0, max));
     _pendingRestoreOffset = null;
-  }
+    _restoreAttempts = 0;
+}
 
   bool scrollToEntry(int entryIdx) {
     final blockIdx = _blockIdxForEntry(entryIdx);
@@ -1320,13 +1344,13 @@ Column(
   crossAxisAlignment: CrossAxisAlignment.stretch,
   children: const [
     _WarningBar(color: Color(0xFFFF0000), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFFFF7F00), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFFFFFF00), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF00C800), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF00FFFF), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF0000FF), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF7F00FF), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFFFF00FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFFFF8700), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFFF9FF00), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF00FF27), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF00F3FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF0037FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF9C00FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFFFF50DE), label: '短文件到此结束，下方仅为长文件独有内容'),
   ],
 ),
             ],
