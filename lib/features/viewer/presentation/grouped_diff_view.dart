@@ -381,9 +381,25 @@ if (latest == null || !identical(_dataForDiff, latest)) {
     return;
   }
 
+
+
+
+    
+
   final max = _leftCtrl.position.maxScrollExtent;
-  if (max <= 0) {
+
+  // ★ 关键：max 小于目标 offset 时，ListView 还没布局完。
+  //   此时跳过去会被 clamp 到一个很小的位置（表现为"跳开头"）。等它长大。
+  if (max < o) {
     _restoreAttempts++;
+    if (_restoreAttempts >= 120) {
+      // 试了 2 秒，max 还是不够大。内容真的变短了，跳到 max。
+      _leftCtrl.jumpTo(max);
+      CrashLogger.instance.mark('[restore] 放弃，跳到 max=$max');
+      _pendingRestoreOffset = null;
+      _restoreAttempts = 0;
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _tryRestoreOffset();
     });
@@ -395,9 +411,6 @@ if (latest == null || !identical(_dataForDiff, latest)) {
   _pendingRestoreOffset = null;
   _restoreAttempts = 0;
 }
-
-
-
 
 
   
