@@ -1310,49 +1310,25 @@ class _SidePane extends StatelessWidget {
             children: [
               Expanded(child: content),
               // 提示条：32px，两行文字
-              SizedBox(
-                height: 32,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // 8 色彩虹底
-                    const Row(
-                      children: [
-                        Expanded(child: ColoredBox(color: Color(0xFFFF0000))),
-                        Expanded(child: ColoredBox(color: Color(0xFFFF7F00))),
-                        Expanded(child: ColoredBox(color: Color(0xFFFFFF00))),
-                        Expanded(child: ColoredBox(color: Color(0xFF00C800))),
-                        Expanded(child: ColoredBox(color: Color(0xFF00FFFF))),
-                        Expanded(child: ColoredBox(color: Color(0xFF0000FF))),
-                        Expanded(child: ColoredBox(color: Color(0xFF7F00FF))),
-                        Expanded(child: ColoredBox(color: Color(0xFFFF00FF))),
-                      ],
-                    ),
-                    // 中间黑色小方块包住文字
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          '⚠ 短文件到此结束\n下方仅为长文件独有内容',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            height: 1.3,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+
+
+
+
+              // 8 条独立横条，颜色不同，文字相同
+Column(
+  mainAxisSize: MainAxisSize.min,
+  crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: const [
+    _WarningBar(color: Color(0xFFFF0000), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFFFF7F00), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFFFFFF00), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF00C800), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF00FFFF), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF0000FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFF7F00FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+    _WarningBar(color: Color(0xFFFF00FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+  ],
+),
             ],
           )
         : content;
