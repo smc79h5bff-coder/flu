@@ -896,10 +896,9 @@ if (_noResultHint == null &&
 
   // ==================== 高度表：懒加载 + 后台补精确 ====================
 
- void _startHeightComputation(DiffResult diff, ViewMode mode) {
+void _startHeightComputation(DiffResult diff, ViewMode mode) {
+  if (mode == ViewMode.grouped) return;   // ← 先 return
   CrashLogger.instance.mark('启动高度计算: ${mode.name}');
-  if (mode == ViewMode.grouped) return;
-
     final mq = MediaQuery.of(context);
     final configKey = '${mq.size.width}|'
         '${ref.read(bodyFontSizeProvider)}|'
