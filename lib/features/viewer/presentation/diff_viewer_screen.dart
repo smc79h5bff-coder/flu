@@ -136,10 +136,12 @@ Timer? _floatTimer;
 
   final GlobalKey _groupedKey = GlobalKey();
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+ @override
+void initState() {
+  super.initState();
+  // 每次进入对比页，清空行列表（一次性会话）。
+  ref.read(lineListTextProvider.notifier).state = '';
+  WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(viewModeProvider.notifier).state =
           ref.read(defaultViewModeProvider);
