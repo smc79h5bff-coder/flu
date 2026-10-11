@@ -1,4 +1,3 @@
-
 // grouped_diff_view.dart
 
 import 'package:diff_match_patch/diff_match_patch.dart';
@@ -330,6 +329,7 @@ int _restoreAttempts = 0;
   }
 
  void restoreScrollOffset(double offset) {
+  CrashLogger.instance.mark('[restore] 收到 offset=$offset');
   _pendingRestoreOffset = offset;
   _restoreAttempts = 0;
   // 立即尝试。数据还没就绪的话 _tryRestoreOffset 会等。
@@ -342,6 +342,7 @@ int _restoreAttempts = 0;
   
 void _tryRestoreOffset() {
   final o = _pendingRestoreOffset;
+  CrashLogger.instance.mark('[restore] 尝试 #$_restoreAttempts 目标=$o');
   if (o == null) return;
 
   // 试了 120 帧（约 2 秒）还不行就放弃
@@ -381,6 +382,7 @@ if (latest == null || !identical(_dataForDiff, latest)) {
   }
 
   _leftCtrl.jumpTo(o.clamp(0.0, max));
+  CrashLogger.instance.mark('[restore] 已跳转 offset=$o max=$max');
   _pendingRestoreOffset = null;
   _restoreAttempts = 0;
 }
@@ -763,6 +765,7 @@ return visible.length - 1;
 
         
  if (!identical(_dataForDiff, diff)) {
+  CrashLogger.instance.mark('[restore] 新数据到达 pending=$_pendingRestoreOffset');
   _dataForDiff = diff;
   _data = buildGroupedData(diff, a, b);
   _visible = null;
@@ -1510,4 +1513,3 @@ class _WarningBar extends StatelessWidget {
     );
   }
 }
-
