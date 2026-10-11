@@ -3623,12 +3623,19 @@ void _onFloatingPageDownTap() {
                   ],
                 ),
               ),
-            Row(
-              children: [
-                const SizedBox(width: 8),
+     Row(
+  children: [
+    const SizedBox(width: 8),
+    IconButton(
+      icon: const Icon(Icons.edit_document),
+      tooltip: '行列表',
+      visualDensity: VisualDensity.compact,
+      onPressed: () => _openLineList(),
+    ),
+    const SizedBox(width: 4),
 
-                sidePill(
-                  label: '左侧',
+    sidePill(
+      label: '左侧',
                   selected: _searchLeft && !_searchRight,
                   onTap: () {
                     if (_searchLeft && !_searchRight) return;
