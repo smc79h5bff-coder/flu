@@ -1162,7 +1162,7 @@ class _SidePane extends StatelessWidget {
             isShortSide && shortFileEndBlockIdx == i;
 
         // ★ 提示条高度 32，容两行
-        final actualH = showMark ? baseH + 32 : baseH;
+        final actualH = showMark ? baseH + 144 : baseH;
 
         // ★ 超出短文件范围（且这一侧是短文件）：黑块
         final blockStart =
