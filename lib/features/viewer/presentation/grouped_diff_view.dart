@@ -339,11 +339,20 @@ int _restoreAttempts = 0;
 }
 
  
-  
-void _tryRestoreOffset() {
-  final o = _pendingRestoreOffset;
-  CrashLogger.instance.mark('[restore] 尝试 #$_restoreAttempts 目标=$o');
-  if (o == null) return;
+  void _tryRestoreOffset() {
+ // ★ 内部字段为空时，从 provider 读（由主 screen 传入）
+ if (_pendingRestoreOffset == null) {
+   final fromProvider = ref.read(groupedRestoreOffsetProvider);
+   if (fromProvider != null) {
+     _pendingRestoreOffset = fromProvider;
+     ref.read(groupedRestoreOffsetProvider.notifier).state = null;
+     _restoreAttempts = 0;
+     CrashLogger.instance.mark('[restore] 从 provider 读到 offset=$fromProvider');
+   }
+ }
+
+ final o = _pendingRestoreOffset;
+ if (o == null) return;
 
   // 试了 120 帧（约 2 秒）还不行就放弃
   if (_restoreAttempts >= 120) {
