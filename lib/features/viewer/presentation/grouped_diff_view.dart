@@ -1164,10 +1164,11 @@ class _SidePane extends StatelessWidget {
       shortFileEndBlockIdx != null &&
       blockStart >= shortLineCount;
 
-  // ★ 橙条会增加 22px，ListView 必须知道
-  final showMark = shortFileEndBlockIdx == i;
-  final actualH = showMark ? h + 22 : h;
+// ★ 彩虹条只在短文件那侧显示
+final showMark = shortFileEndBlockIdx == i && isShortSide;
+final actualH = showMark ? h + 22 : h;
 
+        
   return SizedBox(
     height: actualH,
     child: _BlockTile(
@@ -1295,8 +1296,12 @@ class _BlockTile extends StatelessWidget {
       ),
     );
 
+
+
+
     final Widget body = showShortEndMark
     ? Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           content,
@@ -1305,32 +1310,36 @@ class _BlockTile extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // 8 色彩虹底
-                Row(
-                  children: const [
-                    Expanded(child: ColoredBox(color: Color(0xFFFF0000))), // 红
-                    Expanded(child: ColoredBox(color: Color(0xFFFF7F00))), // 橙
-                    Expanded(child: ColoredBox(color: Color(0xFFFFFF00))), // 黄
-                    Expanded(child: ColoredBox(color: Color(0xFF00C800))), // 绿
-                    Expanded(child: ColoredBox(color: Color(0xFF00FFFF))), // 青
-                    Expanded(child: ColoredBox(color: Color(0xFF0000FF))), // 蓝
-                    Expanded(child: ColoredBox(color: Color(0xFF7F00FF))), // 紫
-                    Expanded(child: ColoredBox(color: Color(0xFFFF00FF))), // 粉
+                // 8 色彩虹底（保持鲜艳）
+                const Row(
+                  children: [
+                    Expanded(child: ColoredBox(color: Color(0xFFFF0000))),
+                    Expanded(child: ColoredBox(color: Color(0xFFFF7F00))),
+                    Expanded(child: ColoredBox(color: Color(0xFFFFFF00))),
+                    Expanded(child: ColoredBox(color: Color(0xFF00C800))),
+                    Expanded(child: ColoredBox(color: Color(0xFF00FFFF))),
+                    Expanded(child: ColoredBox(color: Color(0xFF0000FF))),
+                    Expanded(child: ColoredBox(color: Color(0xFF7F00FF))),
+                    Expanded(child: ColoredBox(color: Color(0xFFFF00FF))),
                   ],
                 ),
-                // 文字加黑底提高可读性
-                Container(
-                  color: Colors.black.withOpacity(0.45),
-                  alignment: Alignment.center,
-                  child: const Text(
-                    '⚠ 此文件到此结束，下方仅为长文件独有内容',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      shadows: [
-                        Shadow(blurRadius: 2, color: Colors.black),
-                      ],
+                // 文字只占一小块黑底，彩虹照常显示
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.75),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      '⚠ 短文件到此结束，下方仅为长文件独有内容',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
@@ -1341,6 +1350,9 @@ class _BlockTile extends StatelessWidget {
       )
     : content;
 
+
+
+    
     if (isCurrent) {
       return Container(
         foregroundDecoration: BoxDecoration(
