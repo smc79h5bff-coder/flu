@@ -1430,3 +1430,28 @@ Column(
   }
 }
     
+class _WarningBar extends StatelessWidget {
+  const _WarningBar({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 18,
+      color: color,
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10,
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+          shadows: [Shadow(blurRadius: 2, color: Colors.black)],
+        ),
+      ),
+    );
+  }
+}
+
