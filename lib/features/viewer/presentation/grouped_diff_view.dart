@@ -351,15 +351,17 @@ void _tryRestoreOffset() {
     return;
   }
 
-  // ★ 核心：diff 正在计算时，ListView 马上会被重建，
-  //   现在跳的位置到那时会被归 0。等它算完再跳。
-  if (ref.read(diffResultProvider).isLoading) {
-    _restoreAttempts++;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _tryRestoreOffset();
-    });
-    return;
-  }
+  // ★ 核心：等 _dataForDiff 指向最新 diff。
+//   isLoading 变 false 不代表 GroupedDiffView 已经用新数据 rebuild 了。
+//   只有 _dataForDiff == latest 时，ListView 才是用新数据布局的。
+final latest = ref.read(diffResultProvider).value;
+if (latest == null || !identical(_dataForDiff, latest)) {
+  _restoreAttempts++;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) _tryRestoreOffset();
+  });
+  return;
+}
 
   if (!_leftCtrl.hasClients) {
     _restoreAttempts++;
