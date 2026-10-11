@@ -1105,6 +1105,10 @@ class _Colors {
 
 enum _Side { left, right }
 
+
+
+
+
 class _SidePane extends StatelessWidget {
   const _SidePane({
     required this.data, required this.blocks, required this.side,
@@ -1139,43 +1143,37 @@ class _SidePane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ★ 这一侧是不是"短文件那侧"
+    final isShortSide = (side == _Side.left && shortIsLeft) ||
+        (side == _Side.right && !shortIsLeft);
+
     final list = ListView.builder(
       controller: controller,
       addAutomaticKeepAlives: false,
       addRepaintBoundaries: false,
       cacheExtent: 80,
       itemCount: blocks.length,
-
-
-
-
-      
       itemBuilder: (ctx, i) {
-  final h = heightForBlock(i);
-  final b = blocks[i];
+        final b = blocks[i];
+        final baseH = heightForBlock(i);
 
-  final isShortSide = (side == _Side.left && shortIsLeft) ||
-      (side == _Side.right && !shortIsLeft);
+        // ★ 提示条只在短文件那侧、那个块上出现
+        final showMark =
+            isShortSide && shortFileEndBlockIdx == i;
 
-  final blockStart =
-      side == _Side.left ? b.leftStart : b.rightStart;
+        // ★ 提示条高度 32，容两行
+        final actualH = showMark ? baseH + 32 : baseH;
 
-  final afterShortEnd = isShortSide &&
-      shortFileEndBlockIdx != null &&
-      blockStart >= shortLineCount;
+        // ★ 超出短文件范围（且这一侧是短文件）：黑块
+        final blockStart =
+            side == _Side.left ? b.leftStart : b.rightStart;
+        final afterShortEnd = isShortSide &&
+            shortFileEndBlockIdx != null &&
+            blockStart >= shortLineCount;
 
-// ★ 彩虹条只在短文件那侧显示
-final showMark = shortFileEndBlockIdx == i && isShortSide;
-final actualH = showMark ? h + 22 : h;
-
-        
-  return SizedBox(
-    height: actualH,
-    child: _BlockTile(
-
-
-
-            
+        return SizedBox(
+          height: actualH,
+          child: _BlockTile(
             block: b, data: data, side: side,
             showLineNumbers: showLineNumbers,
             bodyFontSize: bodyFontSize,
@@ -1184,7 +1182,7 @@ final actualH = showMark ? h + 22 : h;
             findQuery: findQuery,
             isCurrent: jumpedBlockIdx == i,
             highlights: highlightsFor(i),
-            showShortEndMark: shortFileEndBlockIdx == i,
+            showShortEndMark: showMark,
             afterShortEnd: afterShortEnd,
             colors: colors,
             onLineLongPress: onLineLongPress,
@@ -1200,7 +1198,16 @@ final actualH = showMark ? h + 22 : h;
   }
 }
 
-class _BlockTile extends StatelessWidget {
+
+
+
+
+
+
+
+
+    
+    class _BlockTile extends StatelessWidget {
   const _BlockTile({
     required this.block, required this.data, required this.side,
     required this.showLineNumbers, required this.bodyFontSize,
@@ -1239,7 +1246,6 @@ class _BlockTile extends StatelessWidget {
 
     final isContext = block.kind == GroupedBlockKind.equal;
     final fs = isContext ? contextFontSize : bodyFontSize;
-    // ★ 超出短文件范围：黑底 + 灰字
     final bg = afterShortEnd ? const Color(0xFF1C1C1C) : _bg();
     final defaultFg = Theme.of(context).textTheme.bodyMedium?.color ??
         (Theme.of(context).brightness == Brightness.dark
@@ -1285,74 +1291,72 @@ class _BlockTile extends StatelessWidget {
     }
     if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.1));
 
-final content = ColoredBox(
-  color: bg,
-  child: Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: rows,
-    ),
-  ),
-);
+    final content = ColoredBox(
+      color: bg,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: rows,
+        ),
+      ),
+    );
 
-
-
-  final Widget body = showShortEndMark
-    ? Column(
-        mainAxisSize: MainAxisSize.max,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: content),
-          SizedBox(
-            height: 22,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // 8 色彩虹底（保持鲜艳）
-                const Row(
+    final Widget body = showShortEndMark
+        ? Column(
+            mainAxisSize: MainAxisSize.max,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: content),
+              // 提示条：32px，两行文字
+              SizedBox(
+                height: 32,
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    Expanded(child: ColoredBox(color: Color(0xFFFF0000))),
-                    Expanded(child: ColoredBox(color: Color(0xFFFF7F00))),
-                    Expanded(child: ColoredBox(color: Color(0xFFFFFF00))),
-                    Expanded(child: ColoredBox(color: Color(0xFF00C800))),
-                    Expanded(child: ColoredBox(color: Color(0xFF00FFFF))),
-                    Expanded(child: ColoredBox(color: Color(0xFF0000FF))),
-                    Expanded(child: ColoredBox(color: Color(0xFF7F00FF))),
-                    Expanded(child: ColoredBox(color: Color(0xFFFF00FF))),
-                  ],
-                ),
-                // 文字只占一小块黑底，彩虹照常显示
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 2,
+                    // 8 色彩虹底
+                    const Row(
+                      children: [
+                        Expanded(child: ColoredBox(color: Color(0xFFFF0000))),
+                        Expanded(child: ColoredBox(color: Color(0xFFFF7F00))),
+                        Expanded(child: ColoredBox(color: Color(0xFFFFFF00))),
+                        Expanded(child: ColoredBox(color: Color(0xFF00C800))),
+                        Expanded(child: ColoredBox(color: Color(0xFF00FFFF))),
+                        Expanded(child: ColoredBox(color: Color(0xFF0000FF))),
+                        Expanded(child: ColoredBox(color: Color(0xFF7F00FF))),
+                        Expanded(child: ColoredBox(color: Color(0xFFFF00FF))),
+                      ],
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.75),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      '⚠ 短文件到此结束，下方只有长文件独有内容',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
+                    // 中间黑色小方块包住文字
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          '⚠ 短文件到此结束\n下方仅为长文件独有内容',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            height: 1.3,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-        ],
-      )
-    : content;
+              ),
+            ],
+          )
+        : content;
 
-
-
-    
     if (isCurrent) {
       return Container(
         foregroundDecoration: BoxDecoration(
@@ -1449,3 +1453,4 @@ final content = ColoredBox(
     }
   }
 }
+    
