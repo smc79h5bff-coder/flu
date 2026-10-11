@@ -790,12 +790,12 @@ return visible.length - 1;
   _metaCache = null;
 
   // ★ 新数据到达。此刻才恢复位置（等布局完成后再跳）。
-  if (_pendingRestoreOffset != null) {
-    _restoreAttempts = 0;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _tryRestoreOffset();
-    });
-  }
+//   位置可能来自内部字段，也可能在 provider 里，_tryRestoreOffset 会自己处理。
+CrashLogger.instance.mark('[restore] 新数据到达');
+_restoreAttempts = 0;
+WidgetsBinding.instance.addPostFrameCallback((_) {
+  if (mounted) _tryRestoreOffset();
+});
 }
         return _buildBody(_data!);
       },
