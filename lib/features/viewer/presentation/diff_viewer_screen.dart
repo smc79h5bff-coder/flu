@@ -2744,6 +2744,10 @@ void _toast(String msg) {
                 if (_hScrollController.hasClients) {
                   _hScrollController.jumpTo(0);
                 }
+                } else if (v == 'listLeftDiff') {
+  _openLineListFromDiff(isLeft: true);
+} else if (v == 'listRightDiff') {
+  _openLineListFromDiff(isLeft: false);
               } else if (v == 'displaySettings') {
                 _openDisplaySettings();
               } else if (v == 'comparisonSettings') {
@@ -2775,9 +2779,31 @@ void _toast(String msg) {
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
-              PopupMenuItem<String>(
-                value: 'delOriginal',
+           const PopupMenuDivider(),
+const PopupMenuItem<String>(
+  value: 'listLeftDiff',
+  child: Row(
+    children: [
+      Icon(Icons.edit_document),
+      SizedBox(width: 10),
+      Text('列出左差异'),
+    ],
+  ),
+),
+const PopupMenuItem<String>(
+  value: 'listRightDiff',
+  child: Row(
+    children: [
+      Icon(Icons.edit_document),
+      SizedBox(width: 10),
+      Text('列出右差异'),
+    ],
+  ),
+),
+const PopupMenuDivider(),
+
+PopupMenuItem<String>(
+  value: 'delOriginal',
                 enabled: !_originalDeleted &&
                     ref.read(originalFilePathProvider) != null,
                 child: Row(
