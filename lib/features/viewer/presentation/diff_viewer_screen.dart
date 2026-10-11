@@ -1783,7 +1783,43 @@ if (!jumped) {
 
     return (left: leftParts, right: rightParts);
   }
+Future<void> _openLineListFromDiff({required bool isLeft}) async {
+  final diff = _diff;
+  if (diff == null) {
+    _toast('还没有差异可列出');
+    return;
+  }
+  final parts = _collectDiffParts(diff);
+  final list = isLeft ? parts.left : parts.right;
+  if (list.isEmpty) {
+    _toast(isLeft ? '左侧没有差异' : '右侧没有差异');
+    return;
+  }
+  await _openLineList(appendLines: list);
+}
 
+Future<void> _openLineList({List<String>? appendLines}) async {
+  if (appendLines != null && appendLines.isNotEmpty) {
+    final cur = ref.read(lineListTextProvider);
+    final existing = cur.isEmpty ? <String>[] : cur.split('\n');
+    final existingSet = existing.where((l) => l.isNotEmpty).toSet();
+    final added = <String>[];
+    for (final l in appendLines) {
+      if (l.isEmpty) continue;
+      if (existingSet.contains(l)) continue;
+      existingSet.add(l);
+      added.add(l);
+    }
+    final merged = [...existing, ...added].join('\n');
+    ref.read(lineListTextProvider.notifier).state = merged;
+  }
+  if (!mounted) return;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const LineListDialog(),
+  );
+}
   Future<void> _exportDiff() async {
     final diff = _diff;
     if (diff == null) return;
