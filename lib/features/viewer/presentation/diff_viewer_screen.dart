@@ -2166,21 +2166,23 @@ if (!jumped) {
     DiffTextIndex.invalidate();
     setState(() {});
 
+
+
     if (ref.read(viewModeProvider) == ViewMode.grouped) {
-      final o = _pendingGroupedRestoreOffset;
-      _pendingGroupedRestoreOffset = null;
-      _pendingJumpEntry = null;
-      _pendingJumpOrigLine = null;
-      _pendingJumpQueued = false;
-      if (o != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          if (ref.read(viewModeProvider) != ViewMode.grouped) return;
-          (_groupedKey.currentState as dynamic)?.restoreScrollOffset(o);
-        });
-      }
-      return;
-    }
+  // 位置已经通过 groupedRestoreOffsetProvider 传给 GroupedDiffView，
+  // 它在收到新 diff 时自己恢复，不依赖 State 存活。
+  _pendingGroupedRestoreOffset = null;
+  _pendingJumpEntry = null;
+  _pendingJumpOrigLine = null;
+  _pendingJumpQueued = false;
+  CrashLogger.instance.mark('[restore] 主screen reset');
+  return;
+}
+
+
+
+
+    
 
     if (_pendingJumpEntry == null && _pendingJumpOrigLine == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
