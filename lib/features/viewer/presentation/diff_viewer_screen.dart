@@ -1816,11 +1816,13 @@ Future<void> _openLineList({List<String>? appendLines}) async {
     final merged = [...existing, ...added].join('\n');
     ref.read(lineListTextProvider.notifier).state = merged;
   }
-  if (!mounted) return;
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => const LineListDialog(),
+   if (!mounted) return;
+  await Navigator.of(context).push(
+    PageRouteBuilder(
+      pageBuilder: (_, __, ___) => const LineListPage(),
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    ),
   );
 }
   Future<void> _exportDiff() async {
