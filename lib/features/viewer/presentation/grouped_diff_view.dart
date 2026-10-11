@@ -1299,12 +1299,12 @@ final content = ColoredBox(
 
 
 
-    final Widget body = showShortEndMark
+  final Widget body = showShortEndMark
     ? Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: MainAxisSize.max,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          content,
+          Expanded(child: content),
           SizedBox(
             height: 22,
             child: Stack(
@@ -1334,9 +1334,9 @@ final content = ColoredBox(
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Text(
-                      '⚠ 短文件到此结束，下方仅为长文件独有内容',
+                      '⚠ 短文件到此结束，下方只有长文件独有内容',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 10,
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
                       ),
