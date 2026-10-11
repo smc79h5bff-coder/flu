@@ -329,48 +329,49 @@ int _restoreAttempts = 0;
     return _leftCtrl.offset;
   }
 
-  void restoreScrollOffset(double offset) {
-    _pendingRestoreOffset = offset;
-    _restoreAttempts = 0;
-    _tryRestoreOffset();
+ void restoreScrollOffset(double offset) {
+  _pendingRestoreOffset = offset;
+  _restoreAttempts = 0;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) _tryRestoreOffset();
+  });
 }
 
-  void _tryRestoreOffset() {
-    final o = _pendingRestoreOffset;
-    if (o == null) return;
+ void _tryRestoreOffset() {
+  final o = _pendingRestoreOffset;
+  if (o == null) return;
 
-    // 试了 10 帧还不行就放弃（文件太短，本来就不用滚）
-    if (_restoreAttempts >= 10) {
-      _pendingRestoreOffset = null;
-      _restoreAttempts = 0;
-      return;
-    }
-
-    // ListView 还没挂载 → 等下一帧再试
-    if (!_leftCtrl.hasClients) {
-      _restoreAttempts++;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _tryRestoreOffset();
-      });
-      return;
-    }
-
-    final max = _leftCtrl.position.maxScrollExtent;
-
-    // ★ 关键修复：列表还没算完高度时 max 是 0，
-    // 这时跳转会 clamp 到 0（顶部）。等下一帧再试。
-    if (max <= 0) {
-      _restoreAttempts++;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _tryRestoreOffset();
-      });
-      return;
-    }
-
-    _leftCtrl.jumpTo(o.clamp(0.0, max));
-    _pendingRestoreOffset = null;
+  // 试了 30 帧还不行就暂停。注意：不清目标，
+  // 等"新数据到达"时（build 里）会重启。
+  if (_restoreAttempts >= 30) {
     _restoreAttempts = 0;
-}
+    return;
+  }
+
+  // ListView 还没挂载 → 等下一帧再试
+  if (!_leftCtrl.hasClients) {
+    _restoreAttempts++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tryRestoreOffset();
+    });
+    return;
+  }
+
+  final max = _leftCtrl.position.maxScrollExtent;
+
+  // 列表还没算完高度时 max 是 0，跳转会 clamp 到顶部。等下一帧。
+  if (max <= 0) {
+    _restoreAttempts++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tryRestoreOffset();
+    });
+    return;
+  }
+
+  _leftCtrl.jumpTo(o.clamp(0.0, max));
+  _pendingRestoreOffset = null;
+  _restoreAttempts = 0;
+ }
 
   bool scrollToEntry(int entryIdx) {
     final blockIdx = _blockIdxForEntry(entryIdx);
@@ -739,20 +740,28 @@ return visible.length - 1;
           return const Center(child: Text('请先导入两份文档'));
         }
         if (!identical(_dataForDiff, diff)) {
-          _dataForDiff = diff;
-          _data = buildGroupedData(diff, a, b);
-          _visible = null;
-          _chunkHeights.clear();
-          _highlightsCache.clear();
-          _pendingHeights.clear();
-          _pendingHighlights.clear();
-          _recentlyVisible.clear();
-          _shortFileLastBlockIdx = null;
-          _shortFileLastBlockIdxFor = null;
-          _shortFileLastBlockIdxCtxLines = null;
-          _metaFor = null;
-          _metaCache = null;
-        }
+  _dataForDiff = diff;
+  _data = buildGroupedData(diff, a, b);
+  _visible = null;
+  _chunkHeights.clear();
+  _highlightsCache.clear();
+  _pendingHeights.clear();
+  _pendingHighlights.clear();
+  _recentlyVisible.clear();
+  _shortFileLastBlockIdx = null;
+  _shortFileLastBlockIdxFor = null;
+  _shortFileLastBlockIdxCtxLines = null;
+  _metaFor = null;
+  _metaCache = null;
+
+  // ★ 新数据就绪。如果有待恢复的位置，重启恢复。
+  if (_pendingRestoreOffset != null) {
+    _restoreAttempts = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tryRestoreOffset();
+    });
+  }
+}
         return _buildBody(_data!);
       },
     );
