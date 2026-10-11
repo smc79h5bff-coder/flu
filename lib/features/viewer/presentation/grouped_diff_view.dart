@@ -332,22 +332,35 @@ int _restoreAttempts = 0;
  void restoreScrollOffset(double offset) {
   _pendingRestoreOffset = offset;
   _restoreAttempts = 0;
-  // ★ 不立即跳。等 build 里检测到新数据到达后再跳，
-  //   否则会跳到"旧数据"的位置，然后新数据到达时又归 0。
+  // 立即尝试。数据还没就绪的话 _tryRestoreOffset 会等。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) _tryRestoreOffset();
+  });
 }
 
- void _tryRestoreOffset() {
+ 
+  
+void _tryRestoreOffset() {
   final o = _pendingRestoreOffset;
   if (o == null) return;
 
-  // 试了 30 帧还不行就暂停。注意：不清目标，
-  // 等"新数据到达"时（build 里）会重启。
-  if (_restoreAttempts >= 30) {
+  // 试了 120 帧（约 2 秒）还不行就放弃
+  if (_restoreAttempts >= 120) {
+    _pendingRestoreOffset = null;
     _restoreAttempts = 0;
     return;
   }
 
-  // ListView 还没挂载 → 等下一帧再试
+  // ★ 核心：diff 正在计算时，ListView 马上会被重建，
+  //   现在跳的位置到那时会被归 0。等它算完再跳。
+  if (ref.read(diffResultProvider).isLoading) {
+    _restoreAttempts++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tryRestoreOffset();
+    });
+    return;
+  }
+
   if (!_leftCtrl.hasClients) {
     _restoreAttempts++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -357,8 +370,6 @@ int _restoreAttempts = 0;
   }
 
   final max = _leftCtrl.position.maxScrollExtent;
-
-  // 列表还没算完高度时 max 是 0，跳转会 clamp 到顶部。等下一帧。
   if (max <= 0) {
     _restoreAttempts++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -370,7 +381,13 @@ int _restoreAttempts = 0;
   _leftCtrl.jumpTo(o.clamp(0.0, max));
   _pendingRestoreOffset = null;
   _restoreAttempts = 0;
- }
+}
+
+
+
+
+
+  
 
   bool scrollToEntry(int entryIdx) {
     final blockIdx = _blockIdxForEntry(entryIdx);
