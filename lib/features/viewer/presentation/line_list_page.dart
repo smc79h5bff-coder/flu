@@ -683,7 +683,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
             Expanded(
               child: _toolBtn(
                 icon: Icons.straighten,
-                label: '选大于$minLen字',
+                label: '选>$minLen字的行',
                 onTap: hasContent ? () => _selectLongLines(minLen) : null,
                 onLongPress: hasContent ? _promptMinLen : null,
               ),
