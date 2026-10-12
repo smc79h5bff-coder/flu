@@ -413,13 +413,14 @@ class _DirectoryPickerDialogState
       },
       child: Dialog.fullscreen(
         child: Scaffold(
-          appBar: AppBar(
-            title: Text(widget.title),
-            leading: IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: '取消',
-              onPressed: () => Navigator.pop(context),
-            ),
+         appBar: AppBar(
+  toolbarHeight: 44,
+  title: Text(widget.title),
+  leading: IconButton(
+    icon: const Icon(Icons.close),
+    tooltip: '取消',
+    onPressed: () => Navigator.pop(context),
+  ),
             actions: [
               // 待处理项按钮（左移）
               if (widget.pickedPaths.isNotEmpty)
