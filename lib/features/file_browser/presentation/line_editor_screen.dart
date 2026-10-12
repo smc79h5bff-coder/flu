@@ -94,6 +94,17 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
   List<int> _findHits = const <int>[];
   int _findPos = -1;
 
+  /// 当前查找词对应的 Pattern。null = 没有查找词或查找框为空。
+  /// 所有可见行的 _LineController 都引用同一个对象，方便统一刷新。
+  Pattern? _currentPattern;
+
+  /// _currentPattern 对应的 key（查找词 + 正则 + 大小写）。
+  /// 用来判断是否需要把新 pattern 刷到 controller 上。
+  String _patternKey = '';
+
+  /// 查找输入防抖。
+  Timer? _findTimer;
+
   @override
   void initState() {
     super.initState();
@@ -102,6 +113,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
 
   @override
   void dispose() {
+    _findTimer?.cancel();
     _findCtrl.dispose();
     _replaceCtrl.dispose();
     for (final c in _controllers.values) {
@@ -199,14 +211,10 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
       final bytes = _encodeText(_joinLines());
       final file = File(widget.filePath);
       if (await file.exists()) {
-        final bak = File('${widget.filePath}.bak');
-        if (!await bak.exists()) {
-          await bak.writeAsBytes(await file.readAsBytes(), flush: true);
-        } else {
-          final ts = DateTime.now().millisecondsSinceEpoch;
-          await File('${widget.filePath}_$ts.bak')
-              .writeAsBytes(await file.readAsBytes(), flush: true);
-        }
+        // 只保留一个 .bak，每次覆盖。
+        // 原来每次保存都新建一个时间戳 .bak，改 100 次就堆 100 个。
+        await File('${widget.filePath}.bak')
+            .writeAsBytes(await file.readAsBytes(), flush: true);
       }
       await file.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
@@ -280,7 +288,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
   _LineController _controllerFor(int i) {
     var c = _controllers[i];
     if (c == null) {
-      c = _LineController(text: _lines[i], findQuery: _findCtrl.text);
+      c = _LineController(text: _lines[i]);
       final cc = c;
       c.addListener(() => _onLineChanged(i, cc.text));
       _controllers[i] = c;
@@ -311,13 +319,17 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
   /// 每次 itemBuilder 构建可见行时调用。
   /// 把主编辑器的最新查找状态刷到 controller 上。
   /// 只在状态真变了才 notifyListeners，避免无谓重绘。
+  ///
+  /// 用 _patternKey 而不是直接比 Pattern 对象：每次 _recomputeHits
+  /// 都会新建 Pattern，对象引用必然不同，比不了。
   void _syncControllerHighlight(int i, _LineController c) {
-    final newQ = _findCtrl.text;
+    final key = _patternKey;
     final newHit = _findPos >= 0 &&
         _findPos < _findHits.length &&
         _findHits[_findPos] == i;
-    if (c.findQuery != newQ || c.isCurrentHitLine != newHit) {
-      c.findQuery = newQ;
+    if (c.patternKey != key || c.isCurrentHitLine != newHit) {
+      c.patternKey = key;
+      c.findPattern = _currentPattern;
       c.isCurrentHitLine = newHit;
       c.notifyListeners();
     }
@@ -350,15 +362,12 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     });
 
     if (_selectionStart != null && _selectionEnd != null) {
-  // 延迟一下再弹，让用户先看到第二行的选中标记。
-  // 延迟期间用户如果改主意（点了别的行/取消了选区），就不弹。
-  Future<void>.delayed(const Duration(milliseconds: 120), () {
-    if (!mounted) return;
-    if (_selectionStart == null || _selectionEnd == null) return;
-    _showRangeDialog();
-  });
-}
-      
+      Future<void>.delayed(const Duration(milliseconds: 120), () {
+        if (!mounted) return;
+        if (_selectionStart == null || _selectionEnd == null) return;
+        _showRangeDialog();
+      });
+    }
   }
 
   Future<void> _showRangeDialog() async {
@@ -427,7 +436,6 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
       _selectionEnd = null;
     });
 
-    // 删完后跳到 startIdx 附近，让用户看到删除发生的位置。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!_itemScrollCtrl.isAttached) return;
@@ -451,11 +459,15 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     }
   }
 
-  /// 输入变化：立即刷新所有可见 controller 的高亮词，重新计算命中。
-  /// 去掉 debounce——20 个可见 controller 的字段刷新 + notifyListeners 很便宜。
+  /// 输入变化：加防抖。停手 300ms 后再算命中。
+  /// 原来每输一个字就遍历所有行，30 万行会明显卡。
   void _onFindInputChanged(String _) {
-    setState(() {
-      _recomputeHits();
+    _findTimer?.cancel();
+    _findTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() {
+        _recomputeHits();
+      });
     });
   }
 
@@ -464,9 +476,14 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     if (q.isEmpty) {
       _findHits = const <int>[];
       _findPos = -1;
+      _currentPattern = null;
+      _patternKey = '';
       return;
     }
     final p = _buildPattern();
+    _currentPattern = p;
+    _patternKey = '$q|${_useRegex ? 1 : 0}|${_caseSensitive ? 1 : 0}';
+
     final hits = <int>[];
     for (var i = 0; i < _lines.length; i++) {
       if (p.allMatches(_lines[i]).isNotEmpty) hits.add(i);
@@ -474,7 +491,6 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     _findHits = hits;
     _findPos = hits.isEmpty ? -1 : 0;
     if (hits.isNotEmpty) {
-      // 延后一帧跳转，等本次 setState 完成布局。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _scrollToLine(hits[0]);
@@ -517,23 +533,54 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     });
   }
 
-  void _replaceAll() {
+  /// 全部替换。分批 + 每批让出事件循环，UI 不冻。
+  /// 顶部蓝色横幅显示进度。
+  Future<void> _replaceAll() async {
     if (_findCtrl.text.isEmpty) {
       _toast('请输入要查找的内容');
       return;
     }
+    if (_processing) return; // 防连点
+
+    setState(() {
+      _processing = true;
+      _processingText = '正在全部替换…';
+    });
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+
     final p = _buildPattern();
     var count = 0;
-    for (var i = 0; i < _lines.length; i++) {
-      final line = _lines[i];
-      final newLine = line.replaceAllMapped(p, (_) => _replaceCtrl.text);
-      if (newLine != line) {
-        _lines[i] = newLine;
-        final c = _controllers[i];
-        if (c != null) c.text = newLine;
-        count++;
+    final total = _lines.length;
+
+    try {
+      const batchSize = 5000;
+      for (var i = 0; i < total; i++) {
+        final line = _lines[i];
+        final newLine = line.replaceAllMapped(p, (_) => _replaceCtrl.text);
+        if (newLine != line) {
+          _lines[i] = newLine;
+          final c = _controllers[i];
+          if (c != null) c.text = newLine;
+          count++;
+        }
+        if (i > 0 && i % batchSize == 0) {
+          if (!mounted) return;
+          final pct = (i * 100 ~/ total);
+          setState(() => _processingText = '正在全部替换… $pct%');
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processing = false;
+          _processingText = '';
+        });
       }
     }
+
+    if (!mounted) return;
     if (count == 0) {
       _toast('没有匹配');
       return;
@@ -690,7 +737,6 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                           onTap: () => _applyToolbarRule(r),
                           onLongPress: () => _editToolbarRule(r),
                           child: Container(
-                            // 直角 + 最小 padding
                             padding:
                                 const EdgeInsets.symmetric(horizontal: 1),
                             decoration: BoxDecoration(
@@ -838,7 +884,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
               onPressed: _jumpToLine,
             ),
             IconButton(
-              icon: const Icon(Icons.find_in_page),   // 原 Icons.search
+              icon: const Icon(Icons.find_in_page),
               tooltip: '查找 / 替换',
               onPressed: () => setState(() => _showFind = !_showFind),
             ),
@@ -940,7 +986,6 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                 ),
               ],
             ),
-            // ========== 改动（B20）：右上角保存按钮 ==========
             TextButton.icon(
               onPressed: _saving || _loading ? null : _save,
               icon: Icon(
@@ -960,29 +1005,20 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
             ),
           ],
         ),
-
-
-
-          
-body: SafeArea(
-  top: false,
-  child: _loading
-      ? const Center(child: CircularProgressIndicator())
-      : Column(
-          children: [
-            _buildToolbar(),
-            if (_processing) _buildProcessingBanner(),
-            if (_showFind) _buildFindBar(),
-            Expanded(child: _buildLineList()),
-            _buildStatusBar(),
-          ],
+        body: SafeArea(
+          top: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    _buildToolbar(),
+                    if (_processing) _buildProcessingBanner(),
+                    if (_showFind) _buildFindBar(),
+                    Expanded(child: _buildLineList()),
+                    _buildStatusBar(),
+                  ],
+                ),
         ),
-),
-
-
-
-
-          
       ),
     );
   }
@@ -1083,7 +1119,6 @@ body: SafeArea(
     );
   }
 
-  // ========== 改动（B20）：查找栏 ==========
   Widget _buildFindBar() {
     final s = Theme.of(context).colorScheme;
     final total = _findHits.length;
@@ -1104,12 +1139,17 @@ body: SafeArea(
                   visualDensity: VisualDensity.compact,
                   onPressed: () => setState(() {
                     _showFind = false;
+                    _findTimer?.cancel();
                     _findCtrl.clear();
                     _findHits = const <int>[];
                     _findPos = -1;
+                    _currentPattern = null;
+                    _patternKey = '';
                     for (final c in _controllers.values) {
-                      if (c.findQuery.isNotEmpty || c.isCurrentHitLine) {
-                        c.findQuery = '';
+                      if (c.patternKey.isNotEmpty ||
+                          c.isCurrentHitLine) {
+                        c.patternKey = '';
+                        c.findPattern = null;
                         c.isCurrentHitLine = false;
                         c.notifyListeners();
                       }
@@ -1175,7 +1215,7 @@ body: SafeArea(
                     visualDensity: VisualDensity.compact,
                     foregroundColor: AppColors.accentPurple,
                   ),
-                  onPressed: _replaceAll,
+                  onPressed: _processing ? null : _replaceAll,
                   child: const Text('全部替换'),
                 ),
               ],
@@ -1216,7 +1256,6 @@ body: SafeArea(
     );
   }
 
-  // ========== 改动（B20）：toggle 打开时变紫 ==========
   Widget _toggle({
     required String label,
     required bool value,
@@ -1247,7 +1286,6 @@ body: SafeArea(
     );
   }
 }
-
 
 // ==================== 行 Widget ====================
 
@@ -1282,7 +1320,6 @@ class _LineRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 选区样式
     Color? rowBg;
     Color barColor = Colors.transparent;
     if (isSelectionStart) {
@@ -1295,7 +1332,6 @@ class _LineRow extends StatelessWidget {
       rowBg = Colors.blue.withValues(alpha: 0.08);
     }
 
-    // 当前查找命中的整行浅粉背景（只覆盖文字区，不含行号）
     final textAreaBg = isCurrentHitLine
         ? const Color(0x0FFF4081) // 粉 @ 6%
         : null;
@@ -1303,10 +1339,7 @@ class _LineRow extends StatelessWidget {
     final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 左竖条
         Container(width: 4, color: barColor),
-
-        // 行号区（可点击）
         if (showLineNumber)
           GestureDetector(
             onTap: onTapLineNumber,
@@ -1332,8 +1365,6 @@ class _LineRow extends StatelessWidget {
               ),
             ),
           ),
-
-        // 正文（当前命中行时文字区背景染极浅粉）
         Expanded(
           child: Container(
             color: textAreaBg,
@@ -1370,9 +1401,18 @@ class _LineRow extends StatelessWidget {
 // ==================== 带查找高亮的 controller ====================
 
 class _LineController extends TextEditingController {
-  _LineController({super.text, this.findQuery = ''});
+  _LineController({super.text});
 
-  String findQuery;
+  /// 高亮用的 Pattern。null = 没有高亮。
+  ///
+  /// 和主编辑器的搜索逻辑一致：可能是正则、可能忽略大小写。
+  /// 用 Pattern 而不是字符串，是为了让"忽略大小写"和"正则"两种
+  /// 模式下，行内高亮都能正确匹配。
+  Pattern? findPattern;
+
+  /// findPattern 对应的 key。用来判断"是否需要把新 pattern 刷过来"。
+  /// 直接比 Pattern 对象不行——每次 _recomputeHits 都会 new 一个新对象。
+  String patternKey = '';
 
   /// 本行是否包含"当前命中"。
   /// 影响命中词的背景色：true = 粉色，false = 黄色。
@@ -1396,30 +1436,31 @@ class _LineController extends TextEditingController {
     }
 
     final text = this.text;
-    final q = findQuery;
-    if (q.isEmpty || text.isEmpty) {
+    final p = findPattern;
+    if (p == null || text.isEmpty) {
       return TextSpan(style: style, text: text.isEmpty ? ' ' : text);
     }
 
     final bg = isCurrentHitLine ? _matchPink : _matchYellow;
     final spans = <InlineSpan>[];
-    var start = 0;
-    int idx;
-    while (start <= text.length && (idx = text.indexOf(q, start)) != -1) {
-      if (idx > start) {
-        spans.add(TextSpan(text: text.substring(start, idx)));
+    var last = 0;
+    for (final m in p.allMatches(text)) {
+      if (m.start == m.end) continue; // 空匹配（如 ^ 或 $）跳过
+      if (m.start < last) continue;   // 前一个匹配已经盖过这段了
+      if (m.start > last) {
+        spans.add(TextSpan(text: text.substring(last, m.start)));
       }
       spans.add(TextSpan(
-        text: q,
+        text: text.substring(m.start, m.end),
         style: TextStyle(
           backgroundColor: bg,
           fontWeight: FontWeight.bold,
         ),
       ));
-      start = idx + q.length;
+      last = m.end;
     }
-    if (start < text.length) {
-      spans.add(TextSpan(text: text.substring(start)));
+    if (last < text.length) {
+      spans.add(TextSpan(text: text.substring(last)));
     }
     return TextSpan(style: style, children: spans.isEmpty ? null : spans);
   }
