@@ -746,16 +746,22 @@ class _ConnectorLinePainter extends CustomPainter {
   _ConnectorLinePainter({
     required this.lineCount,
     required this.scrollOffset,
+    required this.selectedLines,
   });
 
   final int lineCount;
   final double scrollOffset;
+  final Set<int> selectedLines;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
+    final paintNormal = Paint()
       ..color = _kConnectorColor
       ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    final paintSelected = Paint()
+      ..color = _kCheckColor
+      ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
 
     for (var i = 0; i < lineCount; i++) {
@@ -767,13 +773,12 @@ class _ConnectorLinePainter extends CustomPainter {
 
       final blockLeft = i.isEven ? 0.0 : _kBlockOffset;
       final blockCenterX = blockLeft + _kBlockSize / 2;
+      final selected = selectedLines.contains(i);
 
-      // 从方块中心画到方块区右边缘。方块会画在线的上方，
-      // 遮住方块内部那一段，视觉上就是"从方块右边缘伸出来一条线"。
       canvas.drawLine(
         Offset(blockCenterX, centerY),
         Offset(size.width, centerY),
-        paint,
+        selected ? paintSelected : paintNormal,
       );
     }
   }
@@ -782,6 +787,10 @@ class _ConnectorLinePainter extends CustomPainter {
   bool shouldRepaint(_ConnectorLinePainter old) {
     if (old.lineCount != lineCount) return true;
     if (old.scrollOffset != scrollOffset) return true;
+    if (old.selectedLines.length != selectedLines.length) return true;
+    for (final i in selectedLines) {
+      if (!old.selectedLines.contains(i)) return true;
+    }
     return false;
   }
 }
