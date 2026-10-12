@@ -47,6 +47,10 @@ final diagFileEnabledProvider = StateProvider<bool>((ref) => false);
 final diagTimeEnabledProvider = StateProvider<bool>((ref) => false);
 final diagHistoryEnabledProvider = StateProvider<bool>((ref) => false);
 
+/// 崩溃日志开关。打开后 CrashLogger 开始记录。
+/// 默认关，且不持久化（每次进 App 都是关的，跟其他四项保持一致）。
+final diagCrashLogEnabledProvider = StateProvider<bool>((ref) => false);
+
 String dumpChars(String s, {Set<int> diffAt = const {}}) {
   final sb = StringBuffer();
   for (var i = 0; i < s.length; i++) {
@@ -138,6 +142,8 @@ class DiagnosticScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final crashLogEnabled = ref.watch(diagCrashLogEnabledProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('诊断'),
@@ -187,15 +193,18 @@ class DiagnosticScreen extends ConsumerWidget {
                 ref.read(diagHistoryEnabledProvider.notifier).state = v,
             onTap: () => _showHistory(context, ref),
           ),
-          // ★ 新增：崩溃日志
-          ListTile(
-            leading: const Icon(Icons.bug_report),
-            title: const Text('崩溃日志'),
-            subtitle: const Text('点开查看，可清空'),
-            trailing: const Icon(Icons.chevron_right),
+          DiagRow(
+            title: '崩溃日志',
+            subtitle: crashLogEnabled
+                ? '正在记录：崩溃 / 异常 / 卡顿 / 内存'
+                : '已关闭，打开后开始记录',
+            enabled: crashLogEnabled,
+            onToggle: (v) {
+              ref.read(diagCrashLogEnabledProvider.notifier).state = v;
+              CrashLogger.instance.setEnabled(v);
+            },
             onTap: () => _showCrashLog(context),
           ),
-          const Divider(height: 1),
         ],
       ),
     );
@@ -412,7 +421,6 @@ class DiagnosticScreen extends ConsumerWidget {
     );
   }
 
-  // ★ 新增：崩溃日志弹窗
   Future<void> _showCrashLog(BuildContext context) async {
     final text = await CrashLogger.instance.read();
     if (!context.mounted) return;
