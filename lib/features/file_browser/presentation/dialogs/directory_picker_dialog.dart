@@ -527,7 +527,7 @@ class _DirectoryPickerDialogState
                 ),
        const Divider(height: 1),
 Padding(
-  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+  padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
                   child: Row(
                     children: [
                       Expanded(
