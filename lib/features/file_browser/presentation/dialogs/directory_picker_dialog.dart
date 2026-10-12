@@ -99,7 +99,7 @@ class _DirectoryPickerDialogState
         _dirs = dirs;
         _loading = false;
       });
-      _startCountLoad(dirs);
+      
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -109,23 +109,7 @@ class _DirectoryPickerDialogState
     }
   }
 
-  /// 后台异步统计每个子目录的项数，边算边填。
-  /// _countTaskId 保证切目录后旧任务自动作废。
-  void _startCountLoad(List<Directory> dirs) {
-    _countTaskId++;
-    final taskId = _countTaskId;
-    _dirCounts.clear();
-    Future(() async {
-      for (final d in dirs) {
-        if (!mounted || taskId != _countTaskId) return;
-        try {
-          final n = await d.list(followLinks: false).length;
-          if (!mounted || taskId != _countTaskId) return;
-          setState(() => _dirCounts[d.path] = n);
-        } catch (_) {}
-      }
-    });
-  }
+  
 
   bool get _canGoUp => _path != widget.rootPath;
 
