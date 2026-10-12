@@ -410,7 +410,7 @@ class _DirectoryPickerDialogState
           c.label,
           style: TextStyle(
             fontSize: 12,
-            color: isLast ? s.onSurface : AppColors.accentPurple,
+       color: isLast ? Colors.black : Colors.grey.shade500,
             fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
           ),
         ),
