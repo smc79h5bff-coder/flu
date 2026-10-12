@@ -424,7 +424,7 @@ class _DirectoryPickerDialogState
               // 待处理项按钮（左移）
               if (widget.pickedPaths.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(right: 4),
+                  padding: const EdgeInsets.only(right: 10),
                   child: TextButton.icon(
                     icon: const Icon(Icons.content_paste, size: 18),
                     label: Text('${widget.pickedPaths.length}'),
