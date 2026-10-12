@@ -7,10 +7,7 @@ import '../../preprocessing/application/aho_corasick.dart';
 
 // ==================== Provider ====================
 
-/// 行列表的当前文本。仅当前对比页会话内有效，离开对比页时清空。
 final lineListTextProvider = StateProvider<String>((ref) => '');
-
-/// 行列表"选大于多少字"的阈值。
 final lineListMinLenProvider = StateProvider<int>((ref) => 7);
 
 // ==================== 常量 ====================
@@ -18,11 +15,13 @@ final lineListMinLenProvider = StateProvider<int>((ref) => 7);
 const double _kFontSize = 14.0;
 const double _kLineHeight = 22.0;
 const double _kEditorVPad = 9.0;
-const double _kGutterWidth = 56.0;
 
-const double _kBlockSize = 36.0;
-const double _kBlockOffset = 36.0;
-const double _kBlockAreaWidth = 88.0;
+// 方块区：偶数行方块右边缘 64 + 12 的连线余量。
+const double _kBlockSize = 32.0;
+const double _kBlockOffset = 32.0;
+const double _kBlockAreaWidth = 76.0;
+
+const double _kGutterWidth = 45.0;
 
 const Color _kSelectedBg = Color(0xFFDCFFFF);
 const Color _kCheckColor = Color(0xFF00ABFF);
@@ -31,7 +30,7 @@ const Color _kLineNumNormal = Color(0xFF9E9E9E);
 const Color _kBlockBgNormal = Color(0xFFEDEDED);
 const Color _kBlockBorderNormal = Color(0xFFBDBDBD);
 const Color _kBlockTextNormal = Color(0xFF424242);
-const Color _kConnectorNormal = Color(0xFFD0D0D0);
+const Color _kConnectorColor = Color(0xFFBDBDBD);
 
 // ==================== 页面 ====================
 
@@ -85,7 +84,6 @@ class _LineListPageState extends ConsumerState<LineListPage> {
       }
       needRebuild = true;
     } else {
-      // 只有光标 / 选区变了：清空行选择（互斥）。
       if (_selectedLines.isNotEmpty) {
         _selectedLines.clear();
         _anchorLine = null;
@@ -310,7 +308,6 @@ class _LineListPageState extends ConsumerState<LineListPage> {
     final cleaned = entries.where((e) => e.isNotEmpty).toList();
     if (cleaned.isEmpty) return (text: text, hits: 0);
 
-    // 长模式优先，让更具体的匹配先命中。
     cleaned.sort((a, b) => b.length.compareTo(a.length));
 
     final ac = AhoCorasick(
@@ -352,10 +349,9 @@ class _LineListPageState extends ConsumerState<LineListPage> {
 
   Widget _buildEditorArea() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(4, 6, 4, 4),
+      margin: const EdgeInsets.fromLTRB(1, 6, 1, 0),
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(6),
       ),
       clipBehavior: Clip.antiAlias,
       child: Row(
@@ -388,10 +384,9 @@ class _LineListPageState extends ConsumerState<LineListPage> {
                     _kBlockAreaWidth,
                     constraints.maxHeight,
                   ),
-                  painter: _ConnectorPainter(
+                  painter: _ConnectorLinePainter(
                     lineCount: _lineCount,
                     scrollOffset: offset,
-                    selectedLines: _selectedLines,
                   ),
                 ),
                 for (var i = 0; i < _lineCount; i++)
@@ -439,7 +434,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
           child: Text(
             '${i + 1}',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontFamily: 'monospace',
               fontWeight: FontWeight.bold,
               color: selected ? Colors.white : _kBlockTextNormal,
@@ -493,29 +488,30 @@ class _LineListPageState extends ConsumerState<LineListPage> {
         onLongPress: () => _rangeSelect(i),
         child: ColoredBox(
           color: selected ? _kSelectedBg : Colors.transparent,
-          child: Row(
-            children: [
-              const SizedBox(width: 6),
-              _buildCheckbox(selected),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  '${i + 1}',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    color: selected
-                        ? _kLineNumSelected
-                        : _kLineNumNormal,
-                    fontWeight: selected
-                        ? FontWeight.bold
-                        : FontWeight.normal,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 1, right: 1),
+            child: Row(
+              children: [
+                _buildCheckbox(selected),
+                const SizedBox(width: 1),
+                Expanded(
+                  child: Text(
+                    '${i + 1}',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      color: selected
+                          ? _kLineNumSelected
+                          : _kLineNumNormal,
+                      fontWeight: selected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 6),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -524,8 +520,8 @@ class _LineListPageState extends ConsumerState<LineListPage> {
 
   Widget _buildCheckbox(bool selected) {
     return SizedBox(
-      width: 16,
-      height: 16,
+      width: 14,
+      height: 14,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: selected ? _kCheckColor : Colors.transparent,
@@ -533,10 +529,10 @@ class _LineListPageState extends ConsumerState<LineListPage> {
             color: selected ? _kCheckColor : Colors.grey.shade400,
             width: 1.5,
           ),
-          borderRadius: BorderRadius.circular(3),
+          borderRadius: BorderRadius.circular(2),
         ),
         child: selected
-            ? const Icon(Icons.check, size: 12, color: Colors.white)
+            ? const Icon(Icons.check, size: 10, color: Colors.white)
             : null,
       ),
     );
@@ -560,7 +556,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
           }
           if (w > maxW) maxW = w;
         }
-        final needW = maxW + 32;
+        final needW = maxW + 8;
         final width =
             needW > constraints.maxWidth ? needW : constraints.maxWidth;
 
@@ -573,10 +569,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
               children: [
                 ..._buildHighlightLayer(),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: _kEditorVPad,
-                  ),
+                  padding: const EdgeInsets.only(left: 1, right: 4),
                   child: TextField(
                     controller: _textCtrl,
                     scrollController: _vertCtrl,
@@ -630,74 +623,75 @@ class _LineListPageState extends ConsumerState<LineListPage> {
     final hasSelection = _selectedLines.isNotEmpty;
     final minLen = ref.watch(lineListMinLenProvider);
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _toolBtn(
-                  icon: Icons.copy,
-                  label: '复制行',
-                  onTap: hasSelection ? _copySelected : null,
-                ),
-                _toolBtn(
-                  icon: Icons.delete_outline,
-                  label: '删除行',
-                  onTap: hasSelection ? _deleteSelected : null,
-                ),
-                _toolBtn(
-                  icon: Icons.select_all,
-                  label: '全选',
-                  onTap: hasContent ? _selectAll : null,
-                ),
-                _toolBtn(
-                  icon: Icons.deselect,
-                  label: '退出选择',
-                  onTap: hasSelection ? _exitSelection : null,
-                ),
-              ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.copy,
+                label: '复制行',
+                onTap: hasSelection ? _copySelected : null,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              Expanded(
-                child: _toolBtn(
-                  icon: Icons.west,
-                  label: '应用到左侧',
-                  onTap: hasContent ? () => _apply('left') : null,
-                ),
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.delete_outline,
+                label: '删除行',
+                onTap: hasSelection ? _deleteSelected : null,
               ),
-              Expanded(
-                child: _toolBtn(
-                  icon: Icons.east,
-                  label: '应用到右侧',
-                  onTap: hasContent ? () => _apply('right') : null,
-                ),
+            ),
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.select_all,
+                label: '全选',
+                onTap: hasContent ? _selectAll : null,
               ),
-              Expanded(
-                child: _toolBtn(
-                  icon: Icons.compare_arrows,
-                  label: '应用到两侧',
-                  onTap: hasContent ? () => _apply('both') : null,
-                ),
+            ),
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.deselect,
+                label: '退出选择',
+                onTap: hasSelection ? _exitSelection : null,
               ),
-              Expanded(
-                child: _toolBtn(
-                  icon: Icons.straighten,
-                  label: '选大于$minLen字的行',
-                  onTap: hasContent ? () => _selectLongLines(minLen) : null,
-                  onLongPress: hasContent ? _promptMinLen : null,
-                ),
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.west,
+                label: '应用到左侧',
+                onTap: hasContent ? () => _apply('left') : null,
               ),
-            ],
-          ),
-        ],
-      ),
+            ),
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.east,
+                label: '应用到右侧',
+                onTap: hasContent ? () => _apply('right') : null,
+              ),
+            ),
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.compare_arrows,
+                label: '应用到两侧',
+                onTap: hasContent ? () => _apply('both') : null,
+              ),
+            ),
+            Expanded(
+              child: _toolBtn(
+                icon: Icons.straighten,
+                label: '选大于$minLen字',
+                onTap: hasContent ? () => _selectLongLines(minLen) : null,
+                onLongPress: hasContent ? _promptMinLen : null,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -715,21 +709,20 @@ class _LineListPageState extends ConsumerState<LineListPage> {
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(6),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.max,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 4),
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 3),
               Flexible(
                 child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11, color: color),
+                  style: TextStyle(fontSize: 10, color: color),
                 ),
               ),
             ],
@@ -740,67 +733,48 @@ class _LineListPageState extends ConsumerState<LineListPage> {
   }
 }
 
-// ==================== 楔形连接条 ====================
+// ==================== 连接线 ====================
 
-class _ConnectorPainter extends CustomPainter {
-  _ConnectorPainter({
+class _ConnectorLinePainter extends CustomPainter {
+  _ConnectorLinePainter({
     required this.lineCount,
     required this.scrollOffset,
-    required this.selectedLines,
   });
 
   final int lineCount;
   final double scrollOffset;
-  final Set<int> selectedLines;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paintNormal = Paint()
-      ..color = _kConnectorNormal
-      ..style = PaintingStyle.fill;
-    final paintSelected = Paint()
-      ..color = _kCheckColor.withOpacity(0.45)
-      ..style = PaintingStyle.fill;
+    final paint = Paint()
+      ..color = _kConnectorColor
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
 
     for (var i = 0; i < lineCount; i++) {
       final centerY = _kEditorVPad +
           i * _kLineHeight +
           _kLineHeight / 2 -
           scrollOffset;
-      if (centerY + _kBlockSize / 2 < 0) continue;
-      if (centerY - _kBlockSize / 2 > size.height) continue;
+      if (centerY < -20 || centerY > size.height + 20) continue;
 
       final blockLeft = i.isEven ? 0.0 : _kBlockOffset;
-      final startX = blockLeft + _kBlockSize;
-      final endX = size.width;
+      final blockCenterX = blockLeft + _kBlockSize / 2;
 
-      final startTop = centerY - _kBlockSize / 2;
-      final startBot = centerY + _kBlockSize / 2;
-      final endTop = centerY - _kLineHeight / 2;
-      final endBot = centerY + _kLineHeight / 2;
-
-      final path = Path()
-        ..moveTo(startX, startTop)
-        ..lineTo(endX, endTop)
-        ..lineTo(endX, endBot)
-        ..lineTo(startX, startBot)
-        ..close();
-
-      canvas.drawPath(
-        path,
-        selectedLines.contains(i) ? paintSelected : paintNormal,
+      // 从方块中心画到方块区右边缘。方块会画在线的上方，
+      // 遮住方块内部那一段，视觉上就是"从方块右边缘伸出来一条线"。
+      canvas.drawLine(
+        Offset(blockCenterX, centerY),
+        Offset(size.width, centerY),
+        paint,
       );
     }
   }
 
   @override
-  bool shouldRepaint(_ConnectorPainter old) {
+  bool shouldRepaint(_ConnectorLinePainter old) {
     if (old.lineCount != lineCount) return true;
     if (old.scrollOffset != scrollOffset) return true;
-    if (old.selectedLines.length != selectedLines.length) return true;
-    for (final i in selectedLines) {
-      if (!old.selectedLines.contains(i)) return true;
-    }
     return false;
   }
 }
