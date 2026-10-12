@@ -41,9 +41,7 @@ class _DirectoryPickerDialogState
   List<Directory> _dirs = const [];
   bool _loading = true;
 
-  // ===== 子目录项数缓存 =====
-  final Map<String, int> _dirCounts = {};
-  int _countTaskId = 0;
+  
 
   // ===== 右栏 Tab 状态 =====
   int _currentTab = 0; // 0=全部, 1=收藏, 2=最近
