@@ -41,6 +41,10 @@ class _DirectoryPickerDialogState
   List<Directory> _dirs = const [];
   bool _loading = true;
 
+  // ===== 子目录项数缓存 =====
+  final Map<String, int> _dirCounts = {};
+  int _countTaskId = 0;
+
   // ===== 右栏 Tab 状态 =====
   int _currentTab = 0; // 0=全部, 1=收藏, 2=最近
   late final PageController _pageCtrl;
@@ -68,6 +72,16 @@ class _DirectoryPickerDialogState
     super.dispose();
   }
 
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(milliseconds: 1500),
+      ),
+    );
+  }
+
   void _showPickedItems() {
     showDialog<void>(
       context: context,
@@ -87,6 +101,7 @@ class _DirectoryPickerDialogState
         _dirs = dirs;
         _loading = false;
       });
+      _startCountLoad(dirs);
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -94,6 +109,24 @@ class _DirectoryPickerDialogState
         _loading = false;
       });
     }
+  }
+
+  /// 后台异步统计每个子目录的项数，边算边填。
+  /// _countTaskId 保证切目录后旧任务自动作废。
+  void _startCountLoad(List<Directory> dirs) {
+    _countTaskId++;
+    final taskId = _countTaskId;
+    _dirCounts.clear();
+    Future(() async {
+      for (final d in dirs) {
+        if (!mounted || taskId != _countTaskId) return;
+        try {
+          final n = await d.list(followLinks: false).length;
+          if (!mounted || taskId != _countTaskId) return;
+          setState(() => _dirCounts[d.path] = n);
+        } catch (_) {}
+      }
+    });
   }
 
   bool get _canGoUp => _path != widget.rootPath;
@@ -117,15 +150,11 @@ class _DirectoryPickerDialogState
       target = File(target).parent.path;
     }
     if (!Directory(target).existsSync()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('目录不存在')),
-      );
+      _snack('目录不存在');
       return;
     }
     if (!target.startsWith(widget.rootPath)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('只能跳到内部存储以内')),
-      );
+      _snack('只能跳到内部存储以内');
       return;
     }
     setState(() {
@@ -138,20 +167,194 @@ class _DirectoryPickerDialogState
 
   void _selectShortcut(String path) {
     if (!Directory(path).existsSync()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('目录已不存在，已移除')),
-      );
-      ref.read(favoritesProvider.notifier).remove(path);
-      ref.read(recentMoveTargetsProvider.notifier).remove(path);
+      _handleShortcutMissing(path);
       return;
     }
-    if (path == _path) return;
+    if (path == _path) {
+      _snack('已经在这个目录了');
+      return;
+    }
     setState(() {
       _path = path;
       _filterCtrl.clear();
       _filterQuery = '';
     });
     _load();
+  }
+
+  /// 目录打不开时询问用户：保留还是移除记录。
+  ///
+  /// 不自动删。existsSync 在权限被收回时也返回 false，
+  /// 自动删会把用户的收藏悄悄清空，用户再想恢复权限找回来
+  /// 收藏已经不在列表里了。
+  Future<void> _handleShortcutMissing(String path) async {
+    final isFav = ref.read(favoritesProvider).contains(path);
+    final isRecent = ref.read(recentMoveTargetsProvider).contains(path);
+
+    final kinds = <String>[];
+    if (isFav) kinds.add('收藏');
+    if (isRecent) kinds.add('最近记录');
+    final kindLabel = kinds.isEmpty ? '记录' : kinds.join(' / ');
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: _inset,
+        title: const Text('目录打不开'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('无法访问：', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              SelectableText(
+                path,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '可能原因：\n'
+                '· 目录已被删除或重命名\n'
+                '· 存储卡已拔出\n'
+                '· 文件访问权限被收回',
+                style: TextStyle(fontSize: 12, height: 1.5),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '这条$kindLabel要保留吗？',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('保留'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, 'remove'),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+
+    if (action != 'remove' || !mounted) return;
+
+    if (isFav) ref.read(favoritesProvider.notifier).remove(path);
+    if (isRecent) ref.read(recentMoveTargetsProvider.notifier).remove(path);
+    _snack('已移除');
+  }
+
+  /// 目标目录 = 被操作目录本身，或被操作目录的子目录 → 非法。
+  /// 返回提示文案，合法返回 null。
+  String? get _invalidReason {
+    for (final p in widget.pickedPaths) {
+      final name = p.split('/').last;
+      if (_path == p) {
+        return '目标就是「$name」本身，无法移动或复制。';
+      }
+      if (_path.startsWith('$p/')) {
+        return '不能把「$name」移进它自己的子目录里。\n\n'
+            '这会让文件夹被无限复制，或者直接失败。\n'
+            '请换一个目标目录。';
+      }
+    }
+    return null;
+  }
+
+  /// 点击"选这个目录"时校验。非法弹窗告知，返回 false。
+  Future<bool> _checkAndWarnInvalid() async {
+    final reason = _invalidReason;
+    if (reason == null) return true;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: _inset,
+        title: const Text('不能选择此目录'),
+        content: Text(reason),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+    return false;
+  }
+
+  Future<void> _createNewFolder() async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: _inset,
+        title: const Text('新建文件夹'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '文件夹名',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) => Navigator.pop(c, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, ctrl.text),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (name == null || name.trim().isEmpty || !mounted) return;
+
+    final trimmed = name.trim();
+    if (trimmed.contains('/') || trimmed.contains('\\')) {
+      _snack('名称不能包含斜杠');
+      return;
+    }
+    if (trimmed == '.' || trimmed == '..') {
+      _snack('名称无效');
+      return;
+    }
+
+    final path = '$_path/$trimmed';
+    if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) {
+      _snack('同名文件或文件夹已存在');
+      return;
+    }
+
+    try {
+      await Directory(path).create();
+      if (!mounted) return;
+      setState(() {
+        _path = path;
+        _filterCtrl.clear();
+        _filterQuery = '';
+      });
+      _load();
+      _snack('已创建并进入「$trimmed」');
+    } catch (e) {
+      _snack('创建失败：$e');
+    }
   }
 
   List<Directory> get _filteredDirs {
@@ -178,8 +381,48 @@ class _DirectoryPickerDialogState
     return fullPath;
   }
 
+  /// 生成面包屑：每段含 label + 完整路径。
+  /// 与 _relPath 一致：隐藏 emulated 段。
+  List<({String label, String path})> _buildCrumbs() {
+    final out = <({String label, String path})>[
+      (label: '/', path: widget.rootPath),
+    ];
+    if (!_path.startsWith('${widget.rootPath}/')) return out;
+
+    final rel = _path.substring(widget.rootPath.length);
+    final segs = rel.split('/').where((s) => s.isNotEmpty).toList();
+    var acc = widget.rootPath;
+    for (final seg in segs) {
+      acc = '$acc/$seg';
+      if (seg == 'emulated') continue;
+      out.add((label: seg, path: acc));
+    }
+    return out;
+  }
+
+  Widget _crumb(({String label, String path}) c, {required bool isLast}) {
+    final s = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: isLast ? null : () => _selectShortcut(c.path),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Text(
+          c.label,
+          style: TextStyle(
+            fontSize: 12,
+            color: isLast ? s.onSurface : AppColors.accentPurple,
+            fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 面包屑在本次 build 里只算一次。
+    final crumbs = _buildCrumbs();
+
     return PopScope(
       canPop: !_canGoUp,
       onPopInvokedWithResult: (didPop, _) {
@@ -196,6 +439,7 @@ class _DirectoryPickerDialogState
               onPressed: () => Navigator.pop(context),
             ),
             actions: [
+              // 待处理项按钮（左移）
               if (widget.pickedPaths.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(right: 4),
@@ -205,6 +449,12 @@ class _DirectoryPickerDialogState
                     onPressed: _showPickedItems,
                   ),
                 ),
+              // 新建文件夹（右上角）
+              IconButton(
+                icon: const Icon(Icons.create_new_folder_outlined),
+                tooltip: '新建文件夹',
+                onPressed: _createNewFolder,
+              ),
             ],
           ),
           body: SafeArea(
@@ -258,10 +508,22 @@ class _DirectoryPickerDialogState
                       Expanded(
                         child: SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
-                          child: Text(
-                            _relPath(_path),
-                            style: Theme.of(context).textTheme.labelMedium,
-                            maxLines: 1,
+                          child: Row(
+                            children: [
+                              for (var i = 0; i < crumbs.length; i++) ...[
+                                if (i > 0)
+                                  Icon(
+                                    Icons.chevron_right,
+                                    size: 14,
+                                    color:
+                                        Theme.of(context).colorScheme.outline,
+                                  ),
+                                _crumb(
+                                  crumbs[i],
+                                  isLast: i == crumbs.length - 1,
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),
@@ -282,6 +544,19 @@ class _DirectoryPickerDialogState
                   ),
                 ),
                 const Divider(height: 1),
+                // 底部：目标路径提示
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                  child: Text(
+                    '目标：${_relPath(_path)}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                   child: Row(
@@ -295,7 +570,11 @@ class _DirectoryPickerDialogState
                       const SizedBox(width: 8),
                       Expanded(
                         child: FilledButton(
-                          onPressed: () => Navigator.pop(context, _path),
+                          onPressed: () async {
+                            final ok = await _checkAndWarnInvalid();
+                            if (!ok || !mounted) return;
+                            Navigator.pop(context, _path);
+                          },
                           child: const Text('选这个目录'),
                         ),
                       ),
@@ -361,13 +640,31 @@ class _DirectoryPickerDialogState
                                   horizontal: 8),
                               leading: Icon(Icons.folder,
                                   color: Colors.amber.shade200),
-                              title: Text(
-                                name,
-                                softWrap: true,
-                                style: const TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      softWrap: true,
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  if (_dirCounts.containsKey(d.path)) ...[
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${_dirCounts[d.path]}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                               onTap: () {
                                 setState(() {
@@ -393,7 +690,6 @@ class _DirectoryPickerDialogState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ===== 标题栏（原样不动）=====
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 1, 4, 1),
           child: Row(
@@ -418,11 +714,7 @@ class _DirectoryPickerDialogState
           ),
         ),
         const Divider(height: 1),
-
-        // ===== Tab 行 =====
         _buildTabRow(),
-
-        // ===== 内容区 =====
         Expanded(
           child: (favorites.isEmpty && recents.isEmpty)
               ? const Center(
@@ -449,7 +741,6 @@ class _DirectoryPickerDialogState
     );
   }
 
-  // ========== Tab 行 ==========
   Widget _buildTabRow() {
     const labels = ['全部', '收藏', '最近'];
     return Padding(
@@ -497,21 +788,20 @@ class _DirectoryPickerDialogState
     );
   }
 
-  // ========== 全部页：上 70% 收藏 + 下 30% 最近，无标题无分界 ==========
   Widget _buildAllPage(List<String> favorites, List<String> recents) {
-  return Column(
-    children: [
-      Expanded(
-        flex: 7,
-        child: ListView.builder(
-          padding: EdgeInsets.zero,
-          itemCount: favorites.length,
-          itemBuilder: (ctx, i) => _shortcutTile(
-            favorites[favorites.length - 1 - i],
-            isFavorite: true,
+    return Column(
+      children: [
+        Expanded(
+          flex: 7,
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            itemCount: favorites.length,
+            itemBuilder: (ctx, i) => _shortcutTile(
+              favorites[favorites.length - 1 - i],
+              isFavorite: true,
+            ),
           ),
         ),
-      ),
         Expanded(
           flex: 3,
           child: ListView.builder(
@@ -525,7 +815,6 @@ class _DirectoryPickerDialogState
     );
   }
 
-  // ========== 收藏页：全高 ==========
   Widget _buildFavoritesPage(List<String> favorites) {
     if (favorites.isEmpty) {
       return const Center(
@@ -543,7 +832,6 @@ class _DirectoryPickerDialogState
     );
   }
 
-  // ========== 最近页：全高 ==========
   Widget _buildRecentsPage(List<String> recents) {
     if (recents.isEmpty) {
       return const Center(
@@ -564,23 +852,16 @@ class _DirectoryPickerDialogState
   Widget _shortcutTile(String path, {required bool isFavorite}) {
     final relPath = _relPath(path);
 
-
     return ListTile(
-  dense: true,
-      
-  minVerticalPadding: 1,        // ← 加这行
-  horizontalTitleGap: 1,
-  minLeadingWidth: 0,
-  contentPadding: const EdgeInsets.symmetric(horizontal: 1),
-  leading: Icon(
-    isFavorite ? Icons.star : Icons.history,
-    size: 14,
-    color: isFavorite ? Colors.amber : null,
-  
-
-
-
-        
+      dense: true,
+      minVerticalPadding: 1,
+      horizontalTitleGap: 1,
+      minLeadingWidth: 0,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 1),
+      leading: Icon(
+        isFavorite ? Icons.star : Icons.history,
+        size: 14,
+        color: isFavorite ? Colors.amber : null,
       ),
       title: Text(
         relPath,
@@ -627,14 +908,10 @@ class _DirectoryPickerDialogState
 
         if (isFavorite) {
           ref.read(favoritesProvider.notifier).remove(path);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已取消收藏')),
-          );
+          _snack('已取消收藏');
         } else {
           ref.read(recentMoveTargetsProvider.notifier).remove(path);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已从最近移除')),
-          );
+          _snack('已从最近移除');
         }
       },
     );
@@ -927,7 +1204,8 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
                                   ? Icons.folder
                                   : Icons.insert_drive_file_outlined,
                               size: 16,
-                              color: isDir ? Colors.black87 : s.onSurfaceVariant,
+                              color:
+                                  isDir ? Colors.black87 : s.onSurfaceVariant,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
