@@ -714,7 +714,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
             mainAxisSize: MainAxisSize.max,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 15, color: color),
+              Icon(icon, size: 17, color: color),
               const SizedBox(width: 3),
               Flexible(
                 child: Text(
