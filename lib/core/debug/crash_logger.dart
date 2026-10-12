@@ -32,13 +32,20 @@ class CrashLogger {
 
   final _recentOps = <String>[];
 
-  // 心跳 timer（主 isolate）
   Timer? _heartbeat;
 
-  // 看门狗 isolate 的引用。用来 kill。
   Isolate? _watchdogIsolate;
   ReceivePort? _watchdogRecv;
   SendPort? _watchdogPort;
+
+  /// 是否正在 spawn 看门狗 isolate。
+  /// 用来防止"spawn 没完成时用户又点了一次开"导致 spawn 出两个。
+  bool _watchdogStarting = false;
+
+  /// 看门狗的"代次号"。每次 _stopAll 都 +1。
+  /// 正在 await 的 spawn 完成后，会对比自己记录的代次号和当前的，
+  /// 不一致就说明这期间被 stop 过，直接 kill 掉刚 spawn 出来的。
+  int _watchdogGeneration = 0;
 
   Timer? _memTimer;
   int _lastRss = 0;
@@ -77,12 +84,16 @@ class CrashLogger {
     _memTimer?.cancel();
     _memTimer = null;
 
-    // 3) 杀看门狗 isolate
+    // 3) 让正在进行的 spawn 作废（关键一步）
+    _watchdogGeneration++;
+    _watchdogStarting = false;
+
+    // 4) 杀已经跑起来的看门狗 isolate
     _watchdogIsolate?.kill(priority: Isolate.immediate);
     _watchdogIsolate = null;
     _watchdogPort = null;
 
-    // 4) 关掉 receive port
+    // 5) 关掉 receive port
     _watchdogRecv?.close();
     _watchdogRecv = null;
   }
@@ -110,7 +121,6 @@ class CrashLogger {
       debugPrint('CrashLogger init 失败: $e');
     }
 
-    // 异常钩子：始终挂着，内部检查开关
     final prev = FlutterError.onError;
     FlutterError.onError = (details) {
       prev?.call(details);
@@ -201,33 +211,53 @@ class CrashLogger {
 
   // ==================== 看门狗 ====================
 
-  void _startWatchdog() async {
-    // 已经在跑，只重启心跳
+  Future<void> _startWatchdog() async {
+    // 已经跑起来了，只重启心跳
     if (_watchdogIsolate != null) {
       _restartHeartbeat();
       return;
     }
-    try {
-      if (_watchdogFile == null) return;
-      final recv = ReceivePort();
-      _watchdogRecv = recv;
+    // spawn 正在进行中，别重复 spawn
+    if (_watchdogStarting) return;
+    if (_watchdogFile == null) return;
 
-      final isolate = await Isolate.spawn(
+    _watchdogStarting = true;
+    final gen = ++_watchdogGeneration;
+    final recv = ReceivePort();
+
+    Isolate? isolate;
+    try {
+      isolate = await Isolate.spawn(
         _watchdogEntry,
         <dynamic>[recv.sendPort, _watchdogFile!.path],
         onError: recv.sendPort,
         onExit: recv.sendPort,
         errorsAreFatal: false,
       );
-      _watchdogIsolate = isolate;
+    } catch (_) {
+      if (gen == _watchdogGeneration) _watchdogStarting = false;
+      recv.close();
+      return;
+    }
 
-      recv.listen((msg) {
-        if (msg is SendPort) {
-          _watchdogPort = msg;
-          _restartHeartbeat();
-        }
-      });
-    } catch (_) {}
+    // spawn 期间用户可能按了关闭（或关闭又开启）
+    // 代次号变了，或者已经不在 enabled 状态 → 作废这次 spawn
+    if (gen != _watchdogGeneration || !_enabled) {
+      isolate.kill(priority: Isolate.immediate);
+      recv.close();
+      return;
+    }
+
+    _watchdogIsolate = isolate;
+    _watchdogRecv = recv;
+    _watchdogStarting = false;
+
+    recv.listen((msg) {
+      if (msg is SendPort) {
+        _watchdogPort = msg;
+        _restartHeartbeat();
+      }
+    });
   }
 
   void _restartHeartbeat() {
