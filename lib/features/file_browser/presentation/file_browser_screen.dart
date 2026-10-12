@@ -150,6 +150,7 @@ class FileBrowserScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
+enum _ConflictAction { skip, overwrite, rename }
 
 class _SearchHit {
   _SearchHit({
@@ -450,17 +451,51 @@ List<String?>? _cachedOwnerZipPerIndex;
     '.7z', '.rar', '.dzip', '.iso', '.tz', '.gz',
     '.epub', '.pdf', '.doc', '.docx',
   };
-  
+
+	/// 单次展开中，所有嵌套 zip 解压后的累计大小上限。
+/// _maxZipBytes 只限制顶层 zip 磁盘大小，拦不住"小包大解压"
+/// 和"嵌套 zip 层层解压"。这里累计统计解压后内容，超限停手。
+static const int _maxTotalDecodedBytes = 200 * 1024 * 1024;
+
+/// 本次展开中已累计的解压字节数。
+int _expandedDecodedBytes = 0;
+
   // ==================== 生命周期 ====================
 
+  
   @override
-  void initState() {
-    super.initState();
-    final saved = ref.read(lastPathProvider);
-    _currentPath = _resolveInitialPath(saved);
-    _positionsListener.itemPositions.addListener(_onPositionsChanged);
-    _load();
-  }
+void initState() {
+  super.initState();
+  // 清掉上次会话遗留的 zip 内临时文件。
+  // 不 await：后台跑，不阻塞启动。
+  _cleanTempDirOnce();
+  final saved = ref.read(lastPathProvider);
+  _currentPath = _resolveInitialPath(saved);
+  _positionsListener.itemPositions.addListener(_onPositionsChanged);
+  _load();
+}
+
+/// 清空 systemTemp 里所有 zzz_ 前缀的文件。
+/// 这个前缀专门标记 App 自己写的临时文件，避免误删别人的东西。
+Future<void> _cleanTempDirOnce() async {
+  try {
+    final dir = Directory.systemTemp;
+    if (!await dir.exists()) return;
+    var n = 0;
+    await for (final e in dir.list(followLinks: false)) {
+      if (e is! File) continue;
+      final name = e.path.split('/').last;
+      if (!name.startsWith('zzz_')) continue;
+      try {
+        await e.delete();
+        n++;
+      } catch (_) {}
+    }
+    if (n > 0) {
+      ReaderLoadLog.instance.info('[TempCleanup] 清理 $n 个临时文件');
+    }
+  } catch (_) {}
+}
 
   String _resolveInitialPath(String saved) {
     if (saved.isEmpty) return _rootPath;
@@ -1292,13 +1327,22 @@ Future<void> _expandZip(String zipDiskPath) async {
   });
 
   try {
-    final bytes = await File(zipDiskPath).readAsBytes();
-    final archive = _decodeArchiveBytes(zipDiskPath, bytes);
+  final bytes = await File(zipDiskPath).readAsBytes();
+  final archive = _decodeArchiveBytes(zipDiskPath, bytes);
 
-    if (!mounted) return;
+  if (!mounted) return;
 
-    _zipArchives[zipDiskPath] = archive;
-    _collectNestedZips(zipDiskPath, archive, '', '');
+  // 重置本次展开的累计解压计数，并把顶层解压后的内容算进去。
+  _expandedDecodedBytes = 0;
+  final topDecodedSize =
+      archive.files.fold<int>(0, (s, f) => s + f.size);
+  _expandedDecodedBytes = topDecodedSize;
+
+  _zipArchives[zipDiskPath] = archive;
+  _collectNestedZips(zipDiskPath, archive, '', '');
+
+
+		
 
     if (!mounted) return;
     setState(() {
@@ -1320,38 +1364,52 @@ Future<void> _expandZip(String zipDiskPath) async {
 }
 
   void _collectNestedZips(
-    String ownerZipDiskPath,
-    Archive archive,
-    String at,
-    String innerPrefix,
-  ) {
-    final children = _directZipChildren(archive, at);
+  String ownerZipDiskPath,
+  Archive archive,
+  String at,
+  String innerPrefix,
+) {
+  if (_expandedDecodedBytes >= _maxTotalDecodedBytes) return;
+  final children = _directZipChildren(archive, at);
     for (final c in children) {
       if (c.isDir) {
         _collectNestedZips(ownerZipDiskPath, archive, c.fullPath, innerPrefix);
       } else if (c.isZip) {
-        try {
-          final f = archive.findFile(c.fullPath);
-          if (f == null) continue;
-          final content = f.content;
-          final Uint8List bytes;
-          if (content is Uint8List) {
-            bytes = content;
-          } else if (content is List<int>) {
-            bytes = Uint8List.fromList(content);
-          } else {
-            continue;
-          }
-          final inner = _decodeArchiveBytes(c.name, bytes);
-          final innerFull = innerPrefix.isEmpty
-              ? c.fullPath
-              : '$innerPrefix>${c.fullPath}';
-          final nestedKey = _makeZipInnerKey(ownerZipDiskPath, innerFull);
-          _zipArchives[nestedKey] = inner;
-          _expandedZipKeys.add(nestedKey);
-          _collectNestedZips(ownerZipDiskPath, inner, '', innerFull);
-        } catch (_) {}
-      }
+  // 累计已超上限，不再展开更深的嵌套。
+  if (_expandedDecodedBytes >= _maxTotalDecodedBytes) continue;
+
+  try {
+    final f = archive.findFile(c.fullPath);
+    if (f == null) continue;
+    final content = f.content;
+    final Uint8List bytes;
+    if (content is Uint8List) {
+      bytes = content;
+    } else if (content is List<int>) {
+      bytes = Uint8List.fromList(content);
+    } else {
+      continue;
+    }
+    final inner = _decodeArchiveBytes(c.name, bytes);
+
+    // 把这一层的解压内容累计进去。
+    final innerDecodedSize =
+        inner.files.fold<int>(0, (s, file) => s + file.size);
+    _expandedDecodedBytes += innerDecodedSize;
+    if (_expandedDecodedBytes > _maxTotalDecodedBytes) {
+      // 超限：不再记录这一层，也不再往下钻。
+      continue;
+    }
+
+    final innerFull = innerPrefix.isEmpty
+        ? c.fullPath
+        : '$innerPrefix>${c.fullPath}';
+    final nestedKey = _makeZipInnerKey(ownerZipDiskPath, innerFull);
+    _zipArchives[nestedKey] = inner;
+    _expandedZipKeys.add(nestedKey);
+    _collectNestedZips(ownerZipDiskPath, inner, '', innerFull);
+  } catch (_) {}
+}
     }
   }
 
@@ -1489,18 +1547,21 @@ Future<void> _expandZip(String zipDiskPath) async {
     }
   }
 
-  Future<String?> _writeTempFile(Uint8List bytes, String fileName) async {
-    try {
-      final dir = Directory.systemTemp;
-      final safe = fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final ts = DateTime.now().microsecondsSinceEpoch;
-      final path = '${dir.path}/zzz_$ts\_$safe';
-      await File(path).writeAsBytes(bytes, flush: true);
-      return path;
-    } catch (_) {
-      return null;
-    }
+  /// 把 zip 内文件写到临时目录。
+///
+/// 用固定文件名（不带时间戳）：同名文件自动覆盖，不积累。
+/// 上次会话遗留的文件，App 启动时由 _cleanTempDirOnce 清掉。
+Future<String?> _writeTempFile(Uint8List bytes, String fileName) async {
+  try {
+    final dir = Directory.systemTemp;
+    final safe = fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    final path = '${dir.path}/zzz_$safe';
+    await File(path).writeAsBytes(bytes, flush: true);
+    return path;
+  } catch (_) {
+    return null;
   }
+}
 
   // ==================== 打开磁盘文件 ====================
 
@@ -2946,13 +3007,66 @@ Future<void> _showDirInfoDialog() async {
       ),
     );
     if (picked != null && mounted) {
-      if (Directory(picked).existsSync()) {
-        _navigateTo(picked);
-      } else {
-        _toast('该目录已不存在');
-        ref.read(favoritesProvider.notifier).remove(picked);
-      }
+  if (Directory(picked).existsSync()) {
+    _navigateTo(picked);
+  } else {
+    // 权限被收回时 existsSync 也会返回 false。
+    // 不自动删收藏，让用户自己决定。
+    final action = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: _dlgInset,
+        title: const Text('目录打不开'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('无法访问：', style: TextStyle(fontSize: 12)),
+            const SizedBox(height: 4),
+            SelectableText(
+              picked,
+              style: const TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '可能原因：\n'
+              '· 目录已被删除或重命名\n'
+              '· 存储卡已拔出\n'
+              '· 文件访问权限被收回',
+              style: TextStyle(fontSize: 12, height: 1.5),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '这条收藏要保留吗？',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('保留'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(c, 'remove'),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (action == 'remove' && mounted) {
+      ref.read(favoritesProvider.notifier).remove(picked);
+      _toast('已移除');
     }
+  }
+}
   }
 
   // ==================== 文件操作 ====================
@@ -3069,77 +3183,152 @@ Future<void> _showDirInfoDialog() async {
   }
 
   Future<void> _move() async {
-    final paths = _selectedDiskPaths();
-    if (paths.isEmpty) {
-      _toast('压缩包内的文件不支持移动');
-      return;
-    }
-   final target = await _pickDirectory('移动到哪？', paths);
-    if (target == null) return;
+  final paths = _selectedDiskPaths();
+  if (paths.isEmpty) {
+    _toast('压缩包内的文件不支持移动');
+    return;
+  }
+  final target = await _pickDirectory('移动到哪？', paths);
+  if (target == null) return;
 
-    var ok = 0;
-    var fail = 0;
-    for (final src in paths) {
-      final name = src.split('/').last;
-      final dst = '$target/$name';
-      if (src == dst) continue;
-      try {
-        if (Directory(src).existsSync()) {
-          await Directory(src).rename(dst);
-        } else {
-          await File(src).rename(dst);
-        }
-        ok++;
-      } catch (_) {
-        fail++;
+  // 冲突预检
+  final conflictNames = <String>[];
+  for (final src in paths) {
+    final name = src.split('/').last;
+    final dst = '$target/$name';
+    if (src == dst) continue;
+    if (FileSystemEntity.typeSync(dst) != FileSystemEntityType.notFound) {
+      conflictNames.add(name);
+    }
+  }
+
+  _ConflictAction? action;
+  if (conflictNames.isNotEmpty) {
+    action = await _askConflict(conflictNames);
+    if (action == null) return; // 用户取消
+  }
+
+  var ok = 0, fail = 0, skipped = 0;
+  for (final src in paths) {
+    final name = src.split('/').last;
+    var dst = '$target/$name';
+    if (src == dst) continue;
+
+    if (FileSystemEntity.typeSync(dst) != FileSystemEntityType.notFound) {
+      if (action == _ConflictAction.skip) {
+        skipped++;
+        continue;
+      } else if (action == _ConflictAction.rename) {
+        dst = _findNonConflictPath(dst);
+      } else if (action == _ConflictAction.overwrite) {
+        try {
+          if (Directory(dst).existsSync()) {
+            await Directory(dst).delete(recursive: true);
+          } else {
+            await File(dst).delete();
+          }
+        } catch (_) {}
       }
     }
 
-    if (ok > 0) {
-      ref.read(recentMoveTargetsProvider.notifier).add(target);
-      DirCache.instance.invalidate(_currentPath);
-      DirCache.instance.invalidate(target);
+    try {
+      if (Directory(src).existsSync()) {
+        await Directory(src).rename(dst);
+      } else {
+        await File(src).rename(dst);
+      }
+      ok++;
+    } catch (_) {
+      fail++;
     }
-    _clearSelection();
-    _load(restoreScroll: true);
-    _toast('已移动 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
 
-  Future<void> _copy() async {
-    final paths = _selectedDiskPaths();
-    if (paths.isEmpty) {
-      _toast('压缩包内的文件不支持复制');
-      return;
-    }
-   final target = await _pickDirectory('复制到哪？', paths);
-    if (target == null) return;
+  if (ok > 0) {
+    ref.read(recentMoveTargetsProvider.notifier).add(target);
+    DirCache.instance.invalidate(_currentPath);
+    DirCache.instance.invalidate(target);
+  }
+  _clearSelection();
+  _load(restoreScroll: true);
 
-    var ok = 0;
-    var fail = 0;
-    for (final src in paths) {
-      final name = src.split('/').last;
-      final dst = '$target/$name';
-      if (src == dst) continue;
-      try {
-        if (Directory(src).existsSync()) {
-          await _copyDir(Directory(src), Directory(dst));
-        } else {
-          await File(src).copy(dst);
-        }
-        ok++;
-      } catch (_) {
-        fail++;
+  final parts = <String>['已移动 $ok 项'];
+  if (skipped > 0) parts.add('跳过 $skipped 项');
+  if (fail > 0) parts.add('$fail 项失败');
+  _toast(parts.join('，'));
+}
+
+ Future<void> _copy() async {
+  final paths = _selectedDiskPaths();
+  if (paths.isEmpty) {
+    _toast('压缩包内的文件不支持复制');
+    return;
+  }
+  final target = await _pickDirectory('复制到哪？', paths);
+  if (target == null) return;
+
+  final conflictNames = <String>[];
+  for (final src in paths) {
+    final name = src.split('/').last;
+    final dst = '$target/$name';
+    if (src == dst) continue;
+    if (FileSystemEntity.typeSync(dst) != FileSystemEntityType.notFound) {
+      conflictNames.add(name);
+    }
+  }
+
+  _ConflictAction? action;
+  if (conflictNames.isNotEmpty) {
+    action = await _askConflict(conflictNames);
+    if (action == null) return;
+  }
+
+  var ok = 0, fail = 0, skipped = 0;
+  for (final src in paths) {
+    final name = src.split('/').last;
+    var dst = '$target/$name';
+    if (src == dst) continue;
+
+    if (FileSystemEntity.typeSync(dst) != FileSystemEntityType.notFound) {
+      if (action == _ConflictAction.skip) {
+        skipped++;
+        continue;
+      } else if (action == _ConflictAction.rename) {
+        dst = _findNonConflictPath(dst);
+      } else if (action == _ConflictAction.overwrite) {
+        try {
+          if (Directory(dst).existsSync()) {
+            await Directory(dst).delete(recursive: true);
+          } else {
+            await File(dst).delete();
+          }
+        } catch (_) {}
       }
     }
 
-    if (ok > 0) {
-      ref.read(recentMoveTargetsProvider.notifier).add(target);
-      DirCache.instance.invalidate(target);
+    try {
+      if (Directory(src).existsSync()) {
+        await _copyDir(Directory(src), Directory(dst));
+      } else {
+        await File(src).copy(dst);
+      }
+      ok++;
+    } catch (_) {
+      fail++;
     }
-    _clearSelection();
-    _load(restoreScroll: true);
-    _toast('已复制 $ok 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
+
+  if (ok > 0) {
+    ref.read(recentMoveTargetsProvider.notifier).add(target);
+    DirCache.instance.invalidate(target);
+  }
+  _clearSelection();
+  _load(restoreScroll: true);
+
+  final parts = <String>['已复制 $ok 项'];
+  if (skipped > 0) parts.add('跳过 $skipped 项');
+  if (fail > 0) parts.add('$fail 项失败');
+  _toast(parts.join('，'));
+}
 
   Future<void> _copyDir(Directory src, Directory dst) async {
     await dst.create(recursive: true);
@@ -3153,6 +3342,75 @@ Future<void> _showDirInfoDialog() async {
       }
     }
   }
+Future<_ConflictAction?> _askConflict(List<String> conflictNames) async {
+  return showDialog<_ConflictAction>(
+    context: context,
+    barrierDismissible: false,
+    builder: (c) => AlertDialog(
+      insetPadding: _dlgInset,
+      title: const Text('目标目录有同名项'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(c).size.height * 0.5,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('以下 ${conflictNames.length} 个名称已在目标目录中存在：'),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                itemCount: conflictNames.length,
+                itemBuilder: (ctx, i) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    '· ${conflictNames[i]}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(c),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(c, _ConflictAction.skip),
+          child: const Text('跳过'),
+        ),
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          onPressed: () => Navigator.pop(c, _ConflictAction.overwrite),
+          child: const Text('覆盖'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(c, _ConflictAction.rename),
+          child: const Text('重命名'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// 给 dst 找一个不冲突的路径：加 " (1)" " (2)" 之类的后缀。
+String _findNonConflictPath(String originalDst) {
+  final dotIdx = originalDst.lastIndexOf('.');
+  final slashIdx = originalDst.lastIndexOf('/');
+  final hasExt = dotIdx > slashIdx && dotIdx < originalDst.length - 1;
+  final base = hasExt ? originalDst.substring(0, dotIdx) : originalDst;
+  final ext = hasExt ? originalDst.substring(dotIdx) : '';
+  for (var i = 1; i < 10000; i++) {
+    final candidate = '$base ($i)$ext';
+    if (FileSystemEntity.typeSync(candidate) ==
+        FileSystemEntityType.notFound) {
+      return candidate;
+    }
+  }
+  return '$base (${DateTime.now().millisecondsSinceEpoch})$ext';
+}
 
   Future<void> _delete() async {
     final paths = _selectedDiskPaths();
