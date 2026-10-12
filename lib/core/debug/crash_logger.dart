@@ -8,13 +8,13 @@ import 'package:path_provider/path_provider.dart';
 
 /// 崩溃/异常诊断日志。
 ///
-/// 【开关】
-/// 默认关闭。开启后才真正记录。关闭时：
-///   · log() / mark() 直接 return，不写盘
-///   · 看门狗心跳停止，watchdog 不再写日志
-///   · 内存监控 timer 停止
-/// 异常钩子（FlutterError.onError / PlatformDispatcher.onError）始终挂着，
-/// 但里面检查开关后早退，日常运行（无异常）时开销为零。
+/// 【开关】默认关闭。关闭时：
+///   · 心跳 timer   → cancel
+///   · 内存 timer   → cancel
+///   · 看门狗 isolate → kill（真的杀掉，不是空转）
+///   · log() / mark() → 直接 return，不写盘
+///   · 异常钩子（FlutterError.onError / PlatformDispatcher.onError）
+///     保持挂着，但内部检查开关后早退。系统不触发异常就没有开销。
 class CrashLogger {
   CrashLogger._();
   static final CrashLogger instance = CrashLogger._();
@@ -27,28 +27,28 @@ class CrashLogger {
   File? _watchdogFile;
   bool _initialized = false;
 
-  /// 开关。默认关。由诊断页控制。
   bool _enabled = false;
   bool get enabled => _enabled;
 
   final _recentOps = <String>[];
 
+  // 心跳 timer（主 isolate）
   Timer? _heartbeat;
+
+  // 看门狗 isolate 的引用。用来 kill。
+  Isolate? _watchdogIsolate;
+  ReceivePort? _watchdogRecv;
   SendPort? _watchdogPort;
-  final _watchdogRecv = ReceivePort();
-  bool _watchdogStarted = false;
 
   Timer? _memTimer;
   int _lastRss = 0;
 
-  /// 开关切换。
-  /// 打开：启动看门狗 + 内存监控，开始记录。
-  /// 关闭：停止心跳 + 内存监控，后续 log 不再写盘。
+  // ==================== 开关 ====================
+
   void setEnabled(bool v) {
     if (_enabled == v) return;
     _enabled = v;
     if (!_initialized) {
-      // 兜底：init 还没跑过。等 init 完成后如果仍是开，就启动。
       init().then((_) {
         if (_enabled) _startAll();
       });
@@ -60,6 +60,34 @@ class CrashLogger {
       _stopAll();
     }
   }
+
+  void _startAll() {
+    _logStartupInfo();
+    _startWatchdog();
+    _startMemMonitor();
+    log('CrashLogger', '开始记录');
+  }
+
+  void _stopAll() {
+    // 1) 停心跳
+    _heartbeat?.cancel();
+    _heartbeat = null;
+
+    // 2) 停内存监控
+    _memTimer?.cancel();
+    _memTimer = null;
+
+    // 3) 杀看门狗 isolate
+    _watchdogIsolate?.kill(priority: Isolate.immediate);
+    _watchdogIsolate = null;
+    _watchdogPort = null;
+
+    // 4) 关掉 receive port
+    _watchdogRecv?.close();
+    _watchdogRecv = null;
+  }
+
+  // ==================== 初始化 ====================
 
   Future<void> init() async {
     if (_initialized) return;
@@ -82,7 +110,7 @@ class CrashLogger {
       debugPrint('CrashLogger init 失败: $e');
     }
 
-    // 1) Flutter 框架错误
+    // 异常钩子：始终挂着，内部检查开关
     final prev = FlutterError.onError;
     FlutterError.onError = (details) {
       prev?.call(details);
@@ -94,7 +122,6 @@ class CrashLogger {
       );
     };
 
-    // 2) 未捕获异步异常
     PlatformDispatcher.instance.onError = (error, stack) {
       log(
         'Uncaught',
@@ -105,7 +132,6 @@ class CrashLogger {
       return false;
     };
 
-    // 3) isolate 错误
     try {
       Isolate.current.addErrorListener(
         RawReceivePort((pair) {
@@ -115,26 +141,7 @@ class CrashLogger {
       );
     } catch (_) {}
 
-    // 不再自动启动 watchdog / memTimer / 写启动信息。
-    // 等用户在诊断页打开开关后再启动。
     if (_enabled) _startAll();
-  }
-
-  // ==================== 启停 ====================
-
-  void _startAll() {
-    _logStartupInfo();
-    _startWatchdog();
-    _startMemMonitor();
-    log('CrashLogger', '开始记录');
-  }
-
-  void _stopAll() {
-    _heartbeat?.cancel();
-    _heartbeat = null;
-    _memTimer?.cancel();
-    _memTimer = null;
-    // 不写"停止记录"（因为已经关了）
   }
 
   void _logStartupInfo() {
@@ -151,8 +158,8 @@ class CrashLogger {
     } catch (_) {}
   }
 
-  /// 记录一条关键操作。进环形缓冲，并且立即写盘。
-  /// 用法：CrashLogger.instance.mark('切视图: diffOnly');
+  // ==================== 记录 ====================
+
   void mark(String op) {
     if (!_enabled) return;
     final ts = DateTime.now().toIso8601String();
@@ -186,7 +193,6 @@ class CrashLogger {
     _writeSync(line);
   }
 
-  // 同步写，保证崩溃前落盘。
   void _writeSync(String line) {
     try {
       _file?.writeAsStringSync(line, mode: FileMode.append, flush: true);
@@ -195,39 +201,41 @@ class CrashLogger {
 
   // ==================== 看门狗 ====================
 
-  void _startWatchdog() {
-    if (_watchdogStarted) {
-      // 已启动过，只重启心跳
-      _heartbeat?.cancel();
-      _heartbeat = Timer.periodic(
-        const Duration(milliseconds: 500),
-        (_) => _sendHeartbeat(),
-      );
+  void _startWatchdog() async {
+    // 已经在跑，只重启心跳
+    if (_watchdogIsolate != null) {
+      _restartHeartbeat();
       return;
     }
     try {
       if (_watchdogFile == null) return;
-      Isolate.spawn(
+      final recv = ReceivePort();
+      _watchdogRecv = recv;
+
+      final isolate = await Isolate.spawn(
         _watchdogEntry,
-        <dynamic>[_watchdogRecv.sendPort, _watchdogFile!.path],
-        onError: _watchdogRecv.sendPort,
-        onExit: _watchdogRecv.sendPort,
+        <dynamic>[recv.sendPort, _watchdogFile!.path],
+        onError: recv.sendPort,
+        onExit: recv.sendPort,
         errorsAreFatal: false,
-      ).then((_) {}, onError: (_) {});
+      );
+      _watchdogIsolate = isolate;
 
-      _watchdogStarted = true;
-
-      _watchdogRecv.listen((msg) {
+      recv.listen((msg) {
         if (msg is SendPort) {
           _watchdogPort = msg;
-          _heartbeat?.cancel();
-          _heartbeat = Timer.periodic(
-            const Duration(milliseconds: 500),
-            (_) => _sendHeartbeat(),
-          );
+          _restartHeartbeat();
         }
       });
     } catch (_) {}
+  }
+
+  void _restartHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => _sendHeartbeat(),
+    );
   }
 
   void _sendHeartbeat() {
