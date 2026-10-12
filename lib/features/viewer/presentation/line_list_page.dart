@@ -16,9 +16,8 @@ const double _kFontSize = 14.0;
 const double _kLineHeight = 22.0;
 const double _kEditorVPad = 9.0;
 
-// 方块区：偶数行方块右边缘 64 + 12 的连线余量。
-const double _kBlockSize = 32.0;
-const double _kBlockOffset = 32.0;
+const double _kBlockSize = 36.0;
+const double _kBlockOffset = 36.0;
 const double _kBlockAreaWidth = 76.0;
 
 const double _kGutterWidth = 45.0;
