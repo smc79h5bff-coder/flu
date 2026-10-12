@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -72,6 +73,9 @@ class _SingleFileEditorScreenState
 
   double _maxLineWidth = 600;
 
+  Timer? _maxWidthTimer;
+  Timer? _matchTimer;
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +87,8 @@ class _SingleFileEditorScreenState
   @override
   void dispose() {
     _textCtrl.removeListener(_onTextChanged);
+    _maxWidthTimer?.cancel();
+    _matchTimer?.cancel();
     _textCtrl.dispose();
     _scrollCtrl.dispose();
     _hScrollCtrl.dispose();
@@ -93,7 +99,16 @@ class _SingleFileEditorScreenState
 
   void _onTextChanged() {
     if (!_dirty) setState(() => _dirty = true);
-    if (_noWrap) _recomputeMaxLineWidth();
+    if (_noWrap) {
+      // 打字时不立即算，停手 500ms 后再算一次。
+      // 原来每按一键扫全文，大文件会卡。
+      _maxWidthTimer?.cancel();
+      _maxWidthTimer = Timer(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        _recomputeMaxLineWidth();
+        setState(() {});
+      });
+    }
   }
 
   void _recomputeMaxLineWidth() {
@@ -205,14 +220,10 @@ class _SingleFileEditorScreenState
       final bytes = _encodeText(_textCtrl.text, _saveEncoding);
       final file = File(widget.filePath);
       if (await file.exists()) {
-        final bak = File('${widget.filePath}.bak');
-        if (!await bak.exists()) {
-          await bak.writeAsBytes(await file.readAsBytes(), flush: true);
-        } else {
-          final ts = DateTime.now().millisecondsSinceEpoch;
-          await File('${widget.filePath}_$ts.bak')
-              .writeAsBytes(await file.readAsBytes(), flush: true);
-        }
+        // 只保留一个 .bak，每次覆盖。
+        // 原来每次保存都新建一个时间戳 .bak，改 100 次就堆 100 个。
+        await File('${widget.filePath}.bak')
+            .writeAsBytes(await file.readAsBytes(), flush: true);
       }
       await file.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
@@ -344,6 +355,16 @@ class _SingleFileEditorScreenState
   }
 
   // ==================== 查找替换 ====================
+
+  void _scheduleRecomputeMatches() {
+    // 输入时不立即算，停手 300ms 后再算。
+    // 原来每输一个字扫全文，1MB 文件会卡。
+    _matchTimer?.cancel();
+    _matchTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _recomputeMatches();
+    });
+  }
 
   void _recomputeMatches() {
     _textCtrl.findQuery = _findCtrl.text;
@@ -684,7 +705,7 @@ class _SingleFileEditorScreenState
                       isDense: true,
                       border: InputBorder.none,
                     ),
-                    onChanged: (_) => _recomputeMatches(),
+                    onChanged: (_) => _scheduleRecomputeMatches(),
                     onSubmitted: (_) => _findNext(),
                   ),
                 ),
