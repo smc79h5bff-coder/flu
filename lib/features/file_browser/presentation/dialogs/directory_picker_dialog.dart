@@ -543,22 +543,9 @@ class _DirectoryPickerDialogState
                     ],
                   ),
                 ),
-                const Divider(height: 1),
-                // 底部：目标路径提示
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-                  child: Text(
-                    '目标：${_relPath(_path)}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+       const Divider(height: 1),
+Padding(
+  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                   child: Row(
                     children: [
                       Expanded(
