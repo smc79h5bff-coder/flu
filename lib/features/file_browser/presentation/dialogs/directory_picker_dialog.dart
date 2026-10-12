@@ -627,32 +627,22 @@ Padding(
                                   horizontal: 8),
                               leading: Icon(Icons.folder,
                                   color: Colors.amber.shade200),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      name,
-                                      softWrap: true,
-                                      style: const TextStyle(
-                                        color: Colors.black,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                  if (_dirCounts.containsKey(d.path)) ...[
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${_dirCounts[d.path]}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
+
+
+
+
+                              title: Text(
+  name,
+  softWrap: true,
+  style: const TextStyle(
+    color: Colors.black,
+    fontWeight: FontWeight.bold,
+  ),
+),
+
+
+
+                              
                               onTap: () {
                                 setState(() {
                                   _path = d.path;
