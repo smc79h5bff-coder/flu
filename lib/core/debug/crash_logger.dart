@@ -8,17 +8,13 @@ import 'package:path_provider/path_provider.dart';
 
 /// 崩溃/异常诊断日志。
 ///
-/// 捕获：
-///   1. Flutter 框架层错误（build/layout/paint）
-///   2. 未捕获的异步异常
-///   3. isolate 里抛出的错
-///   4. 主线程卡顿（独立 isolate 看门狗，≥3 秒记录一次）
-///   5. 内存占用（每 10 秒采一次）
-///   6. 最近 30 条关键操作（每次 mark 立即写盘）
-///   7. 启动环境信息
-///
-/// 写到 App 文档目录：crash_log.txt + crash_log_watchdog.txt
-/// 从"诊断"页可以查看、清空。
+/// 【开关】
+/// 默认关闭。开启后才真正记录。关闭时：
+///   · log() / mark() 直接 return，不写盘
+///   · 看门狗心跳停止，watchdog 不再写日志
+///   · 内存监控 timer 停止
+/// 异常钩子（FlutterError.onError / PlatformDispatcher.onError）始终挂着，
+/// 但里面检查开关后早退，日常运行（无异常）时开销为零。
 class CrashLogger {
   CrashLogger._();
   static final CrashLogger instance = CrashLogger._();
@@ -31,14 +27,39 @@ class CrashLogger {
   File? _watchdogFile;
   bool _initialized = false;
 
+  /// 开关。默认关。由诊断页控制。
+  bool _enabled = false;
+  bool get enabled => _enabled;
+
   final _recentOps = <String>[];
 
   Timer? _heartbeat;
   SendPort? _watchdogPort;
   final _watchdogRecv = ReceivePort();
+  bool _watchdogStarted = false;
 
   Timer? _memTimer;
   int _lastRss = 0;
+
+  /// 开关切换。
+  /// 打开：启动看门狗 + 内存监控，开始记录。
+  /// 关闭：停止心跳 + 内存监控，后续 log 不再写盘。
+  void setEnabled(bool v) {
+    if (_enabled == v) return;
+    _enabled = v;
+    if (!_initialized) {
+      // 兜底：init 还没跑过。等 init 完成后如果仍是开，就启动。
+      init().then((_) {
+        if (_enabled) _startAll();
+      });
+      return;
+    }
+    if (v) {
+      _startAll();
+    } else {
+      _stopAll();
+    }
+  }
 
   Future<void> init() async {
     if (_initialized) return;
@@ -94,16 +115,26 @@ class CrashLogger {
       );
     } catch (_) {}
 
-    // 4) 启动环境
+    // 不再自动启动 watchdog / memTimer / 写启动信息。
+    // 等用户在诊断页打开开关后再启动。
+    if (_enabled) _startAll();
+  }
+
+  // ==================== 启停 ====================
+
+  void _startAll() {
     _logStartupInfo();
-
-    // 5) 看门狗 + 心跳
     _startWatchdog();
-
-    // 6) 内存监控
     _startMemMonitor();
+    log('CrashLogger', '开始记录');
+  }
 
-    log('CrashLogger', '初始化完成');
+  void _stopAll() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    _memTimer?.cancel();
+    _memTimer = null;
+    // 不写"停止记录"（因为已经关了）
   }
 
   void _logStartupInfo() {
@@ -123,6 +154,7 @@ class CrashLogger {
   /// 记录一条关键操作。进环形缓冲，并且立即写盘。
   /// 用法：CrashLogger.instance.mark('切视图: diffOnly');
   void mark(String op) {
+    if (!_enabled) return;
     final ts = DateTime.now().toIso8601String();
     final line = '[$ts] [Mark] $op';
     _recentOps.add(line);
@@ -138,6 +170,7 @@ class CrashLogger {
   }
 
   void log(String tag, String message, [StackTrace? stack, String? extra]) {
+    if (!_enabled) return;
     final ts = DateTime.now().toIso8601String();
     final sb = StringBuffer()..writeln('[$ts] [$tag] $message');
     if (stack != null && stack.toString().trim().isNotEmpty) {
@@ -163,6 +196,15 @@ class CrashLogger {
   // ==================== 看门狗 ====================
 
   void _startWatchdog() {
+    if (_watchdogStarted) {
+      // 已启动过，只重启心跳
+      _heartbeat?.cancel();
+      _heartbeat = Timer.periodic(
+        const Duration(milliseconds: 500),
+        (_) => _sendHeartbeat(),
+      );
+      return;
+    }
     try {
       if (_watchdogFile == null) return;
       Isolate.spawn(
@@ -173,32 +215,38 @@ class CrashLogger {
         errorsAreFatal: false,
       ).then((_) {}, onError: (_) {});
 
+      _watchdogStarted = true;
+
       _watchdogRecv.listen((msg) {
         if (msg is SendPort) {
           _watchdogPort = msg;
+          _heartbeat?.cancel();
           _heartbeat = Timer.periodic(
             const Duration(milliseconds: 500),
-            (_) {
-              // 只有 App 在前台才发心跳。
-              // 后台被系统冻结时，主线程本来就不该工作，不算"卡顿"。
-              final st = WidgetsBinding.instance.lifecycleState;
-              if (st == AppLifecycleState.resumed ||
-                  st == null) {
-                _watchdogPort?.send('ping');
-              } else {
-                _watchdogPort?.send('paused');
-              }
-            },
+            (_) => _sendHeartbeat(),
           );
         }
       });
     } catch (_) {}
   }
 
+  void _sendHeartbeat() {
+    if (!_enabled) return;
+    final st = WidgetsBinding.instance.lifecycleState;
+    if (st == AppLifecycleState.resumed || st == null) {
+      _watchdogPort?.send('ping');
+    } else {
+      _watchdogPort?.send('paused');
+    }
+  }
+
   // ==================== 内存监控 ====================
 
   void _startMemMonitor() {
+    _memTimer?.cancel();
+    _lastRss = 0;
     _memTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!_enabled) return;
       try {
         final rss = ProcessInfo.currentRss;
         final delta = rss - _lastRss;
@@ -267,8 +315,6 @@ void _watchdogEntry(List<dynamic> args) async {
   bool alerted = false;
 
   recv.listen((msg) {
-    // ping 和 paused 都算"主线程还活着"，重置计时。
-    // paused = App 在后台，不算卡顿。
     if (msg == 'ping' || msg == 'paused') {
       lastPing = DateTime.now();
       alerted = false;
