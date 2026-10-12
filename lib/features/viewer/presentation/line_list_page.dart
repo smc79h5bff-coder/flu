@@ -383,10 +383,11 @@ class _LineListPageState extends ConsumerState<LineListPage> {
                     _kBlockAreaWidth,
                     constraints.maxHeight,
                   ),
-                  painter: _ConnectorLinePainter(
-                    lineCount: _lineCount,
-                    scrollOffset: offset,
-                  ),
+                 painter: _ConnectorLinePainter(
+  lineCount: _lineCount,
+  scrollOffset: offset,
+  selectedLines: _selectedLines,
+),
                 ),
                 for (var i = 0; i < _lineCount; i++)
                   _buildBlock(i, constraints.maxHeight, offset),
