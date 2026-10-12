@@ -721,7 +721,11 @@ class _LineListPageState extends ConsumerState<LineListPage> {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 10, color: color),
+                style: TextStyle(
+  fontSize: 10,
+  color: color,
+  fontWeight: FontWeight.w600,
+),
                 ),
               ),
             ],
