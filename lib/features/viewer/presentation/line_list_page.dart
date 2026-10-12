@@ -567,8 +567,12 @@ class _LineListPageState extends ConsumerState<LineListPage> {
             child: Stack(
               children: [
                 ..._buildHighlightLayer(),
-                Padding(
-                  padding: const EdgeInsets.only(left: 1, right: 4),
+             Padding(
+  padding: const EdgeInsets.only(
+    left: 1,
+    right: 4,
+    top: _kEditorVPad,
+  ),
                   child: TextField(
                     controller: _textCtrl,
                     scrollController: _vertCtrl,
