@@ -488,7 +488,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
         child: ColoredBox(
           color: selected ? _kSelectedBg : Colors.transparent,
           child: Padding(
-            padding: const EdgeInsets.only(left: 1, right: 1),
+            padding: const EdgeInsets.only(left: 0, right: 1),
             child: Row(
               children: [
                 _buildCheckbox(selected),
