@@ -255,34 +255,53 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
   }
 
   Future<bool> _confirmLeave() async {
-    if (!_dirty) return true;
-    final r = await showDialog<String>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('有未保存的修改'),
-        content: const Text('返回将丢失改动，确定吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, 'cancel'),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, 'discard'),
-            child: const Text('放弃并返回'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(c, 'save'),
-            child: const Text('保存并返回'),
-          ),
-        ],
-      ),
-    );
-    if (r == 'save') {
-      await _save();
-      return !_dirty;
-    }
-    return r == 'discard';
+  if (!_dirty) return true;
+  final r = await showDialog<String>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('有未保存的修改'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+      actionsPadding: const EdgeInsets.only(bottom: 8),
+      content: const Text('返回将丢失改动，确定吗？'),
+      actions: [
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 48),
+              ),
+              onPressed: () => Navigator.pop(c, 'save'),
+              child: const Text('保存并返回'),
+            ),
+            const SizedBox(height: 20),
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 48),
+              ),
+              onPressed: () => Navigator.pop(c, 'discard'),
+              child: const Text('放弃并返回'),
+            ),
+            const SizedBox(height: 20),
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 48),
+              ),
+              onPressed: () => Navigator.pop(c, 'cancel'),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+  if (r == 'save') {
+    await _save();
+    return !_dirty;
   }
+  return r == 'discard';
+}
 
   // ==================== Controller 缓存 ====================
 
