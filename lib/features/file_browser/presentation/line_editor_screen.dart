@@ -860,17 +860,21 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     if (!mounted) return;
 
     try {
-      await TranslationTable.instance.init();
-      final dict = TranslationTable.instance.dict;
-      final maxLen = TranslationTable.instance.maxKeyLen;
-      if (dict.isEmpty) {
-        _toast('词库为空');
-        return;
-      }
 
-      final joined = _joinLines();
-      final next = convertTranslation(joined, dict, maxLen);
-      final nextLines = next.split('\n');
+
+
+        await TranslationTable.instance.init();
+if (TranslationTable.instance.isEmpty) {
+  _toast('词库为空');
+  return;
+}
+
+final joined = _joinLines();
+final next = TranslationTable.instance.convert(joined);
+        
+        
+        
+        final nextLines = next.split('\n');
 
       for (final c in _controllers.values) {
         c.dispose();
