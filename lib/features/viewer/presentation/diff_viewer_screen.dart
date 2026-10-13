@@ -2800,16 +2800,7 @@ void _toast(String msg) {
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem<String>(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit),
-                    SizedBox(width: 10),
-                    Text('编辑对比中的2个文档'),
-                  ],
-                ),
-              ),
+              
               const PopupMenuItem<String>(
                 value: 'exportDiff',
                 child: Row(
