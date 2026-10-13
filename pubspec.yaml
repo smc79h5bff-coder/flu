@@ -61,4 +61,4 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/opencc/t2s.txt
+    - assets/t2s.txt
