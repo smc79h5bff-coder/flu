@@ -268,30 +268,24 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextButton(
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, 48),
-              ),
-              onPressed: () => Navigator.pop(c, 'save'),
-              child: const Text('保存并返回'),
-            ),
-            const SizedBox(height: 20),
-            TextButton(
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, 48),
-              ),
-              onPressed: () => Navigator.pop(c, 'discard'),
-              child: const Text('放弃并返回'),
-            ),
-            const SizedBox(height: 20),
-            TextButton(
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, 48),
-              ),
-              onPressed: () => Navigator.pop(c, 'cancel'),
-              child: const Text('取消'),
-            ),
-          ],
+  TextButton(
+    style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+    onPressed: () => Navigator.pop(c, 'save'),
+    child: const Text('保存并返回'),
+  ),
+  const SizedBox(height: 20),
+  TextButton(
+    style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+    onPressed: () => Navigator.pop(c, 'cancel'),
+    child: const Text('取消'),
+  ),
+  const SizedBox(height: 20),
+  TextButton(
+    style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+    onPressed: () => Navigator.pop(c, 'discard'),
+    child: const Text('放弃并返回'),
+  ),
+],
         ),
       ],
     ),
