@@ -12,8 +12,8 @@ import 'package:path_provider/path_provider.dart';
 class TranslationTable {
   TranslationTable._();
   static final TranslationTable instance = TranslationTable._();
-
-  static const String _assetPath = 'assets/opencc/t2s.txt';
+static const String _assetPath = 'assets/t2s.txt';
+  
   static const String _userFileName = 'opencc_t2s.txt';
 
   File? _file;
