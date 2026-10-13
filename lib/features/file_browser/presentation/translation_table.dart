@@ -25,6 +25,14 @@ class TranslationTable {
   int _maxKeyLen = 1;
   int get maxKeyLen => _maxKeyLen;
 
+  TranslationTrie _trie = TranslationTrie();
+  TranslationTrie get trie => _trie;
+
+  bool get isEmpty => _trie.isEmpty;
+
+  /// 对文本执行一次转换。
+  String convert(String text) => convertWithTrie(text, _trie);
+
   List<String> _lines = const [];
   List<String> get lines => _lines;
 
@@ -79,6 +87,7 @@ class TranslationTable {
 
   void _parse() {
     final dict = <String, String>{};
+    final trie = TranslationTrie();
     var maxLen = 1;
     for (final line in _lines) {
       final t = line.trim();
@@ -89,9 +98,11 @@ class TranslationTable {
       final val = t.substring(eq + 1).trim();
       if (key.isEmpty) continue;
       dict[key] = val;
+      trie.add(key, val);
       if (key.length > maxLen) maxLen = key.length;
     }
     _dict = dict;
+    _trie = trie;
     _maxKeyLen = maxLen;
   }
 
@@ -129,7 +140,7 @@ class TranslationTable {
 
 // ==================== 转换 ====================
 
-/// 最长匹配替换。
+/// 最长匹配替换。（保留备用）
 String convertTranslation(
   String text,
   Map<String, String> dict,
@@ -159,6 +170,69 @@ String convertTranslation(
       i += matched.length;
     } else {
       buf.write(text[i]);
+      i++;
+    }
+  }
+  return buf.toString();
+}
+
+// ==================== Trie 版转换 ====================
+
+class _TrieNode {
+  final Map<int, _TrieNode> children = {};
+  String? value;
+}
+
+class TranslationTrie {
+  final _TrieNode _root = _TrieNode();
+
+  bool get isEmpty => _root.children.isEmpty;
+
+  void add(String key, String value) {
+    if (key.isEmpty) return;
+    var node = _root;
+    for (var i = 0; i < key.length; i++) {
+      final c = key.codeUnitAt(i);
+      node = node.children.putIfAbsent(c, () => _TrieNode());
+    }
+    node.value = value;
+  }
+
+  /// 从 text 的 start 位置开始，找最长匹配。
+  /// 返回 (匹配的 codeUnit 长度, 替换值)，或 null。
+  ({int length, String value})? matchAt(String text, int start) {
+    var node = _root;
+    int? bestLen;
+    String? bestVal;
+    var pos = start;
+    while (pos < text.length) {
+      final c = text.codeUnitAt(pos);
+      final next = node.children[c];
+      if (next == null) break;
+      node = next;
+      pos++;
+      if (node.value != null) {
+        bestLen = pos - start;
+        bestVal = node.value;
+      }
+    }
+    if (bestLen == null) return null;
+    return (length: bestLen, value: bestVal!);
+  }
+}
+
+String convertWithTrie(String text, TranslationTrie trie) {
+  if (text.isEmpty || trie.isEmpty) return text;
+  final buf = StringBuffer();
+  final n = text.length;
+  var i = 0;
+  while (i < n) {
+    final m = trie.matchAt(text, i);
+    if (m != null) {
+      buf.write(m.value);
+      i += m.length;
+    } else {
+      buf.writeCharCode(text.codeUnitAt(i));
       i++;
     }
   }
