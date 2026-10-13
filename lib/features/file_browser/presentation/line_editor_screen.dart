@@ -20,6 +20,7 @@ import '../../viewer/presentation/viewer_widgets.dart'
 import 'comparison_settings_screen.dart' show RuleEditorDialog, ruleSubtitle;
 import 'dialogs/line_range_selector_dialog.dart';
 import 'providers/line_editor_rules_provider.dart';
+import 'translation_table.dart';
 
 const int _lineEditorWarnSizeBytes = 5 * 1024 * 1024;
 const int _lineEditorRejectSizeBytes = 100 * 1024 * 1024;
@@ -849,6 +850,60 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
     );
   }
 
+  Future<void> _convertTranslation() async {
+    if (_processing) return;
+    setState(() {
+      _processing = true;
+      _processingText = '正在简繁转换…';
+    });
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+
+    try {
+      await TranslationTable.instance.init();
+      final dict = TranslationTable.instance.dict;
+      final maxLen = TranslationTable.instance.maxKeyLen;
+      if (dict.isEmpty) {
+        _toast('词库为空');
+        return;
+      }
+
+      final joined = _joinLines();
+      final next = convertTranslation(joined, dict, maxLen);
+      final nextLines = next.split('\n');
+
+      for (final c in _controllers.values) {
+        c.dispose();
+      }
+      _controllers.clear();
+
+      setState(() {
+        _lines = nextLines;
+        _dirty = true;
+        _selectionStart = null;
+        _selectionEnd = null;
+      });
+      _toast('已转换');
+    } catch (e) {
+      _toast('转换失败：$e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processing = false;
+          _processingText = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _openTranslationTable() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const TranslationTableScreen(),
+      ),
+    );
+  }
+
   // ==================== UI ====================
 
   @override
@@ -879,9 +934,9 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
               onPressed: _jumpToBottom,
             ),
             IconButton(
-              icon: const Icon(Icons.format_list_numbered),
-              tooltip: '跳到指定行',
-              onPressed: _jumpToLine,
+              icon: const Icon(Icons.translate),
+              tooltip: '简繁转换',
+              onPressed: _convertTranslation,
             ),
             IconButton(
               icon: const Icon(Icons.find_in_page),
@@ -892,6 +947,12 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
               icon: const Icon(Icons.more_vert),
               onSelected: (v) {
                 switch (v) {
+                  case 'jumpToLine':
+                    _jumpToLine();
+                    break;
+                  case 'translationTable':
+                    _openTranslationTable();
+                    break;
                   case 'saveAs':
                     _saveAs();
                     break;
@@ -920,6 +981,27 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                 }
               },
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'jumpToLine',
+                  child: Row(
+                    children: [
+                      Icon(Icons.format_list_numbered),
+                      SizedBox(width: 10),
+                      Text('跳到指定行'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'translationTable',
+                  child: Row(
+                    children: [
+                      Icon(Icons.table_chart),
+                      SizedBox(width: 10),
+                      Text('转换表'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
                 const PopupMenuItem(
                   value: 'saveAs',
                   child: Row(
