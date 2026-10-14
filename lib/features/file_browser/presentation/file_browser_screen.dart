@@ -3556,20 +3556,55 @@ if (ok != true) return;
 
     if (!mounted || path == null || path.isEmpty) return;
 
-    var target = path;
-    if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
-      target = File(target).parent.path;
-    }
+  var target = path.trim();
+  if (target.isEmpty) return;
 
-    if (!Directory(target).existsSync()) {
-      _toast('目录不存在：$target');
-      return;
+  // 常见路径前缀统一换成 /storage/emulated/0
+  target = _normalizePath(target);
+
+  if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
+    target = File(target).parent.path;
+  }
+
+  if (!Directory(target).existsSync()) {
+    _toast('目录不存在：$target');
+    return;
+  }
+  if (!target.startsWith('/storage/')) {
+    _toast('只能跳到 /storage 以内的路径');
+    return;
+  }
+  _navigateTo(target);
+}
+
+/// 归一化用户粘贴的路径。
+/// · /sdcard/...         → /storage/emulated/0/...
+/// · /storage/self/primary/... → /storage/emulated/0/...
+/// · /storage/emulated/legacy/... → /storage/emulated/0/...
+/// · /mnt/sdcard/...     → /storage/emulated/0/...
+String _normalizePath(String path) {
+  const prefixes = <String, String>{
+    '/sdcard/': '/storage/emulated/0/',
+    '/sdcard': '/storage/emulated/0',
+    '/mnt/sdcard/': '/storage/emulated/0/',
+    '/mnt/sdcard': '/storage/emulated/0',
+    '/storage/self/primary/': '/storage/emulated/0/',
+    '/storage/self/primary': '/storage/emulated/0',
+    '/storage/emulated/legacy/': '/storage/emulated/0/',
+    '/storage/emulated/legacy': '/storage/emulated/0',
+  };
+  for (final e in prefixes.entries) {
+    if (path.startsWith(e.key)) {
+      return e.value + path.substring(e.key.length);
     }
-    if (!target.startsWith('/storage/')) {
-      _toast('只能跳到 /storage 以内的路径');
-      return;
-    }
-    _navigateTo(target);
+  }
+  return path;
+}
+
+
+
+
+	  
   }
 
   Future<String?> _pickDirectory(String title, List<String> pickedPaths) async {
