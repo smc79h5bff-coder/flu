@@ -1875,22 +1875,29 @@ Future<void> _scanFilterDepth(
         final parentPath = slash >= 0 ? e.path.substring(0, slash) : '';
         final isCurrentLayer = parentPath == _currentPath;
 
-        if (!isCurrentLayer &&
-            name.toLowerCase().contains(lowerQuery)) {
-          int? size;
-          DateTime? modified;
-          try {
-            final st = await e.stat();
-            if (e is File) size = st.size;
-            modified = st.modified;
-          } catch (_) {}
-          out.add(_SearchHit(
-            path: e.path,
-            name: name,
-            size: size,
-            modified: modified,
-          ));
-        }
+
+
+		 if (!isCurrentLayer &&
+    name.toLowerCase().contains(lowerQuery)) {
+  final isDir = e is Directory;
+  int? size;
+  DateTime? modified;
+  try {
+    final st = await e.stat();
+    if (!isDir) size = st.size;
+    modified = st.modified;
+  } catch (_) {}
+  out.add(_SearchHit(
+    path: e.path,
+    name: name,
+    isDir: isDir,
+    size: size,
+    modified: modified,
+  ));
+}
+
+
+		  
 
         if (e is Directory && remaining > 0) {
           await walk(e.path, remaining - 1);
@@ -1931,15 +1938,16 @@ List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
   }
 
   for (final hit in _filterDeepResults) {
-    out.add(_DisplayItem(
-      key: hit.path,
-      displayName: hit.name,
-      depth: 0,
-      size: hit.size,
-      modified: hit.modified,
-      searchHit: hit,
-    ));
-  }
+  out.add(_DisplayItem(
+    key: hit.path,
+    displayName: hit.name,
+    depth: 0,
+    isDir: hit.isDir,
+    size: hit.size,
+    modified: hit.modified,
+    searchHit: hit,
+  ));
+}
 
   return out;
 }
