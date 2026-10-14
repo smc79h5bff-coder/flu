@@ -334,16 +334,17 @@ _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
                         groupedFindPinkProvider),
                   ],
 
-                  const SizedBox(height: 24),
-                ],
-              ),
+                   const SizedBox(height: 24),
+              ],
             ),
-          ],
+          ),
         ),
+        ],
       ),
     ),
-  );
-  }
+  ),
+);
+}
   Widget _colorRow(
     BuildContext context,
     WidgetRef ref,
