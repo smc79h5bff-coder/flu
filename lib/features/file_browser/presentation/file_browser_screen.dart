@@ -612,15 +612,16 @@ Future<void> _cleanTempDirOnce() async {
       for (final hit in _searchResults) {
         final isZip = _isExpandableArchiveName(hit.name);
         final key = hit.path;
-        out.add(_DisplayItem(
-          key: key,
-          displayName: hit.name,
-          depth: 0,
-          isZip: isZip,
-          size: hit.size,
-          modified: hit.modified,
-          searchHit: hit,
-        ));
+       out.add(_DisplayItem(
+  key: key,
+  displayName: hit.name,
+  depth: 0,
+  isDir: hit.isDir,    // ★ 加这行
+  isZip: isZip,
+  size: hit.size,
+  modified: hit.modified,
+  searchHit: hit,
+));
         if (isZip && _expandedZipKeys.contains(key)) {
           _appendZipChildren(
             out: out,
