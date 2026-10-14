@@ -3585,7 +3585,7 @@ void _onFloatingPageDownTap() {
               ),
             Row(
               children: [
-                const SizedBox(width: 48),
+                const SizedBox(width: 40),
                 Expanded(
                   child: TextField(
                     controller: _replaceController,
@@ -3657,14 +3657,18 @@ void _onFloatingPageDownTap() {
               ),
      Row(
   children: [
-    const SizedBox(width: 8),
+    const SizedBox(width: 1),
     IconButton(
-      icon: const Icon(Icons.edit_document),
+      
+      icon: const Icon(Icons.edit_document, size: 30),
       tooltip: '批量删除（普通文字）一行一个',
-      visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+      constraints: const BoxConstraints(minHeight: 28),
+      visualDensity: VisualDensity.standard,
       onPressed: () => _openLineList(),
+ 
     ),
-    const SizedBox(width: 4),
+    const SizedBox(width: 1),
 
     sidePill(
       label: '左侧',
@@ -3678,7 +3682,7 @@ void _onFloatingPageDownTap() {
                     _findChanged(_findController.text);
                   },
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 1),
 
                 sidePill(
                   label: '右侧',
@@ -3692,7 +3696,7 @@ void _onFloatingPageDownTap() {
                     _findChanged(_findController.text);
                   },
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 1),
 
                 sidePill(
                   label: '两侧',
@@ -3708,20 +3712,28 @@ void _onFloatingPageDownTap() {
                 ),
 
                 const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.arrow_upward),
-                  color: AppColors.accentPurple,
-                  tooltip: '上一个',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _findQuery.isEmpty ? null : _prevMatch,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.arrow_downward),
-                  color: AppColors.accentPurple,
-                  tooltip: '下一个',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _findQuery.isEmpty ? null : _nextMatch,
-                ),
+
+
+    IconButton(
+  icon: const Icon(Icons.arrow_upward),
+  color: AppColors.accentPurple,
+  tooltip: '上一个',
+  visualDensity: VisualDensity.compact,
+  constraints: const BoxConstraints(minWidth: 49),
+  onPressed: _findQuery.isEmpty ? null : _prevMatch,
+),
+IconButton(
+  icon: const Icon(Icons.arrow_downward),
+  color: AppColors.accentPurple,
+  tooltip: '下一个',
+  visualDensity: VisualDensity.compact,
+  constraints: const BoxConstraints(minWidth: 49),
+  onPressed: _findQuery.isEmpty ? null : _nextMatch,
+),
+
+
+
+    
               ],
             ),
             Row(
