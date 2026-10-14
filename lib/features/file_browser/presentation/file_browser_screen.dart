@@ -156,11 +156,13 @@ class _SearchHit {
   _SearchHit({
     required this.path,
     required this.name,
+    this.isDir = false,
     this.size,
     this.modified,
   });
   final String path;
   final String name;
+  final bool isDir;
   final int? size;
   final DateTime? modified;
 }
