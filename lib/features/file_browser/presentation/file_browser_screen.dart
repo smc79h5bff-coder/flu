@@ -6560,7 +6560,7 @@ class _SearchSettingsSectionTitle extends StatelessWidget {
       child: Text(
         text,
         style: const TextStyle(
-          fontSize: 14,
+          fontSize: 16,
           fontWeight: FontWeight.w600,
         ),
       ),
