@@ -3360,11 +3360,12 @@ final parts = <String>['已移动 $ok 项'];
     }
   }
 
-
-	 
-  if (ok > 0) {
+if (ok > 0) {
   ref.read(recentMoveTargetsProvider.notifier).add(target);
   DirCache.instance.invalidate(target);
+  if (target == _currentPath) {
+    DirCache.instance.invalidate(_currentPath);
+  }
 }
 _clearSelection();
 _load(restoreScroll: true, silent: true);
