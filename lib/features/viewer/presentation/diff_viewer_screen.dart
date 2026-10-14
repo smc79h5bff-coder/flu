@@ -3515,12 +3515,7 @@ void _onFloatingPageDownTap() {
           children: [
             Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.disabled_by_default),
-                  tooltip: '关闭查找',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _closeFindBar,
-                ),
+               const SizedBox(width: 2),
                 Expanded(
                   child: TextField(
                     controller: _findController,
@@ -3591,7 +3586,7 @@ void _onFloatingPageDownTap() {
               ),
             Row(
               children: [
-                const SizedBox(width: 40),
+                const SizedBox(width: 2),
                 Expanded(
                   child: TextField(
                     controller: _replaceController,
