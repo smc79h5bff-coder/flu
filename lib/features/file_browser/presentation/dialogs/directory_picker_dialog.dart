@@ -98,9 +98,12 @@ class _DirectoryPickerDialogState
     _load();
   }
 
+
+
+  
   void _jumpToPath(String path) {
     if (path.isEmpty) return;
-    var target = path;
+    var target = _normalizePath(path.trim());
     if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
       target = File(target).parent.path;
     }
@@ -122,8 +125,32 @@ class _DirectoryPickerDialogState
       _filterQuery = '';
     });
     _load();
+
+    
   }
 
+String _normalizePath(String path) {
+  const prefixes = <String, String>{
+    '/sdcard/': '/storage/emulated/0/',
+    '/sdcard': '/storage/emulated/0',
+    '/mnt/sdcard/': '/storage/emulated/0/',
+    '/mnt/sdcard': '/storage/emulated/0',
+    '/storage/self/primary/': '/storage/emulated/0/',
+    '/storage/self/primary': '/storage/emulated/0',
+    '/storage/emulated/legacy/': '/storage/emulated/0/',
+    '/storage/emulated/legacy': '/storage/emulated/0',
+  };
+  for (final e in prefixes.entries) {
+    if (path.startsWith(e.key)) {
+      return e.value + path.substring(e.key.length);
+    }
+  }
+  return path;
+}
+
+
+
+  
   void _selectShortcut(String path) {
     if (!Directory(path).existsSync()) {
       ScaffoldMessenger.of(context).showSnackBar(
