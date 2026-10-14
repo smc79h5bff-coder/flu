@@ -3229,8 +3229,9 @@ Future<void> _showDirInfoDialog() async {
     if (action == null) return; // 用户取消
   }
 
-  var ok = 0, fail = 0, skipped = 0;
-  for (final src in paths) {
+ var ok = 0, fail = 0, skipped = 0;
+final movedSources = <String>{};
+for (final src in paths) {
     final name = src.split('/').last;
     var dst = '$target/$name';
     if (src == dst) continue;
@@ -3253,26 +3254,47 @@ Future<void> _showDirInfoDialog() async {
     }
 
     try {
-      if (Directory(src).existsSync()) {
-        await Directory(src).rename(dst);
-      } else {
-        await File(src).rename(dst);
-      }
-      ok++;
-    } catch (_) {
-      fail++;
+
+
+		
+       if (Directory(src).existsSync()) {
+      await Directory(src).rename(dst);
+    } else {
+      await File(src).rename(dst);
     }
+    ok++;
+    movedSources.add(src);
+  } catch (_) {
+    fail++;
   }
+}
 
-  if (ok > 0) {
-    ref.read(recentMoveTargetsProvider.notifier).add(target);
-    DirCache.instance.invalidate(_currentPath);
-    DirCache.instance.invalidate(target);
-  }
-  _clearSelection();
-  _load(restoreScroll: true);
+ if (ok > 0) {
+  ref.read(recentMoveTargetsProvider.notifier).add(target);
+  DirCache.instance.invalidate(target);
+}
+_clearSelection();
 
-  final parts = <String>['已移动 $ok 项'];
+if (movedSources.isNotEmpty && target != _currentPath) {
+  // 目标不是当前目录：就地剔除源
+  setState(() {
+    _entries = (_entries ?? const <EntryInfo>[])
+        .where((e) => !movedSources.contains(e.path))
+        .toList();
+  });
+  DirCache.instance.applyToAll(
+    _currentPath,
+    (list) => list
+        .where((e) => !movedSources.contains(e.path))
+        .toList(),
+  );
+} else if (target == _currentPath) {
+  // 目标就是当前目录（少见）：退化为静默重载
+  _load(restoreScroll: true, silent: true);
+}
+
+final parts = <String>['已移动 $ok 项'];
+	  
   if (skipped > 0) parts.add('跳过 $skipped 项');
   if (fail > 0) parts.add('$fail 项失败');
   _toast(parts.join('，'));
@@ -3338,14 +3360,16 @@ Future<void> _showDirInfoDialog() async {
     }
   }
 
-  if (ok > 0) {
-    ref.read(recentMoveTargetsProvider.notifier).add(target);
-    DirCache.instance.invalidate(target);
-  }
-  _clearSelection();
-  _load(restoreScroll: true);
 
-  final parts = <String>['已复制 $ok 项'];
+	 
+  if (ok > 0) {
+  ref.read(recentMoveTargetsProvider.notifier).add(target);
+  DirCache.instance.invalidate(target);
+}
+_clearSelection();
+_load(restoreScroll: true, silent: true);
+
+final parts = <String>['已复制 $ok 项'];
   if (skipped > 0) parts.add('跳过 $skipped 项');
   if (fail > 0) parts.add('$fail 项失败');
   _toast(parts.join('，'));
