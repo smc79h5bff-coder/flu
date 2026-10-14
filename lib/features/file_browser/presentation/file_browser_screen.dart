@@ -2185,12 +2185,18 @@ final sortAsc = ref.read(searchSortAscProvider);
               size = st.size;
               modified = st.modified;
             } catch (_) {}
+
+			  
             results.add(_SearchHit(
-              path: e.path,
-              name: name,
-              size: size,
-              modified: modified,
-            ));
+  path: e.path,
+  name: name,
+  isDir: false,
+  size: size,
+  modified: modified,
+));
+
+
+			  
             final now = DateTime.now();
             if (mounted &&
                 now.difference(_lastUiRefresh).inMilliseconds > 100) {
