@@ -3477,12 +3477,24 @@ if (ok != true) return;
         }).toList();
       });
       if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
-    } else {
-      DirCache.instance.invalidate(_currentPath);
-      _load(restoreScroll: true);
-    }
+  
+	
+	} else {
+  // 就地移除，不重载
+  setState(() {
+    _entries = (_entries ?? const <EntryInfo>[])
+        .where((e) => !deletedPaths.contains(e.path))
+        .toList();
+  });
+  DirCache.instance.applyToAll(
+    _currentPath,
+    (list) => list
+        .where((e) => !deletedPaths.contains(e.path))
+        .toList(),
+  );
+}
 
-    _toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
+_toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
   }
 
   Future<void> _newFolder() async {
