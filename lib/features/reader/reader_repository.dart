@@ -107,10 +107,11 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
       update(state.copyWith(topBtnOpacity: v.clamp(0.05, 1.0)));
   void setTopBtnScale(double v) =>
       update(state.copyWith(topBtnScale: v.clamp(0.2, 10.0)));
+
   void setTopBtnX(double v) =>
-      update(state.copyWith(topBtnX: v.clamp(0.0, 1.0)));
-  void setTopBtnY(double v) =>
-      update(state.copyWith(topBtnY: v.clamp(0.0, 1.0)));
+    update(state.copyWith(topBtnX: v.clamp(-0.5, 1.5)));   // ← 改了
+void setTopBtnY(double v) =>
+    update(state.copyWith(topBtnY: v.clamp(-0.5, 1.5)));   // ← 改了
 
   // ---- 下一文件按钮 ----
 
@@ -127,11 +128,13 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
       update(state.copyWith(bottomBtnOpacity: v.clamp(0.05, 1.0)));
   void setBottomBtnScale(double v) =>
       update(state.copyWith(bottomBtnScale: v.clamp(0.2, 10.0)));
-  void setBottomBtnX(double v) =>
-      update(state.copyWith(bottomBtnX: v.clamp(0.0, 1.0)));
-  void setBottomBtnY(double v) =>
-      update(state.copyWith(bottomBtnY: v.clamp(0.0, 1.0)));
 
+
+  
+void setBottomBtnX(double v) =>
+    update(state.copyWith(bottomBtnX: v.clamp(-0.5, 1.5)));
+void setBottomBtnY(double v) =>
+    update(state.copyWith(bottomBtnY: v.clamp(-0.5, 1.5)));
   // ---- 删除文件按钮 ----
 
   void setDelBtnStyle(int v) => update(state.copyWith(delBtnStyle: v));
@@ -147,11 +150,12 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
       update(state.copyWith(delBtnOpacity: v.clamp(0.05, 1.0)));
   void setDelBtnScale(double v) =>
       update(state.copyWith(delBtnScale: v.clamp(0.2, 10.0)));
-  void setDelBtnX(double v) =>
-      update(state.copyWith(delBtnX: v.clamp(0.0, 1.0)));
-  void setDelBtnY(double v) =>
-      update(state.copyWith(delBtnY: v.clamp(0.0, 1.0)));
+  
 
+void setDelBtnX(double v) =>
+    update(state.copyWith(delBtnX: v.clamp(-0.5, 1.5)));
+void setDelBtnY(double v) =>
+    update(state.copyWith(delBtnY: v.clamp(-0.5, 1.5)));
   // ---- 菜单热区 ----
 
   void setHotZoneVisible(bool v) =>
