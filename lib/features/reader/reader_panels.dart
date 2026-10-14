@@ -149,29 +149,67 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                     _sliderHeader('背景颜色', ''),
                     const SizedBox(height: 6),
                     Row(
-                      children: [
-                        _bgSwatch(
-                          color: Color(ReaderSettings.bgCream),
-                          label: '米黄',
-                          selected: s.bgColor == ReaderSettings.bgCream,
-                          onTap: () => n.setBgColor(ReaderSettings.bgCream),
-                        ),
-                        const SizedBox(width: 12),
-                        _bgSwatch(
-                          color: Color(ReaderSettings.bgWhite),
-                          label: '白色',
-                          selected: s.bgColor == ReaderSettings.bgWhite,
-                          onTap: () => n.setBgColor(ReaderSettings.bgWhite),
-                        ),
-                        const SizedBox(width: 12),
-                        _bgSwatch(
-                          color: Color(ReaderSettings.bgGreen),
-                          label: '护眼绿',
-                          selected: s.bgColor == ReaderSettings.bgGreen,
-                          onTap: () => n.setBgColor(ReaderSettings.bgGreen),
-                        ),
-                      ],
-                    ),
+  children: [
+    _bgSwatch(
+      color: Color(ReaderSettings.bgCream),
+      label: '米黄',
+      selected: s.bgColor == ReaderSettings.bgCream,
+      onTap: () => n.setBgColor(ReaderSettings.bgCream),
+    ),
+    const SizedBox(width: 12),
+    _bgSwatch(
+      color: Color(ReaderSettings.bgWhite),
+      label: '白色',
+      selected: s.bgColor == ReaderSettings.bgWhite,
+      onTap: () => n.setBgColor(ReaderSettings.bgWhite),
+    ),
+    const SizedBox(width: 12),
+    _bgSwatch(
+      color: Color(ReaderSettings.bgGreen),
+      label: '护眼绿',
+      selected: s.bgColor == ReaderSettings.bgGreen,
+      onTap: () => n.setBgColor(ReaderSettings.bgGreen),
+    ),
+  ],
+),
+
+// 👇 新增
+const SizedBox(height: 12),
+Row(
+  children: [
+    const Text('自定义颜色',
+        style: TextStyle(fontSize: 13)),
+    const Spacer(),
+    Text(
+      '#${Color(s.bgColor).toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase().substring(2)}',
+      style: const TextStyle(
+          fontFamily: 'monospace', fontSize: 12),
+    ),
+    const SizedBox(width: 8),
+    InkWell(
+      onTap: () async {
+        final picked = await showDialog<Color>(
+          context: context,
+          builder: (_) => _SimpleColorPicker(
+            initial: Color(s.bgColor),
+          ),
+        );
+        if (picked != null) {
+          n.setBgColor(picked.toARGB32());
+        }
+      },
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: Color(s.bgColor),
+          border: Border.all(color: Colors.black26),
+          borderRadius: BorderRadius.circular(6),
+        ),
+      ),
+    ),
+  ],
+),
                     const SizedBox(height: 20),
                     const Divider(),
                     const SizedBox(height: 8),
