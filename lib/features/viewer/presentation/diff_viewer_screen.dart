@@ -3515,7 +3515,7 @@ void _onFloatingPageDownTap() {
           children: [
             Row(
               children: [
-               const SizedBox(width: 2),
+               const SizedBox(width: 6),
                 Expanded(
                   child: TextField(
                     controller: _findController,
@@ -3586,7 +3586,7 @@ void _onFloatingPageDownTap() {
               ),
             Row(
               children: [
-                const SizedBox(width: 2),
+                const SizedBox(width: 6),
                 Expanded(
                   child: TextField(
                     controller: _replaceController,
