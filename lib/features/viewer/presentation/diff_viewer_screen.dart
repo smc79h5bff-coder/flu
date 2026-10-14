@@ -3660,7 +3660,7 @@ void _onFloatingPageDownTap() {
     const SizedBox(width: 8),
     IconButton(
       icon: const Icon(Icons.edit_document),
-      tooltip: '行列表',
+      tooltip: '批量删除（普通文字）一行一个',
       visualDensity: VisualDensity.compact,
       onPressed: () => _openLineList(),
     ),
