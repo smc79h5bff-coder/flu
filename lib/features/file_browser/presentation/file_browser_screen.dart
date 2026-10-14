@@ -2171,16 +2171,41 @@ final sortAsc = ref.read(searchSortAscProvider);
         if (taskId != _searchTaskId) return;
         if (results.length >= 500) return;
 
-        if (e is Directory) {
-          final name = e.path.split('/').last;
-          if (name.startsWith('.')) continue;
-          final lower = e.path.toLowerCase();
-          if (lower.contains('/android/data') ||
-              lower.contains('/android/obb')) {
-            continue;
-          }
-          await _scanDir(e.path, lowerQuery, results, taskId);
-        } else if (e is File) {
+    if (e is Directory) {
+  final name = e.path.split('/').last;
+  if (name.startsWith('.')) continue;
+  final lower = e.path.toLowerCase();
+  if (lower.contains('/android/data') ||
+      lower.contains('/android/obb')) {
+    continue;
+  }
+
+  // ★ 新增：目录名命中，也作为结果加入
+  if (name.toLowerCase().contains(lowerQuery)) {
+    DateTime? modified;
+    try {
+      final st = await e.stat();
+      modified = st.modified;
+    } catch (_) {}
+
+    results.add(_SearchHit(
+      path: e.path,
+      name: name,
+      isDir: true,
+      size: null,
+      modified: modified,
+    ));
+
+    final now = DateTime.now();
+    if (mounted &&
+        now.difference(_lastUiRefresh).inMilliseconds > 100) {
+      _lastUiRefresh = now;
+      setState(() => _searchResults = List.from(results));
+    }
+  }
+
+  await _scanDir(e.path, lowerQuery, results, taskId);
+} else if (e is File) {
           final name = e.path.split('/').last;
           if (name.toLowerCase().contains(lowerQuery)) {
             int? size;
@@ -5699,15 +5724,21 @@ return Listener(
               padding: const EdgeInsets.only(left: 8, top: 4),
               child: Align(
                 alignment: Alignment.topCenter,
-                child: Icon(
-                  item.isZip
-                      ? Icons.folder_zip
-                      : Icons.insert_drive_file_outlined,
-                  size: 28,
-                  color: isZipInner
-                      ? Colors.blueGrey.shade300
-                      : _fileColor(item.displayName),
-                ),
+           
+				  
+				  child: Icon(
+  item.isZip
+      ? Icons.folder_zip
+      : (item.isDir
+          ? Icons.folder
+          : Icons.insert_drive_file_outlined),
+  size: 28,
+  color: isZipInner
+      ? Colors.blueGrey.shade300
+      : (item.isDir
+          ? Colors.black87
+          : _fileColor(item.displayName)),
+),
               ),
             ),
           ),
