@@ -700,7 +700,7 @@ Padding(
           const Text('样式', style: TextStyle(fontSize: 13)),
           const SizedBox(width: 12),
           ChoiceChip(
-            label: const Text('纯色圆'),
+            label: const Text('实心圆'),
             selected: style == 0,
             onSelected: (_) => onChanged(0),
           ),
