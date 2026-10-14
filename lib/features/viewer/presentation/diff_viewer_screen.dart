@@ -2772,7 +2772,7 @@ toolbarHeight: 43,
             onPressed: () => setState(() => _showFind = !_showFind),
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.tune),
+            icon: const Icon(Icons.more_vert),
             tooltip: '更多操作',
             onSelected: (v) {
               if (v == 'edit') {
@@ -2820,23 +2820,11 @@ toolbarHeight: 43,
            const PopupMenuDivider(),
 const PopupMenuItem<String>(
   value: 'listLeftDiff',
-  child: Row(
-    children: [
-      Icon(Icons.edit_document),
-      SizedBox(width: 10),
-      Text('批处理左差异'),
-    ],
-  ),
+  child: Text('批处理左差异'),
 ),
 const PopupMenuItem<String>(
   value: 'listRightDiff',
-  child: Row(
-    children: [
-      Icon(Icons.edit_document),
-      SizedBox(width: 10),
-      Text('批处理右差异'),
-    ],
-  ),
+  child: Text('批处理右差异'),
 ),
 const PopupMenuDivider(),
 
@@ -2904,19 +2892,17 @@ PopupMenuItem<String>(
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'diagnostic',
+ const PopupMenuItem<String>(
+                value: 'defaultView',
                 child: Row(
                   children: [
-                    Icon(Icons.bug_report),
+                    Icon(Icons.visibility),
                     SizedBox(width: 10),
-                    Text('诊断'),
+                    Text('默认打开视图'),
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
-              PopupMenuItem<String>(
+               PopupMenuItem<String>(
                 value: 'orientation',
                 child: Row(
                   children: [
@@ -2931,17 +2917,21 @@ PopupMenuItem<String>(
                   ],
                 ),
               ),
+              
+             
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
-                value: 'defaultView',
+                value: 'diagnostic',
                 child: Row(
                   children: [
-                    Icon(Icons.visibility),
+                    Icon(Icons.bug_report),
                     SizedBox(width: 10),
-                    Text('默认打开视图'),
+                    Text('诊断'),
                   ],
                 ),
               ),
+              
+             
             ],
           ),
         ],
