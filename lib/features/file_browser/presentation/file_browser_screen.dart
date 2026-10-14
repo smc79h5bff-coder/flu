@@ -4239,8 +4239,8 @@ const PopupMenuItem<String>(
             borderRadius: BorderRadius.circular(8),
             child: Container(
               padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 10,
+                horizontal: 9,
+                vertical: 11,
               ),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
