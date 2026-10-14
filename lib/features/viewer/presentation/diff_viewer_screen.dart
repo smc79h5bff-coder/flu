@@ -3730,7 +3730,7 @@ if (_findQuery.isNotEmpty) ...[
     color: AppColors.accentPurple,
     tooltip: '上一个',
     visualDensity: VisualDensity.compact,
-    constraints: const BoxConstraints(minWidth: 49),
+    constraints: const BoxConstraints(minWidth: 59),
     onPressed: _prevMatch,
   ),
   IconButton(
@@ -3738,7 +3738,7 @@ if (_findQuery.isNotEmpty) ...[
     color: AppColors.accentPurple,
     tooltip: '下一个',
     visualDensity: VisualDensity.compact,
-    constraints: const BoxConstraints(minWidth: 49),
+    constraints: const BoxConstraints(minWidth: 59),
     onPressed: _nextMatch,
   ),
 ],
