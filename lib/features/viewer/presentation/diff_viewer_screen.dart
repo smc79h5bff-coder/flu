@@ -2639,9 +2639,15 @@ void _toast(String msg) {
     final noWrap = ref.watch(noWrapProvider);
     final diffBlocks = _diffBlockCount(diff);
 
-    return Scaffold(
-      appBar: AppBar(
-  toolbarHeight: 43,
+  return PopScope(
+  canPop: !_showFind,
+  onPopInvokedWithResult: (didPop, result) {
+    if (didPop) return;
+    if (_showFind) _closeFindBar();
+  },
+  child: Scaffold(
+  appBar: AppBar(
+toolbarHeight: 43,
   leading: IconButton(
     icon: const Icon(Icons.disabled_by_default),
     tooltip: '关闭',
@@ -3009,7 +3015,7 @@ PopupMenuItem<String>(
           _buildFloatingPageDown(),
       ],
     ),
-  );
+  ));
 }
 
 
