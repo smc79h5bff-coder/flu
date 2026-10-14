@@ -3194,10 +3194,10 @@ Future<void> _showDirInfoDialog() async {
       } else {
         await File(oldPath).rename(newPath);
       }
-      DirCache.instance.invalidate(_currentPath);
-      _clearSelection();
-      _load(restoreScroll: true);
-      _toast('已重命名为 $trimmed');
+  DirCache.instance.invalidate(_currentPath);
+_clearSelection();
+_load(restoreScroll: true, silent: true);
+_toast('已重命名为 $trimmed');
     } catch (e) {
       _toast('重命名失败：$e');
     }
@@ -3552,10 +3552,10 @@ _toast('已删除 $deleted 项${fail > 0 ? "，$fail 项失败" : ""}');
       return;
     }
     try {
-      await Directory(path).create();
-      DirCache.instance.invalidate(_currentPath);
-      _load();
-      _toast('已新建 $trimmed');
+     await Directory(path).create();
+DirCache.instance.invalidate(_currentPath);
+_load(silent: true);
+_toast('已新建 $trimmed');
     } catch (e) {
       _toast('新建失败：$e');
     }
