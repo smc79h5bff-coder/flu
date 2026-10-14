@@ -326,11 +326,12 @@ class _EntryTile extends StatelessWidget {
               after: entry.text,
               isLeft: false,
             )
-          : _highlighted(
-              context,
-              text: entry.text,
-              color: AppColors.addedOf(context),
-              symbol: '+',
+: _highlighted(
+        context,
+        text: entry.text,
+        color: AppColors.addedOf(context),
+        fgColor: const Color(0xFF066F00),   // ← 新增，深绿
+        symbol: '+',
             ),
       DiffOperation.delete => isReplace
           ? _replaceRow(
@@ -339,11 +340,12 @@ class _EntryTile extends StatelessWidget {
               after: pairedText!,
               isLeft: true,
             )
-          : _highlighted(
-              context,
-              text: entry.text,
-              color: AppColors.deletedOf(context),
-              symbol: '-',
+: _highlighted(
+        context,
+        text: entry.text,
+        color: AppColors.deletedOf(context),
+        fgColor: const Color(0xFF6F0000),   // ← 新增，深红
+        symbol: '-',
             ),
       DiffOperation.replace => _replaceRow(
           context,
@@ -384,19 +386,23 @@ class _EntryTile extends StatelessWidget {
     final style = TextStyle(
       fontSize: bodyFontSize,
       color: isLeft
-          ? AppColors.deletedOf(context)
-          : AppColors.addedOf(context),
+    ? const Color(0xFF6F0000)   // 改行（左）文字：深红
+      : const Color(0xFF066F00),  // 改行（右）文字：深绿
       height: 1.35,
     );
 
-    final content = InlineCharDiff(
-      before: before,
-      after: after,
-      side: !isLeft,
-      style: style,
-      findQuery: findQuery,
-      isCurrentMatch: isCurrentMatch,
-    );
+   final content = InlineCharDiff(
+  before: before,
+  after: after,
+  side: !isLeft,
+  style: style,
+  findQuery: findQuery,
+  isCurrentMatch: isCurrentMatch,
+  removedFg: Colors.white,
+  removedBg: const Color(0xFFD32F2F),
+  addedFg: Colors.white,
+  addedBg: const Color(0xFF388E3C),
+);
 
     final barColor = isLeft
         ? AppColors.deletedOf(context)
@@ -405,7 +411,7 @@ class _EntryTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
       child: ColoredBox(
-        color: barColor.withValues(alpha: 0.12),
+        color: barColor.withValues(alpha: 0.09),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -459,17 +465,18 @@ class _EntryTile extends StatelessWidget {
     );
   }
 
-  Widget _highlighted(
-    BuildContext context, {
-    required String text,
-    required Color color,
-    required String symbol,
-  }) {
-    final style = TextStyle(
-      fontSize: bodyFontSize,
-      color: color,
-      height: 1.35,
-    );
+ Widget _highlighted(
+  BuildContext context, {
+  required String text,
+  required Color color,       // 背景 / 竖条 / 符号 用
+  required Color fgColor,     // 文字用（新增）
+  required String symbol,
+}) {
+  final style = TextStyle(
+    fontSize: bodyFontSize,
+    color: fgColor,           // ← 原来是 color
+    height: 1.35,
+  );
 
     final content = noWrap
         ? Text.rich(
