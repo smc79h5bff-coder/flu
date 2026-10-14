@@ -55,7 +55,9 @@ class DisplaySettingsSheet extends ConsumerWidget {
     final showLine = ref.watch(showLineNumbersProvider);
     final bodySize = ref.watch(bodyFontSizeProvider);
     final gutterSize = ref.watch(gutterFontSizeProvider);
-    final contextSize = ref.watch(contextFontSizeProvider);
+    // 「差异上下文视图的相同行字号」只有"差异行+上下2行"视图会用到，
+    // 这里取一下当前视图模式，决定该项是否显示。
+    final viewMode = ref.watch(viewModeProvider);
 
     return SafeArea(
       child: SizedBox(
@@ -189,48 +191,70 @@ class DisplaySettingsSheet extends ConsumerWidget {
                     ),
 
                     // ========== 上下文行字号 ==========
-                    Text(
-                      '差异上下文视图的相同行的字号：${contextSize.toStringAsFixed(0)}',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.remove),
-                          tooltip: '减 1',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () {
-                            final v = (contextSize - 1).clamp(1.0, 60.0);
-                            ref
-                                .read(contextFontSizeProvider.notifier)
-                                .update(v);
-                          },
-                        ),
-                        Expanded(
-                          child: Slider(
-                            min: 1,
-                            max: 60,
-                            divisions: 59,
-                            value: contextSize.clamp(1.0, 60.0),
-                            label: contextSize.toStringAsFixed(0),
-                            onChanged: (v) => ref
-                                .read(contextFontSizeProvider.notifier)
-                                .update(v),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add),
-                          tooltip: '加 1',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () {
-                            final v = (contextSize + 1).clamp(1.0, 60.0);
-                            ref
-                                .read(contextFontSizeProvider.notifier)
-                                .update(v);
-                          },
-                        ),
-                      ],
-                    ),
+                    // 只有"差异行+上下2行"视图会用到这个字号，
+                    // 其它视图（合并 / 并排 / 仅差异行 / 跨行块）都不读它，
+                    // 因此只在 diffOnly 视图下显示，避免误导。
+                    if (viewMode == ViewMode.diffOnly)
+                      Builder(
+                        builder: (context) {
+                          final contextSize =
+                              ref.watch(contextFontSizeProvider);
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                '差异上下文视图的相同行的字号：${contextSize.toStringAsFixed(0)}',
+                                style:
+                                    Theme.of(context).textTheme.labelMedium,
+                              ),
+                              Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.remove),
+                                    tooltip: '减 1',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () {
+                                      final v = (contextSize - 1)
+                                          .clamp(1.0, 60.0);
+                                      ref
+                                          .read(contextFontSizeProvider
+                                              .notifier)
+                                          .update(v);
+                                    },
+                                  ),
+                                  Expanded(
+                                    child: Slider(
+                                      min: 1,
+                                      max: 60,
+                                      divisions: 59,
+                                      value: contextSize.clamp(1.0, 60.0),
+                                      label:
+                                          contextSize.toStringAsFixed(0),
+                                      onChanged: (v) => ref
+                                          .read(contextFontSizeProvider
+                                              .notifier)
+                                          .update(v),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.add),
+                                    tooltip: '加 1',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () {
+                                      final v = (contextSize + 1)
+                                          .clamp(1.0, 60.0);
+                                      ref
+                                          .read(contextFontSizeProvider
+                                              .notifier)
+                                          .update(v);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
+                      ),
 // ========== 悬浮下翻页按钮 ==========
 const Divider(height: 32),
 Text(
@@ -314,8 +338,8 @@ _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
                 ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );
@@ -1126,4 +1150,3 @@ class _FloatingPageDownSettingsState
     );
   }
 }
-
