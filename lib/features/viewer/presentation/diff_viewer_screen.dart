@@ -2818,7 +2818,7 @@ const PopupMenuItem<String>(
     children: [
       Icon(Icons.edit_document),
       SizedBox(width: 10),
-      Text('列出左差异'),
+      Text('批处理左差异'),
     ],
   ),
 ),
@@ -2828,7 +2828,7 @@ const PopupMenuItem<String>(
     children: [
       Icon(Icons.edit_document),
       SizedBox(width: 10),
-      Text('列出右差异'),
+      Text('批处理右差异'),
     ],
   ),
 ),
