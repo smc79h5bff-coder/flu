@@ -2225,16 +2225,45 @@ final sortAsc = ref.read(searchSortAscProvider);
         if (taskId != _searchTaskId) return;
         if (results.length >= 500) return;
 
-        if (e is Directory) {
-          final name = e.path.split('/').last;
-          if (name.startsWith('.')) continue;
-          final lower = e.path.toLowerCase();
-          if (lower.contains('/android/data') ||
-              lower.contains('/android/obb')) {
-            continue;
-          }
-          await _scanDir(e.path, lowerQuery, results, taskId);
-        } else if (e is File) {
+
+
+          if (e is Directory) {
+  final name = e.path.split('/').last;
+  if (name.startsWith('.')) continue;
+  final lower = e.path.toLowerCase();
+  if (lower.contains('/android/data') ||
+      lower.contains('/android/obb')) {
+    continue;
+  }
+
+  // ★ 目录名匹配时，把目录本身也加进结果
+  if (name.toLowerCase().contains(lowerQuery)) {
+    DateTime? modified;
+    try {
+      final st = await e.stat();
+      modified = st.modified;
+    } catch (_) {}
+    results.add(_SearchHit(
+      path: e.path,
+      name: name,
+      isDir: true,
+      modified: modified,
+    ));
+    final now = DateTime.now();
+    if (mounted &&
+        now.difference(_lastUiRefresh).inMilliseconds > 100) {
+      _lastUiRefresh = now;
+      setState(() => _searchResults = List.from(results));
+    }
+  }
+
+  await _scanDir(e.path, lowerQuery, results, taskId);
+} else if (e is File) {
+
+
+
+
+            
           final name = e.path.split('/').last;
           if (name.toLowerCase().contains(lowerQuery)) {
             int? size;
@@ -5550,7 +5579,11 @@ return Container(
         selectedTileColor: const Color(0xFFF4FFF5),
         leading: Padding(
   padding: const EdgeInsets.only(top: 4),
-  child: Icon(
+
+            
+            
+            
+            child: Icon(
     item.isZip
         ? Icons.folder_zip
         : Icons.insert_drive_file_outlined,
