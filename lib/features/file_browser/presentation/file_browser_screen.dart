@@ -5848,29 +5848,48 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
   }
 
   void _jumpToPath(String path) {
-    if (path.isEmpty) return;
-    var target = path;
-    if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
-      target = File(target).parent.path;
-    }
-    if (!Directory(target).existsSync()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('目录不存在')),
-      );
-      return;
-    }
-    if (!target.startsWith(widget.rootPath)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('只能跳到内部存储以内')),
-      );
-      return;
-    }
-    setState(() {
-      _path = target;
-      _rangeAnchorPath = null;
-    });
-    _load();
+  if (path.isEmpty) return;
+  var target = _normalizePath(path.trim());
+  if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
+    target = File(target).parent.path;
   }
+  if (!Directory(target).existsSync()) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('目录不存在')),
+    );
+    return;
+  }
+  if (!target.startsWith(widget.rootPath)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('只能跳到内部存储以内')),
+    );
+    return;
+  }
+  setState(() {
+    _path = target;
+    _rangeAnchorPath = null;
+  });
+  _load();
+}
+
+String _normalizePath(String path) {
+  const prefixes = <String, String>{
+    '/sdcard/': '/storage/emulated/0/',
+    '/sdcard': '/storage/emulated/0',
+    '/mnt/sdcard/': '/storage/emulated/0/',
+    '/mnt/sdcard': '/storage/emulated/0',
+    '/storage/self/primary/': '/storage/emulated/0/',
+    '/storage/self/primary': '/storage/emulated/0',
+    '/storage/emulated/legacy/': '/storage/emulated/0/',
+    '/storage/emulated/legacy': '/storage/emulated/0',
+  };
+  for (final e in prefixes.entries) {
+    if (path.startsWith(e.key)) {
+      return e.value + path.substring(e.key.length);
+    }
+  }
+  return path;
+}
 
   void _toggle(String path) {
     setState(() {
