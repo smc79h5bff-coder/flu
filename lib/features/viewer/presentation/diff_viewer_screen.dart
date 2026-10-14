@@ -3532,6 +3532,7 @@ void _onFloatingPageDownTap() {
                     onSubmitted: (_) => _nextMatch(),
                   ),
                 ),
+                ),
                 IconButton(
                   icon: const Icon(Icons.search),
                   color: AppColors.accentPurple,
@@ -3604,7 +3605,7 @@ void _onFloatingPageDownTap() {
                   ),
                 ),
 
-
+    ),
                 
                if (_findQuery.isNotEmpty) ...[
   TextButton(
