@@ -543,7 +543,7 @@ Padding(
                     // ---------- 菜单热区 ----------
                     _sectionTitle('菜单热区'),
                     Text(
-                      '点击此区域 → 打开菜单；点击其它区域 → 翻下一页。',
+                      '点击此区域 → 打开菜单；点击其它区域 → 翻下一页/其他功能。',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade600),
                     ),
@@ -551,8 +551,8 @@ Padding(
 
                     Row(
                       children: [
-                        const Text('在阅读页显示热区',
-                            style: TextStyle(fontSize: 13)),
+                        const Text('在阅读页显示菜单点击区域',
+                            style: TextStyle(fontSize: 14)),
                         const Spacer(),
                         Switch(
                           value: s.hotZoneVisible,
@@ -561,8 +561,8 @@ Padding(
                       ],
                     ),
                     Text(
-                      '关掉后 热区变成透明，仍可点击弹菜单，只是不绘制出来。\n'
-                      '默认位置：屏幕顶部中央一条横带（可在此页调整位置和大小）。',
+                      '关掉后 热区变成透明，仍可点击弹菜单，只是不绘制出来。开启后，阅读页中可点击弹出菜单的区域会显示。\n'
+                      '默认位置：屏幕顶部一条横带（可在此页调整位置和大小）。',
                       style: TextStyle(
                           fontSize: 11, color: Colors.grey.shade600),
                     ),
@@ -580,7 +580,7 @@ Padding(
                         ),
                         const SizedBox(width: 8),
                         ChoiceChip(
-                          label: const Text('分界线'),
+                          label: const Text('仅边框'),
                           selected: s.hotZoneStyle == 1,
                           onSelected: (_) => n.setHotZoneStyle(1),
                         ),
