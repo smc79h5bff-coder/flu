@@ -4213,7 +4213,7 @@ const PopupMenuItem<String>(
             child: Container(
               padding: const EdgeInsets.symmetric(
                 horizontal: 8,
-                vertical: 8,
+                vertical: 10,
               ),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
