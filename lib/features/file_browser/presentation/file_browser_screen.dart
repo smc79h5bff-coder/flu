@@ -4241,7 +4241,7 @@ const PopupMenuItem<String>(
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 10,
-                  vertical: 12,
+                  vertical: 9,
                 ),
              suffixIcon: hasText
     ? _suffixButton(
