@@ -3599,22 +3599,31 @@ void _onFloatingPageDownTap() {
                     onChanged: _onReplaceInput,
                   ),
                 ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: AppColors.accentPurple,
-                  ),
-                  onPressed: _findQuery.isEmpty ? null : _replaceCurrentInline,
-                  child: const Text('替换当前'),
-                ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: AppColors.accentPurple,
-                  ),
-                  onPressed: _findQuery.isEmpty ? null : _replaceAllInline,
-                  child: const Text('全部替换'),
-                ),
+
+
+                
+               if (_findQuery.isNotEmpty) ...[
+  TextButton(
+    style: TextButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      foregroundColor: AppColors.accentPurple,
+    ),
+    onPressed: _replaceCurrentInline,
+    child: const Text('替换当前'),
+  ),
+  TextButton(
+    style: TextButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      foregroundColor: AppColors.accentPurple,
+    ),
+    onPressed: _replaceAllInline,
+    child: const Text('全部替换'),
+  ),
+],
+
+
+
+                
               ],
             ),
             if (_replaceHint != null || _regexErrorHint != null)
@@ -3715,23 +3724,24 @@ void _onFloatingPageDownTap() {
                 const Spacer(),
 
 
-    IconButton(
-  icon: const Icon(Icons.arrow_upward),
-  color: AppColors.accentPurple,
-  tooltip: '上一个',
-  visualDensity: VisualDensity.compact,
-  constraints: const BoxConstraints(minWidth: 49),
-  onPressed: _findQuery.isEmpty ? null : _prevMatch,
-),
-IconButton(
-  icon: const Icon(Icons.arrow_downward),
-  color: AppColors.accentPurple,
-  tooltip: '下一个',
-  visualDensity: VisualDensity.compact,
-  constraints: const BoxConstraints(minWidth: 49),
-  onPressed: _findQuery.isEmpty ? null : _nextMatch,
-),
-
+if (_findQuery.isNotEmpty) ...[
+  IconButton(
+    icon: const Icon(Icons.arrow_upward),
+    color: AppColors.accentPurple,
+    tooltip: '上一个',
+    visualDensity: VisualDensity.compact,
+    constraints: const BoxConstraints(minWidth: 49),
+    onPressed: _prevMatch,
+  ),
+  IconButton(
+    icon: const Icon(Icons.arrow_downward),
+    color: AppColors.accentPurple,
+    tooltip: '下一个',
+    visualDensity: VisualDensity.compact,
+    constraints: const BoxConstraints(minWidth: 49),
+    onPressed: _nextMatch,
+  ),
+],
 
 
     
