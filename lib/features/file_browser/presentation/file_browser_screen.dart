@@ -4133,7 +4133,7 @@ const PopupMenuItem<String>(
     btnIconColor = Colors.black87;
     inputBg = filterInputBg;
     inputFg = Colors.black;
-    suffixBg = filterBtnBg;
+    suffixBg = filterInputBg;
     suffixFg = Colors.black87;
     btnIcon = Icons.filter_alt;
     hintText = _selectionMode
