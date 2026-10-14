@@ -1001,14 +1001,33 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
-  void _saveProgressNow() {
-    final p = _paginator;
-    if (p?.result == null || _filePaths.isEmpty) return;
-    final path = _filePaths[_fileIndex];
-    final fileKey = readerFileKey(path);
-    final offset = pageStartOffset(p!.result!, _currentPage);
-    ref.read(readerProgressProvider.notifier).set(fileKey, offset);
+
+
+
+
+ /// 保存当前进度。
+///
+/// [fromPaginator] 只有在"分页 → 滚动"切模式那一刻才传 true，
+/// 因为那时需要把分页器里的位置"交接"给即将出现的滚动视图。
+/// 其它任何调用点，滚动模式下都直接跳过——滚动模式的进度由
+/// ReaderScrollView.onProgressChanged 实时上报，_currentPage 是陈旧的，
+/// 用它会覆盖掉正确进度。
+void _saveProgressNow({bool fromPaginator = false}) {
+  if (_filePaths.isEmpty) return;
+
+  // 滚动模式：进度已由 ReaderScrollView 实时写入，这里不再插手。
+  if (!fromPaginator &&
+      ref.read(readerSettingsProvider).readerMode == 1) {
+    return;
   }
+
+  final p = _paginator;
+  if (p?.result == null) return;
+  final path = _filePaths[_fileIndex];
+  final fileKey = readerFileKey(path);
+  final offset = pageStartOffset(p!.result!, _currentPage);
+  ref.read(readerProgressProvider.notifier).set(fileKey, offset);
+}
 
   // ★ 改动4：_syncPagePreview 按页缓存
   void _syncPagePreview() {
