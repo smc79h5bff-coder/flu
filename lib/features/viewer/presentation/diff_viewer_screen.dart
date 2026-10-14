@@ -3591,10 +3591,12 @@ void _onFloatingPageDownTap() {
               children: [
                 const SizedBox(width: 6),
        Expanded(
-  child: SizedBox(
-  height: 40,
-  child: TextField(
-    controller: _replaceController,
+  child: Padding(
+padding: const EdgeInsets.only(top: 6),
+child: SizedBox(
+height: 34,
+child: TextField(
+  controller: _replaceController,
                     cursorColor: AppColors.accentPurple,
                     decoration: const InputDecoration(
                       hintText: '替换为（留空 = 删掉）',
@@ -3604,7 +3606,7 @@ void _onFloatingPageDownTap() {
                     onChanged: _onReplaceInput,
                   ),
                 ),
-
+),
     ),
                 
                if (_findQuery.isNotEmpty) ...[
