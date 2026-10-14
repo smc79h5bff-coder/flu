@@ -4158,7 +4158,8 @@ const PopupMenuItem<String>(
     btnIconColor = Colors.black87;
     inputBg = filterInputBg;
     inputFg = Colors.black;
-    suffixBg = filterInputBg;
+    
+	  suffixBg = const Color(0x33FFF0F0);   // 20% alpha
     suffixFg = Colors.black87;
     btnIcon = Icons.filter_alt;
     hintText = _selectionMode
@@ -4388,7 +4389,8 @@ Future<void> _showSearchSettings() async {
                     child: Text(
                       label,
                       style: TextStyle(
-                        fontSize: 14,
+                        
+  fontSize: selected ? 15 : 14,
                         color: selected ? activeColor : Colors.grey,
                         fontWeight:
                             selected ? FontWeight.bold : FontWeight.normal,
@@ -4487,7 +4489,7 @@ Text(
   subtitle:
       '打字不响应，点按钮或回车才开始；'
       '递归搜索子目录（切页显示结果）',
-  activeColor: AppColors.accentPurple,
+  activeColor: Colors.black,   
 ),
 modeRow(
   value: SearchBoxMode.filter,
