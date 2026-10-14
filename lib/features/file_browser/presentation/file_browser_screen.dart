@@ -5583,14 +5583,18 @@ return Container(
             
             
             
-            child: Icon(
-    item.isZip
-        ? Icons.folder_zip
-        : Icons.insert_drive_file_outlined,
-    color: isZipInner
-        ? Colors.blueGrey.shade300
-        : _fileColor(item.displayName),
-  ),
+    child: Icon(
+  item.isZip
+      ? Icons.folder_zip
+      : (item.isDir
+          ? Icons.folder
+          : Icons.insert_drive_file_outlined),
+  color: isZipInner
+      ? Colors.blueGrey.shade300
+      : (item.isDir
+          ? Colors.black87
+          : _fileColor(item.displayName)),
+),
 ),
         title: Text(
           item.displayName,
@@ -5604,19 +5608,33 @@ return Container(
                 : null,
           ),
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (metaLine.isNotEmpty)
-              Text(
-                metaLine,
-                style: TextStyle(
-                  fontSize: fontMeta,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+
+          
+     subtitle: Column(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    if (item.isDir)
+      Text(
+        '文件夹',
+        style: TextStyle(
+          fontSize: fontMeta,
+          color: colorScheme.onSurfaceVariant,
+        ),
+      )
+    else if (metaLine.isNotEmpty)
+      Text(
+        metaLine,
+        style: TextStyle(
+          fontSize: fontMeta,
+          color: colorScheme.onSurfaceVariant,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+
+
+
+              
             Text(
               pathLine,
               style: TextStyle(
