@@ -285,7 +285,7 @@ Padding(
                     // ---------- 悬浮按钮总开关 ----------
                     Row(
                       children: [
-                        const Text('浮动按钮',
+                        const Text('悬浮按钮',
                             style: TextStyle(
                                 fontSize: 14, fontWeight: FontWeight.w600)),
                         const Spacer(),
@@ -299,12 +299,25 @@ Padding(
                       Padding(
                         padding: const EdgeInsets.only(top: 4, bottom: 8),
                         child: Text(
-                          '已关闭。点击原按钮位置会走正常翻页 / 打开菜单逻辑。',
+                          '已关闭。点击原来按钮的位置，只会正常翻页/打开菜单。',
                           style: TextStyle(
                               fontSize: 11, color: Colors.grey.shade600),
                         ),
                       ),
 
+// 👇 新增这段
+Padding(
+  padding: const EdgeInsets.only(top: 4, bottom: 4),
+  child: Text(
+    '提示：想单独隐藏某个按钮，把它对应的「横向 X」或'
+    '「纵向 Y」拖到 0%~100% 之外，按钮会移出屏幕；'
+    '拖回这个范围即可恢复。',
+    style: TextStyle(
+        fontSize: 11, color: Colors.grey.shade600),
+  ),
+),
+
+                    
                     if (s.showButtons) ...[
                       // ---------- 上一文件按钮 ----------
                       _sectionTitle('上一文件按钮'),
