@@ -4406,10 +4406,14 @@ Future<void> _showSearchSettings() async {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                     
+						  
+						  
+						  
                         Text(
                           title,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: selected ? 15 : 14,
                             color: selected ? activeColor : Colors.grey,
                             fontWeight: selected
                                 ? FontWeight.bold
@@ -4420,11 +4424,12 @@ Future<void> _showSearchSettings() async {
 Text(
   subtitle,
   style: TextStyle(
-    fontSize: 11,
+    fontSize: selected ? 12 : 11,
     height: 1.4,
-    color: selected
-        ? Colors.black87
-        : Colors.grey,
+    color: selected ? activeColor : Colors.grey,
+    fontWeight: selected
+        ? FontWeight.bold
+        : FontWeight.normal,
   ),
 ),
                       ],
@@ -4462,8 +4467,8 @@ Text(
 modeRow(
   value: SearchBoxMode.filter,
   title: '过滤',
-  subtitle: '打字就地过滤，不切页；按回车无反应',
-  activeColor: AppColors.accentPurple,
+  subtitle: '边输入边筛文件，页面不跳转；回车无动作',
+  activeColor: const Color(0xFFA74848),
 ),
 
                   const SizedBox(height: 4),
@@ -4570,20 +4575,21 @@ for (final f in SortField.values)
   RadioListTile<SortField>(
     dense: true,
     contentPadding: EdgeInsets.zero,
-    title: Text(
-      _sortLabel(f),
-      style: TextStyle(
-        color: searchSortField == f
-            ? AppColors.accentPurple
-            : Colors.grey,
-        fontWeight: searchSortField == f
-            ? FontWeight.bold
-            : FontWeight.normal,
-      ),
-    ),
-    value: f,
-    groupValue: searchSortField,
-    activeColor: AppColors.accentPurple,
+	  title: Text(
+  _sortLabel(f),
+  style: TextStyle(
+    fontSize: searchSortField == f ? 15 : 14,
+    color: searchSortField == f
+        ? Colors.black
+        : Colors.grey,
+    fontWeight: searchSortField == f
+        ? FontWeight.bold
+        : FontWeight.normal,
+  ),
+),
+value: f,
+groupValue: searchSortField,
+activeColor: Colors.black,
     onChanged: (v) {
       if (v == null) return;
       ref
@@ -4599,8 +4605,9 @@ RadioListTile<bool>(
   title: Text(
     '升序',
     style: TextStyle(
+      fontSize: searchSortAsc ? 15 : 14,
       color: searchSortAsc
-          ? AppColors.accentPurple
+          ? Colors.black
           : Colors.grey,
       fontWeight: searchSortAsc
           ? FontWeight.bold
@@ -4609,7 +4616,7 @@ RadioListTile<bool>(
   ),
   value: true,
   groupValue: searchSortAsc,
-  activeColor: AppColors.accentPurple,
+  activeColor: Colors.black,
   onChanged: (_) {
     ref
         .read(searchSortAscProvider.notifier)
@@ -4623,8 +4630,9 @@ RadioListTile<bool>(
   title: Text(
     '降序',
     style: TextStyle(
+      fontSize: !searchSortAsc ? 15 : 14,
       color: !searchSortAsc
-          ? AppColors.accentPurple
+          ? Colors.black
           : Colors.grey,
       fontWeight: !searchSortAsc
           ? FontWeight.bold
@@ -4633,7 +4641,7 @@ RadioListTile<bool>(
   ),
   value: false,
   groupValue: searchSortAsc,
-  activeColor: AppColors.accentPurple,
+  activeColor: Colors.black,
   onChanged: (_) {
     ref
         .read(searchSortAscProvider.notifier)
