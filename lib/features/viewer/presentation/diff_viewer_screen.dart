@@ -3503,7 +3503,7 @@ void _onFloatingPageDownTap() {
     return Material(
       color: Colors.white,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
