@@ -759,9 +759,10 @@ Future<void> _cleanTempDirOnce() async {
   // ==================== 加载目录 ====================
 
   Future<void> _load({
-    bool restoreScroll = false,
-    bool skipCache = false,
-  }) async {
+  bool restoreScroll = false,
+  bool skipCache = false,
+  bool silent = false,
+}) async {
     _loadCancelToken?.cancel();
     final token = LoadCancelToken();
     _loadCancelToken = token;
@@ -816,13 +817,17 @@ final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
       return;
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+   if (!silent) {
+  setState(() {
+    _loading = true;
+    _error = null;
+  });
+} else if (_error != null) {
+  setState(() => _error = null);
+}
 
-    try {
-      await loadDirectoryAsync(
+try {
+  await loadDirectoryAsync(
         path: _currentPath,
         sortField: sortField,
         sortAsc: sortAsc,
