@@ -3732,18 +3732,20 @@ void _onFloatingPageDownTap() {
 if (_findQuery.isNotEmpty) ...[
   IconButton(
     icon: const Icon(Icons.arrow_upward),
+    iconSize: 32,
     color: AppColors.accentPurple,
     tooltip: '上一个',
     visualDensity: VisualDensity.compact,
-    constraints: const BoxConstraints(minWidth: 59),
+    constraints: const BoxConstraints(minWidth: 61),
     onPressed: _prevMatch,
   ),
   IconButton(
     icon: const Icon(Icons.arrow_downward),
+    iconSize: 32,
     color: AppColors.accentPurple,
     tooltip: '下一个',
     visualDensity: VisualDensity.compact,
-    constraints: const BoxConstraints(minWidth: 59),
+    constraints: const BoxConstraints(minWidth: 61),
     onPressed: _nextMatch,
   ),
 ],
