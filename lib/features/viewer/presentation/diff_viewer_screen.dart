@@ -3012,14 +3012,15 @@ PopupMenuItem<String>(
 
 
 
-Widget _buildFloatingPageDown() {
-  final size = ref.watch(floatingPageDownSizeProvider);
-  final x = ref.watch(floatingPageDownXProvider);
-  final y = ref.watch(floatingPageDownYProvider);
-  final opacity = ref.watch(floatingPageDownOpacityProvider);
-  final borderWidth = ref.watch(floatingPageDownBorderWidthProvider);
-  final color = ref.watch(floatingPageDownColorProvider);
-
+Widget _buildFloatingButton({
+  required double size,
+  required double x,
+  required double y,
+  required double opacity,
+  required double borderWidth,
+  required Color color,
+  required VoidCallback onTap,
+}) {
   final mq = MediaQuery.of(context);
   final screenW = mq.size.width;
   final screenH = mq.size.height;
@@ -3032,7 +3033,7 @@ Widget _buildFloatingPageDown() {
     top: top,
     child: GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _onFloatingPageDownTap,
+      onTap: onTap,
       child: Container(
         width: size,
         height: size,
@@ -3056,6 +3057,14 @@ void _onFloatingPageDownTap() {
   }
 }
 
+void _onFloatingPageUpTap() {
+  final mode = ref.read(viewModeProvider);
+  if (mode == ViewMode.grouped) {
+    (_groupedKey.currentState as dynamic)?.pageUp();
+  } else {
+    _pageUp();
+  }
+}
 
 
 
