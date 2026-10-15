@@ -1473,12 +1473,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 onLongPress: () {
                   if (path.isEmpty) return;
                   Clipboard.setData(ClipboardData(text: path));
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(
-                      content: Text('路径已复制'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
+                 _showToast('路径已复制');
                 },
               ),
               const Divider(height: 1),
