@@ -523,7 +523,7 @@ class _SingleFileEditorScreenState
           ),
           IconButton(
             icon: const Icon(Icons.add, size: 20),
-            tooltip: '新建按钮',
+            tooltip: '新建快捷操作按钮',
             visualDensity: VisualDensity.compact,
             onPressed: _addToolbarRule,
           ),
