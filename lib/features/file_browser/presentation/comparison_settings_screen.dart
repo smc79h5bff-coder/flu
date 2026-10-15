@@ -2168,13 +2168,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
 
   Widget _buildBottomBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      padding: const EdgeInsets.fromLTRB(5, 6, 5, 6),
       child: Row(
         children: [
           if (widget.showCopyToPreprocess)
             TextButton.icon(
-              icon: const Icon(Icons.copy_all, size: 18),
-              label: const Text('复制到预处理'),
+              icon: const Icon(Icons.copy_all, size: 16),
+              label: const Text('复制到对比规则设置里'),
               onPressed: _handleCopyToPreprocess,
             )
           else
@@ -2184,7 +2184,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
             onPressed: () => Navigator.pop(context),
             child: const Text('取消'),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 9),
           FilledButton(
             onPressed: _submit,
             child: const Text('保存'),
@@ -2225,7 +2225,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     );
     ref.read(userRulesProvider.notifier).add(copied);
     if (!mounted) return;
-    _showFloatHint('已复制到预处理规则列表');
+    _showFloatHint('已复制此规则到对比规则设置里');
     widget.onCopyToPreprocess?.call(copied);
   }
 
