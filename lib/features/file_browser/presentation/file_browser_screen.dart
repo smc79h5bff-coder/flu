@@ -151,7 +151,18 @@ class FileBrowserScreen extends ConsumerStatefulWidget {
   ConsumerState<FileBrowserScreen> createState() => _FileBrowserScreenState();
 }
 enum _ConflictAction { skip, overwrite, rename }
+// ==================== 高级搜索条件 ====================
 
+enum _SearchOperator { or, and, not }
+
+class _SearchCondition {
+  _SearchCondition({required this.operator, String text = ''})
+      : controller = TextEditingController(text: text);
+  _SearchOperator operator;
+  final TextEditingController controller;
+  String get text => controller.text;
+  void dispose() => controller.dispose();
+}
 class _SearchHit {
   _SearchHit({
     required this.path,
@@ -428,6 +439,12 @@ static const Set<String> _archiveExts = {
   // ★ 新增：最近一次整行点击的 x 坐标（相对行左边）。
   // 用来判断点的是不是左侧图标区（图标区点=选中，其它=打开）。
   double _lastTapX = double.infinity;
+// ==================== 高级搜索条件状态 ====================
+bool _advancedOpen = false;
+final List<_SearchCondition> _searchConditions = [];
+final GlobalKey _searchInputKey = GlobalKey();
+OverlayEntry? _advancedOverlay;
+
 
   // ==================== zip 展开状态 ====================
 
@@ -520,13 +537,19 @@ Future<void> _cleanTempDirOnce() async {
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
-  @override
-  void dispose() {
-    fileBrowserRouteObserver.unsubscribe(this);
-    _positionsListener.itemPositions.removeListener(_onPositionsChanged);
-    _searchCtrl.dispose();
-    super.dispose();
+ @override
+void dispose() {
+  fileBrowserRouteObserver.unsubscribe(this);
+  _positionsListener.itemPositions.removeListener(_onPositionsChanged);
+  _searchCtrl.dispose();
+  _advancedOverlay?.remove();
+  _advancedOverlay = null;
+  for (final c in _searchConditions) {
+    c.dispose();
   }
+  _searchConditions.clear();
+  super.dispose();
+}
 
   Route<T> _noAnimRoute<T>(Widget page) {
     return PageRouteBuilder<T>(
@@ -949,10 +972,14 @@ try {
     while (path.length > 1 && path.endsWith('/')) {
       path = path.substring(0, path.length - 1);
     }
-    if (path == _currentPath) return;
+       if (path == _currentPath) return;
    _recordCurrentScroll();
 _clearSelection();
 _searchCtrl.clear();
+_advancedOverlay?.remove();
+_advancedOverlay = null;
+_advancedOpen = false;
+_clearConditions();
 _filterTaskId++;
 _filterDeepResults = const [];
 _searchTaskId++;
@@ -1034,7 +1061,300 @@ _expandedZipKeys.clear();
   }
 
   // ==================== 选中 ====================
+// ==================== 高级搜索条件 · 逻辑 ====================
 
+bool get _hasActiveConditions =>
+    _searchConditions.any((c) => c.text.trim().isNotEmpty);
+
+void _addCondition() {
+  setState(() {
+    _searchConditions.add(
+      _SearchCondition(operator: _SearchOperator.or),
+    );
+  });
+}
+
+void _removeCondition(int index) {
+  if (index < 0 || index >= _searchConditions.length) return;
+  setState(() {
+    _searchConditions[index].dispose();
+    _searchConditions.removeAt(index);
+  });
+}
+
+void _clearConditions() {
+  for (final c in _searchConditions) {
+    c.dispose();
+  }
+  _searchConditions.clear();
+}
+
+/// 核心匹配函数。所有搜索/过滤入口都用它。
+bool _matchNameForSearch(String name) {
+  final lower = name.toLowerCase();
+  final mainText = _searchCtrl.text.trim().toLowerCase();
+  final orTexts = <String>[];
+  if (mainText.isNotEmpty) orTexts.add(mainText);
+
+  final andTexts = <String>[];
+  final notTexts = <String>[];
+
+  for (final c in _searchConditions) {
+    final t = c.text.trim().toLowerCase();
+    if (t.isEmpty) continue;
+    switch (c.operator) {
+      case _SearchOperator.or:
+        orTexts.add(t);
+      case _SearchOperator.and:
+        andTexts.add(t);
+      case _SearchOperator.not:
+        notTexts.add(t);
+    }
+  }
+
+  if (orTexts.isEmpty && andTexts.isEmpty && notTexts.isEmpty) {
+    return true;
+  }
+  if (orTexts.isNotEmpty && !orTexts.any(lower.contains)) return false;
+  for (final t in andTexts) {
+    if (!lower.contains(t)) return false;
+  }
+  for (final t in notTexts) {
+    if (lower.contains(t)) return false;
+  }
+  return true;
+}
+
+// ==================== 高级搜索条件 · Overlay ====================
+
+void _toggleAdvanced() {
+  FocusManager.instance.primaryFocus?.unfocus();
+  if (_advancedOpen) {
+    _closeAdvanced();
+  } else {
+    setState(() => _advancedOpen = true);
+    _showAdvancedOverlay();
+  }
+}
+
+void _closeAdvanced() {
+  _advancedOverlay?.remove();
+  _advancedOverlay = null;
+  if (mounted && _advancedOpen) {
+    setState(() => _advancedOpen = false);
+  }
+}
+
+void _showAdvancedOverlay() {
+  _advancedOverlay?.remove();
+  _advancedOverlay = null;
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    final box = _searchInputKey.currentContext?.findRenderObject()
+        as RenderBox?;
+    if (box == null) return;
+    final pos = box.localToGlobal(Offset.zero);
+    final size = box.size;
+
+    _advancedOverlay = OverlayEntry(
+      builder: (ctx) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _closeAdvanced,
+              behavior: HitTestBehavior.opaque,
+              child: const SizedBox.expand(),
+            ),
+          ),
+          Positioned(
+            top: pos.dy + size.height + 2,
+            left: pos.dx,
+            width: size.width,
+            child: _buildAdvancedPanel(),
+          ),
+        ],
+      ),
+    );
+    Overlay.of(context).insert(_advancedOverlay!);
+  });
+}
+
+// ==================== 高级搜索条件 · UI ====================
+
+Widget _buildAdvancedPanel() {
+  return Material(
+    elevation: 4,
+    borderRadius: BorderRadius.circular(8),
+    color: Colors.white,
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.4,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_searchConditions.isEmpty)
+            const SizedBox(height: 8)
+          else
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.only(top: 8, bottom: 4),
+                itemCount: _searchConditions.length,
+                itemBuilder: (_, i) => _buildConditionRow(i),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            child: _buildAddConditionButton(),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildConditionRow(int index) {
+  final cond = _searchConditions[index];
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+    child: Row(
+      children: [
+        _buildOperatorButton(cond),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SizedBox(
+            height: 36,
+            child: TextField(
+              controller: cond.controller,
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '输入文字',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+              ),
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.close, size: 20, color: Colors.black54),
+          visualDensity: VisualDensity.compact,
+          tooltip: '删除此条件',
+          onPressed: () => _removeCondition(index),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildOperatorButton(_SearchCondition cond) {
+  return SizedBox(
+    width: 68,
+    height: 36,
+    child: Material(
+      color: const Color(0xFFF0F0F0),
+      borderRadius: BorderRadius.circular(6),
+      child: PopupMenuButton<_SearchOperator>(
+        padding: EdgeInsets.zero,
+        offset: const Offset(0, 36),
+        tooltip: '',
+        onSelected: (op) {
+          setState(() => cond.operator = op);
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(
+            value: _SearchOperator.or,
+            child: Text('或者    命中一个就行'),
+          ),
+          PopupMenuItem(
+            value: _SearchOperator.and,
+            child: Text('同时    必须都出现'),
+          ),
+          PopupMenuItem(
+            value: _SearchOperator.not,
+            child: Text('排除    不要这个'),
+          ),
+        ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _operatorLabel(cond.operator),
+                style: const TextStyle(fontSize: 13, color: Colors.black),
+              ),
+              const Icon(Icons.arrow_drop_down,
+                  size: 18, color: Colors.black),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+String _operatorLabel(_SearchOperator op) {
+  switch (op) {
+    case _SearchOperator.or:
+      return '或者';
+    case _SearchOperator.and:
+      return '同时';
+    case _SearchOperator.not:
+      return '排除';
+  }
+}
+
+Widget _buildAddConditionButton() {
+  return SizedBox(
+    width: double.infinity,
+    height: 40,
+    child: Material(
+      color: const Color(0xFFFFFAFF),
+      borderRadius: BorderRadius.circular(6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: _addCondition,
+        child: const Center(
+          child: Text(
+            '＋ 添加条件',
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.black,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _buildAdvancedToggle() {
+  final IconData icon;
+  if (_advancedOpen) {
+    icon = Icons.arrow_drop_up;
+  } else if (_hasActiveConditions) {
+    icon = Icons.arrow_drop_down;
+  } else {
+    icon = Icons.keyboard_arrow_down;
+  }
+  return IconButton(
+    icon: Icon(icon, color: Colors.black),
+    tooltip: '高级条件',
+    visualDensity: VisualDensity.compact,
+    padding: EdgeInsets.zero,
+    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    onPressed: _toggleAdvanced,
+  );
+}
   void _clearSelection() {
     setState(() {
       _selectionMode = false;
@@ -1841,21 +2161,19 @@ void _onFilterTextChanged(String q) {
   _filterDeepResults = const [];
   setState(() {});
 
-  final lower = q.trim().toLowerCase();
-  if (lower.isEmpty) return;
+  if (q.trim().isEmpty && !_hasActiveConditions) return;
 
   final depth = ref.read(filterDepthProvider);
   if (depth <= 0) return;
 
   Future<void>.delayed(const Duration(milliseconds: 200), () async {
     if (!mounted || taskId != _filterTaskId) return;
-    await _scanFilterDepth(_currentPath, lower, taskId, depth);
+    await _scanFilterDepth(_currentPath, taskId, depth);
   });
 }
 
 Future<void> _scanFilterDepth(
   String rootPath,
-  String lowerQuery,
   int taskId,
   int depth,
 ) async {
@@ -1883,8 +2201,7 @@ Future<void> _scanFilterDepth(
 
 
 
-		 if (!isCurrentLayer &&
-    name.toLowerCase().contains(lowerQuery)) {
+		 if (!isCurrentLayer && _matchNameForSearch(name)) {
   final isDir = e is Directory;
   int? size;
   DateTime? modified;
@@ -1922,15 +2239,15 @@ List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
   if (_searchActive) return all;
   if (ref.read(searchBoxModeProvider) != SearchBoxMode.filter) return all;
 
-  final q = _searchCtrl.text.trim().toLowerCase();
-  if (q.isEmpty) return all;
+  final hasQuery = _searchCtrl.text.trim().isNotEmpty;
+  if (!hasQuery && !_hasActiveConditions) return all;
 
   final out = <_DisplayItem>[];
 
   final matchedTop = <String>{};
   for (final it in all) {
     if (it.depth != 0) continue;
-    if (it.displayName.toLowerCase().contains(q)) {
+    if (_matchNameForSearch(it.displayName)) {
       matchedTop.add(it.key);
     }
   }
@@ -1962,10 +2279,11 @@ List<EntryInfo> _filterEntries(List<EntryInfo> entries) {
   if (ref.read(searchBoxModeProvider) != SearchBoxMode.filter) {
     return entries;
   }
-  final q = _searchCtrl.text.trim().toLowerCase();
-  if (q.isEmpty) return entries;
+  if (_searchCtrl.text.trim().isEmpty && !_hasActiveConditions) {
+    return entries;
+  }
   return entries
-      .where((e) => e.name.toLowerCase().contains(q))
+      .where((e) => _matchNameForSearch(e.name))
       .toList();
 }
 
@@ -1980,12 +2298,14 @@ void _clearFilter() {
   setState(() {});
 }
   void _doSearch() {
-    final q = _searchCtrl.text;
-    if (q.isEmpty) return;
+  final q = _searchCtrl.text.trim();
+  if (q.isEmpty && !_hasActiveConditions) return;
+  if (q.isNotEmpty) {
     ref.read(browserSearchHistoryProvider.notifier).add(q);
-    setState(() => _searchActive = true);
-    _startSearch(q);
   }
+  setState(() => _searchActive = true);
+  _startSearch();
+}
 /// 只清空输入框，退出搜索交给 AppBar 的返回箭头。
 void _clearSearchInput() {
   _searchTaskId++;
@@ -2092,153 +2412,148 @@ void _clearSearchInput() {
     return out;
   }
 
-  Future<void> _startSearch(String query) async {
-    final taskId = ++_searchTaskId;
-    if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _searching = false;
-      });
+Future<void> _startSearch() async {
+  final taskId = ++_searchTaskId;
+  final q = _searchCtrl.text.trim();
+  if (q.isEmpty && !_hasActiveConditions) {
+    setState(() {
+      _searchResults = [];
+      _searching = false;
+    });
+    return;
+  }
+
+  setState(() {
+    _searching = true;
+    _searchResults = [];
+  });
+  _lastUiRefresh = DateTime.now();
+
+  final scope = ref.read(searchScopeProvider);
+  final customFolders = ref.read(customSearchFoldersProvider);
+
+  final roots = <String>[];
+  if (scope == SearchScope.currentRecursive) {
+    roots.add(_currentPath);
+  } else {
+    if (customFolders.isEmpty) {
+      _toast('请先点击左侧搜索设置 → 管理搜索范围');
+      if (mounted) setState(() => _searching = false);
       return;
     }
-
-    setState(() {
-      _searching = true;
-      _searchResults = [];
-    });
-    _lastUiRefresh = DateTime.now();
-
-    final scope = ref.read(searchScopeProvider);
-    final customFolders = ref.read(customSearchFoldersProvider);
-
-    final roots = <String>[];
-    if (scope == SearchScope.currentRecursive) {
-      roots.add(_currentPath);
-    } else {
-      if (customFolders.isEmpty) {
-        _toast('请先点击左侧搜索设置 → 管理搜索范围');
-        if (mounted) setState(() => _searching = false);
-        return;
-      }
-      roots.addAll(_dedupFolders(customFolders));
-    }
-
-    final lowerQuery = query.toLowerCase();
-    final results = <_SearchHit>[];
-
-    for (final root in roots) {
-      if (taskId != _searchTaskId) return;
-      await _scanDir(root, lowerQuery, results, taskId);
-    }
-
-    if (taskId != _searchTaskId) return;
-    if (!mounted) return;
-
-    final sortField = ref.read(searchSortFieldProvider);
-final sortAsc = ref.read(searchSortAscProvider);
-
-    results.sort((a, b) {
-      int cmp;
-      switch (sortField) {
-        case SortField.name:
-          cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-        case SortField.modified:
-          final at = a.modified?.millisecondsSinceEpoch ?? 0;
-          final bt = b.modified?.millisecondsSinceEpoch ?? 0;
-          cmp = at.compareTo(bt);
-        case SortField.size:
-          final as = a.size ?? 0;
-          final bs = b.size ?? 0;
-          cmp = as.compareTo(bs);
-      }
-      return sortAsc ? cmp : -cmp;
-    });
-
-    setState(() {
-      _searching = false;
-      _searchResults = List.from(results);
-    });
+    roots.addAll(_dedupFolders(customFolders));
   }
+
+  final results = <_SearchHit>[];
+
+  for (final root in roots) {
+    if (taskId != _searchTaskId) return;
+    await _scanDir(root, results, taskId);
+  }
+
+  if (taskId != _searchTaskId) return;
+  if (!mounted) return;
+
+  final sortField = ref.read(searchSortFieldProvider);
+  final sortAsc = ref.read(searchSortAscProvider);
+
+  results.sort((a, b) {
+    int cmp;
+    switch (sortField) {
+      case SortField.name:
+        cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      case SortField.modified:
+        final at = a.modified?.millisecondsSinceEpoch ?? 0;
+        final bt = b.modified?.millisecondsSinceEpoch ?? 0;
+        cmp = at.compareTo(bt);
+      case SortField.size:
+        final as = a.size ?? 0;
+        final bs = b.size ?? 0;
+        cmp = as.compareTo(bs);
+    }
+    return sortAsc ? cmp : -cmp;
+  });
+
+  setState(() {
+    _searching = false;
+    _searchResults = List.from(results);
+  });
+}
 
   Future<void> _scanDir(
-    String dirPath,
-    String lowerQuery,
-    List<_SearchHit> results,
-    int taskId,
-  ) async {
-    if (results.length >= 500) return;
-    try {
-      await for (final e in Directory(dirPath).list(followLinks: false)) {
-        if (taskId != _searchTaskId) return;
-        if (results.length >= 500) return;
+  String dirPath,
+  List<_SearchHit> results,
+  int taskId,
+) async {
+  if (results.length >= 500) return;
+  try {
+    await for (final e in Directory(dirPath).list(followLinks: false)) {
+      if (taskId != _searchTaskId) return;
+      if (results.length >= 500) return;
 
-    if (e is Directory) {
-  final name = e.path.split('/').last;
-  if (name.startsWith('.')) continue;
-  final lower = e.path.toLowerCase();
-  if (lower.contains('/android/data') ||
-      lower.contains('/android/obb')) {
-    continue;
-  }
+      if (e is Directory) {
+        final name = e.path.split('/').last;
+        if (name.startsWith('.')) continue;
+        final lower = e.path.toLowerCase();
+        if (lower.contains('/android/data') ||
+            lower.contains('/android/obb')) {
+          continue;
+        }
 
-  // ★ 新增：目录名命中，也作为结果加入
-  if (name.toLowerCase().contains(lowerQuery)) {
-    DateTime? modified;
-    try {
-      final st = await e.stat();
-      modified = st.modified;
-    } catch (_) {}
+        if (_matchNameForSearch(name)) {
+          DateTime? modified;
+          try {
+            final st = await e.stat();
+            modified = st.modified;
+          } catch (_) {}
 
-    results.add(_SearchHit(
-      path: e.path,
-      name: name,
-      isDir: true,
-      size: null,
-      modified: modified,
-    ));
+          results.add(_SearchHit(
+            path: e.path,
+            name: name,
+            isDir: true,
+            size: null,
+            modified: modified,
+          ));
 
-    final now = DateTime.now();
-    if (mounted &&
-        now.difference(_lastUiRefresh).inMilliseconds > 100) {
-      _lastUiRefresh = now;
-      setState(() => _searchResults = List.from(results));
-    }
-  }
+          final now = DateTime.now();
+          if (mounted &&
+              now.difference(_lastUiRefresh).inMilliseconds > 100) {
+            _lastUiRefresh = now;
+            setState(() => _searchResults = List.from(results));
+          }
+        }
 
-  await _scanDir(e.path, lowerQuery, results, taskId);
-} else if (e is File) {
-          final name = e.path.split('/').last;
-          if (name.toLowerCase().contains(lowerQuery)) {
-            int? size;
-            DateTime? modified;
-            try {
-              final st = await e.stat();
-              size = st.size;
-              modified = st.modified;
-            } catch (_) {}
+        await _scanDir(e.path, results, taskId);
+      } else if (e is File) {
+        final name = e.path.split('/').last;
+        if (_matchNameForSearch(name)) {
+          int? size;
+          DateTime? modified;
+          try {
+            final st = await e.stat();
+            size = st.size;
+            modified = st.modified;
+          } catch (_) {}
 
-			  
-            results.add(_SearchHit(
-  path: e.path,
-  name: name,
-  isDir: false,
-  size: size,
-  modified: modified,
-));
+          results.add(_SearchHit(
+            path: e.path,
+            name: name,
+            isDir: false,
+            size: size,
+            modified: modified,
+          ));
 
-
-			  
-            final now = DateTime.now();
-            if (mounted &&
-                now.difference(_lastUiRefresh).inMilliseconds > 100) {
-              _lastUiRefresh = now;
-              setState(() => _searchResults = List.from(results));
-            }
+          final now = DateTime.now();
+          if (mounted &&
+              now.difference(_lastUiRefresh).inMilliseconds > 100) {
+            _lastUiRefresh = now;
+            setState(() => _searchResults = List.from(results));
           }
         }
       }
-    } catch (_) {}
-  }
+    }
+  } catch (_) {}
+}
 
   Future<void> _showSearchFolderPicker() async {
     final current = ref.read(customSearchFoldersProvider);
@@ -4182,10 +4497,11 @@ const PopupMenuItem<String>(
             : '输入关键词');
   }
 
-  return TapRegion(
-    onTapOutside: (_) {
-      FocusManager.instance.primaryFocus?.unfocus();
-    },
+ return TapRegion(
+  onTapOutside: (_) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    // 不关闭悬浮层，让用户点真正的外部区域再关
+  },
     child: Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       child: Row(
@@ -4252,9 +4568,10 @@ const PopupMenuItem<String>(
           const SizedBox(width: 4),
 
           Expanded(
-            child: TextField(
-              controller: _searchCtrl,
-              enabled: !_selectionMode,
+          child: TextField(
+  key: _searchInputKey,
+  controller: _searchCtrl,
+  enabled: !_selectionMode,
               cursorColor: accent,
               style: TextStyle(
                 color: inputFg,
@@ -4270,21 +4587,27 @@ const PopupMenuItem<String>(
                   horizontal: 10,
                   vertical: 9,
                 ),
-             suffixIcon: hasText
-    ? _suffixButton(
-        icon: Icons.backspace_outlined,   // 原 Icons.clear
-        tooltip: '清空输入',                // 原 '清空'
-        fg: suffixFg,
-        bg: suffixBg,
-        onTap: isFilter ? _clearFilter : _clearSearchInput,  // 原 _clearSearch
-      )
-    : _suffixButton(
-        icon: Icons.history,
-        tooltip: '搜索历史',
-                        fg: suffixFg,
-                        bg: suffixBg,
-                        onTap: _showSearchHistory,
-                      ),
+                        suffixIcon: Row(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    if (hasText && !_selectionMode) _buildAdvancedToggle(),
+    hasText
+        ? _suffixButton(
+            icon: Icons.backspace_outlined,
+            tooltip: '清空输入',
+            fg: suffixFg,
+            bg: suffixBg,
+            onTap: isFilter ? _clearFilter : _clearSearchInput,
+          )
+        : _suffixButton(
+            icon: Icons.history,
+            tooltip: '搜索历史',
+            fg: suffixFg,
+            bg: suffixBg,
+            onTap: _showSearchHistory,
+          ),
+  ],
+),
                 suffixIconConstraints: const BoxConstraints(
                   minWidth: 44,
                   minHeight: 44,
