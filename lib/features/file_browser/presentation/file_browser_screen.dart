@@ -2569,7 +2569,7 @@ Future<void> _startSearch() async {
     if (result != null && mounted) {
       ref.read(customSearchFoldersProvider.notifier).setAll(result);
       if (_searchActive && _searchCtrl.text.isNotEmpty) {
-        _startSearch(_searchCtrl.text);
+    _startSearch();
       }
     }
   }
@@ -4698,7 +4698,7 @@ Future<void> _showSearchSettings() async {
             onTap: () {
               ref.read(searchScopeProvider.notifier).update(value);
               if (_searchActive && _searchCtrl.text.isNotEmpty) {
-                _startSearch(_searchCtrl.text);
+    _startSearch();
               }
             },
             borderRadius: BorderRadius.circular(6),
