@@ -529,7 +529,7 @@ class _SingleFileEditorScreenState
           ),
           IconButton(
             icon: const Icon(Icons.sort, size: 20),
-            tooltip: '排序按钮',
+            tooltip: '按钮排序、删除',
             visualDensity: VisualDensity.compact,
             onPressed: _showToolbarOrderDialog,
           ),
