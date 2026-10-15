@@ -273,7 +273,7 @@ class _ComparisonSettingsScreenState
   title: GestureDetector(
     onLongPress: _showHiddenRules,
     behavior: HitTestBehavior.opaque,
-    child: const Text('比较设置'),
+    child: const Text('对比规则设置'),
   ),
   actions: [
             IconButton(
@@ -1040,7 +1040,7 @@ Future<void> _showHiddenRules() async {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '从上到下，依次执行',
+                      '用以下规则处理参与对比的文本。',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -1049,7 +1049,7 @@ Future<void> _showHiddenRules() async {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '按住左侧手柄上下拖动调整顺序。点这里可写笔记。',
+                      '从上到下，依次逐条生效。按住最左侧手柄可上下拖动调整顺序。',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
@@ -1084,7 +1084,7 @@ Future<void> _showHiddenRules() async {
         titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
         contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-        title: const Text('执行顺序 · 笔记'),
+        title: const Text('笔记'),
         content: SizedBox(
           width: double.maxFinite,
           height: MediaQuery.of(c).size.height * 0.75,
