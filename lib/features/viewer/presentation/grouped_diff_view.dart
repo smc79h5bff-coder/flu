@@ -1006,11 +1006,19 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
         : 0.0;
 
     double measureLine(String text) {
-      final t = text.isEmpty ? ' ' : text;
-      final h = measureTextHeight(
-        text: t, maxWidth: width, style: style, textScaler: scaler);
-      return h > gutterH ? h : gutterH;
-    }
+  // 保守：每行都当"行尾有 ↵、且含加粗字符"来量。
+  // 只多不少，宁可块稍微高一点，也不让最后一行被裁。
+  final t = text.isEmpty ? ' ' : text;
+  final measured = '$t↵';
+  final boldStyle = style.copyWith(fontWeight: FontWeight.bold);
+  final h = measureTextHeight(
+    text: measured,
+    maxWidth: width,
+    style: boldStyle,
+    textScaler: scaler,
+  );
+  return h > gutterH ? h : gutterH;
+}
 
     double lh = 0;
     for (var i = b.leftStart; i < b.leftEnd; i++) {
