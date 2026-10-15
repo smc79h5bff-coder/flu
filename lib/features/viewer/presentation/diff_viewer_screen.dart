@@ -3609,7 +3609,7 @@ void _onFloatingPageUpTap() {
   child: Padding(
 padding: const EdgeInsets.only(top: 6),
 child: SizedBox(
-height: 34,
+height: 36,
 child: TextField(
   controller: _replaceController,
                     cursorColor: AppColors.accentPurple,
