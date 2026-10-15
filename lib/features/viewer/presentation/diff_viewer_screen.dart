@@ -3337,7 +3337,7 @@ void _onFloatingPageUpTap() {
         initial: rule,
         showCopyToPreprocess: true,
         onCopyToPreprocess: (copied) {
-          _toast('「${copied.name}」已复制到预处理规则');
+          _toast('「${copied.name}」已复制到对比规则设置里');
         },
       ),
     );
