@@ -935,3 +935,85 @@ class FloatingPageDownColorNotifier extends ColorPrefNotifier {
 }
 
 final groupedRestoreOffsetProvider = StateProvider<double?>((ref) => null);
+
+
+
+// ==================== 悬浮上翻页按钮 ====================
+
+/// 悬浮上翻页按钮：是否显示。
+final floatingPageUpEnabledProvider =
+    NotifierProvider<FloatingPageUpEnabledNotifier, bool>(
+  FloatingPageUpEnabledNotifier.new,
+);
+
+class FloatingPageUpEnabledNotifier extends BoolPrefNotifier {
+  FloatingPageUpEnabledNotifier()
+      : super(key: 'jianming.viewer.floatingPageUp', initial: false);
+}
+
+final floatingPageUpXProvider =
+    NotifierProvider<FloatingPageUpXNotifier, double>(
+  FloatingPageUpXNotifier.new,
+);
+
+class FloatingPageUpXNotifier extends DoublePrefNotifier {
+  FloatingPageUpXNotifier()
+      : super(key: 'jianming.viewer.floatingPageUp.x', initial: 75.0);
+}
+
+final floatingPageUpYProvider =
+    NotifierProvider<FloatingPageUpYNotifier, double>(
+  FloatingPageUpYNotifier.new,
+);
+
+class FloatingPageUpYNotifier extends DoublePrefNotifier {
+  // 默认放在下翻页按钮上方，免得两个按钮一开始就叠在一起。
+  FloatingPageUpYNotifier()
+      : super(key: 'jianming.viewer.floatingPageUp.y', initial: 42.0);
+}
+
+final floatingPageUpSizeProvider =
+    NotifierProvider<FloatingPageUpSizeNotifier, double>(
+  FloatingPageUpSizeNotifier.new,
+);
+
+class FloatingPageUpSizeNotifier extends DoublePrefNotifier {
+  FloatingPageUpSizeNotifier()
+      : super(key: 'jianming.viewer.floatingPageUp.size', initial: 110.0);
+}
+
+final floatingPageUpOpacityProvider =
+    NotifierProvider<FloatingPageUpOpacityNotifier, double>(
+  FloatingPageUpOpacityNotifier.new,
+);
+
+class FloatingPageUpOpacityNotifier extends DoublePrefNotifier {
+  FloatingPageUpOpacityNotifier()
+      : super(key: 'jianming.viewer.floatingPageUp.opacity', initial: 60.0);
+}
+
+final floatingPageUpBorderWidthProvider =
+    NotifierProvider<FloatingPageUpBorderWidthNotifier, double>(
+  FloatingPageUpBorderWidthNotifier.new,
+);
+
+class FloatingPageUpBorderWidthNotifier extends DoublePrefNotifier {
+  FloatingPageUpBorderWidthNotifier()
+      : super(
+          key: 'jianming.viewer.floatingPageUp.borderWidth',
+          initial: 2.0,
+        );
+}
+
+final floatingPageUpColorProvider =
+    NotifierProvider<FloatingPageUpColorNotifier, Color>(
+  FloatingPageUpColorNotifier.new,
+);
+
+class FloatingPageUpColorNotifier extends ColorPrefNotifier {
+  FloatingPageUpColorNotifier()
+      : super(
+          key: 'jianming.viewer.floatingPageUp.color',
+          initial: const Color(0xFFD4D4DC),
+        );
+}
