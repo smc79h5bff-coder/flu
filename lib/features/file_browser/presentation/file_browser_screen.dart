@@ -192,9 +192,16 @@ class _AdvancedSearchPanel extends StatefulWidget {
 }
 
 class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
+  final Map<int, GlobalKey> _btnKeys = {};
+  int? _openMenuIndex;
+
+  GlobalKey _keyFor(int i) => _btnKeys.putIfAbsent(i, () => GlobalKey());
+
   void _add() {
     setState(() {
-      widget.conditions.add(_SearchCondition(operator: _SearchOperator.or));
+      widget.conditions
+          .add(_SearchCondition(operator: _SearchOperator.or));
+      _btnKeys.clear();
     });
     widget.onChanged();
   }
@@ -202,41 +209,31 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
   void _remove(int i) {
     if (i < 0 || i >= widget.conditions.length) return;
     setState(() {
+      if (_openMenuIndex == i) _openMenuIndex = null;
       widget.conditions[i].dispose();
       widget.conditions.removeAt(i);
+      _btnKeys.clear();
     });
     widget.onChanged();
   }
 
-  Future<void> _pickOperator(int i, BuildContext btnContext) async {
-    final box = btnContext.findRenderObject() as RenderBox;
-    final pos = box.localToGlobal(Offset.zero);
-    final size = box.size;
-    final result = await showMenu<_SearchOperator>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        pos.dx,
-        pos.dy + size.height,
-        pos.dx + size.width,
-        pos.dy,
-      ),
-      items: const [
-        PopupMenuItem(
-          value: _SearchOperator.or,
-          child: Text('或者    命中一个就行'),
-        ),
-        PopupMenuItem(
-          value: _SearchOperator.and,
-          child: Text('同时    必须都出现'),
-        ),
-        PopupMenuItem(
-          value: _SearchOperator.not,
-          child: Text('排除    不要这个'),
-        ),
-      ],
-    );
-    if (result == null) return;
-    setState(() => widget.conditions[i].operator = result);
+  void _toggleMenu(int i) {
+    setState(() {
+      _openMenuIndex = (_openMenuIndex == i) ? null : i;
+    });
+  }
+
+  void _closeMenu() {
+    if (_openMenuIndex != null) {
+      setState(() => _openMenuIndex = null);
+    }
+  }
+
+  void _selectOperator(int i, _SearchOperator op) {
+    setState(() {
+      widget.conditions[i].operator = op;
+      _openMenuIndex = null;
+    });
     widget.onChanged();
   }
 
@@ -253,35 +250,50 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 4,
-      borderRadius: BorderRadius.circular(8),
-      color: Colors.white,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.4,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (widget.conditions.isEmpty)
-              const SizedBox(height: 8)
-            else
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.only(top: 8, bottom: 4),
-                  itemCount: widget.conditions.length,
-                  itemBuilder: (_, i) => _row(i),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(3, 4, 3, 10),
-              child: _addButton(),
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Material(
+          elevation: 4,
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.white,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.4,
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.conditions.isEmpty)
+                  const SizedBox(height: 8)
+                else
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.only(top: 8, bottom: 4),
+                      itemCount: widget.conditions.length,
+                      itemBuilder: (_, i) => _row(i),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(3, 4, 3, 10),
+                  child: _addButton(),
+                ),
+              ],
+            ),
+          ),
         ),
-      ),
+        if (_openMenuIndex != null) ...[
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _closeMenu,
+              behavior: HitTestBehavior.opaque,
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+          _buildMenu(),
+        ],
+      ],
     );
   }
 
@@ -307,7 +319,7 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
+                    horizontal: 8,
                     vertical: 8,
                   ),
                 ),
@@ -339,36 +351,104 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
 
   Widget _operatorBtn(int i, _SearchCondition cond) {
     return SizedBox(
+      key: _keyFor(i),
       width: 68,
       height: 36,
-      child: Builder(
-        builder: (btnCtx) => Material(
-          color: const Color(0xFFF0F0F0),
+      child: Material(
+        color: const Color(0xFFF0F0F0),
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
           borderRadius: BorderRadius.circular(6),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(6),
-            onTap: () => _pickOperator(i, btnCtx),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _label(cond.operator),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const Icon(
-                    Icons.arrow_drop_down,
-                    size: 18,
-                    color: Colors.black,
-                  ),
-                ],
-              ),
+          onTap: () => _toggleMenu(i),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _label(cond.operator),
+                  style: const TextStyle(fontSize: 13, color: Colors.black),
+                ),
+                const Icon(
+                  Icons.arrow_drop_down,
+                  size: 18,
+                  color: Colors.black,
+                ),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenu() {
+    final i = _openMenuIndex!;
+    if (i < 0 || i >= widget.conditions.length) {
+      return const SizedBox.shrink();
+    }
+    final key = _keyFor(i);
+    final btnBox = key.currentContext?.findRenderObject() as RenderBox?;
+    final stackBox = context.findRenderObject() as RenderBox?;
+    if (btnBox == null || stackBox == null) {
+      return const SizedBox.shrink();
+    }
+    final btnPos = btnBox.localToGlobal(Offset.zero);
+    final stackPos = stackBox.localToGlobal(Offset.zero);
+    final dx = btnPos.dx - stackPos.dx;
+    final dy = btnPos.dy - stackPos.dy + btnBox.size.height + 2;
+
+    return Positioned(
+      left: dx,
+      top: dy,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(6),
+        color: Colors.white,
+        child: SizedBox(
+          width: 200,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _menuItem(i, _SearchOperator.or, '或者', '命中一个就行'),
+              _menuItem(i, _SearchOperator.and, '同时', '必须都出现'),
+              _menuItem(i, _SearchOperator.not, '排除', '不要这个'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _menuItem(
+    int i,
+    _SearchOperator op,
+    String label,
+    String hint,
+  ) {
+    final selected = widget.conditions[i].operator == op;
+    return InkWell(
+      onTap: () => _selectOperator(i, op),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              child: selected
+                  ? const Icon(Icons.check, size: 16, color: Colors.black)
+                  : null,
+            ),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 14, color: Colors.black),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              hint,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
         ),
       ),
     );
@@ -1397,9 +1477,6 @@ void _showAdvancedOverlay() {
 
 
 
-
-
-
 Widget _buildAdvancedToggle() {
   final IconData icon;
   if (_advancedOpen) {
@@ -1410,15 +1487,12 @@ Widget _buildAdvancedToggle() {
     icon = Icons.keyboard_arrow_down;
   }
   return SizedBox(
-    width: 44,
+    width: 40,
     height: 44,
-    child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _toggleAdvanced,
-        customBorder: const CircleBorder(),
-        child: Icon(icon, color: Colors.black, size: 28),
-      ),
+    child: InkWell(
+      customBorder: const CircleBorder(),
+      onTap: _toggleAdvanced,
+      child: Icon(icon, color: Colors.black, size: 28),
     ),
   );
 }
@@ -4651,7 +4725,7 @@ const PopupMenuItem<String>(
                 fillColor: isFilter ? inputBg : null,
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 10,
+                  horizontal: 7,
                   vertical: 9,
                 ),
                      suffixIcon: Row(
@@ -4699,6 +4773,7 @@ const PopupMenuItem<String>(
   );
 }
 
+
 Widget _suffixButton({
   required IconData icon,
   required String tooltip,
@@ -4706,35 +4781,21 @@ Widget _suffixButton({
   required Color bg,
   required VoidCallback onTap,
 }) {
-  if (bg == Colors.transparent) {
-    return IconButton(
-      icon: Icon(icon, color: fg),
-      tooltip: tooltip,
-      onPressed: onTap,
-    );
-  }
-  return Padding(
-    padding: const EdgeInsets.only(right: 4),
+  return SizedBox(
+    width: 40,
+    height: 44,
     child: Material(
       color: bg,
-      borderRadius: BorderRadius.circular(6),
       child: InkWell(
-        borderRadius: BorderRadius.circular(6),
         onTap: onTap,
         child: Tooltip(
           message: tooltip,
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: Icon(icon, size: 18, color: fg),
-          ),
+          child: Icon(icon, size: 22, color: fg),
         ),
       ),
     ),
   );
 }
-
-
 Future<void> _showSearchSettings() async {
     FocusManager.instance.primaryFocus?.unfocus();
 
