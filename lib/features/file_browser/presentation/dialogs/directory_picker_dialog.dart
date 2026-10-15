@@ -39,9 +39,8 @@ class _DirectoryPickerDialogState
   late final TextEditingController _filterCtrl;
   String _filterQuery = '';
   List<Directory> _dirs = const [];
-  bool _loading = true;
-
-  
+bool _loading = true;  
+int _loadSeq = 0; // ← 新增：加载序号，防止快速连点导致旧结果覆盖新结果 
 
   // ===== 右栏 Tab 状态 =====
   int _currentTab = 0; // 0=全部, 1=收藏, 2=最近
@@ -91,7 +90,8 @@ class _DirectoryPickerDialogState
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+  final seq = ++_loadSeq; // 本次加载的编号（
+      setState(() => _loading = true);
     try {
       final dirs = await listSubdirectoriesSafe(_path);
       if (!mounted) return;
@@ -140,8 +140,9 @@ class _DirectoryPickerDialogState
     return;
   }
   setState(() {
-    _path = target;
-    _filterCtrl.clear();
+    _path = target;  
+    _jumpCtrl.clear();   // ← 加这行 
+     _filterCtrl.clear();
     _filterQuery = '';
   });
   _load();
@@ -407,17 +408,14 @@ String _normalizePath(String path) {
   }
 
   Widget _crumb(({String label, String path}) c, {required bool isLast}) {
-    final s = Theme.of(context).colorScheme;
-    return GestureDetector(
+ return GestureDetector(
       onTap: isLast ? null : () => _selectShortcut(c.path),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Text(
           c.label,
           style: TextStyle(
-            fontSize: 12,
-       color: isLast ? Colors.black : Colors.grey.shade500,
-            fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+fontSize: 12,          color: Colors.black,      fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
           ),
         ),
       ),
@@ -633,7 +631,8 @@ Padding(
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8),
                               leading: Icon(Icons.folder,
-                                  color: Colors.amber.shade200),
+                                color: Colors.black87,  // ← 改这里：原来 
+                                ),
 
 
 
