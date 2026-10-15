@@ -2869,7 +2869,7 @@ PopupMenuItem<String>(
                   children: [
                     Icon(Icons.rule),
                     SizedBox(width: 10),
-                    Text('比较设置'),
+                    Text('对比规则设置'),
                   ],
                 ),
               ),
