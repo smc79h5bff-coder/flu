@@ -3001,14 +3001,30 @@ PopupMenuItem<String>(
             ),
           ],
         ),
-        if (ref.watch(floatingPageDownEnabledProvider))
-          _buildFloatingPageDown(),
+               if (ref.watch(floatingPageDownEnabledProvider))
+          _buildFloatingButton(
+            size: ref.watch(floatingPageDownSizeProvider),
+            x: ref.watch(floatingPageDownXProvider),
+            y: ref.watch(floatingPageDownYProvider),
+            opacity: ref.watch(floatingPageDownOpacityProvider),
+            borderWidth: ref.watch(floatingPageDownBorderWidthProvider),
+            color: ref.watch(floatingPageDownColorProvider),
+            onTap: _onFloatingPageDownTap,
+          ),
+        if (ref.watch(floatingPageUpEnabledProvider))
+          _buildFloatingButton(
+            size: ref.watch(floatingPageUpSizeProvider),
+            x: ref.watch(floatingPageUpXProvider),
+            y: ref.watch(floatingPageUpYProvider),
+            opacity: ref.watch(floatingPageUpOpacityProvider),
+            borderWidth: ref.watch(floatingPageUpBorderWidthProvider),
+            color: ref.watch(floatingPageUpColorProvider),
+            onTap: _onFloatingPageUpTap,
+          ),
       ],
     ),
   ));
 }
-
-
 
 
 
