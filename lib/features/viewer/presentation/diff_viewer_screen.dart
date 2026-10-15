@@ -3167,7 +3167,7 @@ void _onFloatingPageUpTap() {
             child: IconButton(
               icon: const Icon(Icons.sort, size: 16),
               padding: EdgeInsets.zero,
-              tooltip: '排序按钮',
+              tooltip: '按钮排序、样式更改、删除',
               visualDensity: VisualDensity.compact,
               onPressed: _showToolbarOrderDialog,
             ),
