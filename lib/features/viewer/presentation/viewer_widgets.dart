@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart'
     hide colorToHex, hexToColor;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/storage/persistent_notifier.dart';
 import 'providers/grouped_color_providers.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart'
     show ruleSubtitle;
@@ -255,35 +256,75 @@ class DisplaySettingsSheet extends ConsumerWidget {
                           );
                         },
                       ),
-// ========== 悬浮下翻页按钮 ==========
-const Divider(height: 32),
-Text(
-  '悬浮下翻页按钮',
-  style: Theme.of(context).textTheme.titleSmall,
-),
-const SizedBox(height: 4),
-SwitchListTile(
-  contentPadding: EdgeInsets.zero,
-  title: const Text('显示'),
-  subtitle: const Text(
-    '空心的正方形框，点击向下翻一屏',
-    style: TextStyle(fontSize: 11),
-  ),
-  value: ref.watch(floatingPageDownEnabledProvider),
-  onChanged: (v) => ref
-      .read(floatingPageDownEnabledProvider.notifier)
-      .update(v),
-),
 
+                    // ========== 悬浮下翻页按钮 ==========
+                    const Divider(height: 32),
+                    Text(
+                      '悬浮下翻页按钮',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('显示'),
+                      subtitle: const Text(
+                        '空心的正方形框，点击向下翻一屏',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      value: ref.watch(floatingPageDownEnabledProvider),
+                      onChanged: (v) => ref
+                          .read(floatingPageDownEnabledProvider.notifier)
+                          .update(v),
+                    ),
+                    if (ref.watch(floatingPageDownEnabledProvider))
+                      _FloatingButtonSettings(
+                        xProvider: floatingPageDownXProvider,
+                        yProvider: floatingPageDownYProvider,
+                        sizeProvider: floatingPageDownSizeProvider,
+                        opacityProvider: floatingPageDownOpacityProvider,
+                        borderProvider: floatingPageDownBorderWidthProvider,
+                        colorProvider: floatingPageDownColorProvider,
+                        defaultX: 75,
+                        defaultY: 58,
+                        defaultSize: 110,
+                        defaultOpacity: 60,
+                        defaultBorder: 2,
+                      ),
 
+                    // ========== 悬浮上翻页按钮 ==========
+                    const Divider(height: 32),
+                    Text(
+                      '悬浮上翻页按钮',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('显示'),
+                      subtitle: const Text(
+                        '空心的正方形框，点击向上翻一屏',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      value: ref.watch(floatingPageUpEnabledProvider),
+                      onChanged: (v) => ref
+                          .read(floatingPageUpEnabledProvider.notifier)
+                          .update(v),
+                    ),
+                    if (ref.watch(floatingPageUpEnabledProvider))
+                      _FloatingButtonSettings(
+                        xProvider: floatingPageUpXProvider,
+                        yProvider: floatingPageUpYProvider,
+                        sizeProvider: floatingPageUpSizeProvider,
+                        opacityProvider: floatingPageUpOpacityProvider,
+                        borderProvider: floatingPageUpBorderWidthProvider,
+                        colorProvider: floatingPageUpColorProvider,
+                        defaultX: 75,
+                        defaultY: 42,
+                        defaultSize: 110,
+                        defaultOpacity: 60,
+                        defaultBorder: 2,
+                      ),
 
-
-if (ref.watch(floatingPageDownEnabledProvider))
-  const _FloatingPageDownSettings(),
-
-
-
-                      
                     // ========== 差异颜色 ==========
                     const Divider(height: 32),
                     Text(
@@ -313,38 +354,38 @@ if (ref.watch(floatingPageDownEnabledProvider))
                         charDeleteFgProvider),
                     _colorRow(context, ref, '右侧行内改动字 · 底色',
                         charInsertBgProvider),
-_colorRow(context, ref, '右侧行内改动字 · 文字颜色',
-                      charInsertFgProvider),
+                    _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
+                        charInsertFgProvider),
 
-                  // ========== 跨行块视图专属颜色 ==========
-                  if (ref.watch(viewModeProvider) == ViewMode.grouped) ...[
-                    const Divider(height: 32),
-                    Text(
-                      '跨行块视图专属颜色',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    _colorRow(context, ref, '忽略空白相同的块 · 底色',
-                        groupedEqualIgnoringWsBgProvider),
-                    _colorRow(context, ref, '空白差异高亮（含行尾 ↵）',
-                        groupedWsHighlightProvider),
-                    _colorRow(context, ref, '查找命中 · 底色',
-                        groupedFindYellowProvider),
-                    _colorRow(context, ref, '当前查找命中 · 底色',
-                        groupedFindPinkProvider),
+                    // ========== 跨行块视图专属颜色 ==========
+                    if (ref.watch(viewModeProvider) == ViewMode.grouped) ...[
+                      const Divider(height: 32),
+                      Text(
+                        '跨行块视图专属颜色',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      _colorRow(context, ref, '忽略空白相同的块 · 底色',
+                          groupedEqualIgnoringWsBgProvider),
+                      _colorRow(context, ref, '空白差异高亮（含行尾 ↵）',
+                          groupedWsHighlightProvider),
+                      _colorRow(context, ref, '查找命中 · 底色',
+                          groupedFindYellowProvider),
+                      _colorRow(context, ref, '当前查找命中 · 底色',
+                          groupedFindPinkProvider),
+                    ],
+
+                    const SizedBox(height: 24),
                   ],
-
-                   const SizedBox(height: 24),
-              ],
+                ),
+              ),
             ),
-          ),
+          ],
         ),
-        ],
       ),
-    
-  ),
-);
-}
+    );
+  }
+
   Widget _colorRow(
     BuildContext context,
     WidgetRef ref,
@@ -386,68 +427,68 @@ _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
     );
   }
 
-Widget _numInput({
-  required BuildContext context,
-  required String label,
-  required double value,
-  required String hint,
-  required double min,
-  required double max,
-  required ValueChanged<double> onChanged,
-  String suffix = '',
-  bool showDecimal = false,
-}) {
-  final display = showDecimal && value != value.roundToDouble()
-      ? value.toStringAsFixed(1)
-      : value.round().toString();
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(
-      children: [
-        SizedBox(
-          width: 80,
-          child: Text(label, style: const TextStyle(fontSize: 13)),
-        ),
-        SizedBox(
-          width: 76,
-          child: TextFormField(
-            key: ValueKey('$label-$display'),
-            initialValue: display,
-            keyboardType: const TextInputType.numberWithOptions(
-              decimal: true,
-              signed: true,
-            ),
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13),
-            decoration: InputDecoration(
-              isDense: true,
-              border: const OutlineInputBorder(),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              suffixText: suffix.isEmpty ? null : suffix,
-            ),
-            onFieldSubmitted: (raw) {
-              final n = double.tryParse(raw.trim());
-              if (n == null) return;
-              onChanged(n.clamp(min, max));
-            },
+  Widget _numInput({
+    required BuildContext context,
+    required String label,
+    required double value,
+    required String hint,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+    String suffix = '',
+    bool showDecimal = false,
+  }) {
+    final display = showDecimal && value != value.roundToDouble()
+        ? value.toStringAsFixed(1)
+        : value.round().toString();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(label, style: const TextStyle(fontSize: 13)),
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            hint,
-            style: TextStyle(
-              fontSize: 11,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+          SizedBox(
+            width: 76,
+            child: TextFormField(
+              key: ValueKey('$label-$display'),
+              initialValue: display,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                isDense: true,
+                border: const OutlineInputBorder(),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                suffixText: suffix.isEmpty ? null : suffix,
+              ),
+              onFieldSubmitted: (raw) {
+                final n = double.tryParse(raw.trim());
+                if (n == null) return;
+                onChanged(n.clamp(min, max));
+              },
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
-    
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hint,
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _pickColor(
     BuildContext context,
     WidgetRef ref,
@@ -923,16 +964,47 @@ class FindHistoryDialog extends ConsumerWidget {
   }
 }
 
-class _FloatingPageDownSettings extends ConsumerStatefulWidget {
-  const _FloatingPageDownSettings();
+// ==================== 悬浮翻页按钮的设置面板（上下共用） ====================
+
+/// 悬浮下翻页 / 上翻页按钮共用的设置面板。
+///
+/// 上下两个按钮的逻辑一模一样，只是 provider 不同，
+/// 所以把这个面板泛化：所有 provider 从参数传入。
+class _FloatingButtonSettings extends ConsumerStatefulWidget {
+  const _FloatingButtonSettings({
+    required this.xProvider,
+    required this.yProvider,
+    required this.sizeProvider,
+    required this.opacityProvider,
+    required this.borderProvider,
+    required this.colorProvider,
+    required this.defaultX,
+    required this.defaultY,
+    required this.defaultSize,
+    required this.defaultOpacity,
+    required this.defaultBorder,
+  });
+
+  final NotifierProvider<DoublePrefNotifier, double> xProvider;
+  final NotifierProvider<DoublePrefNotifier, double> yProvider;
+  final NotifierProvider<DoublePrefNotifier, double> sizeProvider;
+  final NotifierProvider<DoublePrefNotifier, double> opacityProvider;
+  final NotifierProvider<DoublePrefNotifier, double> borderProvider;
+  final NotifierProvider<ColorPrefNotifier, Color> colorProvider;
+
+  final double defaultX;
+  final double defaultY;
+  final double defaultSize;
+  final double defaultOpacity;
+  final double defaultBorder;
 
   @override
-  ConsumerState<_FloatingPageDownSettings> createState() =>
-      _FloatingPageDownSettingsState();
+  ConsumerState<_FloatingButtonSettings> createState() =>
+      _FloatingButtonSettingsState();
 }
 
-class _FloatingPageDownSettingsState
-    extends ConsumerState<_FloatingPageDownSettings> {
+class _FloatingButtonSettingsState
+    extends ConsumerState<_FloatingButtonSettings> {
   late final TextEditingController _xCtrl;
   late final TextEditingController _yCtrl;
   late final TextEditingController _sizeCtrl;
@@ -943,15 +1015,15 @@ class _FloatingPageDownSettingsState
   void initState() {
     super.initState();
     _xCtrl = TextEditingController(
-        text: ref.read(floatingPageDownXProvider).round().toString());
+        text: ref.read(widget.xProvider).round().toString());
     _yCtrl = TextEditingController(
-        text: ref.read(floatingPageDownYProvider).round().toString());
+        text: ref.read(widget.yProvider).round().toString());
     _sizeCtrl = TextEditingController(
-        text: ref.read(floatingPageDownSizeProvider).round().toString());
+        text: ref.read(widget.sizeProvider).round().toString());
     _opacityCtrl = TextEditingController(
-        text: ref.read(floatingPageDownOpacityProvider).round().toString());
+        text: ref.read(widget.opacityProvider).round().toString());
     _borderCtrl = TextEditingController(
-        text: ref.read(floatingPageDownBorderWidthProvider).toString());
+        text: ref.read(widget.borderProvider).toString());
   }
 
   @override
@@ -967,23 +1039,27 @@ class _FloatingPageDownSettingsState
   void _apply() {
     final x = double.tryParse(_xCtrl.text.trim());
     if (x != null) {
-      ref.read(floatingPageDownXProvider.notifier).update(x.clamp(-10, 110));
+      ref.read(widget.xProvider.notifier).update(x.clamp(-10, 110));
     }
     final y = double.tryParse(_yCtrl.text.trim());
     if (y != null) {
-      ref.read(floatingPageDownYProvider.notifier).update(y.clamp(-10, 110));
+      ref.read(widget.yProvider.notifier).update(y.clamp(-10, 110));
     }
     final size = double.tryParse(_sizeCtrl.text.trim());
     if (size != null) {
-      ref.read(floatingPageDownSizeProvider.notifier).update(size.clamp(5, 300));
+      ref.read(widget.sizeProvider.notifier).update(size.clamp(5, 300));
     }
     final opacity = double.tryParse(_opacityCtrl.text.trim());
     if (opacity != null) {
-      ref.read(floatingPageDownOpacityProvider.notifier).update(opacity.clamp(0, 100));
+      ref
+          .read(widget.opacityProvider.notifier)
+          .update(opacity.clamp(0, 100));
     }
     final border = double.tryParse(_borderCtrl.text.trim());
     if (border != null) {
-      ref.read(floatingPageDownBorderWidthProvider.notifier).update(border.clamp(0.1, 20));
+      ref
+          .read(widget.borderProvider.notifier)
+          .update(border.clamp(0.1, 20));
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -995,11 +1071,11 @@ class _FloatingPageDownSettingsState
 
   void _reset() {
     setState(() {
-      _xCtrl.text = '75';
-      _yCtrl.text = '58';
-      _sizeCtrl.text = '110';
-      _opacityCtrl.text = '60';
-      _borderCtrl.text = '2';
+      _xCtrl.text = widget.defaultX.round().toString();
+      _yCtrl.text = widget.defaultY.round().toString();
+      _sizeCtrl.text = widget.defaultSize.round().toString();
+      _opacityCtrl.text = widget.defaultOpacity.round().toString();
+      _borderCtrl.text = widget.defaultBorder.toString();
     });
   }
 
@@ -1053,7 +1129,7 @@ class _FloatingPageDownSettingsState
 
   @override
   Widget build(BuildContext context) {
-    final color = ref.watch(floatingPageDownColorProvider);
+    final color = ref.watch(widget.colorProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1109,7 +1185,7 @@ class _FloatingPageDownSettingsState
                   final picked = await pickColorDialog(context, color);
                   if (picked != null) {
                     ref
-                        .read(floatingPageDownColorProvider.notifier)
+                        .read(widget.colorProvider.notifier)
                         .update(picked);
                   }
                 },
