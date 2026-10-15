@@ -4549,17 +4549,16 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     final kw = _kwCtrl.text.trim();
     final name = _nameCtrl.text.trim();
     if (kw.isEmpty) {
-      _toast('关键词 / 正则不能为空');
-      return;
-    }
+  setState(() => _regexError = '关键词 / 正则不能为空');
+  return;
+}
     if (_isRegex) {
       try {
         RegExp(kw);
-      } catch (e) {
-        setState(() => _regexError = '正则无效：$e');
-        _toast('正则无效，请检查');
-        return;
-      }
+     } catch (e) {
+  setState(() => _regexError = '正则无效：$e');
+  return;
+}
     }
 
     final colors = _isGradient
@@ -4585,12 +4584,6 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
     Navigator.pop(context, entry);
   }
 
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
