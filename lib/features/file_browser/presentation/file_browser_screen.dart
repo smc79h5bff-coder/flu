@@ -178,6 +178,224 @@ class _SearchHit {
   final DateTime? modified;
 }
 
+class _AdvancedSearchPanel extends StatefulWidget {
+  const _AdvancedSearchPanel({
+    required this.conditions,
+    required this.onChanged,
+  });
+
+  final List<_SearchCondition> conditions;
+  final VoidCallback onChanged;
+
+  @override
+  State<_AdvancedSearchPanel> createState() => _AdvancedSearchPanelState();
+}
+
+class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
+  void _add() {
+    setState(() {
+      widget.conditions.add(_SearchCondition(operator: _SearchOperator.or));
+    });
+    widget.onChanged();
+  }
+
+  void _remove(int i) {
+    if (i < 0 || i >= widget.conditions.length) return;
+    setState(() {
+      widget.conditions[i].dispose();
+      widget.conditions.removeAt(i);
+    });
+    widget.onChanged();
+  }
+
+  Future<void> _pickOperator(int i, BuildContext btnContext) async {
+    final box = btnContext.findRenderObject() as RenderBox;
+    final pos = box.localToGlobal(Offset.zero);
+    final size = box.size;
+    final result = await showMenu<_SearchOperator>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        pos.dx,
+        pos.dy + size.height,
+        pos.dx + size.width,
+        pos.dy,
+      ),
+      items: const [
+        PopupMenuItem(
+          value: _SearchOperator.or,
+          child: Text('或者    命中一个就行'),
+        ),
+        PopupMenuItem(
+          value: _SearchOperator.and,
+          child: Text('同时    必须都出现'),
+        ),
+        PopupMenuItem(
+          value: _SearchOperator.not,
+          child: Text('排除    不要这个'),
+        ),
+      ],
+    );
+    if (result == null) return;
+    setState(() => widget.conditions[i].operator = result);
+    widget.onChanged();
+  }
+
+  String _label(_SearchOperator op) {
+    switch (op) {
+      case _SearchOperator.or:
+        return '或者';
+      case _SearchOperator.and:
+        return '同时';
+      case _SearchOperator.not:
+        return '排除';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(8),
+      color: Colors.white,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.4,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.conditions.isEmpty)
+              const SizedBox(height: 8)
+            else
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(top: 8, bottom: 4),
+                  itemCount: widget.conditions.length,
+                  itemBuilder: (_, i) => _row(i),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(3, 4, 3, 10),
+              child: _addButton(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(int i) {
+    final cond = widget.conditions[i];
+    return Padding(
+      padding: const EdgeInsets.only(left: 3, right: 1, top: 3, bottom: 3),
+      child: Row(
+        children: [
+          _operatorBtn(i, cond),
+          const SizedBox(width: 6),
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: TextField(
+                controller: cond.controller,
+                onChanged: (_) => widget.onChanged(),
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: '输入文字',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 28,
+            height: 36,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(
+                minWidth: 28,
+                minHeight: 28,
+              ),
+              icon: const Icon(
+                Icons.close,
+                size: 20,
+                color: Colors.black54,
+              ),
+              tooltip: '删除此条件',
+              onPressed: () => _remove(i),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _operatorBtn(int i, _SearchCondition cond) {
+    return SizedBox(
+      width: 68,
+      height: 36,
+      child: Builder(
+        builder: (btnCtx) => Material(
+          color: const Color(0xFFF0F0F0),
+          borderRadius: BorderRadius.circular(6),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: () => _pickOperator(i, btnCtx),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _label(cond.operator),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_drop_down,
+                    size: 18,
+                    color: Colors.black,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _addButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 40,
+      child: Material(
+        color: const Color(0xFFFFFAFF),
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: _add,
+          child: const Center(
+            child: Text(
+              '＋ 添加条件',
+              style: TextStyle(fontSize: 13, color: Colors.black),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ==================== 统一列表项 ====================
 
 class _DisplayItem {
@@ -1066,21 +1284,8 @@ _expandedZipKeys.clear();
 bool get _hasActiveConditions =>
     _searchConditions.any((c) => c.text.trim().isNotEmpty);
 
-void _addCondition() {
-  setState(() {
-    _searchConditions.add(
-      _SearchCondition(operator: _SearchOperator.or),
-    );
-  });
-}
 
-void _removeCondition(int index) {
-  if (index < 0 || index >= _searchConditions.length) return;
-  setState(() {
-    _searchConditions[index].dispose();
-    _searchConditions.removeAt(index);
-  });
-}
+
 
 void _clearConditions() {
   for (final c in _searchConditions) {
@@ -1151,8 +1356,8 @@ void _showAdvancedOverlay() {
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (!mounted) return;
-    final box = _searchInputKey.currentContext?.findRenderObject()
-        as RenderBox?;
+    final box =
+        _searchInputKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final pos = box.localToGlobal(Offset.zero);
     final size = box.size;
@@ -1163,7 +1368,7 @@ void _showAdvancedOverlay() {
           Positioned.fill(
             child: GestureDetector(
               onTap: _closeAdvanced,
-              behavior: HitTestBehavior.opaque,
+              behavior: HitTestBehavior.translucent,
               child: const SizedBox.expand(),
             ),
           ),
@@ -1171,7 +1376,12 @@ void _showAdvancedOverlay() {
             top: pos.dy + size.height + 2,
             left: pos.dx,
             width: size.width,
-            child: _buildAdvancedPanel(),
+            child: _AdvancedSearchPanel(
+              conditions: _searchConditions,
+              onChanged: () {
+                if (mounted) setState(() {});
+              },
+            ),
           ),
         ],
       ),
@@ -1182,78 +1392,8 @@ void _showAdvancedOverlay() {
 
 // ==================== 高级搜索条件 · UI ====================
 
-Widget _buildAdvancedPanel() {
-  return Material(
-    elevation: 4,
-    borderRadius: BorderRadius.circular(8),
-    color: Colors.white,
-    child: ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.4,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_searchConditions.isEmpty)
-            const SizedBox(height: 8)
-          else
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                padding: const EdgeInsets.only(top: 8, bottom: 4),
-                itemCount: _searchConditions.length,
-                itemBuilder: (_, i) => _buildConditionRow(i),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-            child: _buildAddConditionButton(),
-          ),
-        ],
-      ),
-    ),
-  );
-}
 
-Widget _buildConditionRow(int index) {
-  final cond = _searchConditions[index];
-  return Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-    child: Row(
-      children: [
-        _buildOperatorButton(cond),
-        const SizedBox(width: 8),
-        Expanded(
-          child: SizedBox(
-            height: 36,
-            child: TextField(
-              controller: cond.controller,
-              onChanged: (_) => setState(() {}),
-              style: const TextStyle(fontSize: 14),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: '输入文字',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-              ),
-            ),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.close, size: 20, color: Colors.black54),
-          visualDensity: VisualDensity.compact,
-          tooltip: '删除此条件',
-          onPressed: () => _removeCondition(index),
-        ),
-      ],
-    ),
-  );
-}
+
 
 Widget _buildOperatorButton(_SearchCondition cond) {
   return SizedBox(
@@ -1346,13 +1486,17 @@ Widget _buildAdvancedToggle() {
   } else {
     icon = Icons.keyboard_arrow_down;
   }
-  return IconButton(
-    icon: Icon(icon, color: Colors.black),
-    tooltip: '高级条件',
-    visualDensity: VisualDensity.compact,
-    padding: EdgeInsets.zero,
-    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-    onPressed: _toggleAdvanced,
+  return SizedBox(
+    width: 44,
+    height: 44,
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _toggleAdvanced,
+        customBorder: const CircleBorder(),
+        child: Icon(icon, color: Colors.black, size: 28),
+      ),
+    ),
   );
 }
   void _clearSelection() {
@@ -4587,7 +4731,7 @@ const PopupMenuItem<String>(
                   horizontal: 10,
                   vertical: 9,
                 ),
-                        suffixIcon: Row(
+                     suffixIcon: Row(
   mainAxisSize: MainAxisSize.min,
   children: [
     if (hasText && !_selectionMode) _buildAdvancedToggle(),
@@ -4609,9 +4753,9 @@ const PopupMenuItem<String>(
   ],
 ),
                 suffixIconConstraints: const BoxConstraints(
-                  minWidth: 44,
-                  minHeight: 44,
-                ),
+  minWidth: 44,
+  minHeight: 44,
+),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
