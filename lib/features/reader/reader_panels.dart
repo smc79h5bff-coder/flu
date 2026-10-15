@@ -3122,7 +3122,22 @@ class _BookmarkHighlightManagerState
     );
   }
 }
-
+/// 在连续的 ASCII 字母数字之间插入零宽空格（U+200B），
+/// 让 Flutter 可以在任意位置断行，避免 "1v1h"、".txt" 这类
+/// 不可拆的长串被整体推到下一行。
+String _softBreakLatin(String s) {
+  final buf = StringBuffer();
+  var prevLatin = false;
+  for (final rune in s.runes) {
+    final isLatin = (rune >= 0x30 && rune <= 0x39) ||
+        (rune >= 0x41 && rune <= 0x5A) ||
+        (rune >= 0x61 && rune <= 0x7A);
+    if (prevLatin && isLatin) buf.write('\u200B');
+    buf.writeCharCode(rune);
+    prevLatin = isLatin;
+  }
+  return buf.toString();
+}
 // ==================== 高亮卡片 ====================
 
 /// 网格里一个高亮卡片。
@@ -3228,17 +3243,17 @@ class _HighlightCard extends StatelessWidget {
             // 下块：书名（可选，有才占空间）
             if (showBookName) ...[
               const SizedBox(height: 2),
-              Text(
-                bookName,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-              ),
+             Text(
+  _softBreakLatin(bookName),
+  maxLines: 3,
+  overflow: TextOverflow.ellipsis,
+  textAlign: TextAlign.center,
+  style: const TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.bold,
+    color: Colors.black,
+  ),
+),
             ],
           ],
         ),
