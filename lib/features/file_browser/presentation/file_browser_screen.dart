@@ -1395,87 +1395,10 @@ void _showAdvancedOverlay() {
 
 
 
-Widget _buildOperatorButton(_SearchCondition cond) {
-  return SizedBox(
-    width: 68,
-    height: 36,
-    child: Material(
-      color: const Color(0xFFF0F0F0),
-      borderRadius: BorderRadius.circular(6),
-      child: PopupMenuButton<_SearchOperator>(
-        padding: EdgeInsets.zero,
-        offset: const Offset(0, 36),
-        tooltip: '',
-        onSelected: (op) {
-          setState(() => cond.operator = op);
-        },
-        itemBuilder: (_) => const [
-          PopupMenuItem(
-            value: _SearchOperator.or,
-            child: Text('或者    命中一个就行'),
-          ),
-          PopupMenuItem(
-            value: _SearchOperator.and,
-            child: Text('同时    必须都出现'),
-          ),
-          PopupMenuItem(
-            value: _SearchOperator.not,
-            child: Text('排除    不要这个'),
-          ),
-        ],
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _operatorLabel(cond.operator),
-                style: const TextStyle(fontSize: 13, color: Colors.black),
-              ),
-              const Icon(Icons.arrow_drop_down,
-                  size: 18, color: Colors.black),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
 
-String _operatorLabel(_SearchOperator op) {
-  switch (op) {
-    case _SearchOperator.or:
-      return '或者';
-    case _SearchOperator.and:
-      return '同时';
-    case _SearchOperator.not:
-      return '排除';
-  }
-}
 
-Widget _buildAddConditionButton() {
-  return SizedBox(
-    width: double.infinity,
-    height: 40,
-    child: Material(
-      color: const Color(0xFFFFFAFF),
-      borderRadius: BorderRadius.circular(6),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: _addCondition,
-        child: const Center(
-          child: Text(
-            '＋ 添加条件',
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.black,
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
+
+
 
 Widget _buildAdvancedToggle() {
   final IconData icon;
