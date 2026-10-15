@@ -3854,34 +3854,34 @@ String _normalizePath(String path) {
   }
   
   // ==================== build ====================
+    // ==================== build ====================
+    @override
+    Widget build(BuildContext context) {
+      _cachedDisplayItems = _buildDisplayItems();
+      _visibleItems = _computeVisibleItems(_cachedDisplayItems!);
+      return PopScope(
+        canPop: _currentPath == _topPath &&
+            !_selectionMode &&
+            !_searchActive &&
+            _expandedZipKeys.isEmpty,
+                onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          if (_selectionMode) {
+            setState(_clearSelection);
+          } else if (_searchActive) {
+            _clearSearch();
+          } else if (_expandedZipKeys.isNotEmpty) {
+            setState(() {
+              _expandedZipKeys.clear();
+              _stickyZipKey = null;
+            });
+          } else if (_canGoUp) {
+            _goUp();
+          }
+          // 在存储选择页（_topPath）时 canPop 为 true，
+          // 路由会直接 pop（退出 App 回到桌面），不走这里。
+        },
 
- @override
-Widget build(BuildContext context) {
-  _cachedDisplayItems = _buildDisplayItems();
-  _visibleItems = _computeVisibleItems(_cachedDisplayItems!);
-
-  return PopScope(
-      canPop: !_canGoUp &&
-          _currentPath != _topPath &&
-          !_selectionMode &&
-          !_searchActive,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        if (_selectionMode) {
-          setState(_clearSelection);
-        } else if (_searchActive) {
-          _clearSearch();
-        } else if (_expandedZipKeys.isNotEmpty) {
-          setState(() {
-            _expandedZipKeys.clear();
-            _stickyZipKey = null;
-          });
-        } else if (_currentPath == _topPath) {
-          _navigateTo(_rootPath);
-        } else if (_canGoUp) {
-          _goUp();
-        }
-      },
       child: Scaffold(
         appBar:
             _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
