@@ -975,7 +975,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
         : ref.read(bodyFontSizeProvider);
     final lineH = fs * 1.1 + 2;
     final lines = b.visualLength > 0 ? b.visualLength : 1;
-    return lines * lineH + 12;
+    return lines * lineH + 8;
   }
 
   double _computeHeight(int blockIndex) {
@@ -1027,7 +1027,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       text: ' ', maxWidth: width, style: style, textScaler: scaler);
     if (lh == 0) lh = blank;
     if (rh == 0) rh = blank;
-    return (lh > rh ? lh : rh) + 12;
+    return (lh > rh ? lh : rh) + 8;
   }
 
   List<List<int>> _computeHighlight(int blockIndex, _Side side) {
