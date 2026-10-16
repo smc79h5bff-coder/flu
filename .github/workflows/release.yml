@@ -48,7 +48,7 @@ jobs:
       - name: 整理
         run: |
           mkdir -p out
-          cp build/app/outputs/flutter-apk/app-prod-release.apk "out/DocDiff.apk"
+          cp build/app/outputs/flutter-apk/app-prod-release.apk "out/TxTdiff.apk"
           cp build/app/outputs/flutter-apk/app-coexist-release.apk "out/TXT对比.apk"
 
       - uses: softprops/action-gh-release@v2
