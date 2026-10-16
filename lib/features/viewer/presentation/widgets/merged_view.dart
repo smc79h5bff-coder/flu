@@ -411,7 +411,7 @@ class _EntryTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
       child: ColoredBox(
-        color: barColor.withValues(alpha: 0.09),
+        color: barColor.withValues(alpha: 0.07),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
