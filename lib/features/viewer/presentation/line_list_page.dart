@@ -47,6 +47,10 @@ class _LineListPageState extends ConsumerState<LineListPage> {
   int? _anchorLine;
   String _lastText = '';
 
+  // ★ 宽度缓存：文本没变就不重新测量
+  double? _cachedMaxLineWidth;
+  String? _cachedMaxLineWidthForText;
+
   @override
   void initState() {
     super.initState();
@@ -254,6 +258,28 @@ class _LineListPageState extends ConsumerState<LineListPage> {
     _anchorLine = null;
     _textCtrl.text = remaining.join('\n');
     setState(() {});
+    // ★ 内容变短后把滚动位置夹回合法范围，否则视口会停在越界位置
+    _clampVerticalScroll();
+  }
+
+  // ★ 把竖向滚动夹回合法范围（内容变短时用）
+  void _clampVerticalScroll() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _doClampScroll();
+      // 第二帧再夹一次，防止 TextField 内部布局还没更新完
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _doClampScroll();
+      });
+    });
+  }
+
+  void _doClampScroll() {
+    if (!_vertCtrl.hasClients) return;
+    final max = _vertCtrl.position.maxScrollExtent;
+    if (_vertCtrl.offset > max) {
+      _vertCtrl.jumpTo(max);
+    }
   }
 
   // ==================== 应用 ====================
@@ -383,11 +409,11 @@ class _LineListPageState extends ConsumerState<LineListPage> {
                     _kBlockAreaWidth,
                     constraints.maxHeight,
                   ),
-                 painter: _ConnectorLinePainter(
-  lineCount: _lineCount,
-  scrollOffset: offset,
-  selectedLines: _selectedLines,
-),
+                  painter: _ConnectorLinePainter(
+                    lineCount: _lineCount,
+                    scrollOffset: offset,
+                    selectedLines: _selectedLines,
+                  ),
                 ),
                 for (var i = 0; i < _lineCount; i++)
                   _buildBlock(i, constraints.maxHeight, offset),
@@ -548,15 +574,17 @@ class _LineListPageState extends ConsumerState<LineListPage> {
           fontFamily: 'monospace',
         );
 
-        double maxW = 0;
-        for (final line in _lines) {
-          double w = 0;
-          for (final code in line.runes) {
-            w += code < 128 ? _kFontSize * 0.6 : _kFontSize;
-          }
-          if (w > maxW) maxW = w;
+        // ★ 只在文本变化时用 TextPainter 精确测量最宽行，其余时间用缓存。
+        final text = _textCtrl.text;
+        if (_cachedMaxLineWidthForText != text) {
+          final scaler = MediaQuery.textScalerOf(context);
+          _cachedMaxLineWidth =
+              _measureMaxLineWidth(_lines, style, scaler);
+          _cachedMaxLineWidthForText = text;
         }
-        final needW = maxW + 8;
+        final maxW = _cachedMaxLineWidth ?? 0.0;
+        // +16 给 TextField 内部留一点余量，保证一定不折行。
+        final needW = maxW + 16;
         final width =
             needW > constraints.maxWidth ? needW : constraints.maxWidth;
 
@@ -568,12 +596,12 @@ class _LineListPageState extends ConsumerState<LineListPage> {
             child: Stack(
               children: [
                 ..._buildHighlightLayer(),
-             Padding(
-  padding: const EdgeInsets.only(
-    left: 1,
-    right: 4,
-    top: _kEditorVPad,
-  ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 1,
+                    right: 4,
+                    top: _kEditorVPad,
+                  ),
                   child: TextField(
                     controller: _textCtrl,
                     scrollController: _vertCtrl,
@@ -601,6 +629,27 @@ class _LineListPageState extends ConsumerState<LineListPage> {
         );
       },
     );
+  }
+
+  // ★ 用 TextPainter 精确测量每行宽度，返回最宽那一行的像素宽度。
+  double _measureMaxLineWidth(
+    List<String> lines,
+    TextStyle style,
+    TextScaler scaler,
+  ) {
+    final tp = TextPainter(textDirection: TextDirection.ltr);
+    var maxW = 0.0;
+    for (final line in lines) {
+      if (line.isEmpty) continue;
+      tp.text = TextSpan(text: line, style: style);
+      tp.textScaler = scaler;
+      tp.maxLines = 1;
+      tp.ellipsis = null;
+      tp.layout();
+      final w = tp.width;
+      if (w > maxW) maxW = w;
+    }
+    return maxW;
   }
 
   List<Widget> _buildHighlightLayer() {
@@ -726,11 +775,11 @@ class _LineListPageState extends ConsumerState<LineListPage> {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-  fontSize: 11,
-  color: color,
-  fontWeight: FontWeight.w600,
-),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
