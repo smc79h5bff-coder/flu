@@ -962,22 +962,46 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     _scheduleProcess();
   }
 
-  double _estimateHeight(int blockIndex) {
-    final visible = _visible;
-    if (visible == null ||
-        blockIndex < 0 ||
-        blockIndex >= visible.length) {
-      return 24.0;
-    }
-    final b = visible[blockIndex];
-    final isContext = b.kind == GroupedBlockKind.equal;
-    final fs = isContext
-        ? ref.read(contextFontSizeProvider)
-        : ref.read(bodyFontSizeProvider);
-    final lineH = fs * 1.1 + 2;
-    final lines = b.visualLength > 0 ? b.visualLength : 1;
-    return lines * lineH + 8;
+double _estimateHeight(int blockIndex) {
+  final visible = _visible;
+  final data = _data;
+  if (visible == null || data == null ||
+      blockIndex < 0 || blockIndex >= visible.length) {
+    return 24.0;
   }
+  final b = visible[blockIndex];
+  final isContext = b.kind == GroupedBlockKind.equal;
+  final fs = isContext
+      ? ref.read(contextFontSizeProvider)
+      : ref.read(bodyFontSizeProvider);
+  final strutH = fs * 1.1;
+  final width = _cacheWidth ?? 100.0;
+
+  // 估算一段文本折行后占几行：中文按 1 字宽 = fs，ASCII 按 0.6×fs。
+  double estimateLines(List<String> lines, int start, int end) {
+    var acc = 0.0;
+    for (var i = start; i < end; i++) {
+      if (i < 0 || i >= lines.length) continue;
+      final t = lines[i];
+      if (t.isEmpty) {
+        acc += 1;
+        continue;
+      }
+      double w = 0;
+      for (final code in t.runes) {
+        w += code < 128 ? fs * 0.6 : fs;
+      }
+      final rows = (w / width).ceil();
+      acc += rows < 1 ? 1 : rows;
+    }
+    return acc;
+  }
+
+  final leftN = estimateLines(data.linesA, b.leftStart, b.leftEnd);
+  final rightN = estimateLines(data.linesB, b.rightStart, b.rightEnd);
+  final n = leftN > rightN ? leftN : rightN;
+  return n * strutH + 8;
+}
 
   double _computeHeight(int blockIndex) {
     final visible = _visible;
