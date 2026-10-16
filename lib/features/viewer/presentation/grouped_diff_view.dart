@@ -838,7 +838,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final mq = MediaQuery.of(context);
     final viewportW = mq.size.width;
     final halfW = (viewportW - 1) / 2;
-    final contentW = halfW - (showLine ? 42.0 : 8.0);
+    final contentW = halfW - (showLine ? 36.0 : 2.0);
 
     if (_cacheWidth != contentW ||
         _cacheFont != bodyFs ||
