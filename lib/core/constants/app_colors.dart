@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 class AppColors {
   const AppColors._();
 
-  static const Color brandGreen = Color(0xFFF3FBFF);
+  static const Color brandGreen = Color(0xFFF5F5FF);
 
   /// 高饱和亮紫 —— 用于本次改色的所有控件。
   /// 想换色号只改这一行。
