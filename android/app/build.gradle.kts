@@ -26,7 +26,7 @@ android {
         create("prod") {
             dimension = "app"
             applicationId = "com.example.docdiff"
-            manifestPlaceholders["appName"] = "DocDiff"
+            manifestPlaceholders["appName"] = "TxTdiff"
             versionCode = 222
             versionName = "2.2.2"
         }
