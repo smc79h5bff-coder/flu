@@ -528,14 +528,19 @@ if (latest == null || !identical(_dataForDiff, latest)) {
     return (start: start, end: end);
   }
 
-  void jumpToNextDiff() {
-    final visible = _visible;
-    if (visible == null || !_leftCtrl.hasClients) return;
-    final cur = _currentBlockIdx() ?? -1;
+void jumpToNextDiff() {
+  final visible = _visible;
+  if (visible == null || !_leftCtrl.hasClients) return;
+  final cur = _currentBlockIdx() ?? -1;
 
-    int? target;
+  int? target;
+
+  // ★ 可见列表里没有相同块（= 仅差异块模式），一律逐块跳，不做长段跳尾。
+  final noEqual = !visible.any((b) => b.kind == GroupedBlockKind.equal);
+  if (noEqual) {
+    target = cur < visible.length - 1 ? cur + 1 : null;
+  } else {
     final seg = _segmentAt(cur, visible);
-
     if (seg == null) {
       var i = cur + 1;
       while (i < visible.length &&
@@ -556,23 +561,34 @@ if (latest == null || !identical(_dataForDiff, latest)) {
         if (i < visible.length) target = i;
       }
     }
-
-    if (target == null) {
-      _toast('到底了');
-      return;
-    }
-    setState(() => _jumpedBlockIdx = target);
-    _jumpToBlockAnimated(target);
   }
 
+  if (target == null) {
+    _toast('到底了');
+    return;
+  }
+  setState(() => _jumpedBlockIdx = target);
+  _jumpToBlockAnimated(target);
+}
+
+
+  
+
+
+
   void jumpToPrevDiff() {
-    final visible = _visible;
-    if (visible == null || !_leftCtrl.hasClients) return;
-    final cur = _currentBlockIdx() ?? visible.length;
+  final visible = _visible;
+  if (visible == null || !_leftCtrl.hasClients) return;
+  final cur = _currentBlockIdx() ?? visible.length;
 
-    int? target;
+  int? target;
+
+  // ★ 可见列表里没有相同块（= 仅差异块模式），一律逐块跳，不做长段跳尾。
+  final noEqual = !visible.any((b) => b.kind == GroupedBlockKind.equal);
+  if (noEqual) {
+    target = cur > 0 ? cur - 1 : null;
+  } else {
     final seg = _segmentAt(cur, visible);
-
     if (seg == null) {
       var i = cur - 1;
       while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
@@ -601,14 +617,16 @@ if (latest == null || !identical(_dataForDiff, latest)) {
         }
       }
     }
-
-    if (target == null) {
-      _toast('到顶了');
-      return;
-    }
-    setState(() => _jumpedBlockIdx = target);
-    _jumpToBlockAnimated(target);
   }
+
+  if (target == null) {
+    _toast('到顶了');
+    return;
+  }
+  setState(() => _jumpedBlockIdx = target);
+  _jumpToBlockAnimated(target);
+}
+  
 
   // ==================== 内部 ====================
 
