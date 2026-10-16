@@ -449,7 +449,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
       width: double.infinity,
       height: 40,
       child: Material(
-        color: const Color(0xFFFFFAFF),
+        color: const Color(0xFFFAFAFA),
         borderRadius: BorderRadius.circular(6),
         child: InkWell(
           borderRadius: BorderRadius.circular(6),
