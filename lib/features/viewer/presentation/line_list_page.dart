@@ -667,21 +667,21 @@ class _LineListPageState extends ConsumerState<LineListPage> {
             Expanded(
               child: _toolBtn(
                 icon: Icons.west,
-                label: '应用到左侧',
+                label: '删除左侧',
                 onTap: hasContent ? () => _apply('left') : null,
               ),
             ),
             Expanded(
               child: _toolBtn(
                 icon: Icons.east,
-                label: '应用到右侧',
+                label: '删除右侧',
                 onTap: hasContent ? () => _apply('right') : null,
               ),
             ),
             Expanded(
               child: _toolBtn(
                 icon: Icons.compare_arrows,
-                label: '应用到两侧',
+                label: '两侧都删',
                 onTap: hasContent ? () => _apply('both') : null,
               ),
             ),
@@ -719,7 +719,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
             mainAxisSize: MainAxisSize.max,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 17, color: color),
+              Icon(icon, size: 18, color: color),
               const SizedBox(width: 3),
               Flexible(
                 child: Text(
@@ -727,7 +727,7 @@ class _LineListPageState extends ConsumerState<LineListPage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-  fontSize: 10,
+  fontSize: 11,
   color: color,
   fontWeight: FontWeight.w600,
 ),
