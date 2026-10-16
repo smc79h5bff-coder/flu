@@ -1272,42 +1272,38 @@ class _SidePane extends StatelessWidget {
       addRepaintBoundaries: false,
       cacheExtent: 80,
       itemCount: blocks.length,
+
+
+      
       itemBuilder: (ctx, i) {
-        final b = blocks[i];
-        final baseH = heightForBlock(i);
+  final b = blocks[i];
 
-        // ★ 提示条只在短文件那侧、那个块上出现
-        final showMark =
-            isShortSide && shortFileEndBlockIdx == i;
+  // ★ 仍触发高度计算（结果只用于跳转定位，不再约束渲染）
+  heightForBlock(i);
 
-        // ★ 提示条高度 32，容两行
-        final actualH = showMark ? baseH + 144 : baseH;
+  final showMark = isShortSide && shortFileEndBlockIdx == i;
+  final blockStart =
+      side == _Side.left ? b.leftStart : b.rightStart;
+  final afterShortEnd = isShortSide &&
+      shortFileEndBlockIdx != null &&
+      blockStart >= shortLineCount;
 
-        // ★ 超出短文件范围（且这一侧是短文件）：黑块
-        final blockStart =
-            side == _Side.left ? b.leftStart : b.rightStart;
-        final afterShortEnd = isShortSide &&
-            shortFileEndBlockIdx != null &&
-            blockStart >= shortLineCount;
-
-        return SizedBox(
-          height: actualH,
-          child: _BlockTile(
-            block: b, data: data, side: side,
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            contextFontSize: contextFontSize,
-            gutterFontSize: gutterFontSize,
-            findQuery: findQuery,
-            isCurrent: jumpedBlockIdx == i,
-            highlights: highlightsFor(i),
-            showShortEndMark: showMark,
-            afterShortEnd: afterShortEnd,
-            colors: colors,
-            onLineLongPress: onLineLongPress,
-          ),
-        );
-      },
+  // ★ 不再包 SizedBox，让 _BlockTile 自然撑开
+  return _BlockTile(
+    block: b, data: data, side: side,
+    showLineNumbers: showLineNumbers,
+    bodyFontSize: bodyFontSize,
+    contextFontSize: contextFontSize,
+    gutterFontSize: gutterFontSize,
+    findQuery: findQuery,
+    isCurrent: jumpedBlockIdx == i,
+    highlights: highlightsFor(i),
+    showShortEndMark: showMark,
+    afterShortEnd: afterShortEnd,
+    colors: colors,
+    onLineLongPress: onLineLongPress,
+  );
+},
     );
 
     if (side == _Side.right) {
