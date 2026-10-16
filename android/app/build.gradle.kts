@@ -27,11 +27,15 @@ android {
             dimension = "app"
             applicationId = "com.example.docdiff"
             manifestPlaceholders["appName"] = "DocDiff"
+            versionCode = 222
+            versionName = "2.2.2"
         }
         create("coexist") {
             dimension = "app"
             applicationId = "com.txtdifferent.compare"
             manifestPlaceholders["appName"] = "TXT对比"
+            versionCode = 100
+            versionName = "1.0.0"
         }
     }
 
