@@ -3666,39 +3666,51 @@ top = top.clamp(4.0, size.height - approxH - 4);
                 _clearSelection();
                 openPaletteEdit(context, p.index);
               },
-              child: Container(
-                width: tileW,
-                height: tileH,
-                decoration: BoxDecoration(
-                  color: p.isGradient ? null : Color(p.colors.first),
-                  gradient: p.isGradient
-                      ? LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: p.colors
-                              .map((c) => Color(c))
-                              .toList(growable: false),
-                          stops: p.stops.length == p.colors.length
-                              ? p.stops
-                              : null,
-                        )
-                      : null,
-                  border: Border.all(color: Colors.black12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  p.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Color(p.textColor),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+
+
+
+
+child: Container(
+  width: tileW,
+  height: tileH,
+  decoration: BoxDecoration(
+    color: p.isGradient ? null : Color(p.colors.first),
+    gradient: p.isGradient
+        ? LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: p.colors
+                .map((c) => Color(c))
+                .toList(growable: false),
+            stops: p.stops.length == p.colors.length
+                ? p.stops
+                : null,
+          )
+        : null,
+    border: Border.all(color: Colors.black12),
+    borderRadius: BorderRadius.circular(6),
+  ),
+  alignment: Alignment.center,
+  padding: const EdgeInsets.all(2),
+  child: Text(
+    p.name,
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    style: TextStyle(
+      color: Color(p.textColor),
+      fontSize: 10,
+      fontWeight: FontWeight.w600,
+      height: 1.1,
+    ),
+    textAlign: TextAlign.center,
+  ),
+),
+              
+
+
+
+
+              
             ),
           );
         },
