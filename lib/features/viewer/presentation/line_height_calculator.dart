@@ -78,6 +78,7 @@ double measureTextHeight({
   required TextScaler textScaler,
   bool noWrap = false,
   double extraVerticalPadding = 0,
+  StrutStyle? strutStyle,   // ★ 新增
 }) {
   if (maxWidth <= 0) return 0;
   final effective = text.isEmpty ? ' ' : text;
@@ -86,7 +87,7 @@ double measureTextHeight({
   _tp.textScaler = textScaler;
   _tp.maxLines = noWrap ? 1 : null;
   _tp.ellipsis = noWrap ? '\u2026' : null;
-
+  _tp.strutStyle = strutStyle;   // ★ 每次显式赋值，包括 null，避免残留
   _tp.layout(maxWidth: maxWidth);
   final h = _tp.height + extraVerticalPadding;
   return h;
