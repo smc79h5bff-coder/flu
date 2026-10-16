@@ -1005,16 +1005,18 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
           )
         : 0.0;
 
-    double measureLine(String text) {
-  // 保守：每行都当"行尾有 ↵、且含加粗字符"来量。
-  // 只多不少，宁可块稍微高一点，也不让最后一行被裁。
+ // equal 块里全是普通文字，用普通样式量；
+// 其它两种块里有加粗 span，用 bold 量。
+final measureStyle = b.kind == GroupedBlockKind.equal
+    ? style
+    : style.copyWith(fontWeight: FontWeight.bold);
+
+double measureLine(String text) {
   final t = text.isEmpty ? ' ' : text;
-  final measured = '$t↵';
-  final boldStyle = style.copyWith(fontWeight: FontWeight.bold);
   final h = measureTextHeight(
-    text: measured,
+    text: t,
     maxWidth: width,
-    style: boldStyle,
+    style: measureStyle,
     textScaler: scaler,
   );
   return h > gutterH ? h : gutterH;
