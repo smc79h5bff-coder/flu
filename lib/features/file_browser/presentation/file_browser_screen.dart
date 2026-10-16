@@ -178,122 +178,94 @@ class _SearchHit {
   final DateTime? modified;
 }
 
-class _AdvancedSearchPanel extends StatefulWidget {
-  const _AdvancedSearchPanel({
+class _AdvancedOverlayContent extends StatefulWidget {
+  const _AdvancedOverlayContent({
+    required this.panelTop,
+    required this.panelLeft,
+    required this.panelWidth,
     required this.conditions,
     required this.onChanged,
+    required this.onClose,
   });
 
+  final double panelTop;
+  final double panelLeft;
+  final double panelWidth;
   final List<_SearchCondition> conditions;
   final VoidCallback onChanged;
+  final VoidCallback onClose;
 
   @override
-  State<_AdvancedSearchPanel> createState() => _AdvancedSearchPanelState();
+  State<_AdvancedOverlayContent> createState() =>
+      _AdvancedOverlayContentState();
 }
 
-class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
-  final Map<int, GlobalKey> _btnKeys = {};
+class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   int? _openMenuIndex;
+  final Map<int, GlobalKey> _btnKeys = {};
 
   GlobalKey _keyFor(int i) => _btnKeys.putIfAbsent(i, () => GlobalKey());
-
-  void _add() {
-    setState(() {
-      widget.conditions
-          .add(_SearchCondition(operator: _SearchOperator.or));
-      _btnKeys.clear();
-    });
-    widget.onChanged();
-  }
-
-  void _remove(int i) {
-    if (i < 0 || i >= widget.conditions.length) return;
-    setState(() {
-      if (_openMenuIndex == i) _openMenuIndex = null;
-      widget.conditions[i].dispose();
-      widget.conditions.removeAt(i);
-      _btnKeys.clear();
-    });
-    widget.onChanged();
-  }
-
-  void _toggleMenu(int i) {
-    setState(() {
-      _openMenuIndex = (_openMenuIndex == i) ? null : i;
-    });
-  }
-
-  void _closeMenu() {
-    if (_openMenuIndex != null) {
-      setState(() => _openMenuIndex = null);
-    }
-  }
-
-  void _selectOperator(int i, _SearchOperator op) {
-    setState(() {
-      widget.conditions[i].operator = op;
-      _openMenuIndex = null;
-    });
-    widget.onChanged();
-  }
-
-  String _label(_SearchOperator op) {
-    switch (op) {
-      case _SearchOperator.or:
-        return '或者';
-      case _SearchOperator.and:
-        return '同时';
-      case _SearchOperator.not:
-        return '排除';
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Stack(
-      clipBehavior: Clip.none,
       children: [
-        Material(
-          elevation: 4,
-          borderRadius: BorderRadius.circular(8),
-          color: Colors.white,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.4,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.conditions.isEmpty)
-                  const SizedBox(height: 8)
-                else
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.only(top: 8, bottom: 4),
-                      itemCount: widget.conditions.length,
-                      itemBuilder: (_, i) => _row(i),
-                    ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(3, 4, 3, 10),
-                  child: _addButton(),
-                ),
-              ],
-            ),
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: _handleOutsideTap,
+            behavior: HitTestBehavior.translucent,
+            child: const SizedBox.expand(),
           ),
         ),
-        if (_openMenuIndex != null) ...[
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _closeMenu,
-              behavior: HitTestBehavior.opaque,
-              child: Container(color: Colors.transparent),
-            ),
-          ),
-          _buildMenu(),
-        ],
+        Positioned(
+          left: widget.panelLeft,
+          top: widget.panelTop,
+          width: widget.panelWidth,
+          child: _buildPanel(),
+        ),
+        if (_openMenuIndex != null) _buildMenu(),
       ],
+    );
+  }
+
+  void _handleOutsideTap() {
+    if (_openMenuIndex != null) {
+      setState(() => _openMenuIndex = null);
+    } else {
+      widget.onClose();
+    }
+  }
+
+  Widget _buildPanel() {
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(8),
+      color: Colors.white,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.4,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.conditions.isEmpty)
+              const SizedBox(height: 8)
+            else
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(top: 8, bottom: 4),
+                  itemCount: widget.conditions.length,
+                  itemBuilder: (_, i) => _row(i),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(3, 4, 3, 10),
+              child: _addButton(),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -331,15 +303,10 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
             height: 36,
             child: IconButton(
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 28,
-                minHeight: 28,
-              ),
-              icon: const Icon(
-                Icons.close,
-                size: 20,
-                color: Colors.black54,
-              ),
+              constraints:
+                  const BoxConstraints(minWidth: 28, minHeight: 28),
+              icon: const Icon(Icons.close,
+                  size: 20, color: Colors.black54),
               tooltip: '删除此条件',
               onPressed: () => _remove(i),
             ),
@@ -369,17 +336,48 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
                   _label(cond.operator),
                   style: const TextStyle(fontSize: 13, color: Colors.black),
                 ),
-                const Icon(
-                  Icons.arrow_drop_down,
-                  size: 18,
-                  color: Colors.black,
-                ),
+                const Icon(Icons.arrow_drop_down,
+                    size: 18, color: Colors.black),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  void _toggleMenu(int i) {
+    setState(() {
+      _openMenuIndex = (_openMenuIndex == i) ? null : i;
+    });
+  }
+
+  void _selectOperator(int i, _SearchOperator op) {
+    setState(() {
+      widget.conditions[i].operator = op;
+      _openMenuIndex = null;
+    });
+    widget.onChanged();
+  }
+
+  void _add() {
+    setState(() {
+      widget.conditions
+          .add(_SearchCondition(operator: _SearchOperator.or));
+      _btnKeys.clear();
+    });
+    widget.onChanged();
+  }
+
+  void _remove(int i) {
+    if (i < 0 || i >= widget.conditions.length) return;
+    setState(() {
+      if (_openMenuIndex == i) _openMenuIndex = null;
+      widget.conditions[i].dispose();
+      widget.conditions.removeAt(i);
+      _btnKeys.clear();
+    });
+    widget.onChanged();
   }
 
   Widget _buildMenu() {
@@ -389,24 +387,20 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
     }
     final key = _keyFor(i);
     final btnBox = key.currentContext?.findRenderObject() as RenderBox?;
-    final stackBox = context.findRenderObject() as RenderBox?;
-    if (btnBox == null || stackBox == null) {
-      return const SizedBox.shrink();
-    }
+    if (btnBox == null) return const SizedBox.shrink();
     final btnPos = btnBox.localToGlobal(Offset.zero);
-    final stackPos = stackBox.localToGlobal(Offset.zero);
-    final dx = btnPos.dx - stackPos.dx;
-    final dy = btnPos.dy - stackPos.dy + btnBox.size.height + 2;
+    final top = btnPos.dy + btnBox.size.height + 2;
+    final left = btnPos.dx;
 
     return Positioned(
-      left: dx,
-      top: dy,
+      left: left,
+      top: top,
       child: Material(
         elevation: 8,
         borderRadius: BorderRadius.circular(6),
         color: Colors.white,
         child: SizedBox(
-          width: 200,
+          width: 210,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -421,33 +415,29 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
   }
 
   Widget _menuItem(
-    int i,
-    _SearchOperator op,
-    String label,
-    String hint,
-  ) {
+      int i, _SearchOperator op, String label, String hint) {
     final selected = widget.conditions[i].operator == op;
     return InkWell(
       onTap: () => _selectOperator(i, op),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
             SizedBox(
               width: 20,
               child: selected
-                  ? const Icon(Icons.check, size: 16, color: Colors.black)
+                  ? const Icon(Icons.check,
+                      size: 16, color: Colors.black)
                   : null,
             ),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 14, color: Colors.black),
-            ),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 14, color: Colors.black)),
             const SizedBox(width: 12),
-            Text(
-              hint,
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
-            ),
+            Text(hint,
+                style: const TextStyle(
+                    fontSize: 12, color: Colors.black54)),
           ],
         ),
       ),
@@ -474,8 +464,18 @@ class _AdvancedSearchPanelState extends State<_AdvancedSearchPanel> {
       ),
     );
   }
-}
 
+  String _label(_SearchOperator op) {
+    switch (op) {
+      case _SearchOperator.or:
+        return '或者';
+      case _SearchOperator.and:
+        return '同时';
+      case _SearchOperator.not:
+        return '排除';
+    }
+  }
+}
 // ==================== 统一列表项 ====================
 
 class _DisplayItem {
@@ -1443,27 +1443,15 @@ void _showAdvancedOverlay() {
     final size = box.size;
 
     _advancedOverlay = OverlayEntry(
-      builder: (ctx) => Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _closeAdvanced,
-              behavior: HitTestBehavior.translucent,
-              child: const SizedBox.expand(),
-            ),
-          ),
-          Positioned(
-            top: pos.dy + size.height + 2,
-            left: pos.dx,
-            width: size.width,
-            child: _AdvancedSearchPanel(
-              conditions: _searchConditions,
-              onChanged: () {
-                if (mounted) setState(() {});
-              },
-            ),
-          ),
-        ],
+      builder: (ctx) => _AdvancedOverlayContent(
+        panelTop: pos.dy + size.height + 2,
+        panelLeft: pos.dx,
+        panelWidth: size.width,
+        conditions: _searchConditions,
+        onChanged: () {
+          if (mounted) setState(() {});
+        },
+        onClose: _closeAdvanced,
       ),
     );
     Overlay.of(context).insert(_advancedOverlay!);
