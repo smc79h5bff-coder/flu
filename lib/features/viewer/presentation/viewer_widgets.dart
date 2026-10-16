@@ -56,7 +56,7 @@ class DisplaySettingsSheet extends ConsumerWidget {
     final showLine = ref.watch(showLineNumbersProvider);
     final bodySize = ref.watch(bodyFontSizeProvider);
     final gutterSize = ref.watch(gutterFontSizeProvider);
-    // 「差异上下文视图的相同行字号」只有"差异行+上下2行"视图会用到，
+    // 「相同行字号」这个设置在"差异行+上下2行"视图和"跨行块"视图里都有效，
     // 这里取一下当前视图模式，决定该项是否显示。
     final viewMode = ref.watch(viewModeProvider);
 
@@ -191,11 +191,12 @@ class DisplaySettingsSheet extends ConsumerWidget {
                       ],
                     ),
 
-                    // ========== 上下文行字号 ==========
-                    // 只有"差异行+上下2行"视图会用到这个字号，
-                    // 其它视图（合并 / 并排 / 仅差异行 / 跨行块）都不读它，
-                    // 因此只在 diffOnly 视图下显示，避免误导。
-                    if (viewMode == ViewMode.diffOnly)
+                    // ========== 相同行字号 ==========
+                    // "差异行+上下2行"视图和"跨行块"视图都会用到这个字号，
+                    // 其它视图（合并 / 并排 / 仅差异行）都不读它，
+                    // 因此只在这两个视图下显示，避免误导。
+                    if (viewMode == ViewMode.diffOnly ||
+                        viewMode == ViewMode.grouped)
                       Builder(
                         builder: (context) {
                           final contextSize =
@@ -204,7 +205,7 @@ class DisplaySettingsSheet extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text(
-                                '差异上下文视图的相同行的字号：${contextSize.toStringAsFixed(0)}',
+                                '相同行字号：${contextSize.toStringAsFixed(0)}',
                                 style:
                                     Theme.of(context).textTheme.labelMedium,
                               ),
