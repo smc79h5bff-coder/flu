@@ -1032,7 +1032,7 @@ Future<void> _showHiddenRules() async {
       child: InkWell(
         onTap: _openOrderNoteDialog,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
           child: Row(
             children: [
               Expanded(
@@ -1052,14 +1052,14 @@ Future<void> _showHiddenRules() async {
                       '从上到下，依次逐条生效。按住最左侧手柄可上下拖动调整顺序。',
                       style: TextStyle(
                         fontSize: 12,
-                        height: 1.4,
+                        height: 1.2,
                         color: s.onSurfaceVariant,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Icon(
                 hasNote ? Icons.sticky_note_2 : Icons.sticky_note_2_outlined,
                 size: 20,
