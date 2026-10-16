@@ -1,13 +1,22 @@
 // grouped_diff_view.dart
+//
+// 跨行块视图。架构：单个 ListView，每个 item 是一行，行内左右分栏（Row + 两个 _BlockTile）。
+//
+// 与旧版的区别：
+//   - 旧版是两个独立 ListView 靠同步滚动假装并排，每 item 用 SizedBox(height:) 硬约束，
+//     高度靠预先计算（_estimateHeight / _computeHeight / _chunkHeights）来"预测"。
+//   - 新版用一个 ListView + Row，每 item 高度由内容自然决定，不再需要预测。
+//
+// 因此：不再裁切、不再有块间空白、左右天然对齐、滚动天然同步、后台异步算高度的机制全部删除。
 
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/debug/crash_logger.dart';
 import '../../diff/domain/diff_operation.dart';
 import '../../diff/domain/diff_result.dart';
 import '../../import/presentation/providers/import_providers.dart';
-import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'providers/grouped_color_providers.dart';
 import 'viewer_widgets.dart';
@@ -142,6 +151,8 @@ GroupedDiffData buildGroupedData(DiffResult diff, String a, String b) {
   return GroupedDiffData(linesA: linesA, linesB: linesB, blocks: blocks);
 }
 
+// ==================== 字符级高亮（含 LRU 缓存） ====================
+
 final Map<String, List<List<int>>> _hlCache = {};
 const int _hlCacheMax = 200;
 
@@ -214,41 +225,31 @@ class GroupedDiffView extends ConsumerStatefulWidget {
 }
 
 class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
-  late final ScrollController _leftCtrl;
-  late final ScrollController _rightCtrl;
-  bool _syncing = false;
+  late final ScrollController _ctrl;
 
   GroupedDiffData? _data;
   DiffResult? _dataForDiff;
   List<GroupedBlock>? _visible;
 
-  // ★ 精确高度缓存（异步填充）
-  final Map<int, double> _chunkHeights = {};
-
-  // ★ 高亮缓存（异步填充），key = "blockIdx:left" 或 "blockIdx:right"
+  // 字符级高亮缓存（异步填充）。key = "blockIdx:L" 或 "blockIdx:R"
   final Map<String, List<List<int>>> _highlightsCache = {};
-
-  // ★ 任务队列
-  final Set<int> _pendingHeights = {};
   final Set<String> _pendingHighlights = {};
   bool _processing = false;
-
-  // ★ 最近被 build 过的 chunk 索引（= 当前可见区域）
   final Set<int> _recentlyVisible = {};
 
-  // ★ 短文件结束位置
+  // 短文件结束提示（块索引）
   int? _shortFileLastBlockIdx;
   DiffResult? _shortFileLastBlockIdxFor;
   int? _shortFileLastBlockIdxCtxLines;
   bool _shortIsLeft = true;
 
-  double? _cacheWidth;
-  double? _cacheFont;
+  // 缓存失效用
+  bool? _cacheShowLine;
+  double? _cacheBodyFont;
   double? _cacheCtxFont;
   double? _cacheGutterFont;
-  bool? _cacheShowLine;
-  int? _lastCtxLines;
   TextScaler? _cacheScaler;
+  int? _lastCtxLines;
 
   String _findQuery = '';
   int? _jumpedBlockIdx;
@@ -256,54 +257,22 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   DiffResult? _metaFor;
   List<({int orig, int mod})>? _metaCache;
 
+  double? _pendingRestoreOffset;
+  int _restoreAttempts = 0;
+
   @override
   void initState() {
     super.initState();
-    _leftCtrl = ScrollController();
-    _rightCtrl = ScrollController();
-    _leftCtrl.addListener(_syncL);
-    _rightCtrl.addListener(_syncR);
+    _ctrl = ScrollController();
   }
 
   @override
   void dispose() {
-    _leftCtrl.removeListener(_syncL);
-    _rightCtrl.removeListener(_syncR);
-    _leftCtrl.dispose();
-    _rightCtrl.dispose();
-    _pendingHeights.clear();
+    _ctrl.dispose();
     _pendingHighlights.clear();
     _highlightsCache.clear();
     _hlCache.clear();
     super.dispose();
-  }
-
-  void _syncL() {
-    if (_syncing) return;
-    if (!_leftCtrl.hasClients || !_rightCtrl.hasClients) return;
-    final o = _leftCtrl.offset;
-    if ((_rightCtrl.offset - o).abs() < 0.5) return;
-    _syncing = true;
-    try {
-      _rightCtrl.jumpTo(o.clamp(
-        _rightCtrl.position.minScrollExtent,
-        _rightCtrl.position.maxScrollExtent));
-    } catch (_) {}
-    _syncing = false;
-  }
-
-  void _syncR() {
-    if (_syncing) return;
-    if (!_leftCtrl.hasClients || !_rightCtrl.hasClients) return;
-    final o = _rightCtrl.offset;
-    if ((_leftCtrl.offset - o).abs() < 0.5) return;
-    _syncing = true;
-    try {
-      _leftCtrl.jumpTo(o.clamp(
-        _leftCtrl.position.minScrollExtent,
-        _leftCtrl.position.maxScrollExtent));
-    } catch (_) {}
-    _syncing = false;
   }
 
   // ==================== 给外部（主 screen）的公开方法 ====================
@@ -321,137 +290,109 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     });
   }
 
-  double? _pendingRestoreOffset;
-int _restoreAttempts = 0;
   double? get currentScrollOffset {
-    if (!_leftCtrl.hasClients) return null;
-    return _leftCtrl.offset;
+    if (!_ctrl.hasClients) return null;
+    return _ctrl.offset;
   }
 
- void restoreScrollOffset(double offset) {
-  CrashLogger.instance.mark('[restore] 收到 offset=$offset');
-  _pendingRestoreOffset = offset;
-  _restoreAttempts = 0;
-  // 立即尝试。数据还没就绪的话 _tryRestoreOffset 会等。
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (mounted) _tryRestoreOffset();
-  });
-}
-
- 
-  void _tryRestoreOffset() {
- // ★ 内部字段为空时，从 provider 读（由主 screen 传入）
- if (_pendingRestoreOffset == null) {
-   final fromProvider = ref.read(groupedRestoreOffsetProvider);
-   if (fromProvider != null) {
-     _pendingRestoreOffset = fromProvider;
-     ref.read(groupedRestoreOffsetProvider.notifier).state = null;
-     _restoreAttempts = 0;
-     CrashLogger.instance.mark('[restore] 从 provider 读到 offset=$fromProvider');
-   }
- }
-
- final o = _pendingRestoreOffset;
- if (o == null) return;
-
-  // 试了 120 帧（约 2 秒）还不行就放弃
-  if (_restoreAttempts >= 120) {
-    _pendingRestoreOffset = null;
+  void restoreScrollOffset(double offset) {
+    _pendingRestoreOffset = offset;
     _restoreAttempts = 0;
-    return;
-  }
-
-  // ★ 核心：等 _dataForDiff 指向最新 diff。
-//   isLoading 变 false 不代表 GroupedDiffView 已经用新数据 rebuild 了。
-//   只有 _dataForDiff == latest 时，ListView 才是用新数据布局的。
-final latest = ref.read(diffResultProvider).value;
-if (latest == null || !identical(_dataForDiff, latest)) {
-  _restoreAttempts++;
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (mounted) _tryRestoreOffset();
-  });
-  return;
-}
-
-  if (!_leftCtrl.hasClients) {
-    _restoreAttempts++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _tryRestoreOffset();
     });
-    return;
   }
 
+  void _tryRestoreOffset() {
+    if (_pendingRestoreOffset == null) {
+      final fromProvider = ref.read(groupedRestoreOffsetProvider);
+      if (fromProvider != null) {
+        _pendingRestoreOffset = fromProvider;
+        ref.read(groupedRestoreOffsetProvider.notifier).state = null;
+        _restoreAttempts = 0;
+      }
+    }
 
+    final o = _pendingRestoreOffset;
+    if (o == null) return;
 
-
-    
-
-  final max = _leftCtrl.position.maxScrollExtent;
-
-  // ★ 关键：max 小于目标 offset 时，ListView 还没布局完。
-  //   此时跳过去会被 clamp 到一个很小的位置（表现为"跳开头"）。等它长大。
-  if (max < o) {
-    _restoreAttempts++;
     if (_restoreAttempts >= 120) {
-      // 试了 2 秒，max 还是不够大。内容真的变短了，跳到 max。
-      _leftCtrl.jumpTo(max);
-      CrashLogger.instance.mark('[restore] 放弃，跳到 max=$max');
       _pendingRestoreOffset = null;
       _restoreAttempts = 0;
       return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _tryRestoreOffset();
-    });
-    return;
+
+    final latest = ref.read(diffResultProvider).value;
+    if (latest == null || !identical(_dataForDiff, latest)) {
+      _restoreAttempts++;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tryRestoreOffset();
+      });
+      return;
+    }
+
+    if (!_ctrl.hasClients) {
+      _restoreAttempts++;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tryRestoreOffset();
+      });
+      return;
+    }
+
+    final max = _ctrl.position.maxScrollExtent;
+    if (max < o) {
+      _restoreAttempts++;
+      if (_restoreAttempts >= 120) {
+        _ctrl.jumpTo(max);
+        _pendingRestoreOffset = null;
+        _restoreAttempts = 0;
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tryRestoreOffset();
+      });
+      return;
+    }
+
+    _ctrl.jumpTo(o.clamp(0.0, max));
+    _pendingRestoreOffset = null;
+    _restoreAttempts = 0;
   }
-
-  _leftCtrl.jumpTo(o.clamp(0.0, max));
-  CrashLogger.instance.mark('[restore] 已跳转 offset=$o max=$max');
-  _pendingRestoreOffset = null;
-  _restoreAttempts = 0;
-}
-
-
-  
 
   bool scrollToEntry(int entryIdx) {
     final blockIdx = _blockIdxForEntry(entryIdx);
     if (blockIdx == null) return false;
     setState(() => _jumpedBlockIdx = blockIdx);
-    final off = _blockOffset(blockIdx);
-    if (_leftCtrl.hasClients) {
-      _leftCtrl.jumpTo(off.clamp(0, _leftCtrl.position.maxScrollExtent));
-    }
+    _jumpToBlockAnimated(blockIdx);
     return true;
   }
 
   // ==================== 差异跳转 ====================
 
   void pageUp() {
-    if (!_leftCtrl.hasClients) return;
-    final p = _leftCtrl.position;
+    if (!_ctrl.hasClients) return;
+    final p = _ctrl.position;
     final t = (p.pixels - p.viewportDimension * 0.95)
         .clamp(0.0, p.maxScrollExtent);
     if ((t - p.pixels).abs() < 0.5) return;
-    _leftCtrl.jumpTo(t);
+    _ctrl.jumpTo(t);
   }
 
   void pageDown() {
-    if (!_leftCtrl.hasClients) return;
-    final p = _leftCtrl.position;
+    if (!_ctrl.hasClients) return;
+    final p = _ctrl.position;
     final t = (p.pixels + p.viewportDimension * 0.95)
         .clamp(0.0, p.maxScrollExtent);
     if ((t - p.pixels).abs() < 0.5) return;
-    _leftCtrl.jumpTo(t);
+    _ctrl.jumpTo(t);
   }
 
   void jumpToTop() {
     CrashLogger.instance.mark('grouped: 跳到第一个差异块');
-    if (!_leftCtrl.hasClients) return;
+    if (!_ctrl.hasClients) return;
     final visible = _visible;
     if (visible == null || visible.isEmpty) {
-      _leftCtrl.jumpTo(0);
+      _ctrl.jumpTo(0);
       return;
     }
     for (var i = 0; i < visible.length; i++) {
@@ -461,7 +402,7 @@ if (latest == null || !identical(_dataForDiff, latest)) {
         return;
       }
     }
-    _leftCtrl.jumpTo(0);
+    _ctrl.jumpTo(0);
     if (_jumpedBlockIdx != null) {
       setState(() => _jumpedBlockIdx = null);
     }
@@ -469,10 +410,10 @@ if (latest == null || !identical(_dataForDiff, latest)) {
 
   void jumpToBottom() {
     CrashLogger.instance.mark('grouped: 跳到最后一个差异块');
-    if (!_leftCtrl.hasClients) return;
+    if (!_ctrl.hasClients) return;
     final visible = _visible;
     if (visible == null || visible.isEmpty) {
-      _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
+      _ctrl.jumpTo(_ctrl.position.maxScrollExtent);
       return;
     }
     for (var i = visible.length - 1; i >= 0; i--) {
@@ -482,24 +423,24 @@ if (latest == null || !identical(_dataForDiff, latest)) {
         return;
       }
     }
-    _leftCtrl.jumpTo(_leftCtrl.position.maxScrollExtent);
+    _ctrl.jumpTo(_ctrl.position.maxScrollExtent);
     if (_jumpedBlockIdx != null) {
       setState(() => _jumpedBlockIdx = null);
     }
   }
 
-  /// 迭代逼近到目标块：每次跳到估算位置，等一帧让附近高度算准，再修正。
-  /// 最多 6 轮，通常 2~3 轮收敛。
+  /// 迭代逼近到目标块：每次跳到估算位置，等一帧，检查当前块索引，再修正。
+  /// 最多 8 轮，通常 2~4 轮收敛。
   Future<void> _jumpToBlockAnimated(int targetIdx) async {
     if (!mounted) return;
-    if (!_leftCtrl.hasClients) return;
+    if (!_ctrl.hasClients) return;
 
-    for (var attempt = 0; attempt < 6; attempt++) {
-      if (!mounted || !_leftCtrl.hasClients) return;
+    for (var attempt = 0; attempt < 8; attempt++) {
+      if (!mounted || !_ctrl.hasClients) return;
 
-      final max = _leftCtrl.position.maxScrollExtent;
+      final max = _ctrl.position.maxScrollExtent;
       final off = _blockOffset(targetIdx).clamp(0.0, max);
-      _leftCtrl.jumpTo(off);
+      _ctrl.jumpTo(off);
 
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
@@ -528,84 +469,62 @@ if (latest == null || !identical(_dataForDiff, latest)) {
     return (start: start, end: end);
   }
 
-void jumpToNextDiff() {
-  final visible = _visible;
-  if (visible == null || !_leftCtrl.hasClients) return;
-  final cur = _currentBlockIdx() ?? -1;
+  void jumpToNextDiff() {
+    final visible = _visible;
+    if (visible == null || !_ctrl.hasClients) return;
+    final cur = _currentBlockIdx() ?? -1;
 
-  int? target;
+    int? target;
 
-  // ★ 可见列表里没有相同块（= 仅差异块模式），一律逐块跳，不做长段跳尾。
-  final noEqual = !visible.any((b) => b.kind == GroupedBlockKind.equal);
-  if (noEqual) {
-    target = cur < visible.length - 1 ? cur + 1 : null;
-  } else {
-    final seg = _segmentAt(cur, visible);
-    if (seg == null) {
-      var i = cur + 1;
-      while (i < visible.length &&
-          visible[i].kind == GroupedBlockKind.equal) {
-        i++;
-      }
-      if (i < visible.length) target = i;
+    final noEqual = !visible.any((b) => b.kind == GroupedBlockKind.equal);
+    if (noEqual) {
+      target = cur < visible.length - 1 ? cur + 1 : null;
     } else {
-      final len = seg.end - seg.start + 1;
-      if (cur < seg.end) {
-        target = len > _kLongSegThreshold ? seg.end : cur + 1;
-      } else {
-        var i = seg.end + 1;
+      final seg = _segmentAt(cur, visible);
+      if (seg == null) {
+        var i = cur + 1;
         while (i < visible.length &&
             visible[i].kind == GroupedBlockKind.equal) {
           i++;
         }
         if (i < visible.length) target = i;
+      } else {
+        final len = seg.end - seg.start + 1;
+        if (cur < seg.end) {
+          target = len > _kLongSegThreshold ? seg.end : cur + 1;
+        } else {
+          var i = seg.end + 1;
+          while (i < visible.length &&
+              visible[i].kind == GroupedBlockKind.equal) {
+            i++;
+          }
+          if (i < visible.length) target = i;
+        }
       }
     }
+
+    if (target == null) {
+      _toast('到底了');
+      return;
+    }
+    setState(() => _jumpedBlockIdx = target);
+    _jumpToBlockAnimated(target);
   }
-
-  if (target == null) {
-    _toast('到底了');
-    return;
-  }
-  setState(() => _jumpedBlockIdx = target);
-  _jumpToBlockAnimated(target);
-}
-
-
-  
-
-
 
   void jumpToPrevDiff() {
-  final visible = _visible;
-  if (visible == null || !_leftCtrl.hasClients) return;
-  final cur = _currentBlockIdx() ?? visible.length;
+    final visible = _visible;
+    if (visible == null || !_ctrl.hasClients) return;
+    final cur = _currentBlockIdx() ?? visible.length;
 
-  int? target;
+    int? target;
 
-  // ★ 可见列表里没有相同块（= 仅差异块模式），一律逐块跳，不做长段跳尾。
-  final noEqual = !visible.any((b) => b.kind == GroupedBlockKind.equal);
-  if (noEqual) {
-    target = cur > 0 ? cur - 1 : null;
-  } else {
-    final seg = _segmentAt(cur, visible);
-    if (seg == null) {
-      var i = cur - 1;
-      while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
-        i--;
-      }
-      if (i >= 0) {
-        while (i > 0 && visible[i - 1].kind != GroupedBlockKind.equal) {
-          i--;
-        }
-        target = i;
-      }
+    final noEqual = !visible.any((b) => b.kind == GroupedBlockKind.equal);
+    if (noEqual) {
+      target = cur > 0 ? cur - 1 : null;
     } else {
-      final len = seg.end - seg.start + 1;
-      if (cur > seg.start) {
-        target = len > _kLongSegThreshold ? seg.start : cur - 1;
-      } else {
-        var i = seg.start - 1;
+      final seg = _segmentAt(cur, visible);
+      if (seg == null) {
+        var i = cur - 1;
         while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
           i--;
         }
@@ -615,18 +534,32 @@ void jumpToNextDiff() {
           }
           target = i;
         }
+      } else {
+        final len = seg.end - seg.start + 1;
+        if (cur > seg.start) {
+          target = len > _kLongSegThreshold ? seg.start : cur - 1;
+        } else {
+          var i = seg.start - 1;
+          while (i >= 0 && visible[i].kind == GroupedBlockKind.equal) {
+            i--;
+          }
+          if (i >= 0) {
+            while (i > 0 && visible[i - 1].kind != GroupedBlockKind.equal) {
+              i--;
+            }
+            target = i;
+          }
+        }
       }
     }
-  }
 
-  if (target == null) {
-    _toast('到顶了');
-    return;
+    if (target == null) {
+      _toast('到顶了');
+      return;
+    }
+    setState(() => _jumpedBlockIdx = target);
+    _jumpToBlockAnimated(target);
   }
-  setState(() => _jumpedBlockIdx = target);
-  _jumpToBlockAnimated(target);
-}
-  
 
   // ==================== 内部 ====================
 
@@ -635,22 +568,62 @@ void jumpToNextDiff() {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// 粗估一个块的渲染高度。仅用于跳转定位，不再约束渲染。
+  /// 逻辑行数不足以覆盖折行场景——用行宽粗估折行数。
+  double _estimateBlockHeight(GroupedBlock b) {
+    final data = _data;
+    if (data == null) return 24.0;
+    final isContext = b.kind == GroupedBlockKind.equal;
+    final fs = isContext
+        ? ref.read(contextFontSizeProvider)
+        : ref.read(bodyFontSizeProvider);
+    final strutH = fs * 1.1;
+    final showLine = ref.read(showLineNumbersProvider);
+    final viewportW = MediaQuery.of(context).size.width;
+    final halfW = (viewportW - 1) / 2;
+    final contentW = halfW - (showLine ? 36.0 : 2.0);
+
+    double estimateLines(List<String> lines, int start, int end) {
+      var acc = 0.0;
+      for (var i = start; i < end; i++) {
+        if (i < 0 || i >= lines.length) continue;
+        final t = lines[i];
+        if (t.isEmpty) {
+          acc += 1;
+          continue;
+        }
+        double w = 0;
+        for (final code in t.runes) {
+          w += code < 128 ? fs * 0.6 : fs;
+        }
+        final rows = (w / contentW).ceil();
+        acc += rows < 1 ? 1 : rows;
+      }
+      return acc;
+    }
+
+    final leftN = estimateLines(data.linesA, b.leftStart, b.leftEnd);
+    final rightN = estimateLines(data.linesB, b.rightStart, b.rightEnd);
+    final n = leftN > rightN ? leftN : rightN;
+    return n * strutH + 8;
+  }
+
   double _blockOffset(int idx) {
     final visible = _visible;
-    if (visible == null) return 0;
+    if (visible == null || idx <= 0) return 0;
     double acc = 0;
     for (var i = 0; i < idx && i < visible.length; i++) {
-      acc += _chunkHeights[i] ?? _estimateHeight(i);
+      acc += _estimateBlockHeight(visible[i]);
     }
     return acc;
   }
 
   int? _currentBlockIdx() {
-    if (!_leftCtrl.hasClients || _visible == null) return null;
-    final off = _leftCtrl.offset;
+    if (!_ctrl.hasClients || _visible == null) return null;
+    final off = _ctrl.offset;
     double acc = 0;
     for (var i = 0; i < _visible!.length; i++) {
-      final h = _chunkHeights[i] ?? _estimateHeight(i);
+      final h = _estimateBlockHeight(_visible![i]);
       if (off < acc + h) return i;
       acc += h;
     }
@@ -699,41 +672,31 @@ void jumpToNextDiff() {
     return meta;
   }
 
-  /// ★ 计算"短文件最后一行"所在的可视 block 索引。
+  /// 计算"短文件最后一行"所在的可视 block 索引。
   /// 两个文件行数差距 < 100 时不提示（返回 null）。
-  /// ★ 计算"短文件最后一行"所在的可视 block 索引。
-/// 两个文件行数差距 < 100 时不提示（返回 null）。
-///
-/// 找不到精确位置时（比如最后一行被 ctx 过滤掉了），
-/// 退而求其次：返回"最后一个还包含短文件内容的可见块"。
-int? _computeShortFileEndBlockIdx(GroupedDiffData data) {
-  if (data.linesA.isEmpty || data.linesB.isEmpty) return null;
-  final lenA = data.linesA.length;
-  final lenB = data.linesB.length;
-  if (lenA == lenB) return null;
-  // ★ 差距小于 100 行不触发提示
-  const int minDiff = 100;
-  if ((lenA - lenB).abs() < minDiff) return null;
+  int? _computeShortFileEndBlockIdx(GroupedDiffData data) {
+    if (data.linesA.isEmpty || data.linesB.isEmpty) return null;
+    final lenA = data.linesA.length;
+    final lenB = data.linesB.length;
+    if (lenA == lenB) return null;
+    const int minDiff = 100;
+    if ((lenA - lenB).abs() < minDiff) return null;
 
-  final shortIsLeft = lenA < lenB;
-  _shortIsLeft = shortIsLeft;
-  final shortLineCount = shortIsLeft ? lenA : lenB;
-  final visible = _visible;
-  if (visible == null || visible.isEmpty) return null;
+    final shortIsLeft = lenA < lenB;
+    _shortIsLeft = shortIsLeft;
+    final shortLineCount = shortIsLeft ? lenA : lenB;
+    final visible = _visible;
+    if (visible == null || visible.isEmpty) return null;
 
-  // 从后往前找：最后一个"还包含短文件内容"的可见块。
-  // 判断标准：该块在短文件那一侧的起始行号 < 短文件总行数。
-  for (var i = visible.length - 1; i >= 0; i--) {
-    final b = visible[i];
-    final blockStart = shortIsLeft ? b.leftStart : b.rightStart;
-    if (blockStart < shortLineCount) {
-      return i;
+    for (var i = visible.length - 1; i >= 0; i--) {
+      final b = visible[i];
+      final blockStart = shortIsLeft ? b.leftStart : b.rightStart;
+      if (blockStart < shortLineCount) {
+        return i;
+      }
     }
+    return visible.length - 1;
   }
-  // 极端兜底：一个都没有，落在第一个可见块下
-  // 兜底：可见列表全是长文件独有，落在最底
-return visible.length - 1;
-}
 
   Future<void> _onLineLongPress(int lineIdx, bool isLeft) async {
     final provider = isLeft
@@ -786,6 +749,8 @@ return visible.length - 1;
     if (mounted) setState(() {});
   }
 
+  // ==================== 构建 ====================
+
   @override
   Widget build(BuildContext context) {
     final diffAsync = ref.watch(diffResultProvider);
@@ -800,34 +765,26 @@ return visible.length - 1;
           return const Center(child: Text('请先导入两份文档'));
         }
 
+        if (!identical(_dataForDiff, diff)) {
+          CrashLogger.instance
+              .mark('[restore] 新数据到达 pending=$_pendingRestoreOffset');
+          _dataForDiff = diff;
+          _data = buildGroupedData(diff, a, b);
+          _visible = null;
+          _highlightsCache.clear();
+          _pendingHighlights.clear();
+          _recentlyVisible.clear();
+          _shortFileLastBlockIdx = null;
+          _shortFileLastBlockIdxFor = null;
+          _shortFileLastBlockIdxCtxLines = null;
+          _metaFor = null;
+          _metaCache = null;
 
-
-
-        
- if (!identical(_dataForDiff, diff)) {
-  CrashLogger.instance.mark('[restore] 新数据到达 pending=$_pendingRestoreOffset');
-  _dataForDiff = diff;
-  _data = buildGroupedData(diff, a, b);
-  _visible = null;
-  _chunkHeights.clear();
-  _highlightsCache.clear();
-  _pendingHeights.clear();
-  _pendingHighlights.clear();
-  _recentlyVisible.clear();
-  _shortFileLastBlockIdx = null;
-  _shortFileLastBlockIdxFor = null;
-  _shortFileLastBlockIdxCtxLines = null;
-  _metaFor = null;
-  _metaCache = null;
-
-  // ★ 新数据到达。此刻才恢复位置（等布局完成后再跳）。
-//   位置可能来自内部字段，也可能在 provider 里，_tryRestoreOffset 会自己处理。
-CrashLogger.instance.mark('[restore] 新数据到达');
-_restoreAttempts = 0;
-WidgetsBinding.instance.addPostFrameCallback((_) {
-  if (mounted) _tryRestoreOffset();
-});
-}
+          _restoreAttempts = 0;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _tryRestoreOffset();
+          });
+        }
         return _buildBody(_data!);
       },
     );
@@ -838,6 +795,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
     final bodyFs = ref.watch(bodyFontSizeProvider);
     final gutterFs = ref.watch(gutterFontSizeProvider);
     final ctxFs = ref.watch(contextFontSizeProvider);
+    final textScaler = MediaQuery.of(context).textScaler;
 
     final colors = _Colors(
       diffLeftBg: ref.watch(replaceLeftBgProvider),
@@ -852,37 +810,27 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       findPink: ref.watch(groupedFindPinkProvider),
     );
 
-    final mq = MediaQuery.of(context);
-    final viewportW = mq.size.width;
-    final halfW = (viewportW - 1) / 2;
-    final contentW = halfW - (showLine ? 42.0 : 8.0);
-
-    if (_cacheWidth != contentW ||
-        _cacheFont != bodyFs ||
+    // 配置变化时，清空高亮缓存（高亮本身的算法不受配置影响，但既然键可能冲突，索性一起清）。
+    if (_cacheShowLine != showLine ||
+        _cacheBodyFont != bodyFs ||
         _cacheCtxFont != ctxFs ||
         _cacheGutterFont != gutterFs ||
-        _cacheShowLine != showLine ||
-        _cacheScaler != mq.textScaler) {
-      _chunkHeights.clear();
+        _cacheScaler != textScaler) {
       _highlightsCache.clear();
-      _pendingHeights.clear();
       _pendingHighlights.clear();
       _recentlyVisible.clear();
-      _cacheWidth = contentW;
-      _cacheFont = bodyFs;
+      _cacheShowLine = showLine;
+      _cacheBodyFont = bodyFs;
       _cacheCtxFont = ctxFs;
       _cacheGutterFont = gutterFs;
-      _cacheShowLine = showLine;
-      _cacheScaler = mq.textScaler;
+      _cacheScaler = textScaler;
     }
 
     final ctxLines = ref.watch(groupedContextLinesProvider).round();
     if (_lastCtxLines != ctxLines) {
       _lastCtxLines = ctxLines;
       _visible = null;
-      _chunkHeights.clear();
       _highlightsCache.clear();
-      _pendingHeights.clear();
       _pendingHighlights.clear();
       _recentlyVisible.clear();
     }
@@ -892,7 +840,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       return const Center(child: Text('两份文档完全相同'));
     }
 
-    // ★ 计算短文件结束位置（缓存）
+    // 短文件结束提示位置
     if (!identical(_shortFileLastBlockIdxFor, _dataForDiff) ||
         _shortFileLastBlockIdxCtxLines != ctxLines) {
       _shortFileLastBlockIdx = _computeShortFileEndBlockIdx(data);
@@ -900,61 +848,82 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       _shortFileLastBlockIdxCtxLines = ctxLines;
     }
 
-    final shortLineCount = _shortIsLeft
-        ? data.linesA.length
-        : data.linesB.length;
+    final shortLineCount =
+        _shortIsLeft ? data.linesA.length : data.linesB.length;
 
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
-    return Row(
-      children: [
-        Expanded(child: _SidePane(
-          data: data, blocks: visible, side: _Side.left,
-          controller: _leftCtrl, showLineNumbers: showLine,
-          bodyFontSize: bodyFs, contextFontSize: ctxFs,
-          gutterFontSize: gutterFs,
-          heightForBlock: _heightForBlock,
-          highlightsFor: (i) => _getHighlightOrNull(i, _Side.left),
-          shortFileEndBlockIdx: _shortFileLastBlockIdx,
-          shortIsLeft: _shortIsLeft,
-          shortLineCount: shortLineCount,
-          findQuery: _findQuery,
-          jumpedBlockIdx: _jumpedBlockIdx,
-          colors: colors,
-          onLineLongPress: _onLineLongPress,
-        )),
-        divider,
-        Expanded(child: _SidePane(
-          data: data, blocks: visible, side: _Side.right,
-          controller: _rightCtrl, showLineNumbers: showLine,
-          bodyFontSize: bodyFs, contextFontSize: ctxFs,
-          gutterFontSize: gutterFs,
-          heightForBlock: _heightForBlock,
-          highlightsFor: (i) => _getHighlightOrNull(i, _Side.right),
-          shortFileEndBlockIdx: _shortFileLastBlockIdx,
-          shortIsLeft: _shortIsLeft,
-          shortLineCount: shortLineCount,
-          findQuery: _findQuery,
-          jumpedBlockIdx: _jumpedBlockIdx,
-          colors: colors,
-          onLineLongPress: _onLineLongPress,
-        )),
-      ],
+    final listView = ListView.builder(
+      controller: _ctrl,
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: false,
+      cacheExtent: 100,
+      itemCount: visible.length,
+      itemBuilder: (ctx, i) {
+        final b = visible[i];
+
+        final showMarkLeft =
+            _shortIsLeft && _shortFileLastBlockIdx == i;
+        final showMarkRight =
+            !_shortIsLeft && _shortFileLastBlockIdx == i;
+
+        final afterShortEndLeft = _shortIsLeft &&
+            _shortFileLastBlockIdx != null &&
+            b.leftStart >= shortLineCount;
+        final afterShortEndRight = !_shortIsLeft &&
+            _shortFileLastBlockIdx != null &&
+            b.rightStart >= shortLineCount;
+
+        final isCurrent = _jumpedBlockIdx == i;
+
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _BlockTile(
+                  block: b, data: data, side: _Side.left,
+                  showLineNumbers: showLine,
+                  bodyFontSize: bodyFs,
+                  contextFontSize: ctxFs,
+                  gutterFontSize: gutterFs,
+                  findQuery: _findQuery,
+                  isCurrent: isCurrent,
+                  highlights: _getHighlightOrNull(i, _Side.left),
+                  showShortEndMark: showMarkLeft,
+                  afterShortEnd: afterShortEndLeft,
+                  colors: colors,
+                  onLineLongPress: _onLineLongPress,
+                ),
+              ),
+              divider,
+              Expanded(
+                child: _BlockTile(
+                  block: b, data: data, side: _Side.right,
+                  showLineNumbers: showLine,
+                  bodyFontSize: bodyFs,
+                  contextFontSize: ctxFs,
+                  gutterFontSize: gutterFs,
+                  findQuery: _findQuery,
+                  isCurrent: isCurrent,
+                  highlights: _getHighlightOrNull(i, _Side.right),
+                  showShortEndMark: showMarkRight,
+                  afterShortEnd: afterShortEndRight,
+                  colors: colors,
+                  onLineLongPress: _onLineLongPress,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
+
+    return buildViewerScrollbar(child: listView, controller: _ctrl);
   }
 
-  // ==================== ★ 异步懒算核心 ====================
-
-  double _heightForBlock(int blockIndex) {
-    if (_recentlyVisible.length > 300) _recentlyVisible.clear();
-    _recentlyVisible.add(blockIndex);
-
-    final cached = _chunkHeights[blockIndex];
-    if (cached != null) return cached;
-    _requestHeight(blockIndex);
-    return _estimateHeight(blockIndex);
-  }
+  // ==================== 高亮异步 ====================
 
   List<List<int>>? _getHighlightOrNull(int blockIndex, _Side side) {
     if (_recentlyVisible.length > 300) _recentlyVisible.clear();
@@ -972,89 +941,6 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
 
   String _hlKeyFor(int blockIndex, _Side side) =>
       '$blockIndex:${side == _Side.left ? "L" : "R"}';
-
-  void _requestHeight(int i) {
-    if (_pendingHeights.contains(i)) return;
-    _pendingHeights.add(i);
-    _scheduleProcess();
-  }
-
-  double _estimateHeight(int blockIndex) {
-    final visible = _visible;
-    if (visible == null ||
-        blockIndex < 0 ||
-        blockIndex >= visible.length) {
-      return 24.0;
-    }
-    final b = visible[blockIndex];
-    final isContext = b.kind == GroupedBlockKind.equal;
-    final fs = isContext
-        ? ref.read(contextFontSizeProvider)
-        : ref.read(bodyFontSizeProvider);
-    final lineH = fs * 1.1 + 2;
-    final lines = b.visualLength > 0 ? b.visualLength : 1;
-    return lines * lineH + 8;
-  }
-
-  double _computeHeight(int blockIndex) {
-    final visible = _visible;
-    final data = _data;
-    if (visible == null || data == null ||
-        blockIndex < 0 || blockIndex >= visible.length) return 24.0;
-
-    final b = visible[blockIndex];
-    final isContext = b.kind == GroupedBlockKind.equal;
-    final fs = isContext
-        ? ref.read(contextFontSizeProvider)
-        : ref.read(bodyFontSizeProvider);
-    final width = _cacheWidth ?? 100.0;
-    final scaler = _cacheScaler ?? TextScaler.noScaling;
-    final style = TextStyle(fontSize: fs, height: 1.1);
-
-    final showLine = ref.read(showLineNumbersProvider);
-    final gutterFs = ref.read(gutterFontSizeProvider);
-    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.1);
-    final gutterH = showLine
-        ? measureTextHeight(
-            text: '0',
-            maxWidth: 30,
-            style: gutterStyle,
-            textScaler: scaler,
-          )
-        : 0.0;
-
-    double measureLine(String text) {
-  // 保守：每行都当"行尾有 ↵、且含加粗字符"来量。
-  // 只多不少，宁可块稍微高一点，也不让最后一行被裁。
-  final t = text.isEmpty ? ' ' : text;
-  final measured = '$t↵';
-  final boldStyle = style.copyWith(fontWeight: FontWeight.bold);
-  final h = measureTextHeight(
-    text: measured,
-    maxWidth: width,
-    style: boldStyle,
-    textScaler: scaler,
-  );
-  return h > gutterH ? h : gutterH;
-}
-
-    double lh = 0;
-    for (var i = b.leftStart; i < b.leftEnd; i++) {
-      if (i < 0 || i >= data.linesA.length) continue;
-      lh += measureLine(data.linesA[i]);
-    }
-    double rh = 0;
-    for (var i = b.rightStart; i < b.rightEnd; i++) {
-      if (i < 0 || i >= data.linesB.length) continue;
-      rh += measureLine(data.linesB[i]);
-    }
-
-    final blank = measureTextHeight(
-      text: ' ', maxWidth: width, style: style, textScaler: scaler);
-    if (lh == 0) lh = blank;
-    if (rh == 0) rh = blank;
-    return (lh > rh ? lh : rh) + 8;
-  }
 
   List<List<int>> _computeHighlight(int blockIndex, _Side side) {
     final visible = _visible;
@@ -1093,56 +979,32 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       return;
     }
 
-    // 每帧最多处理 3 个任务
     const int budget = 4;
     var processed = 0;
 
     while (processed < budget) {
-      bool didWork = false;
+      if (_pendingHighlights.isEmpty) break;
 
-      if (_pendingHeights.isNotEmpty) {
-        // 优先取"最近可见"的 chunk
-        int? target;
-        for (final i in _recentlyVisible) {
-          if (_pendingHeights.contains(i)) {
-            target = i;
+      String? target;
+      for (final i in _recentlyVisible) {
+        for (final suffix in const ['L', 'R']) {
+          final k = '$i:$suffix';
+          if (_pendingHighlights.contains(k)) {
+            target = k;
             break;
           }
         }
-        target ??= _pendingHeights.first;
-
-        _pendingHeights.remove(target);
-        try {
-          _chunkHeights[target] = _computeHeight(target);
-          didWork = true;
-        } catch (_) {}
-      } else if (_pendingHighlights.isNotEmpty) {
-        String? target;
-        for (final i in _recentlyVisible) {
-          for (final suffix in const ['L', 'R']) {
-            final k = '$i:$suffix';
-            if (_pendingHighlights.contains(k)) {
-              target = k;
-              break;
-            }
-          }
-          if (target != null) break;
-        }
-        target ??= _pendingHighlights.first;
-
-        _pendingHighlights.remove(target);
-        try {
-          final parts = target.split(':');
-          final idx = int.parse(parts[0]);
-          final side = parts[1] == 'L' ? _Side.left : _Side.right;
-          _highlightsCache[target] = _computeHighlight(idx, side);
-          didWork = true;
-        } catch (_) {}
-      } else {
-        break;
+        if (target != null) break;
       }
+      target ??= _pendingHighlights.first;
 
-      if (!didWork) break;
+      _pendingHighlights.remove(target);
+      try {
+        final parts = target.split(':');
+        final idx = int.parse(parts[0]);
+        final side = parts[1] == 'L' ? _Side.left : _Side.right;
+        _highlightsCache[target] = _computeHighlight(idx, side);
+      } catch (_) {}
       processed++;
     }
 
@@ -1150,7 +1012,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       setState(() {});
     }
 
-    if (_pendingHeights.isNotEmpty || _pendingHighlights.isNotEmpty) {
+    if (_pendingHighlights.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _processOne());
     } else {
       _processing = false;
@@ -1190,6 +1052,8 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
   }
 }
 
+// ==================== 颜色配置 ====================
+
 class _Colors {
   const _Colors({
     required this.diffLeftBg,
@@ -1212,109 +1076,9 @@ class _Colors {
 
 enum _Side { left, right }
 
+// ==================== 单侧块渲染 ====================
 
-
-
-
-class _SidePane extends StatelessWidget {
-  const _SidePane({
-    required this.data, required this.blocks, required this.side,
-    required this.controller, required this.showLineNumbers,
-    required this.bodyFontSize, required this.contextFontSize,
-    required this.gutterFontSize, required this.heightForBlock,
-    required this.highlightsFor,
-    required this.shortFileEndBlockIdx,
-    required this.shortIsLeft,
-    required this.shortLineCount,
-    required this.findQuery, required this.jumpedBlockIdx,
-    required this.colors, required this.onLineLongPress,
-  });
-
-  final GroupedDiffData data;
-  final List<GroupedBlock> blocks;
-  final _Side side;
-  final ScrollController? controller;
-  final bool showLineNumbers;
-  final double bodyFontSize;
-  final double contextFontSize;
-  final double gutterFontSize;
-  final double Function(int) heightForBlock;
-  final List<List<int>>? Function(int) highlightsFor;
-  final int? shortFileEndBlockIdx;
-  final bool shortIsLeft;
-  final int shortLineCount;
-  final String findQuery;
-  final int? jumpedBlockIdx;
-  final _Colors colors;
-  final void Function(int lineIdx, bool isLeft) onLineLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    // ★ 这一侧是不是"短文件那侧"
-    final isShortSide = (side == _Side.left && shortIsLeft) ||
-        (side == _Side.right && !shortIsLeft);
-
-    final list = ListView.builder(
-      controller: controller,
-      addAutomaticKeepAlives: false,
-      addRepaintBoundaries: false,
-      cacheExtent: 80,
-      itemCount: blocks.length,
-      itemBuilder: (ctx, i) {
-        final b = blocks[i];
-        final baseH = heightForBlock(i);
-
-        // ★ 提示条只在短文件那侧、那个块上出现
-        final showMark =
-            isShortSide && shortFileEndBlockIdx == i;
-
-        // ★ 提示条高度 32，容两行
-        final actualH = showMark ? baseH + 144 : baseH;
-
-        // ★ 超出短文件范围（且这一侧是短文件）：黑块
-        final blockStart =
-            side == _Side.left ? b.leftStart : b.rightStart;
-        final afterShortEnd = isShortSide &&
-            shortFileEndBlockIdx != null &&
-            blockStart >= shortLineCount;
-
-        return SizedBox(
-          height: actualH,
-          child: _BlockTile(
-            block: b, data: data, side: side,
-            showLineNumbers: showLineNumbers,
-            bodyFontSize: bodyFontSize,
-            contextFontSize: contextFontSize,
-            gutterFontSize: gutterFontSize,
-            findQuery: findQuery,
-            isCurrent: jumpedBlockIdx == i,
-            highlights: highlightsFor(i),
-            showShortEndMark: showMark,
-            afterShortEnd: afterShortEnd,
-            colors: colors,
-            onLineLongPress: onLineLongPress,
-          ),
-        );
-      },
-    );
-
-    if (side == _Side.right) {
-      return buildViewerScrollbar(child: list, controller: controller);
-    }
-    return list;
-  }
-}
-
-
-
-
-
-
-
-
-
-    
-    class _BlockTile extends StatelessWidget {
+class _BlockTile extends StatelessWidget {
   const _BlockTile({
     required this.block, required this.data, required this.side,
     required this.showLineNumbers, required this.bodyFontSize,
@@ -1363,6 +1127,18 @@ class _SidePane extends StatelessWidget {
         : Theme.of(context).colorScheme.outline;
     final base = TextStyle(fontSize: fs, color: fg, height: 1.1);
 
+    // strut：让渲染行高严格 = fs × 1.1，使行号与正文视觉基线稳定。
+    final bodyStrut = StrutStyle(
+      fontSize: fs,
+      height: 1.1,
+      forceStrutHeight: true,
+    );
+    final gutterStrut = StrutStyle(
+      fontSize: gutterFontSize,
+      height: 1.1,
+      forceStrutHeight: true,
+    );
+
     final rows = <Widget>[];
     for (var li = start; li < end; li++) {
       if (li < 0 || li >= lines.length) continue;
@@ -1383,6 +1159,7 @@ class _SidePane extends StatelessWidget {
                   maxLines: 1,
                   softWrap: false,
                   overflow: TextOverflow.clip,
+                  strutStyle: gutterStrut,
                   style: TextStyle(
                     fontSize: gutterFontSize,
                     height: 1.1,
@@ -1390,8 +1167,11 @@ class _SidePane extends StatelessWidget {
               ),
               const SizedBox(width: 4),
             ],
-            Expanded(child: Text.rich(TextSpan(children: _spans(
-              lines[li], marks, base, findQuery, isCurrent, isLeft)))),
+            Expanded(child: Text.rich(
+              TextSpan(children: _spans(
+                lines[li], marks, base, findQuery, isCurrent, isLeft)),
+              strutStyle: bodyStrut,
+            )),
           ],
         ),
       ));
@@ -1412,30 +1192,24 @@ class _SidePane extends StatelessWidget {
 
     final Widget body = showShortEndMark
         ? Column(
-            mainAxisSize: MainAxisSize.max,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: content),
-              // 提示条：32px，两行文字
-
-
-
-
-              // 8 条独立横条，颜色不同，文字相同
-Column(
-  mainAxisSize: MainAxisSize.min,
-  crossAxisAlignment: CrossAxisAlignment.stretch,
-  children: const [
-    _WarningBar(color: Color(0xFFFF0000), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFFFF8700), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFFF9FF00), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF00FF27), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF00F3FF), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF0037FF), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFF9C00FF), label: '短文件到此结束，下方仅为长文件独有内容'),
-    _WarningBar(color: Color(0xFFFF50DE), label: '短文件到此结束，下方仅为长文件独有内容'),
-  ],
-),
+              content,
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: const [
+                  _WarningBar(color: Color(0xFFFF0000), label: '短文件到此结束，下方仅为长文件独有内容'),
+                  _WarningBar(color: Color(0xFFFF8700), label: '短文件到此结束，下方仅为长文件独有内容'),
+                  _WarningBar(color: Color(0xFFF9FF00), label: '短文件到此结束，下方仅为长文件独有内容'),
+                  _WarningBar(color: Color(0xFF00FF27), label: '短文件到此结束，下方仅为长文件独有内容'),
+                  _WarningBar(color: Color(0xFF00F3FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+                  _WarningBar(color: Color(0xFF0037FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+                  _WarningBar(color: Color(0xFF9C00FF), label: '短文件到此结束，下方仅为长文件独有内容'),
+                  _WarningBar(color: Color(0xFFFF50DE), label: '短文件到此结束，下方仅为长文件独有内容'),
+                ],
+              ),
             ],
           )
         : content;
@@ -1536,7 +1310,7 @@ Column(
     }
   }
 }
-    
+
 class _WarningBar extends StatelessWidget {
   const _WarningBar({required this.color, required this.label});
 
