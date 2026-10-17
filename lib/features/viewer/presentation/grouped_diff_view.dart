@@ -736,55 +736,82 @@ return visible.length - 1;
 }
 
   Future<void> _onLineLongPress(int lineIdx, bool isLeft) async {
-    final provider = isLeft
-        ? preprocessedOriginalProvider
-        : preprocessedModifiedProvider;
-    final current = ref.read(provider);
-    if (current.isEmpty) return;
-    final lines = current.split('\n');
-    if (lineIdx < 0 || lineIdx >= lines.length) return;
+  final provider = isLeft
+      ? preprocessedOriginalProvider
+      : preprocessedModifiedProvider;
+  final current = ref.read(provider);
+  if (current.isEmpty) return;
+  final lines = current.split('\n');
+  if (lineIdx < 0 || lineIdx >= lines.length) return;
 
-    final ctrl = TextEditingController(text: lines[lineIdx]);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: Text('编辑第 ${lineIdx + 1} 行（${isLeft ? "左" : "右"}）',
-            style: const TextStyle(fontSize: 14)),
-        content: TextField(
-          controller: ctrl,
-          maxLines: null,
-          autofocus: true,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
+  final visible = _visible;
+  final data = _data;
+  if (visible == null || data == null) return;
 
-    lines[lineIdx] = ctrl.text;
-    final newText = lines.join('\n');
-    if (isLeft) {
-      ref.read(editedOriginalProvider.notifier).state = newText;
-    } else {
-      ref.read(editedModifiedProvider.notifier).state = newText;
+  // 找当前行所在的块
+  int blockIdx = -1;
+  for (var i = 0; i < visible.length; i++) {
+    final b = visible[i];
+    final start = isLeft ? b.leftStart : b.rightStart;
+    final end = isLeft ? b.leftEnd : b.rightEnd;
+    if (lineIdx >= start && lineIdx < end) {
+      blockIdx = i;
+      break;
     }
-    ref.read(importRevisionProvider.notifier).state++;
-    _dataForDiff = null;
-    _metaFor = null;
-    _metaCache = null;
-    if (mounted) setState(() {});
   }
+  if (blockIdx < 0) return;
+
+  // 当前块 + 下一块
+  final previewBlocks = <GroupedBlock>[
+    visible[blockIdx],
+    if (blockIdx + 1 < visible.length) visible[blockIdx + 1],
+  ];
+
+  final colors = _Colors(
+    diffLeftBg: ref.read(replaceLeftBgProvider),
+    diffRightBg: ref.read(replaceRightBgProvider),
+    charDeleteBg: ref.read(charDeleteBgProvider),
+    charDeleteFg: ref.read(charDeleteFgProvider),
+    charInsertBg: ref.read(charInsertBgProvider),
+    charInsertFg: ref.read(charInsertFgProvider),
+    equalIgnoringWsBg: ref.read(groupedEqualIgnoringWsBgProvider),
+    wsHighlight: ref.read(groupedWsHighlightProvider),
+    findYellow: ref.read(groupedFindYellowProvider),
+    findPink: ref.read(groupedFindPinkProvider),
+  );
+
+  final ctrl = TextEditingController(text: lines[lineIdx]);
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (c) => _LineContextEditDialog(
+      lineIdx: lineIdx,
+      isLeft: isLeft,
+      lines: lines,
+      blocks: previewBlocks,
+      data: data,
+      controller: ctrl,
+      bodyFontSize: ref.read(bodyFontSizeProvider),
+      contextFontSize: ref.read(contextFontSizeProvider),
+      gutterFontSize: ref.read(gutterFontSizeProvider),
+      showLineNumbers: ref.read(showLineNumbersProvider),
+      colors: colors,
+    ),
+  );
+  if (ok != true || !mounted) return;
+
+  lines[lineIdx] = ctrl.text;
+  final newText = lines.join('\n');
+  if (isLeft) {
+    ref.read(editedOriginalProvider.notifier).state = newText;
+  } else {
+    ref.read(editedModifiedProvider.notifier).state = newText;
+  }
+  ref.read(importRevisionProvider.notifier).state++;
+  _dataForDiff = null;
+  _metaFor = null;
+  _metaCache = null;
+  if (mounted) setState(() {});
+}
 
   @override
   Widget build(BuildContext context) {
@@ -1556,6 +1583,195 @@ class _WarningBar extends StatelessWidget {
           color: Colors.white,
           fontWeight: FontWeight.w700,
           shadows: [Shadow(blurRadius: 2, color: Colors.black)],
+        ),
+      ),
+    );
+  }
+}
+// ==================== 长按行：预览 + 编辑弹窗 ====================
+
+class _LineContextEditDialog extends StatefulWidget {
+  const _LineContextEditDialog({
+    required this.lineIdx,
+    required this.isLeft,
+    required this.lines,
+    required this.blocks,
+    required this.data,
+    required this.controller,
+    required this.bodyFontSize,
+    required this.contextFontSize,
+    required this.gutterFontSize,
+    required this.showLineNumbers,
+    required this.colors,
+  });
+
+  final int lineIdx;
+  final bool isLeft;
+  final List<String> lines;
+  final List<GroupedBlock> blocks;
+  final GroupedDiffData data;
+  final TextEditingController controller;
+  final double bodyFontSize;
+  final double contextFontSize;
+  final double gutterFontSize;
+  final bool showLineNumbers;
+  final _Colors colors;
+
+  @override
+  State<_LineContextEditDialog> createState() =>
+      _LineContextEditDialogState();
+}
+
+class _LineContextEditDialogState extends State<_LineContextEditDialog> {
+  late final ScrollController _scrollCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl = ScrollController();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
+  }
+
+  void _scrollToCurrent() {
+    if (!_scrollCtrl.hasClients || widget.blocks.isEmpty) return;
+    final first = widget.blocks.first;
+    final start = widget.isLeft ? first.leftStart : first.rightStart;
+    final rowInBlock = widget.lineIdx - start;
+    if (rowInBlock < 0) return;
+    final lineHeight = widget.bodyFontSize * 1.1;
+    final target = (rowInBlock * lineHeight - 40)
+        .clamp(0.0, _scrollCtrl.position.maxScrollExtent);
+    _scrollCtrl.jumpTo(target);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final side = widget.isLeft ? _Side.left : _Side.right;
+
+    return Dialog.fullscreen(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            '第 ${widget.lineIdx + 1} 行（${widget.isLeft ? "左" : "右"}）',
+            style: const TextStyle(fontSize: 15),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: '取消',
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            // 上半：当前行编辑
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              color: s.surfaceContainerHighest.withValues(alpha: 0.3),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '当前行（可编辑）',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: widget.controller,
+                    maxLines: null,
+                    autofocus: false,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: widget.bodyFontSize,
+                      height: 1.4,
+                    ),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.all(8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // 分隔标题
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '预览（当前块 + 下一块，只读）',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+            ),
+
+            // 下半：块预览
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _scrollCtrl,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < widget.blocks.length; i++) ...[
+                      if (i > 0)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          child: Row(
+                            children: [
+                              const Expanded(child: Divider()),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                child: Text(
+                                  '下一块（上方相同内容已省略）',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: s.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                              const Expanded(child: Divider()),
+                            ],
+                          ),
+                        ),
+                      _BlockTile(
+                        block: widget.blocks[i],
+                        data: widget.data,
+                        side: side,
+                        showLineNumbers: widget.showLineNumbers,
+                        bodyFontSize: widget.bodyFontSize,
+                        contextFontSize: widget.contextFontSize,
+                        gutterFontSize: widget.gutterFontSize,
+                        findQuery: '',
+                        isCurrent: false,
+                        highlights: null, // 预览里不做字符级高亮
+                        showShortEndMark: false,
+                        afterShortEnd: false,
+                        colors: widget.colors,
+                        onLineLongPress: (_, __) {}, // 预览里禁用长按
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
