@@ -4908,32 +4908,34 @@ Widget _buildSearchBar() {
                       horizontal: 7,
                       vertical: 9,
                     ),
-                    suffixIcon: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (!_selectionMode) _buildAdvancedToggle(),
-                        hasText
-                            ? _suffixButton(
-                                icon: Icons.backspace_outlined,
-                                tooltip: '清空输入',
-                                fg: suffixFg,
-                                bg: suffixBg,
-                                onTap:
-                                    isFilter ? _clearFilter : _clearSearchInput,
-                              )
-                            : _suffixButton(
-                                icon: Icons.history,
-                                tooltip: '搜索历史',
-                                fg: suffixFg,
-                                bg: suffixBg,
-                                onTap: _showSearchHistory,
-                              ),
-                      ],
-                    ),
-                    suffixIconConstraints: const BoxConstraints(
-                      minWidth: 84,
-                      minHeight: 44,
-                    ),
+                    suffixIcon: _selectionMode
+                        ? null
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildAdvancedToggle(),
+                              hasText
+                                  ? _suffixButton(
+                                      icon: Icons.backspace_outlined,
+                                      tooltip: '清空输入',
+                                      fg: suffixFg,
+                                      bg: suffixBg,
+                                      onTap: isFilter
+                                          ? _clearFilter
+                                          : _clearSearchInput,
+                                    )
+                                  : _suffixButton(
+                                      icon: Icons.history,
+                                      tooltip: '搜索历史',
+                                      fg: suffixFg,
+                                      bg: suffixBg,
+                                      onTap: _showSearchHistory,
+                                    ),
+                            ],
+                          ),
+                    suffixIconConstraints: _selectionMode
+                        ? null
+                        : const BoxConstraints(minWidth: 84, minHeight: 44),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
