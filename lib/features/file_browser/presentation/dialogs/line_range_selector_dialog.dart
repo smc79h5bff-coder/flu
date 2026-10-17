@@ -137,7 +137,7 @@ class _LineRangeSelectorDialogState extends State<LineRangeSelectorDialog> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
-      child: ui.BackdropFilter(
+      child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: AlertDialog(
           // ===== 毛玻璃样式 =====
