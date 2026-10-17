@@ -1023,7 +1023,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
           if (_jumping)
             Positioned.fill(
               child: ClipRect(
-                child: ui.BackdropFilter(
+                child: BackdropFilter(
                   filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                   child: ColoredBox(
                     color: Theme.of(context)
