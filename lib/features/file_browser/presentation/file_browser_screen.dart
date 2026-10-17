@@ -184,7 +184,10 @@ class _AdvancedOverlayContent extends StatefulWidget {
     required this.panelLeft,
     required this.panelWidth,
     required this.conditions,
+    required this.isFilterMode,
     required this.onChanged,
+    required this.onSubmit,
+    required this.onClearAll,
     required this.onClose,
   });
 
@@ -192,7 +195,10 @@ class _AdvancedOverlayContent extends StatefulWidget {
   final double panelLeft;
   final double panelWidth;
   final List<_SearchCondition> conditions;
+  final bool isFilterMode;
   final VoidCallback onChanged;
+  final VoidCallback onSubmit;
+  final VoidCallback onClearAll;
   final VoidCallback onClose;
 
   @override
@@ -243,7 +249,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
       color: Colors.white,
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.4,
+          maxHeight: MediaQuery.of(context).size.height * 0.6,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -259,10 +265,8 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
                   itemBuilder: (_, i) => _row(i),
                 ),
               ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(3, 4, 3, 10),
-              child: _addButton(),
-            ),
+            _addClearRow(),
+            _submitButton(),
           ],
         ),
       ),
@@ -274,26 +278,26 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
     return Padding(
       padding: const EdgeInsets.only(left: 3, right: 1, top: 3, bottom: 3),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _operatorBtn(i, cond),
+          SizedBox(height: 36, child: _operatorBtn(i, cond)),
           const SizedBox(width: 6),
           Expanded(
-            child: SizedBox(
-              height: 36,
-              child: TextField(
-                controller: cond.controller,
-                onChanged: (_) => widget.onChanged(),
-                style: const TextStyle(fontSize: 14),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: '输入文字',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
+            child: TextField(
+              controller: cond.controller,
+              onChanged: (_) => widget.onChanged(),
+              minLines: 1,
+              maxLines: 4,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '输入文字',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
                 ),
               ),
             ),
@@ -444,20 +448,85 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
     );
   }
 
-  Widget _addButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 40,
-      child: Material(
-        color: const Color(0xFFFAFAFA),
-        borderRadius: BorderRadius.circular(6),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(6),
-          onTap: _add,
-          child: const Center(
-            child: Text(
-              '＋ 添加条件',
-              style: TextStyle(fontSize: 13, color: Colors.black),
+  Widget _addClearRow() {
+    final hasAny = widget.conditions.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(3, 12, 3, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 40,
+              child: Material(
+                color: const Color(0xFFFAFAFA),
+                borderRadius: BorderRadius.circular(6),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: _add,
+                  child: const Center(
+                    child: Text(
+                      '＋ 添加条件',
+                      style: TextStyle(fontSize: 13, color: Colors.black),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SizedBox(
+              height: 40,
+              child: Material(
+                color: const Color(0xFFFAFAFA),
+                borderRadius: BorderRadius.circular(6),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: hasAny ? widget.onClearAll : null,
+                  child: Center(
+                    child: Text(
+                      '🗑 清空条件',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: hasAny ? Colors.black : Colors.black38,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _submitButton() {
+    final enabled = widget.conditions.any((c) => c.text.trim().isNotEmpty);
+    final label = widget.isFilterMode ? '筛选' : '搜索';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(3, 12, 3, 10),
+      child: SizedBox(
+        width: double.infinity,
+        height: 44,
+        child: OutlinedButton(
+          onPressed: enabled ? widget.onSubmit : null,
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colors.white,
+            side: BorderSide(
+              color: enabled ? Colors.black : Colors.black26,
+              width: 1.5,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: enabled ? Colors.black : Colors.black38,
             ),
           ),
         ),
@@ -739,6 +808,7 @@ static const Set<String> _archiveExts = {
   double _lastTapX = double.infinity;
 // ==================== 高级搜索条件状态 ====================
 bool _advancedOpen = false;
+bool _lastHadConditions = false;
 final List<_SearchCondition> _searchConditions = [];
 final GlobalKey _searchInputKey = GlobalKey();
 OverlayEntry? _advancedOverlay;
@@ -1442,15 +1512,39 @@ void _showAdvancedOverlay() {
     final pos = box.localToGlobal(Offset.zero);
     final size = box.size;
 
+    _lastHadConditions = _hasActiveConditions;
+
     _advancedOverlay = OverlayEntry(
       builder: (ctx) => _AdvancedOverlayContent(
         panelTop: pos.dy + size.height + 2,
         panelLeft: pos.dx,
         panelWidth: size.width,
         conditions: _searchConditions,
+        isFilterMode:
+            ref.read(searchBoxModeProvider) == SearchBoxMode.filter,
         onChanged: () {
-          if (mounted) setState(() {});
+          if (!mounted) return;
+          final wasHad = _lastHadConditions;
+          final nowHad = _hasActiveConditions;
+          _lastHadConditions = nowHad;
+          setState(() {});
+          if (wasHad &&
+              !nowHad &&
+              ref.read(searchBoxModeProvider) == SearchBoxMode.filter) {
+            _onFilterTextChanged(_searchCtrl.text);
+          }
         },
+        onSubmit: () {
+          final isFilter =
+              ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
+          _closeAdvanced();
+          if (isFilter) {
+            _runFilterNow();
+          } else {
+            _doSearch();
+          }
+        },
+        onClearAll: _clearConditionsAndRealtime,
         onClose: _closeAdvanced,
       ),
     );
@@ -1466,21 +1560,25 @@ void _showAdvancedOverlay() {
 
 
 Widget _buildAdvancedToggle() {
-  final IconData icon;
-  if (_advancedOpen) {
-    icon = Icons.arrow_drop_up;
-  } else if (_hasActiveConditions) {
-    icon = Icons.arrow_drop_down;
-  } else {
-    icon = Icons.keyboard_arrow_down;
-  }
+  final hasConds = _hasActiveConditions;
+  final open = _advancedOpen;
+
   return SizedBox(
     width: 40,
     height: 44,
     child: InkWell(
-      customBorder: const CircleBorder(),
+      customBorder: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
       onTap: _toggleAdvanced,
-      child: Icon(icon, color: Colors.black, size: 28),
+      child: Center(
+        child: _TriangleIcon(
+          filled: hasConds,
+          direction: open ? 'down' : 'left',
+          size: 20,
+          color: hasConds ? Colors.black : Colors.black54,
+        ),
+      ),
     ),
   );
 }
@@ -2277,7 +2375,12 @@ void _jumpToTop() {
   void _onSearchChanged(String v) {
   final mode = ref.read(searchBoxModeProvider);
   if (mode == SearchBoxMode.filter) {
-    _onFilterTextChanged(v);
+    if (_hasActiveConditions) {
+      // 手动模式：只刷新 UI，不触发过滤
+      setState(() {});
+    } else {
+      _onFilterTextChanged(v);
+    }
   } else {
     setState(() {});
   }
@@ -2414,6 +2517,34 @@ List<EntryInfo> _filterEntries(List<EntryInfo> entries) {
   return entries
       .where((e) => _matchNameForSearch(e.name))
       .toList();
+}
+
+void _runFilterNow() {
+  FocusManager.instance.primaryFocus?.unfocus();
+  _onFilterTextChanged(_searchCtrl.text);
+}
+
+void _clearConditionsAndRealtime() {
+  _advancedOverlay?.remove();
+  _advancedOverlay = null;
+  final oldConds = List<_SearchCondition>.from(_searchConditions);
+  setState(() {
+    _advancedOpen = false;
+    _searchConditions.clear();
+    _filterTaskId++;
+    _filterDeepResults = const [];
+    _lastHadConditions = false;
+  });
+  // 延迟 dispose，避免 overlay 还在 build 时 controller 被回收
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    for (final c in oldConds) {
+      c.dispose();
+    }
+  });
+  final isFilter = ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
+  if (isFilter && _searchCtrl.text.trim().isNotEmpty) {
+    _onFilterTextChanged(_searchCtrl.text);
+  }
 }
 
 void _clearFilter() {
@@ -4631,7 +4762,10 @@ const PopupMenuItem<String>(
     FocusManager.instance.primaryFocus?.unfocus();
     // 不关闭悬浮层，让用户点真正的外部区域再关
   },
-    child: Padding(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       child: Row(
         children: [
@@ -4719,7 +4853,7 @@ const PopupMenuItem<String>(
                      suffixIcon: Row(
   mainAxisSize: MainAxisSize.min,
   children: [
-    if (hasText && !_selectionMode) _buildAdvancedToggle(),
+    if (!_selectionMode) _buildAdvancedToggle(),
     hasText
         ? _suffixButton(
             icon: Icons.backspace_outlined,
@@ -4738,7 +4872,7 @@ const PopupMenuItem<String>(
   ],
 ),
                 suffixIconConstraints: const BoxConstraints(
-  minWidth: 44,
+  minWidth: 84,
   minHeight: 44,
 ),
                 border: OutlineInputBorder(
@@ -4750,17 +4884,82 @@ const PopupMenuItem<String>(
                 ),
               ),
               onChanged: _onSearchChanged,
-              onSubmitted: (isFilter || _selectionMode)
-                  ? (_) => FocusManager.instance.primaryFocus?.unfocus()
-                  : (_) => _doSearch(),
+              onSubmitted: (_) {
+                if (_selectionMode) {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  return;
+                }
+                if (isFilter) {
+                  if (_hasActiveConditions) {
+                    _runFilterNow();
+                  } else {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                  }
+                } else {
+                  _doSearch();
+                }
+              },
             ),
           ),
         ],
       ),
+        ),
+        if (!_advancedOpen && _hasActiveConditions && !_selectionMode)
+          _buildActionChips(),
+      ],
     ),
   );
 }
 
+
+Widget _buildActionChips() {
+  final isFilter =
+      ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+    child: Row(
+      children: [
+        Expanded(
+          child: _actionChip(
+            label: isFilter ? '筛选' : '搜索',
+            onTap: isFilter ? _runFilterNow : _doSearch,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _actionChip(
+            label: '清空',
+            onTap: _clearConditionsAndRealtime,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _actionChip({required String label, required VoidCallback onTap}) {
+  return SizedBox(
+    height: 36,
+    child: OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: Colors.black, width: 1.5),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+          color: Colors.black,
+        ),
+      ),
+    ),
+  );
+}
 
 Widget _suffixButton({
   required IconData icon,
@@ -7017,6 +7216,80 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
       icon: const Icon(Icons.fingerprint, size: 16),
       label: const Text('点击计算 MD5'),
     );
+  }
+}
+
+class _TriangleIcon extends StatelessWidget {
+  const _TriangleIcon({
+    required this.filled,
+    required this.direction,
+    this.size = 20,
+    this.color = Colors.black,
+  });
+
+  final bool filled;
+  final String direction; // 'down' 或 'left'
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _TrianglePainter(
+          filled: filled,
+          direction: direction,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _TrianglePainter extends CustomPainter {
+  _TrianglePainter({
+    required this.filled,
+    required this.direction,
+    required this.color,
+  });
+
+  final bool filled;
+  final String direction;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.8
+      ..strokeJoin = StrokeJoin.round
+      ..style = filled ? PaintingStyle.fill : PaintingStyle.stroke;
+
+    final w = size.width;
+    final h = size.height;
+    final path = Path();
+
+    if (direction == 'down') {
+      path.moveTo(w * 0.18, h * 0.30);
+      path.lineTo(w * 0.82, h * 0.30);
+      path.lineTo(w * 0.50, h * 0.78);
+      path.close();
+    } else {
+      path.moveTo(w * 0.72, h * 0.18);
+      path.lineTo(w * 0.72, h * 0.82);
+      path.lineTo(w * 0.26, h * 0.50);
+      path.close();
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrianglePainter oldDelegate) {
+    return oldDelegate.filled != filled ||
+        oldDelegate.direction != direction ||
+        oldDelegate.color != color;
   }
 }
 
