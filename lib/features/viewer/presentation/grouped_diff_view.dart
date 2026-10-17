@@ -1020,23 +1020,18 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       child: Stack(
         children: [
           buildViewerScrollbar(child: listView, controller: _ctrl),
-          if (_jumping)
-            Positioned.fill(
-              child: ClipRect(
-                child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                  child: ColoredBox(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surface
-                        .withValues(alpha: 0.55),
-                    child: const Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+      if (_jumping)
+  Positioned.fill(
+    child: ColoredBox(
+      // 不透明浅灰，深浅色主题各取一档，避免深色下整屏发白发刺眼
+      color: isDark
+          ? const Color(0xFF2B2B2B)
+          : const Color(0xFFE8E8E8),
+      child: const Center(
+        child: CircularProgressIndicator(),
+      ),
+    ),
+  ),
         ],
       ),
     );
@@ -1063,7 +1058,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final fs = isContext
         ? ref.read(contextFontSizeProvider)
         : ref.read(bodyFontSizeProvider);
-    final strutH = fs * 1.1;
+    final strutH = fs * 1.4;
     final contentW = _cacheContentWidth ?? 100.0;
 
     double estimateLines(List<String> lines, int start, int end) {
@@ -1088,7 +1083,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final leftN = estimateLines(data.linesA, b.leftStart, b.leftEnd);
     final rightN = estimateLines(data.linesB, b.rightStart, b.rightEnd);
     final n = leftN > rightN ? leftN : rightN;
-    return n * strutH + 8;
+    return n * strutH + 12;
   }
 
   double _computeHeight(int blockIndex) {
@@ -1104,19 +1099,19 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
         : ref.read(bodyFontSizeProvider);
     final width = _cacheContentWidth ?? 100.0;
     final scaler = _cacheScaler ?? TextScaler.noScaling;
-    final style = TextStyle(fontSize: fs, height: 1.1);
+    final style = TextStyle(fontSize: fs, height: 1.4);
     final strut = StrutStyle(
       fontSize: fs,
-      height: 1.1,
+      height: 1.4,
       forceStrutHeight: true,
     );
 
     final showLine = ref.read(showLineNumbersProvider);
     final gutterFs = ref.read(gutterFontSizeProvider);
-    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.1);
+    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.4);
     final gutterStrut = StrutStyle(
       fontSize: gutterFs,
-      height: 1.1,
+      height: 1.4,
       forceStrutHeight: true,
     );
     final gutterH = showLine
@@ -1157,7 +1152,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       strutStyle: strut);
     if (lh == 0) lh = blank;
     if (rh == 0) rh = blank;
-    return (lh > rh ? lh : rh) + 8;
+    return (lh > rh ? lh : rh) + 12;
   }
 
   // ==================== 高亮异步 ====================
@@ -1393,16 +1388,16 @@ class _BlockTile extends StatelessWidget {
     final outline = afterShortEnd
         ? const Color(0xFF606060)
         : Theme.of(context).colorScheme.outline;
-    final base = TextStyle(fontSize: fs, color: fg, height: 1.1);
+    final base = TextStyle(fontSize: fs, color: fg, height: 1.4);
 
     final bodyStrut = StrutStyle(
       fontSize: fs,
-      height: 1.1,
+      height: 1.4,
       forceStrutHeight: true,
     );
     final gutterStrut = StrutStyle(
       fontSize: gutterFontSize,
-      height: 1.1,
+      height: 1.4,
       forceStrutHeight: true,
     );
 
@@ -1429,7 +1424,7 @@ class _BlockTile extends StatelessWidget {
                   strutStyle: gutterStrut,
                   style: TextStyle(
                     fontSize: gutterFontSize,
-                    height: 1.1,
+                    height: 1.4,
                     color: outline)),
               ),
               const SizedBox(width: 4),
@@ -1443,12 +1438,12 @@ class _BlockTile extends StatelessWidget {
         ),
       ));
     }
-    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.1));
+    if (rows.isEmpty) rows.add(SizedBox(height: fs * 1.4));
 
     final content = ColoredBox(
       color: bg,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
