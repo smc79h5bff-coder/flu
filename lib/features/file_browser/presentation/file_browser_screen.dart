@@ -185,6 +185,9 @@ class _AdvancedOverlayContent extends StatefulWidget {
     required this.panelWidth,
     required this.conditions,
     required this.isFilterMode,
+    required this.hasMainText,
+    required this.submitBg,
+    required this.submitFg,
     required this.tapGroup,
     required this.onChanged,
     required this.onSubmit,
@@ -197,6 +200,9 @@ class _AdvancedOverlayContent extends StatefulWidget {
   final double panelWidth;
   final List<_SearchCondition> conditions;
   final bool isFilterMode;
+  final bool Function() hasMainText;
+  final Color submitBg;
+  final Color submitFg;
   final Object tapGroup;
   final VoidCallback onChanged;
   final VoidCallback onSubmit;
@@ -448,6 +454,8 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
 
   Widget _addClearRow() {
     final hasAny = widget.conditions.isNotEmpty;
+    final borderColor = hasAny ? Colors.black : Colors.black38;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 6, 0),
       child: Row(
@@ -455,17 +463,21 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
           Expanded(
             child: SizedBox(
               height: 42,
-              child: Material(
-                color: const Color(0xFFFAFAFA),
-                borderRadius: BorderRadius.circular(6),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(6),
-                  onTap: _add,
-                  child: const Center(
-                    child: Text(
-                      '＋ 添加条件',
-                      style: TextStyle(fontSize: 14, color: Colors.black),
-                    ),
+              child: OutlinedButton(
+                onPressed: _add,
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.black, width: 1.2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                child: const Text(
+                  '＋ 添加条件',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.black,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
@@ -475,20 +487,21 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
           Expanded(
             child: SizedBox(
               height: 42,
-              child: Material(
-                color: const Color(0xFFFAFAFA),
-                borderRadius: BorderRadius.circular(6),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(6),
-                  onTap: hasAny ? widget.onClearAll : null,
-                  child: Center(
-                    child: Text(
-                      '🗑 清空条件',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: hasAny ? Colors.black : Colors.black38,
-                      ),
-                    ),
+              child: OutlinedButton(
+                onPressed: hasAny ? widget.onClearAll : null,
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  side: BorderSide(color: borderColor, width: 1.2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                child: Text(
+                  '🗑 清空条件',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: hasAny ? Colors.black : Colors.black38,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
@@ -500,8 +513,18 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   }
 
   Widget _submitButton() {
-    final enabled = widget.conditions.any((c) => c.text.trim().isNotEmpty);
+    final enabled = widget.conditions.any((c) => c.text.trim().isNotEmpty)
+        || widget.hasMainText();
     final label = widget.isFilterMode ? '筛选' : '搜索';
+
+    final bg =
+        enabled ? widget.submitBg : widget.submitBg.withValues(alpha: 0.4);
+    final fg =
+        enabled ? widget.submitFg : widget.submitFg.withValues(alpha: 0.4);
+    final border = enabled
+        ? widget.submitFg
+        : widget.submitFg.withValues(alpha: 0.3);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 6, 10),
       child: SizedBox(
@@ -510,11 +533,8 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
         child: OutlinedButton(
           onPressed: enabled ? widget.onSubmit : null,
           style: OutlinedButton.styleFrom(
-            backgroundColor: Colors.white,
-            side: BorderSide(
-              color: enabled ? Colors.black : Colors.black26,
-              width: 1.5,
-            ),
+            backgroundColor: bg,
+            side: BorderSide(color: border, width: 1.5),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(23),
             ),
@@ -524,7 +544,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: enabled ? Colors.black : Colors.black38,
+              color: fg,
             ),
           ),
         ),
@@ -806,7 +826,6 @@ static const Set<String> _archiveExts = {
   double _lastTapX = double.infinity;
 // ==================== 高级搜索条件状态 ====================
 bool _advancedOpen = false;
-bool _lastHadConditions = false;
 final List<_SearchCondition> _searchConditions = [];
 final GlobalKey _searchInputKey = GlobalKey();
 OverlayEntry? _advancedOverlay;
@@ -1491,11 +1510,21 @@ void _toggleAdvanced() {
   }
 }
 
-void _closeAdvanced() {
+void _closeAdvanced({bool runRealtimeIfNeeded = true}) {
   _advancedOverlay?.remove();
   _advancedOverlay = null;
+  final wasOpen = _advancedOpen;
   if (mounted && _advancedOpen) {
     setState(() => _advancedOpen = false);
+  }
+  if (wasOpen && runRealtimeIfNeeded) {
+    final isFilter =
+        ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
+    if (isFilter &&
+        !_hasActiveConditions &&
+        _searchCtrl.text.trim().isNotEmpty) {
+      _onFilterTextChanged(_searchCtrl.text);
+    }
   }
 }
 
@@ -1512,7 +1541,7 @@ void _showAdvancedOverlay() {
     final size = box.size;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    _lastHadConditions = _hasActiveConditions;
+    final submitColors = _submitButtonColors();
 
     _advancedOverlay = OverlayEntry(
       builder: (ctx) => _AdvancedOverlayContent(
@@ -1522,23 +1551,19 @@ void _showAdvancedOverlay() {
         conditions: _searchConditions,
         isFilterMode:
             ref.read(searchBoxModeProvider) == SearchBoxMode.filter,
+        hasMainText: () => _searchCtrl.text.trim().isNotEmpty,
+        submitBg: submitColors.bg,
+        submitFg: submitColors.fg,
         tapGroup: _searchPanelTapGroup,
         onChanged: () {
           if (!mounted) return;
-          final wasHad = _lastHadConditions;
-          final nowHad = _hasActiveConditions;
-          _lastHadConditions = nowHad;
           setState(() {});
-          if (wasHad &&
-              !nowHad &&
-              ref.read(searchBoxModeProvider) == SearchBoxMode.filter) {
-            _onFilterTextChanged(_searchCtrl.text);
-          }
+          _advancedOverlay?.markNeedsBuild();
         },
         onSubmit: () {
           final isFilter =
               ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
-          _closeAdvanced();
+          _closeAdvanced(runRealtimeIfNeeded: false);
           if (isFilter) {
             _runFilterNow();
           } else {
@@ -1560,9 +1585,31 @@ void _showAdvancedOverlay() {
 
 
 
+({Color bg, Color fg}) _submitButtonColors() {
+  final mode = ref.read(searchBoxModeProvider);
+  if (mode == SearchBoxMode.filter) {
+    return (bg: const Color(0xFFFFCDD2), fg: Colors.black);
+  }
+  final scope = ref.read(searchScopeProvider);
+  if (scope == SearchScope.custom) {
+    return (bg: const Color(0xFFE4FAFF), fg: const Color(0xFF009EDD));
+  }
+  return (bg: const Color(0xFFFFF7D2), fg: const Color(0xFFB79800));
+}
+
+Color _advancedToggleColor() {
+  final mode = ref.read(searchBoxModeProvider);
+  if (mode == SearchBoxMode.filter) return Colors.black;
+  final scope = ref.read(searchScopeProvider);
+  return scope == SearchScope.custom
+      ? const Color(0xFF009EDD)
+      : const Color(0xFFB79800);
+}
+
 Widget _buildAdvancedToggle() {
   final hasConds = _hasActiveConditions;
   final open = _advancedOpen;
+  final color = _advancedToggleColor();
 
   return SizedBox(
     width: 40,
@@ -1577,7 +1624,7 @@ Widget _buildAdvancedToggle() {
           filled: hasConds,
           direction: open ? 'down' : 'left',
           size: 20,
-          color: hasConds ? Colors.black : Colors.black54,
+          color: color,
         ),
       ),
     ),
@@ -2376,9 +2423,9 @@ void _jumpToTop() {
   void _onSearchChanged(String v) {
   final mode = ref.read(searchBoxModeProvider);
   if (mode == SearchBoxMode.filter) {
-    if (_hasActiveConditions) {
-      // 手动模式：只刷新 UI，不触发过滤
+    if (_advancedOpen || _hasActiveConditions) {
       setState(() {});
+      if (_advancedOpen) _advancedOverlay?.markNeedsBuild();
     } else {
       _onFilterTextChanged(v);
     }
@@ -2531,7 +2578,6 @@ void _clearConditionsInPanel() {
     _searchConditions.clear();
     _filterTaskId++;
     _filterDeepResults = const [];
-    _lastHadConditions = false;
   });
   _advancedOverlay?.markNeedsBuild();
   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2539,15 +2585,16 @@ void _clearConditionsInPanel() {
       c.dispose();
     }
   });
-  final isFilter = ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
-  if (isFilter && _searchCtrl.text.trim().isNotEmpty) {
-    _onFilterTextChanged(_searchCtrl.text);
-  }
 }
 
 void _clearConditionsAndRealtime() {
   _clearConditionsInPanel();
-  _closeAdvanced();
+  _closeAdvanced(runRealtimeIfNeeded: false);
+  final isFilter =
+      ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
+  if (isFilter && _searchCtrl.text.trim().isNotEmpty) {
+    _onFilterTextChanged(_searchCtrl.text);
+  }
 }
 
 void _clearFilter() {
@@ -2558,6 +2605,7 @@ void _clearFilter() {
   _selectionMode = false;
   _selectedPaths.clear();
   _anchorPath = null;
+  _advancedOverlay?.markNeedsBuild();
   setState(() {});
 }
   void _doSearch() {
@@ -2578,6 +2626,7 @@ void _clearSearchInput() {
   _anchorPath = null;
   _expandedZipKeys.clear();
   _stickyZipKey = null;
+  _advancedOverlay?.markNeedsBuild();
   setState(() {
     _searchResults = [];
     _searching = false;
@@ -4711,6 +4760,7 @@ Widget _buildSearchBar() {
   final isCustom = scope == SearchScope.custom;
   final customFolders = ref.watch(customSearchFoldersProvider);
   final hasText = _searchCtrl.text.isNotEmpty;
+  final noTextButHasConds = !hasText && _hasActiveConditions;
 
   const currentText = Color(0xFFB79800);
   const currentBtnBg = Color(0xFFFFF7D2);
@@ -4742,11 +4792,14 @@ Widget _buildSearchBar() {
     btnIcon = Icons.filter_alt;
     hintText = _selectionMode
         ? '选择模式下禁止点击'
-        : '输入关键词过滤文件';
+        : (noTextButHasConds
+            ? '已启用高级条件，点「筛选」生效'
+            : '输入关键词过滤文件');
   } else {
     accent = isCustom ? customText : currentText;
     btnBg = isCustom ? customBtnBg : currentBtnBg;
-    btnIconColor = hasText ? accent : Colors.black54;
+    btnIconColor =
+        (hasText || _hasActiveConditions) ? accent : Colors.black54;
     inputBg = Colors.transparent;
     inputFg = Colors.black;
     suffixBg = Colors.transparent;
@@ -4754,9 +4807,11 @@ Widget _buildSearchBar() {
     btnIcon = Icons.search;
     hintText = _selectionMode
         ? '选择模式下禁止点击'
-        : (isCustom && customFolders.isEmpty
-            ? '点左侧"搜索设置"配置范围'
-            : '输入关键词');
+        : (noTextButHasConds
+            ? '已启用高级条件，点「搜索」生效'
+            : (isCustom && customFolders.isEmpty
+                ? '点左侧"搜索设置"配置范围'
+                : '输入关键词'));
   }
 
   return TapRegion(
@@ -4813,7 +4868,9 @@ Widget _buildSearchBar() {
                     ? null
                     : (isFilter
                         ? null
-                        : (hasText ? _doSearch : null)),
+                        : ((hasText || _hasActiveConditions)
+                            ? _doSearch
+                            : null)),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -4841,6 +4898,9 @@ Widget _buildSearchBar() {
                   ),
                   decoration: InputDecoration(
                     hintText: hintText,
+                    hintStyle: noTextButHasConds
+                        ? TextStyle(color: accent.withValues(alpha: 0.8))
+                        : null,
                     filled: isFilter,
                     fillColor: isFilter ? inputBg : null,
                     isDense: true,
@@ -4889,7 +4949,7 @@ Widget _buildSearchBar() {
                       return;
                     }
                     if (isFilter) {
-                      if (_hasActiveConditions) {
+                      if (_advancedOpen || _hasActiveConditions) {
                         _runFilterNow();
                       } else {
                         FocusManager.instance.primaryFocus?.unfocus();
@@ -4914,6 +4974,8 @@ Widget _buildSearchBar() {
 Widget _buildActionChips() {
   final isFilter =
       ref.read(searchBoxModeProvider) == SearchBoxMode.filter;
+  final colors = _submitButtonColors();
+
   return Padding(
     padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
     child: Row(
@@ -4922,6 +4984,8 @@ Widget _buildActionChips() {
           child: _actionChip(
             label: isFilter ? '筛选' : '搜索',
             onTap: isFilter ? _runFilterNow : _doSearch,
+            bg: colors.bg,
+            fg: colors.fg,
           ),
         ),
         const SizedBox(width: 8),
@@ -4936,24 +5000,29 @@ Widget _buildActionChips() {
   );
 }
 
-Widget _actionChip({required String label, required VoidCallback onTap}) {
+Widget _actionChip({
+  required String label,
+  required VoidCallback onTap,
+  Color? bg,
+  Color? fg,
+}) {
   return SizedBox(
     height: 38,
     child: OutlinedButton(
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
-        backgroundColor: Colors.white,
-        side: const BorderSide(color: Colors.black, width: 1.5),
+        backgroundColor: bg ?? Colors.white,
+        side: BorderSide(color: fg ?? Colors.black, width: 1.5),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(19),
         ),
       ),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.bold,
-          color: Colors.black,
+          color: fg ?? Colors.black,
         ),
       ),
     ),
@@ -4984,6 +5053,7 @@ Widget _suffixButton({
 }
 Future<void> _showSearchSettings() async {
     FocusManager.instance.primaryFocus?.unfocus();
+  _closeAdvanced(runRealtimeIfNeeded: false);
 
     
   await showDialog<void>(
