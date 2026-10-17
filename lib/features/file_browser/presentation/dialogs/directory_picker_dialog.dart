@@ -477,7 +477,7 @@ class _DirectoryPickerDialogState
         elevation: 0,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
-          child: ui.BackdropFilter(
+          child: BackdropFilter(
             filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
             child: SizedBox(
               height: screenH * 0.88,
