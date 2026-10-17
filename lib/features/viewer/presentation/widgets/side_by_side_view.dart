@@ -30,6 +30,7 @@ class SideBySideView extends ConsumerStatefulWidget {
     this.noWrap = false,
     this.jumpedToEntry,
     this.onLongPressEntry,
+    this.onDeleteFile,
     super.key,
   });
 
@@ -49,6 +50,7 @@ class SideBySideView extends ConsumerStatefulWidget {
   final bool noWrap;
   final int? jumpedToEntry;
   final void Function(List<int> entryIndices)? onLongPressEntry;
+  final Future<void> Function({required bool isOriginal})? onDeleteFile;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
   static const Color _matchPink = Color(0xFFFF4081);
@@ -151,6 +153,9 @@ class _SideBySideViewState extends ConsumerState<SideBySideView> {
                 fileName: name,
                 color: color,
                 isOriginal: isOriginal,
+                onDelete: widget.onDeleteFile == null
+                    ? null
+                    : () => widget.onDeleteFile!(isOriginal: isOriginal),
               ),
       );
     }
@@ -516,7 +521,7 @@ class _Cell extends StatelessWidget {
     final body = TextStyle(
       fontSize: bodyFontSize,
       color: fg,
-      height: 1.35,
+      height: 1.5,
     );
     final outline = Theme.of(context).colorScheme.outline;
 
@@ -552,7 +557,7 @@ class _Cell extends StatelessWidget {
     return ColoredBox(
       color: bg,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -675,11 +680,13 @@ class _PaneHeader extends ConsumerWidget {
     required this.fileName,
     required this.color,
     required this.isOriginal,
+    this.onDelete,
   });
 
   final String fileName;
   final Color color;
   final bool isOriginal;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -690,15 +697,34 @@ class _PaneHeader extends ConsumerWidget {
         width: double.infinity,
         color: color.withValues(alpha: 0.08),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: Text(
-          fileName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
+        child: Row(
+          children: [
+            Flexible(
+              child: Text(
+                fileName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14, // 12 → 14
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _showInfo(context, ref),
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Icon(
+                  Icons.error_outline, // 圆 + 叹号
+                  size: 16,
+                  color: color.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -771,6 +797,15 @@ class _PaneHeader extends ConsumerWidget {
           ),
         ),
         actions: [
+          if (onDelete != null)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(c);
+                onDelete!();
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('删除此文件'),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(c),
             child: const Text('关闭'),
