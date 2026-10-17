@@ -9,7 +9,6 @@ import '../providers/file_browser_providers.dart';
 /// 浅蓝主色（和对比页风格一致）
 const Color _kBlue = Color(0xFF4A90D9);
 
-// 弹窗间距常量
 const EdgeInsets _inset = EdgeInsets.all(4);
 const EdgeInsets _titlePad = EdgeInsets.fromLTRB(12, 8, 12, 0);
 const EdgeInsets _contentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
@@ -48,7 +47,6 @@ class _DirectoryPickerDialogState
   int _currentTab = 0;
   late final PageController _pageCtrl;
 
-  // ========== Tab 颜色（蓝色系）==========
   static const int _kTabSelectedText = 0xFF4A90D9;
   static const int _kTabSelectedBg = 0xFFE8F1FA;
   static const int _kTabUnselectedText = 0xFF757575;
@@ -415,8 +413,6 @@ class _DirectoryPickerDialogState
     );
   }
 
-  // ==================== 顶栏（替代 AppBar）====================
-
   Widget _buildTopBar(BuildContext context) {
     return Container(
       height: 48,
@@ -463,8 +459,6 @@ class _DirectoryPickerDialogState
     );
   }
 
-  // ==================== build ====================
-
   @override
   Widget build(BuildContext context) {
     final crumbs = _buildCrumbs();
@@ -483,13 +477,14 @@ class _DirectoryPickerDialogState
         elevation: 0,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
-          child: BackdropFilter(
+          child: ui.BackdropFilter(
             filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
             child: SizedBox(
               height: screenH * 0.88,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.82),
+                  // ★ 半透明：透出背后内容
+                  color: Colors.white.withValues(alpha: 0.45),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: 0.5),
@@ -502,7 +497,6 @@ class _DirectoryPickerDialogState
                     children: [
                       _buildTopBar(context),
 
-                      // 路径跳转行
                       Padding(
                         padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
                         child: Row(
@@ -540,7 +534,6 @@ class _DirectoryPickerDialogState
                         ),
                       ),
 
-                      // 面包屑
                       Padding(
                         padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
                         child: Row(
@@ -583,7 +576,6 @@ class _DirectoryPickerDialogState
                       ),
                       const Divider(height: 1),
 
-                      // 主体：左栏 + 右栏
                       Expanded(
                         child: Row(
                           children: [
@@ -600,7 +592,6 @@ class _DirectoryPickerDialogState
                       ),
                       const Divider(height: 1),
 
-                      // 底部按钮
                       Padding(
                         padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
                         child: Row(
@@ -641,8 +632,6 @@ class _DirectoryPickerDialogState
       ),
     );
   }
-
-  // ==================== 左右栏 ====================
 
   Widget _buildLeftPane() {
     final filtered = _filteredDirs;
@@ -956,8 +945,6 @@ class _DirectoryPickerDialogState
     );
   }
 }
-
-// ==================== 要移动/复制的项目清单 ====================
 
 typedef _ItemStat = ({int bytes, int fileCount, bool truncated});
 
