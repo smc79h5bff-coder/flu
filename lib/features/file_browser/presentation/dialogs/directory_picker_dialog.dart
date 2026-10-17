@@ -470,12 +470,12 @@ class _DirectoryPickerDialogState
         if (didPop) return;
         if (_canGoUp) _goUp();
       },
-      child: Dialog(
-        insetPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: ClipRRect(
+     child: Dialog(
+  insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+  backgroundColor: Colors.transparent,
+  surfaceTintColor: Colors.transparent,   // ← 加这行
+  elevation: 0,
+  child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: BackdropFilter(
             filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
