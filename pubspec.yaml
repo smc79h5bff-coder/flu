@@ -50,6 +50,10 @@ dependencies:
   charset: ^2.0.1
   crypto: ^3.0.0             # MD5 对比
 
+# 锁死这个 Android 实现，防止 CI 自动拉到 2.5.0 导致白屏
+dependency_overrides:
+  shared_preferences_android: 2.4.28
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
