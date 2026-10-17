@@ -177,9 +177,8 @@ List<int> _mergedOrder(List<DiffEntry> entries) {
   return order;
 }
 
-/// entry 索引 → 配对的对侧文本。只有 (del, ins) 成对出现的那些 entry
-/// 才在 map 里。用来让行内字符高亮知道"对面长什么样"。
-DiffResult? _lastMergedPairsFor;
+/// entry 索引 �?配对的对侧文本。只�?(del, ins) 成对出现的那�?entry
+/// 才在 map 里。用来让行内字符高亮知道"对面长什么样"�?DiffResult? _lastMergedPairsFor;
 Map<int, String>? _lastMergedPairs;
 
 Map<int, String> cachedMergedPairs(DiffResult result) {
@@ -223,7 +222,7 @@ Map<int, String> cachedMergedPairs(DiffResult result) {
   return map;
 }
 
-// ========== 查找高亮 spans 的 LRU 缓存 ==========
+// ========== 查找高亮 spans �?LRU 缓存 ==========
 
 const int _spansCacheCap = 512;
 final Map<String, List<InlineSpan>> _spansCache =
@@ -309,7 +308,7 @@ class _EntryTile extends StatelessWidget {
     final outline = Theme.of(context).colorScheme.outline;
 
     // 被改行（有配对）：用"浅色 + 行内字符差异"
-    // 纯增/纯删（无配对）：用"整行纯色"
+    // 纯增/纯删（无配对）：�?整行纯色"
     final bool isReplace =
         pairedText != null && pairedText!.isNotEmpty;
 
@@ -330,8 +329,7 @@ class _EntryTile extends StatelessWidget {
         context,
         text: entry.text,
         color: AppColors.addedOf(context),
-        fgColor: const Color(0xFF066F00),   // ← 新增，深绿
-        symbol: '+',
+        fgColor: const Color(0xFF066F00),   // �?新增，深�?        symbol: '+',
             ),
       DiffOperation.delete => isReplace
           ? _replaceRow(
@@ -344,8 +342,7 @@ class _EntryTile extends StatelessWidget {
         context,
         text: entry.text,
         color: AppColors.deletedOf(context),
-        fgColor: const Color(0xFF6F0000),   // ← 新增，深红
-        symbol: '-',
+        fgColor: const Color(0xFF6F0000),   // �?新增，深�?        symbol: '-',
             ),
       DiffOperation.replace => _replaceRow(
           context,
@@ -376,8 +373,7 @@ class _EntryTile extends StatelessWidget {
     );
   }
 
-  /// 被改行：浅色背景 + 行内字符差异。
-  Widget _replaceRow(
+  /// 被改行：浅色背景 + 行内字符差异�?  Widget _replaceRow(
     BuildContext context, {
     required String before,
     required String after,
@@ -388,7 +384,7 @@ class _EntryTile extends StatelessWidget {
       color: isLeft
     ? const Color(0xFF6F0000)   // 改行（左）文字：深红
       : const Color(0xFF066F00),  // 改行（右）文字：深绿
-      height: 1.35,
+      height: 1.5,
     );
 
    final content = InlineCharDiff(
@@ -409,7 +405,7 @@ class _EntryTile extends StatelessWidget {
         : AppColors.addedOf(context);
 
     return Padding(
-      padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
+      padding: const EdgeInsets.only(right: 2, top: 2, bottom: 22),
       child: ColoredBox(
         color: barColor.withValues(alpha: 0.07),
         child: Row(
@@ -432,7 +428,7 @@ class _EntryTile extends StatelessWidget {
             const SizedBox(width: 4),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
+                padding: const EdgeInsets.symmetric(vertical: 6),
                 child: content,
               ),
             ),
@@ -446,14 +442,14 @@ class _EntryTile extends StatelessWidget {
     final style = TextStyle(
       fontSize: bodyFontSize,
       color: color,
-      height: 1.35,
+      height: 1.5,
     );
     final spans = findQuery.isEmpty
         ? <InlineSpan>[TextSpan(text: text.isEmpty ? ' ' : text)]
         : _cachedSpans(
             text, findQuery, isCurrentMatch, matchYellow, matchPink);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: noWrap
           ? Text.rich(
               TextSpan(style: style, children: spans),
@@ -468,14 +464,12 @@ class _EntryTile extends StatelessWidget {
  Widget _highlighted(
   BuildContext context, {
   required String text,
-  required Color color,       // 背景 / 竖条 / 符号 用
-  required Color fgColor,     // 文字用（新增）
-  required String symbol,
+  required Color color,       // 背景 / 竖条 / 符号 �?  required Color fgColor,     // 文字用（新增�?  required String symbol,
 }) {
   final style = TextStyle(
     fontSize: bodyFontSize,
-    color: fgColor,           // ← 原来是 color
-    height: 1.35,
+    color: fgColor,           // �?原来�?color
+    height: 1.5,
   );
 
     final content = noWrap
@@ -496,7 +490,7 @@ class _EntryTile extends StatelessWidget {
           ));
 
     return Padding(
-      padding: const EdgeInsets.only(right: 2, top: 1, bottom: 1),
+      padding: const EdgeInsets.only(right: 2, top: 2, bottom: 22),
       child: ColoredBox(
         color: color.withValues(alpha: 0.18),
         child: Row(
@@ -519,7 +513,7 @@ class _EntryTile extends StatelessWidget {
             const SizedBox(width: 4),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
+                padding: const EdgeInsets.symmetric(vertical: 6),
                 child: content,
               ),
             ),
