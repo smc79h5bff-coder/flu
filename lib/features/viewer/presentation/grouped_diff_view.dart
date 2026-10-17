@@ -11,6 +11,8 @@
 //   - 块高缓存 _chunkHeights 仍保留（供 _blockOffset 采样用），但有上限。
 //   - 长按某行：弹出全屏对话框，上半编辑当前行，下半只读预览当前块 + 下一块。
 
+import 'dart:ui' as ui;
+
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1004,17 +1006,39 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       },
     );
 
-    return Stack(
-      children: [
-        buildViewerScrollbar(child: listView, controller: _ctrl),
-        if (_jumping)
-          Positioned.fill(
-            child: ColoredBox(
-              color: Theme.of(context).colorScheme.surface,
-              child: const Center(child: CircularProgressIndicator()),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: isDark
+              ? const [Color(0xFF0F1620), Color(0xFF0A0F16)]
+              : const [Color(0xFFF0F5FA), Color(0xFFE8EFF7)],
+        ),
+      ),
+      child: Stack(
+        children: [
+          buildViewerScrollbar(child: listView, controller: _ctrl),
+          if (_jumping)
+            Positioned.fill(
+              child: ClipRect(
+                child: ui.BackdropFilter(
+                  filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                  child: ColoredBox(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surface
+                        .withValues(alpha: 0.55),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1578,5 +1602,3 @@ class _WarningBar extends StatelessWidget {
     );
   }
 }
-
-// =====
