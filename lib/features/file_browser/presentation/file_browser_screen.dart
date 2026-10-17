@@ -4135,9 +4135,10 @@ String _normalizePath(String path) {
 	  
   
 
-  Future<String?> _pickDirectory(String title, List<String> pickedPaths) async {
+Future<String?> _pickDirectory(String title, List<String> pickedPaths) async {
   return showDialog<String>(
     context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.08),   // ← 新增
     builder: (_) => DirectoryPickerDialog(
       title: title,
       rootPath: _topPath,
@@ -4146,7 +4147,6 @@ String _normalizePath(String path) {
     ),
   );
 }
-
   // ==================== 面包屑 ====================
 
   List<({String label, String path})>? _crumbsCache;
