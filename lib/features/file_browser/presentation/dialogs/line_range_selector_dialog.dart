@@ -1,9 +1,4 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
-
-/// 浅蓝主色（和对比页风格一致）
-const Color _kBlue = Color(0xFF4A90D9);
 
 /// "选择行范围"弹窗的返回结果。
 /// start / end 都是 1-based 行号，action 是 'copy' / 'cut' / 'delete'。
@@ -135,147 +130,109 @@ class _LineRangeSelectorDialogState extends State<LineRangeSelectorDialog> {
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: AlertDialog(
-          // ===== 毛玻璃样式 =====
-          backgroundColor: Colors.white.withValues(alpha: 0.72),
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(
-              color: Colors.white.withValues(alpha: 0.5),
-              width: 0.5,
-            ),
-          ),
-          // ===== 以下保持原样 =====
-          insetPadding: const EdgeInsets.all(8),
-          titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-          title: const Text('选择行范围'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: const Text('选择行范围'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ---------- 输入行 ----------
+            Row(
               children: [
-                // ---------- 输入行 ----------
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _startCtrl,
-                        keyboardType: TextInputType.number,
-                        cursorColor: _kBlue,
-                        decoration: const InputDecoration(
-                          labelText: '起点',
-                          isDense: true,
-                          border: OutlineInputBorder(),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: _kBlue,
-                              width: 2,
-                            ),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 10),
-                        ),
-                        onSubmitted: (_) => _applyInput(),
-                      ),
+                Expanded(
+                  child: TextField(
+                    controller: _startCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '起点',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 10),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _endCtrl,
-                        keyboardType: TextInputType.number,
-                        cursorColor: _kBlue,
-                        decoration: const InputDecoration(
-                          labelText: '终点',
-                          isDense: true,
-                          border: OutlineInputBorder(),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: _kBlue,
-                              width: 2,
-                            ),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 10),
-                        ),
-                        onSubmitted: (_) => _applyInput(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: '刷新预览',
-                      icon: const Icon(Icons.refresh),
-                      color: _kBlue,
-                      onPressed: _applyInput,
-                    ),
-                  ],
+                    onSubmitted: (_) => _applyInput(),
+                  ),
                 ),
-
-                // ---------- 错误提示 ----------
-                if (_rangeError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      _rangeError!,
-                      style: const TextStyle(
-                          color: Colors.red, fontSize: 12),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _endCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '终点',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 10),
                     ),
+                    onSubmitted: (_) => _applyInput(),
                   ),
-
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 8),
-
-                // ---------- 预览区 ----------
-                Expanded(child: _buildPreview(s)),
-
-                const SizedBox(height: 8),
-                const Divider(height: 1),
-
-                // ---------- 统计 ----------
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
-                  child: Text(
-                    '共 ${_end - _start + 1} 行（本文件共 $_total 行）',
-                    style: TextStyle(
-                        fontSize: 12, color: s.onSurfaceVariant),
-                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: '刷新预览',
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _applyInput,
                 ),
               ],
             ),
-          ),
-          actions: [
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: _kBlue),
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: _kBlue),
-              onPressed: () => _submit('copy'),
-              child: const Text('复制'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: _kBlue),
-              onPressed: () => _submit('cut'),
-              child: const Text('剪切'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              onPressed: () => _submit('delete'),
-              child: const Text('删除'),
+
+            // ---------- 错误提示 ----------
+            if (_rangeError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _rangeError!,
+                  style: const TextStyle(color: Colors.red, fontSize: 12),
+                ),
+              ),
+
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+
+            // ---------- 预览区 ----------
+            Expanded(child: _buildPreview(s)),
+
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+
+            // ---------- 统计 ----------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+              child: Text(
+                '共 ${_end - _start + 1} 行（本文件共 $_total 行）',
+                style: TextStyle(fontSize: 12, color: s.onSurfaceVariant),
+              ),
             ),
           ],
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => _submit('copy'),
+          child: const Text('复制'),
+        ),
+        TextButton(
+          onPressed: () => _submit('cut'),
+          child: const Text('剪切'),
+        ),
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          onPressed: () => _submit('delete'),
+          child: const Text('删除'),
+        ),
+      ],
     );
   }
 
@@ -339,13 +296,13 @@ class _LineRangeSelectorDialogState extends State<LineRangeSelectorDialog> {
       Color? bg;
       Color? leftBar;
       if (isStart) {
-        bg = _kBlue.withValues(alpha: 0.10);
-        leftBar = _kBlue;
+        bg = Colors.blue.withValues(alpha: 0.10);
+        leftBar = Colors.blue;
       } else if (isEnd) {
-        bg = _kBlue.withValues(alpha: 0.10);
+        bg = Colors.blue.withValues(alpha: 0.10);
         leftBar = Colors.orange;
       } else if (inRange) {
-        bg = _kBlue.withValues(alpha: 0.06);
+        bg = Colors.blue.withValues(alpha: 0.06);
       }
 
       rows.add(
