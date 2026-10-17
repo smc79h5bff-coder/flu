@@ -188,6 +188,7 @@ class _AdvancedOverlayContent extends StatefulWidget {
     required this.hasMainText,
     required this.submitBg,
     required this.submitFg,
+    required this.accentColor,
     required this.tapGroup,
     required this.onChanged,
     required this.onSubmit,
@@ -203,6 +204,7 @@ class _AdvancedOverlayContent extends StatefulWidget {
   final bool Function() hasMainText;
   final Color submitBg;
   final Color submitFg;
+  final Color accentColor;
   final Object tapGroup;
   final VoidCallback onChanged;
   final VoidCallback onSubmit;
@@ -299,11 +301,16 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
               minLines: 1,
               maxLines: 4,
               style: const TextStyle(fontSize: 14),
+              cursorColor: widget.accentColor,
               decoration: InputDecoration(
                 isDense: true,
                 hintText: '输入文字',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide: BorderSide(color: widget.accentColor, width: 2),
                 ),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 8,
@@ -521,9 +528,6 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
         enabled ? widget.submitBg : widget.submitBg.withValues(alpha: 0.4);
     final fg =
         enabled ? widget.submitFg : widget.submitFg.withValues(alpha: 0.4);
-    final border = enabled
-        ? widget.submitFg
-        : widget.submitFg.withValues(alpha: 0.3);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 6, 10),
@@ -534,7 +538,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
           onPressed: enabled ? widget.onSubmit : null,
           style: OutlinedButton.styleFrom(
             backgroundColor: bg,
-            side: BorderSide(color: border, width: 1.5),
+            side: BorderSide.none,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(23),
             ),
@@ -542,7 +546,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.bold,
               color: fg,
             ),
@@ -1542,6 +1546,13 @@ void _showAdvancedOverlay() {
     final screenWidth = MediaQuery.of(context).size.width;
 
     final submitColors = _submitButtonColors();
+    final mode = ref.read(searchBoxModeProvider);
+    final scope = ref.read(searchScopeProvider);
+    final accent = mode == SearchBoxMode.filter
+        ? const Color(0xFFE53935)
+        : (scope == SearchScope.custom
+            ? const Color(0xFF009EDD)
+            : const Color(0xFFB79800));
 
     _advancedOverlay = OverlayEntry(
       builder: (ctx) => _AdvancedOverlayContent(
@@ -1554,6 +1565,7 @@ void _showAdvancedOverlay() {
         hasMainText: () => _searchCtrl.text.trim().isNotEmpty,
         submitBg: submitColors.bg,
         submitFg: submitColors.fg,
+        accentColor: accent,
         tapGroup: _searchPanelTapGroup,
         onChanged: () {
           if (!mounted) return;
@@ -4873,13 +4885,12 @@ Widget _buildSearchBar() {
                             : null)),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 11,
-                  ),
+                  padding: _selectionMode
+                      ? const EdgeInsets.symmetric(horizontal: 8, vertical: 7)
+                      : const EdgeInsets.symmetric(horizontal: 9, vertical: 11),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(8),
-                    color: _selectionMode ? Colors.grey.shade300 : btnBg,
+                    color: _selectionMode ? Colors.grey.shade200 : btnBg,
                   ),
                   child: Icon(btnIcon, color: btnIconColor),
                 ),
@@ -4899,7 +4910,10 @@ Widget _buildSearchBar() {
                   decoration: InputDecoration(
                     hintText: hintText,
                     hintStyle: noTextButHasConds
-                        ? TextStyle(color: accent.withValues(alpha: 0.8))
+                        ? TextStyle(
+                            fontSize: 14,
+                            color: accent.withValues(alpha: 0.8),
+                          )
                         : null,
                     filled: isFilter,
                     fillColor: isFilter ? inputBg : null,
