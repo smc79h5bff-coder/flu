@@ -4875,26 +4875,38 @@ Widget _buildSearchBar() {
                 ),
               ),
               const SizedBox(width: 2),
+
+
+
+
+
+				
               InkWell(
-                onTap: _selectionMode
-                    ? null
-                    : (isFilter
-                        ? null
-                        : ((hasText || _hasActiveConditions)
-                            ? _doSearch
-                            : null)),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: _selectionMode
-                      ? const EdgeInsets.symmetric(horizontal: 8, vertical: 7)
-                      : const EdgeInsets.symmetric(horizontal: 9, vertical: 11),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: _selectionMode ? Colors.grey.shade200 : btnBg,
-                  ),
-                  child: Icon(btnIcon, color: btnIconColor),
-                ),
-              ),
+  onTap: _selectionMode
+      ? null
+      : (isFilter
+          ? null
+          : (hasText ? _doSearch : null)),
+  borderRadius: BorderRadius.circular(8),
+  child: Container(
+    padding: const EdgeInsets.symmetric(
+      horizontal: 9,
+      vertical: 11,
+    ),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(8),
+      color: _selectionMode ? Colors.grey.shade200 : btnBg,
+    ),
+    child: Icon(btnIcon, color: btnIconColor),
+  ),
+),
+
+
+
+
+
+
+				
               const SizedBox(width: 4),
               Expanded(
                 child: TextField(
