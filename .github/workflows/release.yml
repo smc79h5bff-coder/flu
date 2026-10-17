@@ -38,10 +38,22 @@ jobs:
             git config user.email "actions@github.com"
             git add -f android/app/release.jks
             git commit -m "加入签名文件 [skip ci]"
-            git push
+            git push origin HEAD
           fi
 
-      - run: flutter pub get
+      - name: 清理 + 拉依赖
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: 补全并提交 pubspec.lock（锁死依赖版本）
+        run: |
+          git config user.name "actions"
+          git config user.email "actions@github.com"
+          git add pubspec.lock
+          git diff --staged --quiet || git commit -m "chore: 补全 pubspec.lock [skip ci]"
+          git diff --staged --quiet || git push origin HEAD
+
       - run: flutter build apk --release --flavor prod --target-platform android-arm64
       - run: flutter build apk --release --flavor coexist --target-platform android-arm64
 
@@ -56,6 +68,6 @@ jobs:
           tag_name: ${{ github.event.inputs.tag }}
           name: ${{ github.event.inputs.tag }}
           body: |
-            - DocDiff.apk
+            - TxTdiff.apk
             - TXT对比.apk
           files: out/*.apk
