@@ -4843,35 +4843,47 @@ Widget _buildSearchBar() {
                 child: InkWell(
                   onTap: _selectionMode ? null : _showSearchSettings,
                   borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      border: isFilter
-                          ? Border.all(
-                              color: _selectionMode
-                                  ? Colors.grey.shade300
-                                  : filterBtnBg,
-                              width: 1,
-                            )
-                          : null,
-                    ),
-                    child: Text(
-                      '搜索设置',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _selectionMode
-                            ? Colors.grey
-                            : (isFilter ? Colors.black : accent),
-                        fontWeight: (isFilter || hasText)
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
-                  ),
+            
+					
+					
+					
+					
+					
+					
+					child: Container(
+  height: 46,
+  padding: const EdgeInsets.symmetric(horizontal: 4),
+  alignment: Alignment.center,
+  decoration: BoxDecoration(
+    borderRadius: BorderRadius.circular(8),
+    border: isFilter
+        ? Border.all(
+            color: _selectionMode
+                ? Colors.grey.shade300
+                : filterBtnBg,
+            width: 1,
+          )
+        : null,
+  ),
+  child: Text(
+    '搜索设置',
+    style: TextStyle(
+      fontSize: 12,
+      color: _selectionMode
+          ? Colors.grey
+          : (isFilter ? Colors.black : accent),
+      fontWeight: (isFilter || hasText)
+          ? FontWeight.bold
+          : FontWeight.normal,
+    ),
+  ),
+),
+
+
+
+
+
+					
                 ),
               ),
               const SizedBox(width: 2),
