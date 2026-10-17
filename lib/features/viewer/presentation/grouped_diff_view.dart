@@ -429,10 +429,12 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   for (var i = visible.length - 1; i >= 0; i--) {
     if (visible[i].kind != GroupedBlockKind.equal) {
       setState(() => _jumpedBlockIdx = i);
-      // 不迭代逼近，直接跳到列表最底。
-      // 视图里最后一个可见块就是最后一个差异块（+ 上下文），
-      // 所以列表最底就是目标位置，且不会触发 _currentBlockIdx 的 O(N) 遍历。
-      _ctrl.jumpTo(_ctrl.position.maxScrollExtent);
+      // 用 _blockOffset 估算出目标 offset（O(1) 采样，不遍历全部块），
+      // 再跳到这个精确值。避免 jumpTo(maxScrollExtent) 触发 ListView 盲探
+      // 导致的大量构建 + 内存暴涨。
+      final max = _ctrl.position.maxScrollExtent;
+      final off = _blockOffset(i).clamp(0.0, max);
+      _ctrl.jumpTo(off);
       return;
     }
   }
