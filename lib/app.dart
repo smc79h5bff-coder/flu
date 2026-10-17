@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
@@ -17,11 +18,23 @@ class DocDiffApp extends ConsumerWidget {
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
 
-      // 禁用整个 App 的 Hero 机制。
-      // 我们没用 Hero，但它在无动画 PageRouteBuilder 下会报 null 错。
-      // 包一层 HeroControllerScope.none 让 Hero 控制器直接跳过。
+      // 中文本地化：系统组件（Copy/Paste/Back 等）不再显示英文。
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+
+      // 钳制系统字号，防 Diff 行高/工具栏在大字号下溢出。
       builder: (context, child) {
-        return HeroControllerScope.none(child: child!);
+        final mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: mq.textScaler.clamp(
+              minScaleFactor: 0.9,
+              maxScaleFactor: 1.3,
+            ),
+          ),
+          child: child!,
+        );
       },
 
       navigatorObservers: [fileBrowserRouteObserver],
