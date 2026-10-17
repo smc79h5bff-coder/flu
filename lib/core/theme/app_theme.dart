@@ -7,105 +7,106 @@ import '../constants/app_colors.dart';
 class AppTheme {
   const AppTheme._();
 
-  static ThemeData light() {
-    final base = ThemeData.light(useMaterial3: true);
-    return base.copyWith(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: AppColors.brandGreen,
-        brightness: Brightness.light,
-      ),
-      scaffoldBackgroundColor: Colors.white,
+  /// 全局圆角半径。改这一行即可在 6dp / 4dp / 0dp 之间切换。
+  static const double radius = 6;
 
-      // 页面切换无动画（所有平台）。用户点进任何页面都瞬间到位，
-      // 没有 300ms 的滑入滑出。
+  /// 统一形状：Dialog / PopupMenu / Card / Button / SnackBar / Chip 共用。
+  static const RoundedRectangleBorder shape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(radius)),
+  );
+
+  /// BottomSheet 只做顶部两角（贴底时底部圆角看不见，且顶部圆角更符合 M3）。
+  static const RoundedRectangleBorder bottomSheetShape =
+      RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(radius)),
+      );
+
+  static const BorderRadius radiusAll = BorderRadius.all(
+    Radius.circular(radius),
+  );
+
+  static ThemeData light() => _build(Brightness.light);
+
+  static ThemeData dark() => _build(Brightness.dark);
+
+  static ThemeData _build(Brightness brightness) {
+    final base = ThemeData(brightness: brightness, useMaterial3: true);
+    final scheme = ColorScheme.fromSeed(
+      seedColor: AppColors.brandGreen,
+      brightness: brightness,
+    );
+    final isDark = brightness == Brightness.dark;
+
+    return base.copyWith(
+      colorScheme: scheme,
+      scaffoldBackgroundColor: isDark ? AppColors.darkSurface : Colors.white,
+      cardColor: isDark ? AppColors.darkCard : null,
+
+      // —— 动画：平台默认（a1）。
+      // 显式钉住是为了 Flutter 升级时默认值不漂移；
+      // 若想"完全交给当前版本默认"，把整块 pageTransitionsTheme 删掉即可。
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.android: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.iOS: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.linux: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.macOS: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.windows: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.fuchsia: _NoAnimationPageTransitionsBuilder(),
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: FadeForwardsPageTransitionsBuilder(),
         },
       ),
 
-      // 只改弹窗，其他不动
-      dialogTheme: const DialogThemeData(
-        backgroundColor: Colors.white,
+      // —— 形状：全部引用同一个 shape ——
+      dialogTheme: DialogThemeData(
+        backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(2)),
-        ),
+        shape: shape,
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: Colors.white,
-        modalBackgroundColor: Colors.white,
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: scheme.surface,
+        modalBackgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(2)),
-        ),
+        shape: bottomSheetShape,
       ),
-      popupMenuTheme: const PopupMenuThemeData(
-        color: Colors.white,
+      popupMenuTheme: PopupMenuThemeData(
+        color: scheme.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(2)),
-        ),
+        shape: shape,
       ),
-      drawerTheme: const DrawerThemeData(
-        backgroundColor: Colors.white,
+      // Drawer 贴边，不设圆角。
+      drawerTheme: DrawerThemeData(
+        backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
+      ),
+      cardTheme: CardThemeData(shape: shape),
+      snackBarTheme: SnackBarThemeData(shape: shape),
+      chipTheme: ChipThemeData(shape: shape),
+
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(shape: shape),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(shape: shape),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(shape: shape),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(shape: shape),
       ),
 
+      // —— 文本：从 colorScheme 派生，不硬编码黑白 ——
       textTheme: base.textTheme.apply(
-        bodyColor: Colors.black,
-        displayColor: Colors.black,
+        bodyColor: scheme.onSurface,
+        displayColor: scheme.onSurface,
+      ),
+
+      // —— 选中高亮：Diff 工具高频复制 ——
+      selectionTheme: SelectionThemeData(
+        cursorColor: scheme.primary,
+        selectionColor: scheme.primary.withValues(alpha: 0.30),
+        selectionHandleColor: scheme.primary,
       ),
     );
-  }
-
-  static ThemeData dark() {
-    final base = ThemeData.dark(useMaterial3: true);
-    return base.copyWith(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: AppColors.brandGreen,
-        brightness: Brightness.dark,
-      ),
-      scaffoldBackgroundColor: const Color(0xFF121212),
-      cardColor: const Color(0xFF1E1E1E),
-
-      // 页面切换无动画（所有平台）。和 light() 保持一致。
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.android: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.iOS: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.linux: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.macOS: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.windows: _NoAnimationPageTransitionsBuilder(),
-          TargetPlatform.fuchsia: _NoAnimationPageTransitionsBuilder(),
-        },
-      ),
-
-      textTheme: base.textTheme.apply(
-        bodyColor: const Color(0xFFE0E0E0),
-        displayColor: const Color(0xFFE0E0E0),
-      ),
-    );
-  }
-}
-
-/// 无动画的页面切换。所有平台的 push / pop 立即完成，无过渡。
-class _NoAnimationPageTransitionsBuilder extends PageTransitionsBuilder {
-  const _NoAnimationPageTransitionsBuilder();
-
-  @override
-  Widget buildTransitions<T>(
-    PageRoute<T> route,
-    BuildContext context,
-    Animation<double> animation,
-    Animation<double> secondaryAnimation,
-    Widget child,
-  ) {
-    return child;
   }
 }
