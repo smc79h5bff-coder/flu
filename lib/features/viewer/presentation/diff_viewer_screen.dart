@@ -139,6 +139,9 @@ Timer? _floatTimer;
 
   final GlobalKey _groupedKey = GlobalKey();
 
+  final ScrollController _tabScrollController = ScrollController();
+  bool _tabAtEnd = false;
+
  @override
 void initState() {
   super.initState();
@@ -149,16 +152,19 @@ void initState() {
       ref.read(viewModeProvider.notifier).state =
           ref.read(defaultViewModeProvider);
     });
+  _tabScrollController.addListener(_onTabScroll);
   }
 
   @override
   void dispose() {
-  
+
     _findDebounce?.cancel();
 _floatTimer?.cancel();
 _floatEntry?.remove();
     _findController.dispose();
     _replaceController.dispose();
+    _tabScrollController.removeListener(_onTabScroll);
+    _tabScrollController.dispose();
     _scrollController.dispose();
     _hScrollController.dispose();
     super.dispose();
@@ -949,7 +955,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     if (cached != null) return cached;
 
     final fs = ref.read(bodyFontSizeProvider);
-    final h = fs * 1.35 * 1.5 + 8;
+    final h = fs * 1.5 * 1.5 + 16;
 
     int rows;
     switch (mode) {
@@ -991,7 +997,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
   final noWrap = ref.read(noWrapProvider);
   final showLine = ref.read(showLineNumbersProvider);
   final bodySize = ref.read(bodyFontSizeProvider);
-  final style = TextStyle(fontSize: bodySize, height: 1.35);
+  final style = TextStyle(fontSize: bodySize, height: 1.5);
 
   final fp = contentFingerprint(
     ref.read(originalRawTextProvider) ?? '',
@@ -1033,7 +1039,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 8,
+      extraVerticalPadding: 16,
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: merged (${order.length}行)');
@@ -1071,7 +1077,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 12,
+      extraVerticalPadding: 20,
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: sbs (${rows.length}行)');
@@ -1109,7 +1115,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
   final ctxSize = ref.read(contextFontSizeProvider);
   final contextStyle = TextStyle(
     fontSize: ctxSize,
-    height: 1.35,
+    height: 1.5,
   );
 
   final table = await computeLineHeightsForTwoPane(
@@ -1141,7 +1147,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     style: style,
     textScaler: scaler,
     noWrap: noWrap,
-    extraVerticalPadding: 4,
+    extraVerticalPadding: 12,
     styleForItem: needContextOverride
         ? (i) => isContextRow(i) ? contextStyle : null
         : null,
@@ -1368,6 +1374,25 @@ if (!jumped) {
   if (!_scrollController.hasClients) return;
   _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
 }
+
+  void _onTabScroll() {
+    if (!mounted) return;
+    if (!_tabScrollController.hasClients) return;
+    final pos = _tabScrollController.position;
+    final atEnd = pos.pixels >= pos.maxScrollExtent - 1;
+    if (atEnd != _tabAtEnd) {
+      setState(() => _tabAtEnd = atEnd);
+    }
+  }
+
+  void _scrollTabsToEnd() {
+    if (!_tabScrollController.hasClients) return;
+    _tabScrollController.animateTo(
+      _tabScrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
+  }
 
   void _pageDown() {
     if (!_scrollController.hasClients) return;
@@ -1678,8 +1703,7 @@ if (!jumped) {
         title: const Text('进入对比页时默认显示'),
         children: [
       for (final m in ViewMode.values)
-  if (m != ViewMode.sideBySide)
-    RadioListTile<ViewMode>(
+        RadioListTile<ViewMode>(
               value: m,
               groupValue: current,
               title: Text(_viewModeName(m)),
@@ -2575,6 +2599,7 @@ void _toast(String msg) {
           syncScroll: true,
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
+          onDeleteFile: _deleteSide,
         ),
       ViewMode.diffOnly => DiffOnlyView(
           result: diff,
@@ -2591,6 +2616,7 @@ void _toast(String msg) {
           contextFontSize: ref.watch(contextFontSizeProvider),
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
+          onDeleteFile: _deleteSide,
         ),
       ViewMode.diffOnlyPlain => DiffOnlyPlainView(
           result: diff,
@@ -2606,6 +2632,7 @@ void _toast(String msg) {
           gutterFontSize: ref.watch(gutterFontSizeProvider),
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
+          onDeleteFile: _deleteSide,
         ),
       ViewMode.grouped => GroupedDiffView(key: _groupedKey),
     };
@@ -2647,88 +2674,36 @@ void _toast(String msg) {
   },
   child: Scaffold(
   appBar: AppBar(
-toolbarHeight: 43,
-  leading: IconButton(
-    icon: const Icon(Icons.disabled_by_default),
-    tooltip: '关闭',
-    onPressed: () => Navigator.of(context).maybePop(),
-  ),
-  titleSpacing: 1,
+  toolbarHeight: 43,
+  automaticallyImplyLeading: false,
+  leadingWidth: 0,
+  titleSpacing: 0,
   title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Builder(builder: (ctx) {
-              final iconColor =
-                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
-              return SizedBox(
-                width: 56,
-                height: 42,
-                child: InkWell(
-                  key: const Key('page-up'),
-                  onTap: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.pageUp();
-                    } else {
-                      _pageUp();
-                    }
-                  },
-                  onLongPress: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.jumpToTop();
-                    } else {
-                      _jumpToDocTop();
-                    }
-                  },
-                  child: Center(
-                    child: CustomPaint(
-                      size: const Size.square(24),
-                      painter: _PageUpIconPainter(color: iconColor),
-                    ),
-                  ),
-                ),
-              );
-            }),
-            Builder(builder: (ctx) {
-              final iconColor =
-                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
-              return SizedBox(
-                width: 56,
-                height: 42,
-                child: InkWell(
-                  key: const Key('page-down'),
-                  onTap: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.pageDown();
-                    } else {
-                      _pageDown();
-                    }
-                  },
-                  onLongPress: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.jumpToBottom();
-                    } else {
-                      _jumpToDocBottom();
-                    }
-                  },
-                  child: Center(
-                    child: CustomPaint(
-                      size: const Size.square(24),
-                      painter: _PageDownIconPainter(color: iconColor),
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ],
+    children: [
+      // 1. 返回
+      Expanded(
+        child: Tooltip(
+          message: '返回',
+          child: InkWell(
+            onTap: () => Navigator.of(context).maybePop(),
+            child: const Center(
+              child: Icon(Icons.arrow_back, size: 24),
+            ),
+          ),
         ),
-        actions: [
-          InkWell(
-            key: const Key('prev-diff'),
+      ),
+      // 2. 上翻页
+      Expanded(
+        child: Builder(builder: (ctx) {
+          final iconColor =
+              IconTheme.of(ctx).color ?? const Color(0xFF000000);
+          return InkWell(
+            key: const Key('page-up'),
             onTap: () {
               if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToPrevDiff();
+                (_groupedKey.currentState as dynamic)?.pageUp();
               } else {
-                _jumpToPrevDiff();
+                _pageUp();
               }
             },
             onLongPress: () {
@@ -2738,18 +2713,27 @@ toolbarHeight: 43,
                 _jumpToDocTop();
               }
             },
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Icon(Icons.arrow_upward, size: 26),
+            child: Center(
+              child: CustomPaint(
+                size: const Size.square(24),
+                painter: _PageUpIconPainter(color: iconColor),
+              ),
             ),
-          ),
-          InkWell(
-            key: const Key('next-diff'),
+          );
+        }),
+      ),
+      // 3. 下翻页
+      Expanded(
+        child: Builder(builder: (ctx) {
+          final iconColor =
+              IconTheme.of(ctx).color ?? const Color(0xFF000000);
+          return InkWell(
+            key: const Key('page-down'),
             onTap: () {
               if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToNextDiff();
+                (_groupedKey.currentState as dynamic)?.pageDown();
               } else {
-                _jumpToNextDiff();
+                _pageDown();
               }
             },
             onLongPress: () {
@@ -2759,22 +2743,80 @@ toolbarHeight: 43,
                 _jumpToDocBottom();
               }
             },
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Icon(Icons.arrow_downward, size: 26),
+            child: Center(
+              child: CustomPaint(
+                size: const Size.square(24),
+                painter: _PageDownIconPainter(color: iconColor),
+              ),
+            ),
+          );
+        }),
+      ),
+      // 4. 上一处差异
+      Expanded(
+        child: InkWell(
+          key: const Key('prev-diff'),
+          onTap: () {
+            if (viewMode == ViewMode.grouped) {
+              (_groupedKey.currentState as dynamic)?.jumpToPrevDiff();
+            } else {
+              _jumpToPrevDiff();
+            }
+          },
+          onLongPress: () {
+            if (viewMode == ViewMode.grouped) {
+              (_groupedKey.currentState as dynamic)?.jumpToTop();
+            } else {
+              _jumpToDocTop();
+            }
+          },
+          child: const Center(
+            child: Icon(Icons.arrow_upward, size: 24),
+          ),
+        ),
+      ),
+      // 5. 下一处差异
+      Expanded(
+        child: InkWell(
+          key: const Key('next-diff'),
+          onTap: () {
+            if (viewMode == ViewMode.grouped) {
+              (_groupedKey.currentState as dynamic)?.jumpToNextDiff();
+            } else {
+              _jumpToNextDiff();
+            }
+          },
+          onLongPress: () {
+            if (viewMode == ViewMode.grouped) {
+              (_groupedKey.currentState as dynamic)?.jumpToBottom();
+            } else {
+              _jumpToDocBottom();
+            }
+          },
+          child: const Center(
+            child: Icon(Icons.arrow_downward, size: 24),
+          ),
+        ),
+      ),
+      // 6. 查找
+      Expanded(
+        child: Tooltip(
+          message: '查找 / 替换',
+          child: InkWell(
+            onTap: () => setState(() => _showFind = !_showFind),
+            child: const Center(
+              child: Icon(Icons.find_in_page, size: 24),
             ),
           ),
-          IconButton(
-          icon: const Icon(Icons.find_in_page),
-            iconSize: 26,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            tooltip: '查找 / 替换',
-            onPressed: () => setState(() => _showFind = !_showFind),
-          ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: '更多操作',
-            onSelected: (v) {
+        ),
+      ),
+      // 7. 更多
+      Expanded(
+        child: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: '更多操作',
+          padding: EdgeInsets.zero,
+          onSelected: (v) {
               if (v == 'edit') {
                 _openEdit();
               } else if (v == 'exportDiff') {
@@ -2805,8 +2847,12 @@ toolbarHeight: 43,
                 _pickDefaultViewMode();
               }
             },
-            itemBuilder: (context) => [
-              
+            itemBuilder: (context) {
+              final canDeleteOriginal = !_originalDeleted &&
+                  ref.read(originalFilePathProvider) != null;
+              final canDeleteModified = !_modifiedDeleted &&
+                  ref.read(modifiedFilePathProvider) != null;
+              return [
               const PopupMenuItem<String>(
                 value: 'exportDiff',
                 child: Row(
@@ -2817,38 +2863,41 @@ toolbarHeight: 43,
                   ],
                 ),
               ),
-           const PopupMenuDivider(),
-const PopupMenuItem<String>(
-  value: 'listLeftDiff',
-  child: Text('批处理左差异'),
-),
-const PopupMenuItem<String>(
-  value: 'listRightDiff',
-  child: Text('批处理右差异'),
-),
-const PopupMenuDivider(),
-
-PopupMenuItem<String>(
-  value: 'delOriginal',
-                enabled: !_originalDeleted &&
-                    ref.read(originalFilePathProvider) != null,
+              PopupMenuItem<String>(
+                value: 'delOriginal',
+                enabled: canDeleteOriginal,
                 child: Row(
                   children: [
-                    const Icon(Icons.delete_outline, color: Colors.red),
+                    Icon(
+                      Icons.delete_outline,
+                      color: canDeleteOriginal ? Colors.red : null,
+                    ),
                     const SizedBox(width: 10),
-                    Text(_originalDeleted ? '左边文件已删除' : '删除左边文件'),
+                    Text(
+                      _originalDeleted ? '左边文件已删除' : '删除左边文件',
+                      style: TextStyle(
+                        color: canDeleteOriginal ? Colors.red : null,
+                      ),
+                    ),
                   ],
                 ),
               ),
               PopupMenuItem<String>(
                 value: 'delModified',
-                enabled: !_modifiedDeleted &&
-                    ref.read(modifiedFilePathProvider) != null,
+                enabled: canDeleteModified,
                 child: Row(
                   children: [
-                    const Icon(Icons.delete_outline, color: Colors.red),
+                    Icon(
+                      Icons.delete_outline,
+                      color: canDeleteModified ? Colors.red : null,
+                    ),
                     const SizedBox(width: 10),
-                    Text(_modifiedDeleted ? '右边文件已删除' : '删除右边文件'),
+                    Text(
+                      _modifiedDeleted ? '右边文件已删除' : '删除右边文件',
+                      style: TextStyle(
+                        color: canDeleteModified ? Colors.red : null,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -2917,8 +2966,7 @@ PopupMenuItem<String>(
                   ],
                 ),
               ),
-              
-             
+
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'diagnostic',
@@ -2930,12 +2978,14 @@ PopupMenuItem<String>(
                   ],
                 ),
               ),
-              
-             
-            ],
-          ),
-        ],
+            ];
+          },
+        ),
       ),
+    ],
+  ),
+  actions: const [],
+),
   body: Stack(
   children: [
     Column(
@@ -2946,44 +2996,97 @@ PopupMenuItem<String>(
           if (_showFind) _buildFindBar(),
 
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '差异行+上下2行',
-                    value: ViewMode.diffOnly,
-                    current: viewMode,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                const double unitMin = 52.0;
+                final unitW = (constraints.maxWidth / 13.0)
+                    .clamp(unitMin, double.infinity);
+                final totalW = unitW * 13;
+                final needsScroll = totalW > constraints.maxWidth + 0.5;
+
+                final tabsRow = SizedBox(
+                  width: totalW,
+                  height: 38,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: unitW * 3,
+                        child: _viewChip(
+                          label: '差异行+上下2行',
+                          value: ViewMode.diffOnly,
+                          current: viewMode,
+                        ),
+                      ),
+                      SizedBox(
+                        width: unitW * 3,
+                        child: _viewChip(
+                          label: '仅显示差异行',
+                          value: ViewMode.diffOnlyPlain,
+                          current: viewMode,
+                        ),
+                      ),
+                      SizedBox(
+                        width: unitW * 3,
+                        child: _viewChip(
+                          label: '跨行块',
+                          value: ViewMode.grouped,
+                          current: viewMode,
+                          onLongPress: _showGroupedContextMenu,
+                          trailingIcon: Icons.settings_outlined,
+                          onTrailingTap: _showGroupedContextMenu,
+                        ),
+                      ),
+                      SizedBox(
+                        width: unitW * 2,
+                        child: _viewChip(
+                          label: '全文上下',
+                          value: ViewMode.merged,
+                          current: viewMode,
+                        ),
+                      ),
+                      SizedBox(
+                        width: unitW * 2,
+                        child: _viewChip(
+                          label: '全文并排',
+                          value: ViewMode.sideBySide,
+                          current: viewMode,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '仅显示差异行',
-                    value: ViewMode.diffOnlyPlain,
-                    current: viewMode,
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '跨行块',
-                    value: ViewMode.grouped,
-                    current: viewMode,
-                    onLongPress: _showGroupedContextMenu,
-                  ),
-                ),
-                Expanded(
-                  flex: 1,
-                  child: _viewChip(
-                    label: '上下',
-                    value: ViewMode.merged,
-                    current: viewMode,
-                    compact: true,
-                  ),
-                ),
-              ],
+                );
+
+                if (!needsScroll) return tabsRow;
+
+                return Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _tabScrollController,
+                        scrollDirection: Axis.horizontal,
+                        child: tabsRow,
+                      ),
+                    ),
+                    if (!_tabAtEnd)
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _scrollTabsToEnd,
+                        child: Container(
+                          width: 24,
+                          height: 38,
+                          alignment: Alignment.center,
+                          color: Theme.of(context).colorScheme.surface,
+                          child: Icon(
+                            Icons.chevron_right,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
 
@@ -3183,6 +3286,8 @@ void _onFloatingPageUpTap() {
     required ViewMode current,
     bool compact = false,
     VoidCallback? onLongPress,
+    IconData? trailingIcon,
+    VoidCallback? onTrailingTap,
   }) {
     final selected = value == current;
     final s = Theme.of(context).colorScheme;
@@ -3190,25 +3295,50 @@ void _onFloatingPageUpTap() {
       onTap: () => _switchView(value),
       onLongPress: onLongPress,
       child: Container(
-        height: 28,
+        height: 38,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
               color: selected ? s.primary : Colors.transparent,
-              width: 6,
+              width: 4,
             ),
           ),
         ),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            color: selected ? s.primary : s.onSurfaceVariant,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight:
+                      selected ? FontWeight.bold : FontWeight.normal,
+                  color:
+                      selected ? s.primary : s.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (trailingIcon != null) ...[
+              const SizedBox(width: 2),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onTrailingTap,
+                child: Padding(
+                  padding: const EdgeInsets.all(2),
+                  child: Icon(
+                    trailingIcon,
+                    size: 14,
+                    color: s.onSurfaceVariant
+                        .withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -3457,9 +3587,11 @@ void _onFloatingPageUpTap() {
         onTap: onTap,
         onLongPress: onLongPress,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            height: 32,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: value
                 ? BoxDecoration(
                     border: Border.all(
@@ -3499,7 +3631,9 @@ void _onFloatingPageUpTap() {
           splashColor: AppColors.accentPurple.withOpacity(0.18),
           highlightColor: AppColors.accentPurple.withOpacity(0.08),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            height: 32,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
@@ -3624,24 +3758,22 @@ child: TextField(
 ),
     ),
                 
-               if (_findQuery.isNotEmpty) ...[
-  TextButton(
-    style: TextButton.styleFrom(
-      visualDensity: VisualDensity.compact,
-      foregroundColor: AppColors.accentPurple,
-    ),
-    onPressed: _replaceCurrentInline,
-    child: const Text('替换当前'),
+               TextButton(
+  style: TextButton.styleFrom(
+    visualDensity: VisualDensity.compact,
+    foregroundColor: AppColors.accentPurple,
   ),
-  TextButton(
-    style: TextButton.styleFrom(
-      visualDensity: VisualDensity.compact,
-      foregroundColor: AppColors.accentPurple,
-    ),
-    onPressed: _replaceAllInline,
-    child: const Text('全部替换'),
+  onPressed: _matchEntries.isEmpty ? null : _replaceCurrentInline,
+  child: const Text('替换当前'),
+),
+TextButton(
+  style: TextButton.styleFrom(
+    visualDensity: VisualDensity.compact,
+    foregroundColor: AppColors.accentPurple,
   ),
-],
+  onPressed: _matchEntries.isEmpty ? null : _replaceAllInline,
+  child: const Text('全部替换'),
+),
 
 
 
@@ -3687,145 +3819,138 @@ child: TextField(
                   ],
                 ),
               ),
-     Row(
-  children: [
-    const SizedBox(width: 1),
-    IconButton(
-      
-      icon: const Icon(Icons.edit_document, size: 30),
-      tooltip: '批量删除（普通文字）一行一个',
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-      constraints: const BoxConstraints(minHeight: 28),
-      visualDensity: VisualDensity.standard,
-      onPressed: () => _openLineList(),
- 
-    ),
-    const SizedBox(width: 1),
-
-    sidePill(
-      label: '左侧',
-                  selected: _searchLeft && !_searchRight,
-                  onTap: () {
-                    if (_searchLeft && !_searchRight) return;
-                    setState(() {
-                      _searchLeft = true;
-                      _searchRight = false;
-                    });
-                    _findChanged(_findController.text);
-                  },
-                ),
-                const SizedBox(width: 1),
-
-                sidePill(
-                  label: '右侧',
-                  selected: !_searchLeft && _searchRight,
-                  onTap: () {
-                    if (!_searchLeft && _searchRight) return;
-                    setState(() {
-                      _searchLeft = false;
-                      _searchRight = true;
-                    });
-                    _findChanged(_findController.text);
-                  },
-                ),
-                const SizedBox(width: 1),
-
-                sidePill(
-                  label: '两侧',
-                  selected: _searchLeft && _searchRight,
-                  onTap: () {
-                    if (_searchLeft && _searchRight) return;
-                    setState(() {
-                      _searchLeft = true;
-                      _searchRight = true;
-                    });
-                    _findChanged(_findController.text);
-                  },
-                ),
-
-                const Spacer(),
-
-
-if (_findQuery.isNotEmpty) ...[
-  IconButton(
-    icon: const Icon(Icons.arrow_upward),
-    iconSize: 32,
-    color: AppColors.accentPurple,
-    tooltip: '上一个',
-    visualDensity: VisualDensity.compact,
-    constraints: const BoxConstraints(minWidth: 61),
-    onPressed: _prevMatch,
+     SizedBox(
+  height: 40,
+  child: Row(
+    children: [
+      const SizedBox(width: 8),
+      const Text(
+        '查找/替换范围：',
+        style: TextStyle(fontSize: 12),
+      ),
+      const SizedBox(width: 6),
+      sidePill(
+        label: '左侧',
+        selected: _searchLeft && !_searchRight,
+        onTap: () {
+          if (_searchLeft && !_searchRight) return;
+          setState(() {
+            _searchLeft = true;
+            _searchRight = false;
+          });
+          _findChanged(_findController.text);
+        },
+      ),
+      const SizedBox(width: 4),
+      sidePill(
+        label: '右侧',
+        selected: !_searchLeft && _searchRight,
+        onTap: () {
+          if (!_searchLeft && _searchRight) return;
+          setState(() {
+            _searchLeft = false;
+            _searchRight = true;
+          });
+          _findChanged(_findController.text);
+        },
+      ),
+      const SizedBox(width: 4),
+      sidePill(
+        label: '两侧',
+        selected: _searchLeft && _searchRight,
+        onTap: () {
+          if (_searchLeft && _searchRight) return;
+          setState(() {
+            _searchLeft = true;
+            _searchRight = true;
+          });
+          _findChanged(_findController.text);
+        },
+      ),
+      const Spacer(),
+      IconButton(
+        icon: const Icon(Icons.arrow_upward),
+        iconSize: 30,
+        color: AppColors.accentPurple,
+        tooltip: '上一个',
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
+        onPressed: _matchEntries.isEmpty ? null : _prevMatch,
+      ),
+      IconButton(
+        icon: const Icon(Icons.arrow_downward),
+        iconSize: 30,
+        color: AppColors.accentPurple,
+        tooltip: '下一个',
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
+        onPressed: _matchEntries.isEmpty ? null : _nextMatch,
+      ),
+    ],
   ),
-  IconButton(
-    icon: const Icon(Icons.arrow_downward),
-    iconSize: 32,
-    color: AppColors.accentPurple,
-    tooltip: '下一个',
-    visualDensity: VisualDensity.compact,
-    constraints: const BoxConstraints(minWidth: 61),
-    onPressed: _nextMatch,
+),
+            SizedBox(
+  height: 40,
+  child: Row(
+    children: [
+      const SizedBox(width: 8),
+      const Text(
+        '高级搜索：',
+        style: TextStyle(fontSize: 12),
+      ),
+      const SizedBox(width: 4),
+      toggle(
+        label: '正则',
+        value: _regexEnable,
+        onTap: () => setState(() {
+          _regexEnable = !_regexEnable;
+          _findChanged(_findController.text);
+        }),
+        onLongPress: _openRegexHelp,
+      ),
+      toggle(
+        label: '忽略大小写',
+        value: _caseInsensitive,
+        onTap: () => setState(() {
+          _caseInsensitive = !_caseInsensitive;
+          _findChanged(_findController.text);
+        }),
+        onLongPress: () => _toast('开启后 A 和 a 视为相同'),
+      ),
+      toggle(
+        label: '整词',
+        value: _wholeWord,
+        onTap: () => setState(() {
+          _wholeWord = !_wholeWord;
+          _findChanged(_findController.text);
+        }),
+        onLongPress: () => _toast('只匹配完整单词，对中文无效'),
+      ),
+      if (pendingCount > 0) ...[
+        const SizedBox(width: 8),
+        Text(
+          '待应用 $pendingCount',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.orange.shade800,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+      const Spacer(),
+      TextButton.icon(
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          foregroundColor:
+              pendingCount > 0 ? Colors.orange.shade800 : null,
+        ),
+        onPressed: pendingCount > 0 ? _applyPendingChanges : null,
+        icon: const Icon(Icons.done_all, size: 16),
+        label: const Text('应用并刷新'),
+      ),
+    ],
   ),
-],
-
-
-    
-              ],
-            ),
-            Row(
-              children: [
-                const SizedBox(width: 8),
-                toggle(
-                  label: '正则',
-                  value: _regexEnable,
-                  onTap: () => setState(() {
-                    _regexEnable = !_regexEnable;
-                    _findChanged(_findController.text);
-                  }),
-                  onLongPress: _openRegexHelp,
-                ),
-                toggle(
-                  label: '忽略大小写',
-                  value: _caseInsensitive,
-                  onTap: () => setState(() {
-                    _caseInsensitive = !_caseInsensitive;
-                    _findChanged(_findController.text);
-                  }),
-                  onLongPress: () => _toast('开启后 A 和 a 视为相同'),
-                ),
-                toggle(
-                  label: '整词',
-                  value: _wholeWord,
-                  onTap: () => setState(() {
-                    _wholeWord = !_wholeWord;
-                    _findChanged(_findController.text);
-                  }),
-                  onLongPress: () => _toast('只匹配完整单词，对中文无效'),
-                ),
-                if (pendingCount > 0) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '待应用 $pendingCount',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.orange.shade800,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-                const Spacer(),
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: pendingCount > 0
-                        ? Colors.orange.shade800
-                        : null,
-                  ),
-                  onPressed: pendingCount > 0 ? _applyPendingChanges : null,
-                  icon: const Icon(Icons.done_all, size: 16),
-                  label: const Text('应用并刷新'),
-                ),
-              ],
-            ),
+),
           ],
         ),
       ),
