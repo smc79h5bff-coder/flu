@@ -419,25 +419,28 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   }
 
   void jumpToBottom() {
-    CrashLogger.instance.mark('grouped: 跳到最后一个差异块');
-    if (!_ctrl.hasClients) return;
-    final visible = _visible;
-    if (visible == null || visible.isEmpty) {
+  CrashLogger.instance.mark('grouped: 跳到最后一个差异块');
+  if (!_ctrl.hasClients) return;
+  final visible = _visible;
+  if (visible == null || visible.isEmpty) {
+    _ctrl.jumpTo(_ctrl.position.maxScrollExtent);
+    return;
+  }
+  for (var i = visible.length - 1; i >= 0; i--) {
+    if (visible[i].kind != GroupedBlockKind.equal) {
+      setState(() => _jumpedBlockIdx = i);
+      // 不迭代逼近，直接跳到列表最底。
+      // 视图里最后一个可见块就是最后一个差异块（+ 上下文），
+      // 所以列表最底就是目标位置，且不会触发 _currentBlockIdx 的 O(N) 遍历。
       _ctrl.jumpTo(_ctrl.position.maxScrollExtent);
       return;
     }
-    for (var i = visible.length - 1; i >= 0; i--) {
-      if (visible[i].kind != GroupedBlockKind.equal) {
-        setState(() => _jumpedBlockIdx = i);
-        _jumpToBlockAnimated(i);
-        return;
-      }
-    }
-    _ctrl.jumpTo(_ctrl.position.maxScrollExtent);
-    if (_jumpedBlockIdx != null) {
-      setState(() => _jumpedBlockIdx = null);
-    }
   }
+  _ctrl.jumpTo(_ctrl.position.maxScrollExtent);
+  if (_jumpedBlockIdx != null) {
+    setState(() => _jumpedBlockIdx = null);
+  }
+}
 
   /// 迭代逼近到目标块。缓存命中时每轮 O(1)，通常 2~4 轮收敛。
   Future<void> _jumpToBlockAnimated(int targetIdx) async {
