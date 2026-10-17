@@ -1,14 +1,12 @@
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../dir_loader.dart';
+import '../../../../core/constants/app_colors.dart';
 import '../providers/file_browser_providers.dart';
 
-/// 浅蓝主色（和对比页风格一致）
-const Color _kBlue = Color(0xFF4A90D9);
-
+// 弹窗间距常量（和 file_browser_screen.dart 里那份同名，但本地独立一份）
 const EdgeInsets _inset = EdgeInsets.all(4);
 const EdgeInsets _titlePad = EdgeInsets.fromLTRB(12, 8, 12, 0);
 const EdgeInsets _contentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
@@ -41,15 +39,17 @@ class _DirectoryPickerDialogState
   late final TextEditingController _filterCtrl;
   String _filterQuery = '';
   List<Directory> _dirs = const [];
-  bool _loading = true;
-  int _loadSeq = 0;
+bool _loading = true;  
+int _loadSeq = 0; // ← 新增：加载序号，防止快速连点导致旧结果覆盖新结果 
 
-  int _currentTab = 0;
+  // ===== 右栏 Tab 状态 =====
+  int _currentTab = 0; // 0=全部, 1=收藏, 2=最近
   late final PageController _pageCtrl;
 
-  static const int _kTabSelectedText = 0xFF4A90D9;
-  static const int _kTabSelectedBg = 0xFFE8F1FA;
-  static const int _kTabUnselectedText = 0xFF757575;
+  // ========== Tab 颜色（改颜色改这里）==========
+  static const int _kTabSelectedText = 0xFF6F00C7;   // 亮紫字
+  static const int _kTabSelectedBg = 0xFFEDECFF;     // 浅紫底
+  static const int _kTabUnselectedText = 0xFF757575; // 未选中灰字
 
   @override
   void initState() {
@@ -90,23 +90,26 @@ class _DirectoryPickerDialogState
   }
 
   Future<void> _load() async {
-    final seq = ++_loadSeq;
-    setState(() => _loading = true);
+  final seq = ++_loadSeq; // 本次加载的编号（
+      setState(() => _loading = true);
     try {
       final dirs = await listSubdirectoriesSafe(_path);
-      if (!mounted || seq != _loadSeq) return;
+      if (!mounted) return;
       setState(() {
         _dirs = dirs;
         _loading = false;
       });
+      
     } catch (_) {
-      if (!mounted || seq != _loadSeq) return;
+      if (!mounted) return;
       setState(() {
         _dirs = const [];
         _loading = false;
       });
     }
   }
+
+  
 
   bool get _canGoUp => _path != widget.rootPath;
 
@@ -123,46 +126,51 @@ class _DirectoryPickerDialogState
   }
 
   void _jumpToPath(String path) {
-    if (path.isEmpty) return;
-    var target = _normalizePath(path.trim());
-    if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
-      target = File(target).parent.path;
-    }
-    if (!Directory(target).existsSync()) {
-      _snack('目录不存在');
-      return;
-    }
-    if (!target.startsWith(widget.rootPath)) {
-      _snack('只能跳到内部存储以内');
-      return;
-    }
-    setState(() {
-      _path = target;
-      _jumpCtrl.clear();
-      _filterCtrl.clear();
-      _filterQuery = '';
-    });
-    _load();
+  if (path.isEmpty) return;
+  var target = _normalizePath(path.trim());
+  if (FileSystemEntity.typeSync(target) == FileSystemEntityType.file) {
+    target = File(target).parent.path;
   }
+  if (!Directory(target).existsSync()) {
+    _snack('目录不存在');
+    return;
+  }
+  if (!target.startsWith(widget.rootPath)) {
+    _snack('只能跳到内部存储以内');
+    return;
+  }
+  setState(() {
+    _path = target;  
+    _jumpCtrl.clear();   // ← 加这行 
+     _filterCtrl.clear();
+    _filterQuery = '';
+  });
+  _load();
+}
 
-  String _normalizePath(String path) {
-    const prefixes = <String, String>{
-      '/sdcard/': '/storage/emulated/0/',
-      '/sdcard': '/storage/emulated/0',
-      '/mnt/sdcard/': '/storage/emulated/0/',
-      '/mnt/sdcard': '/storage/emulated/0',
-      '/storage/self/primary/': '/storage/emulated/0/',
-      '/storage/self/primary': '/storage/emulated/0',
-      '/storage/emulated/legacy/': '/storage/emulated/0/',
-      '/storage/emulated/legacy': '/storage/emulated/0',
-    };
-    for (final e in prefixes.entries) {
-      if (path.startsWith(e.key)) {
-        return e.value + path.substring(e.key.length);
-      }
+/// 归一化用户粘贴的路径。
+/// · /sdcard/...         → /storage/emulated/0/...
+/// · /storage/self/primary/... → /storage/emulated/0/...
+/// · /storage/emulated/legacy/... → /storage/emulated/0/...
+/// · /mnt/sdcard/...     → /storage/emulated/0/...
+String _normalizePath(String path) {
+  const prefixes = <String, String>{
+    '/sdcard/': '/storage/emulated/0/',
+    '/sdcard': '/storage/emulated/0',
+    '/mnt/sdcard/': '/storage/emulated/0/',
+    '/mnt/sdcard': '/storage/emulated/0',
+    '/storage/self/primary/': '/storage/emulated/0/',
+    '/storage/self/primary': '/storage/emulated/0',
+    '/storage/emulated/legacy/': '/storage/emulated/0/',
+    '/storage/emulated/legacy': '/storage/emulated/0',
+  };
+  for (final e in prefixes.entries) {
+    if (path.startsWith(e.key)) {
+      return e.value + path.substring(e.key.length);
     }
-    return path;
   }
+  return path;
+}
 
   void _selectShortcut(String path) {
     if (!Directory(path).existsSync()) {
@@ -181,6 +189,11 @@ class _DirectoryPickerDialogState
     _load();
   }
 
+  /// 目录打不开时询问用户：保留还是移除记录。
+  ///
+  /// 不自动删。existsSync 在权限被收回时也返回 false，
+  /// 自动删会把用户的收藏悄悄清空，用户再想恢复权限找回来
+  /// 收藏已经不在列表里了。
   Future<void> _handleShortcutMissing(String path) async {
     final isFav = ref.read(favoritesProvider).contains(path);
     final isRecent = ref.read(recentMoveTargetsProvider).contains(path);
@@ -231,7 +244,6 @@ class _DirectoryPickerDialogState
         ),
         actions: [
           TextButton(
-            style: TextButton.styleFrom(foregroundColor: _kBlue),
             onPressed: () => Navigator.pop(c),
             child: const Text('保留'),
           ),
@@ -251,6 +263,8 @@ class _DirectoryPickerDialogState
     _snack('已移除');
   }
 
+  /// 目标目录 = 被操作目录本身，或被操作目录的子目录 → 非法。
+  /// 返回提示文案，合法返回 null。
   String? get _invalidReason {
     for (final p in widget.pickedPaths) {
       final name = p.split('/').last;
@@ -266,6 +280,7 @@ class _DirectoryPickerDialogState
     return null;
   }
 
+  /// 点击"选这个目录"时校验。非法弹窗告知，返回 false。
   Future<bool> _checkAndWarnInvalid() async {
     final reason = _invalidReason;
     if (reason == null) return true;
@@ -277,7 +292,6 @@ class _DirectoryPickerDialogState
         content: Text(reason),
         actions: [
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: _kBlue),
             onPressed: () => Navigator.pop(c),
             child: const Text('知道了'),
           ),
@@ -297,25 +311,19 @@ class _DirectoryPickerDialogState
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          cursorColor: _kBlue,
           decoration: const InputDecoration(
             hintText: '文件夹名',
             border: OutlineInputBorder(),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: _kBlue, width: 2),
-            ),
             isDense: true,
           ),
           onSubmitted: (v) => Navigator.pop(c, v),
         ),
         actions: [
           TextButton(
-            style: TextButton.styleFrom(foregroundColor: _kBlue),
             onPressed: () => Navigator.pop(c),
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: _kBlue),
             onPressed: () => Navigator.pop(c, ctrl.text),
             child: const Text('创建'),
           ),
@@ -369,6 +377,7 @@ class _DirectoryPickerDialogState
     if (fullPath == widget.rootPath) return '/';
     if (fullPath.startsWith('${widget.rootPath}/')) {
       var rel = fullPath.substring(widget.rootPath.length);
+      // 隐藏 emulated 前缀
       if (rel.startsWith('/emulated/')) {
         rel = rel.substring('/emulated'.length);
       } else if (rel == '/emulated') {
@@ -379,6 +388,8 @@ class _DirectoryPickerDialogState
     return fullPath;
   }
 
+  /// 生成面包屑：每段含 label + 完整路径。
+  /// 与 _relPath 一致：隐藏 emulated 段。
   List<({String label, String path})> _buildCrumbs() {
     final out = <({String label, String path})>[
       (label: '/', path: widget.rootPath),
@@ -397,72 +408,24 @@ class _DirectoryPickerDialogState
   }
 
   Widget _crumb(({String label, String path}) c, {required bool isLast}) {
-    return GestureDetector(
+ return GestureDetector(
       onTap: isLast ? null : () => _selectShortcut(c.path),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Text(
           c.label,
           style: TextStyle(
-            fontSize: 12,
-            color: isLast ? _kBlue : Colors.black87,
-            fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+fontSize: 12,          color: Colors.black,      fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildTopBar(BuildContext context) {
-    return Container(
-      height: 48,
-      decoration: const BoxDecoration(
-        color: Color(0xFFF0F5FA),
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFDCE6F0), width: 0.5),
-        ),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            color: Colors.black87,
-            tooltip: '取消',
-            onPressed: () => Navigator.pop(context),
-          ),
-          Expanded(
-            child: Text(
-              widget.title,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-            ),
-          ),
-          if (widget.pickedPaths.isNotEmpty)
-            TextButton.icon(
-              style: TextButton.styleFrom(foregroundColor: _kBlue),
-              icon: const Icon(Icons.content_paste, size: 18),
-              label: Text('${widget.pickedPaths.length}'),
-              onPressed: _showPickedItems,
-            ),
-          IconButton(
-            icon: const Icon(Icons.create_new_folder_outlined),
-            color: _kBlue,
-            tooltip: '新建文件夹',
-            onPressed: _createNewFolder,
-          ),
-        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // 面包屑在本次 build 里只算一次。
     final crumbs = _buildCrumbs();
-    final screenH = MediaQuery.of(context).size.height;
 
     return PopScope(
       canPop: !_canGoUp,
@@ -470,162 +433,147 @@ class _DirectoryPickerDialogState
         if (didPop) return;
         if (_canGoUp) _goUp();
       },
-     child: Dialog(
-  insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
-  backgroundColor: Colors.transparent,
-  surfaceTintColor: Colors.transparent,   // ← 加这行
-  elevation: 0,
-  child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: SizedBox(
-              height: screenH * 0.88,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  // ★ 半透明：透出背后内容
-                  color: Colors.white.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.5),
-                    width: 0.5,
+      child: Dialog.fullscreen(
+        child: Scaffold(
+         appBar: AppBar(
+  toolbarHeight: 44,
+  title: Text(widget.title),
+  leading: IconButton(
+    icon: const Icon(Icons.close),
+    tooltip: '取消',
+    onPressed: () => Navigator.pop(context),
+  ),
+            actions: [
+              // 待处理项按钮（左移）
+              if (widget.pickedPaths.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.content_paste, size: 18),
+                    label: Text('${widget.pickedPaths.length}'),
+                    onPressed: _showPickedItems,
                   ),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Column(
+              // 新建文件夹（右上角）
+              IconButton(
+                icon: const Icon(Icons.create_new_folder_outlined),
+                tooltip: '新建文件夹',
+                onPressed: _createNewFolder,
+              ),
+            ],
+          ),
+          body: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 1, 8, 0),
+                  child: Row(
                     children: [
-                      _buildTopBar(context),
-
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _jumpCtrl,
-                                cursorColor: _kBlue,
-                                decoration: const InputDecoration(
-                                  hintText: '粘贴路径跳转',
-                                  isDense: true,
-                                  border: OutlineInputBorder(),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color: _kBlue,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 8),
-                                ),
-                                onSubmitted: (v) =>
-                                    _jumpToPath(v.trim()),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            IconButton(
-                              icon: const Icon(Icons.arrow_forward),
-                              color: _kBlue,
-                              tooltip: '跳转',
-                              onPressed: () =>
-                                  _jumpToPath(_jumpCtrl.text.trim()),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.arrow_upward),
-                              color: _kBlue,
-                              onPressed: _canGoUp ? _goUp : null,
-                              tooltip: '上一级',
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Row(
-                                  children: [
-                                    for (var i = 0;
-                                        i < crumbs.length;
-                                        i++) ...[
-                                      if (i > 0)
-                                        Icon(
-                                          Icons.chevron_right,
-                                          size: 14,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .outline,
-                                        ),
-                                      _crumb(
-                                        crumbs[i],
-                                        isLast:
-                                            i == crumbs.length - 1,
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1),
-
                       Expanded(
-                        child: Row(
-                          children: [
-                            Expanded(flex: 6, child: _buildLeftPane()),
-                            Container(
-                              width: 1,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .outlineVariant,
+                        child: TextField(
+                          controller: _jumpCtrl,
+                          cursorColor: AppColors.accentPurple,
+                          decoration: InputDecoration(
+                            hintText: '粘贴路径跳转',
+                            isDense: true,
+                            border: const OutlineInputBorder(),
+                            focusedBorder: const OutlineInputBorder(
+                              borderSide: BorderSide(
+                                color: AppColors.accentPurple,
+                                width: 2,
+                              ),
                             ),
-                            Expanded(flex: 4, child: _buildRightPane()),
-                          ],
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
+                          ),
+                          onSubmitted: (v) => _jumpToPath(v.trim()),
                         ),
                       ),
-                      const Divider(height: 1),
-
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: TextButton(
-                                style: TextButton.styleFrom(
-                                    foregroundColor: _kBlue),
-                                onPressed: () =>
-                                    Navigator.pop(context),
-                                child: const Text('取消'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: FilledButton(
-                                style: FilledButton.styleFrom(
-                                    backgroundColor: _kBlue),
-                                onPressed: () async {
-                                  final ok =
-                                      await _checkAndWarnInvalid();
-                                  if (!ok || !mounted) return;
-                                  Navigator.pop(context, _path);
-                                },
-                                child: const Text('选这个目录'),
-                              ),
-                            ),
-                          ],
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.arrow_forward),
+                        color: AppColors.accentPurple,
+                        tooltip: '跳转',
+                        onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_upward),
+                        color: AppColors.accentPurple,
+                        onPressed: _canGoUp ? _goUp : null,
+                        tooltip: '上一级',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (var i = 0; i < crumbs.length; i++) ...[
+                                if (i > 0)
+                                  Icon(
+                                    Icons.chevron_right,
+                                    size: 14,
+                                    color:
+                                        Theme.of(context).colorScheme.outline,
+                                  ),
+                                _crumb(
+                                  crumbs[i],
+                                  isLast: i == crumbs.length - 1,
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
+                const Divider(height: 1),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(flex: 6, child: _buildLeftPane()),
+                      Container(
+                        width: 1,
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                      Expanded(flex: 4, child: _buildRightPane()),
+                    ],
+                  ),
+                ),
+       const Divider(height: 1),
+Padding(
+  padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('取消'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () async {
+                            final ok = await _checkAndWarnInvalid();
+                            if (!ok || !mounted) return;
+                            Navigator.pop(context, _path);
+                          },
+                          child: const Text('选这个目录'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -642,22 +590,25 @@ class _DirectoryPickerDialogState
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
           child: TextField(
             controller: _filterCtrl,
-            cursorColor: _kBlue,
+            cursorColor: AppColors.accentPurple,
             cursorHeight: 14,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: '过滤子目录',
-              prefixIcon: Icon(Icons.search, size: 14, color: _kBlue),
-              prefixIconConstraints: BoxConstraints(
+              prefixIcon: const Icon(Icons.search, size: 14),
+              prefixIconConstraints: const BoxConstraints(
                 minWidth: 28,
                 minHeight: 0,
               ),
               isDense: true,
-              border: OutlineInputBorder(),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: _kBlue, width: 2),
+              border: const OutlineInputBorder(),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: AppColors.accentPurple,
+                  width: 2,
+                ),
               ),
               contentPadding:
-                  EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                  const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
             ),
             onChanged: (v) => setState(() => _filterQuery = v),
           ),
@@ -679,18 +630,25 @@ class _DirectoryPickerDialogState
                               horizontalTitleGap: 2,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8),
-                              leading: const Icon(
-                                Icons.folder,
-                                color: _kBlue,
-                              ),
-                              title: Text(
-                                name,
-                                softWrap: true,
-                                style: const TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
+                              leading: Icon(Icons.folder,
+                                color: Colors.black87,  // ← 改这里：原来 
                                 ),
-                              ),
+
+
+
+
+                              title: Text(
+  name,
+  softWrap: true,
+  style: const TextStyle(
+    color: Colors.black,
+    fontWeight: FontWeight.bold,
+  ),
+),
+
+
+
+                              
                               onTap: () {
                                 setState(() {
                                   _path = d.path;
@@ -727,7 +685,7 @@ class _DirectoryPickerDialogState
               IconButton(
                 icon: Icon(
                   isFav ? Icons.star : Icons.star_border,
-                  color: isFav ? const Color(0xFFFFB800) : null,
+                  color: isFav ? const Color(0xFFACF500) : null,
                   size: 20,
                 ),
                 tooltip: isFav ? '取消收藏当前目录' : '收藏当前目录',
@@ -754,8 +712,7 @@ class _DirectoryPickerDialogState
                 )
               : PageView(
                   controller: _pageCtrl,
-                  onPageChanged: (i) =>
-                      setState(() => _currentTab = i),
+                  onPageChanged: (i) => setState(() => _currentTab = i),
                   children: [
                     _buildAllPage(favorites, recents),
                     _buildFavoritesPage(favorites),
@@ -920,12 +877,10 @@ class _DirectoryPickerDialogState
             ),
             actions: [
               TextButton(
-                style: TextButton.styleFrom(foregroundColor: _kBlue),
                 onPressed: () => Navigator.pop(c, false),
                 child: const Text('取消'),
               ),
               FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: _kBlue),
                 onPressed: () => Navigator.pop(c, true),
                 child: const Text('确定'),
               ),
@@ -946,6 +901,8 @@ class _DirectoryPickerDialogState
   }
 }
 
+// ==================== 要移动/复制的项目清单 ====================
+
 typedef _ItemStat = ({int bytes, int fileCount, bool truncated});
 
 class _PickedItemsSheet extends StatefulWidget {
@@ -963,7 +920,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
   final Map<String, _ItemStat> _stats = {};
   final Map<String, bool> _isDir = {};
   bool _showPath = true;
-  int _pathMode = 1;
+  int _pathMode = 1; // 0=完整 1=中间省略 2=结尾省略
 
   String get _verb {
     if (widget.title.contains('移动')) return '移动';
@@ -978,6 +935,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
   }
 
   Future<void> _start() async {
+    // 第一遍：所有文件（瞬间完成）
     for (final p in widget.paths) {
       if (!mounted) return;
       try {
@@ -993,6 +951,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
     }
     if (mounted) setState(() {});
 
+    // 第二遍：文件夹异步扫
     for (final p in widget.paths) {
       if (!mounted) return;
       if (_stats.containsKey(p)) continue;
@@ -1119,8 +1078,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
 
-    final totalFiles =
-        _stats.values.fold<int>(0, (a, e) => a + e.fileCount);
+    final totalFiles = _stats.values.fold<int>(0, (a, e) => a + e.fileCount);
     final totalBytes = _stats.values.fold<int>(0, (a, e) => a + e.bytes);
     final anyTruncated = _stats.values.any((e) => e.truncated);
     final allDone = _stats.length == widget.paths.length;
@@ -1172,8 +1130,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
                     selected: _showPath,
                     onSelected: (v) => setState(() => _showPath = v),
                     visualDensity: VisualDensity.compact,
-                    materialTapTargetSize:
-                        MaterialTapTargetSize.shrinkWrap,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   if (_showPath) ...[
                     const SizedBox(width: 8),
@@ -1186,8 +1143,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
                         () => _pathMode = (_pathMode + 1) % 3,
                       ),
                       visualDensity: VisualDensity.compact,
-                      materialTapTargetSize:
-                          MaterialTapTargetSize.shrinkWrap,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                   ],
                 ],
@@ -1231,9 +1187,8 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
                                   ? Icons.folder
                                   : Icons.insert_drive_file_outlined,
                               size: 16,
-                              color: isDir
-                                  ? Colors.black87
-                                  : s.onSurfaceVariant,
+                              color:
+                                  isDir ? Colors.black87 : s.onSurfaceVariant,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -1256,8 +1211,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
                         ),
                         if (_showPath)
                           Padding(
-                            padding:
-                                const EdgeInsets.only(left: 22, top: 2),
+                            padding: const EdgeInsets.only(left: 22, top: 2),
                             child: Text(
                               _applyPathMode(_shortenPath(p)),
                               style: TextStyle(
