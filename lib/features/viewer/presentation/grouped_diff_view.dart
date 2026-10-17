@@ -1,13 +1,12 @@
 // grouped_diff_view.dart
 //
-// 跨行块视图。架构：单个 ListView，每个 item 是一行，行内左右分栏（Row + 两个 _BlockTile）。
+// 跨行块视图。
 //
-// 与旧版的区别：
-//   - 旧版是两个独立 ListView 靠同步滚动假装并排，每 item 用 SizedBox(height:) 硬约束，
-//     高度靠预先计算（_estimateHeight / _computeHeight / _chunkHeights）来"预测"。
-//   - 新版用一个 ListView + Row，每 item 高度由内容自然决定，不再需要预测。
-//
-// 因此：不再裁切、不再有块间空白、左右天然对齐、滚动天然同步、后台异步算高度的机制全部删除。
+// 架构：
+//   - 渲染：单个 ListView，每个 item 是 Row（左右各一个 _BlockTile），高度由内容自然撑开。
+//          不裁切、不留块间空白、左右天然对齐。
+//   - 跳转定位：单独维护一张"块高缓存" _chunkHeights（后台异步填充），供 _blockOffset /
+//          _currentBlockIdx 使用。跳转是 O(1) 读缓存，不会因为索引大而变慢或闪退。
 
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +16,7 @@ import '../../../core/debug/crash_logger.dart';
 import '../../diff/domain/diff_operation.dart';
 import '../../diff/domain/diff_result.dart';
 import '../../import/presentation/providers/import_providers.dart';
+import 'line_height_calculator.dart';
 import 'providers/diff_viewer_providers.dart';
 import 'providers/grouped_color_providers.dart';
 import 'viewer_widgets.dart';
@@ -231,10 +231,18 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   DiffResult? _dataForDiff;
   List<GroupedBlock>? _visible;
 
-  // 字符级高亮缓存（异步填充）。key = "blockIdx:L" 或 "blockIdx:R"
+  // ★ 块高缓存（供跳转定位用）。后台异步填充。
+  final Map<int, double> _chunkHeights = {};
+
+  // 字符级高亮缓存（供渲染用）。后台异步填充。key = "blockIdx:L" 或 "blockIdx:R"
   final Map<String, List<List<int>>> _highlightsCache = {};
+
+  // 任务队列
+  final Set<int> _pendingHeights = {};
   final Set<String> _pendingHighlights = {};
   bool _processing = false;
+
+  // 最近 build 过的块索引（用于任务优先级）
   final Set<int> _recentlyVisible = {};
 
   // 短文件结束提示（块索引）
@@ -249,6 +257,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   double? _cacheCtxFont;
   double? _cacheGutterFont;
   TextScaler? _cacheScaler;
+  double? _cacheContentWidth;
   int? _lastCtxLines;
 
   String _findQuery = '';
@@ -269,6 +278,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   @override
   void dispose() {
     _ctrl.dispose();
+    _pendingHeights.clear();
     _pendingHighlights.clear();
     _highlightsCache.clear();
     _hlCache.clear();
@@ -429,8 +439,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     }
   }
 
-  /// 迭代逼近到目标块：每次跳到估算位置，等一帧，检查当前块索引，再修正。
-  /// 最多 8 轮，通常 2~4 轮收敛。
+  /// 迭代逼近到目标块。缓存命中时每轮 O(1)，通常 2~4 轮收敛。
   Future<void> _jumpToBlockAnimated(int targetIdx) async {
     if (!mounted) return;
     if (!_ctrl.hasClients) return;
@@ -568,52 +577,37 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  /// 粗估一个块的渲染高度。仅用于跳转定位，不再约束渲染。
-  /// 逻辑行数不足以覆盖折行场景——用行宽粗估折行数。
-  double _estimateBlockHeight(GroupedBlock b) {
-    final data = _data;
-    if (data == null) return 24.0;
-    final isContext = b.kind == GroupedBlockKind.equal;
-    final fs = isContext
-        ? ref.read(contextFontSizeProvider)
-        : ref.read(bodyFontSizeProvider);
-    final strutH = fs * 1.1;
-    final showLine = ref.read(showLineNumbersProvider);
-    final viewportW = MediaQuery.of(context).size.width;
-    final halfW = (viewportW - 1) / 2;
-    final contentW = halfW - (showLine ? 36.0 : 2.0);
-
-    double estimateLines(List<String> lines, int start, int end) {
-      var acc = 0.0;
-      for (var i = start; i < end; i++) {
-        if (i < 0 || i >= lines.length) continue;
-        final t = lines[i];
-        if (t.isEmpty) {
-          acc += 1;
-          continue;
-        }
-        double w = 0;
-        for (final code in t.runes) {
-          w += code < 128 ? fs * 0.6 : fs;
-        }
-        final rows = (w / contentW).ceil();
-        acc += rows < 1 ? 1 : rows;
-      }
-      return acc;
-    }
-
-    final leftN = estimateLines(data.linesA, b.leftStart, b.leftEnd);
-    final rightN = estimateLines(data.linesB, b.rightStart, b.rightEnd);
-    final n = leftN > rightN ? leftN : rightN;
-    return n * strutH + 8;
+  /// 块高缓存的查询：优先精确缓存，缺失时用粗估。
+  double _heightOf(int idx) {
+    final visible = _visible;
+    if (visible == null || idx < 0 || idx >= visible.length) return 24.0;
+    final cached = _chunkHeights[idx];
+    if (cached != null) return cached;
+    return _estimateBlockHeight(visible[idx]);
   }
 
+  /// 大 idx 时避免 O(N) 遍历：前 N 块采样取平均，乘以 idx。
   double _blockOffset(int idx) {
     final visible = _visible;
     if (visible == null || idx <= 0) return 0;
+
+    const int sampleLimit = 200;
+    if (idx > sampleLimit) {
+      // 前 100 块采样
+      double sum = 0;
+      int n = 0;
+      const int sampleSize = 100;
+      for (var i = 0; i < sampleSize && i < visible.length; i++) {
+        sum += _heightOf(i);
+        n++;
+      }
+      final avg = n > 0 ? sum / n : 24.0;
+      return avg * idx;
+    }
+
     double acc = 0;
     for (var i = 0; i < idx && i < visible.length; i++) {
-      acc += _estimateBlockHeight(visible[i]);
+      acc += _heightOf(i);
     }
     return acc;
   }
@@ -621,13 +615,42 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
   int? _currentBlockIdx() {
     if (!_ctrl.hasClients || _visible == null) return null;
     final off = _ctrl.offset;
+    final visible = _visible!;
+
+    // 大文件时用平均高度跳过前面
+    if (visible.length > 400) {
+      double sum = 0;
+      int n = 0;
+      const int sampleSize = 100;
+      for (var i = 0; i < sampleSize && i < visible.length; i++) {
+        sum += _heightOf(i);
+        n++;
+      }
+      final avg = n > 0 ? sum / n : 24.0;
+      final guess = (off / avg).floor();
+      final startIdx = guess.clamp(0, visible.length - 1);
+
+      double acc = avg * startIdx;
+      // 从前一格开始精调
+      final from = (startIdx - 2).clamp(0, visible.length - 1);
+      acc = 0;
+      // 重新精确累加（从 0 到 from 用平均估，从 from 开始精算）
+      acc = avg * from;
+      for (var i = from; i < visible.length; i++) {
+        final h = _heightOf(i);
+        if (off < acc + h) return i;
+        acc += h;
+      }
+      return visible.length - 1;
+    }
+
     double acc = 0;
-    for (var i = 0; i < _visible!.length; i++) {
-      final h = _estimateBlockHeight(_visible![i]);
+    for (var i = 0; i < visible.length; i++) {
+      final h = _heightOf(i);
       if (off < acc + h) return i;
       acc += h;
     }
-    return _visible!.length - 1;
+    return visible.length - 1;
   }
 
   int? _blockIdxForEntry(int entryIdx) {
@@ -771,7 +794,9 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
           _dataForDiff = diff;
           _data = buildGroupedData(diff, a, b);
           _visible = null;
+          _chunkHeights.clear();
           _highlightsCache.clear();
+          _pendingHeights.clear();
           _pendingHighlights.clear();
           _recentlyVisible.clear();
           _shortFileLastBlockIdx = null;
@@ -810,13 +835,20 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       findPink: ref.watch(groupedFindPinkProvider),
     );
 
-    // 配置变化时，清空高亮缓存（高亮本身的算法不受配置影响，但既然键可能冲突，索性一起清）。
+    final mq = MediaQuery.of(context);
+    final viewportW = mq.size.width;
+    final halfW = (viewportW - 1) / 2;
+    final contentW = halfW - (showLine ? 36.0 : 2.0);
+
     if (_cacheShowLine != showLine ||
         _cacheBodyFont != bodyFs ||
         _cacheCtxFont != ctxFs ||
         _cacheGutterFont != gutterFs ||
-        _cacheScaler != textScaler) {
+        _cacheScaler != textScaler ||
+        _cacheContentWidth != contentW) {
+      _chunkHeights.clear();
       _highlightsCache.clear();
+      _pendingHeights.clear();
       _pendingHighlights.clear();
       _recentlyVisible.clear();
       _cacheShowLine = showLine;
@@ -824,13 +856,16 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       _cacheCtxFont = ctxFs;
       _cacheGutterFont = gutterFs;
       _cacheScaler = textScaler;
+      _cacheContentWidth = contentW;
     }
 
     final ctxLines = ref.watch(groupedContextLinesProvider).round();
     if (_lastCtxLines != ctxLines) {
       _lastCtxLines = ctxLines;
       _visible = null;
+      _chunkHeights.clear();
       _highlightsCache.clear();
+      _pendingHeights.clear();
       _pendingHighlights.clear();
       _recentlyVisible.clear();
     }
@@ -862,6 +897,9 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       itemCount: visible.length,
       itemBuilder: (ctx, i) {
         final b = visible[i];
+
+        // ★ 触发块高计算（供跳转定位用，不影响本 item 的渲染高度）
+        _heightForBlock(i);
 
         final showMarkLeft =
             _shortIsLeft && _shortFileLastBlockIdx == i;
@@ -923,7 +961,125 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     return buildViewerScrollbar(child: listView, controller: _ctrl);
   }
 
-  // ==================== 高亮异步 ====================
+  // ==================== 块高计算（供跳转定位） ====================
+
+  void _heightForBlock(int blockIndex) {
+    if (_recentlyVisible.length > 300) _recentlyVisible.clear();
+    _recentlyVisible.add(blockIndex);
+
+    if (_chunkHeights.containsKey(blockIndex)) return;
+    if (_pendingHeights.contains(blockIndex)) return;
+    _pendingHeights.add(blockIndex);
+    _scheduleProcess();
+  }
+
+  /// 粗估一个块的渲染高度。仅作为精确高度算出来之前的占位。
+  double _estimateBlockHeight(GroupedBlock b) {
+    final data = _data;
+    if (data == null) return 24.0;
+    final isContext = b.kind == GroupedBlockKind.equal;
+    final fs = isContext
+        ? ref.read(contextFontSizeProvider)
+        : ref.read(bodyFontSizeProvider);
+    final strutH = fs * 1.1;
+    final contentW = _cacheContentWidth ?? 100.0;
+
+    double estimateLines(List<String> lines, int start, int end) {
+      var acc = 0.0;
+      for (var i = start; i < end; i++) {
+        if (i < 0 || i >= lines.length) continue;
+        final t = lines[i];
+        if (t.isEmpty) {
+          acc += 1;
+          continue;
+        }
+        double w = 0;
+        for (final code in t.runes) {
+          w += code < 128 ? fs * 0.6 : fs;
+        }
+        final rows = (w / contentW).ceil();
+        acc += rows < 1 ? 1 : rows;
+      }
+      return acc;
+    }
+
+    final leftN = estimateLines(data.linesA, b.leftStart, b.leftEnd);
+    final rightN = estimateLines(data.linesB, b.rightStart, b.rightEnd);
+    final n = leftN > rightN ? leftN : rightN;
+    return n * strutH + 8;
+  }
+
+  /// 精确计算一个块的渲染高度（用 TextPainter 逐行量）。
+  double _computeHeight(int blockIndex) {
+    final visible = _visible;
+    final data = _data;
+    if (visible == null || data == null ||
+        blockIndex < 0 || blockIndex >= visible.length) return 24.0;
+
+    final b = visible[blockIndex];
+    final isContext = b.kind == GroupedBlockKind.equal;
+    final fs = isContext
+        ? ref.read(contextFontSizeProvider)
+        : ref.read(bodyFontSizeProvider);
+    final width = _cacheContentWidth ?? 100.0;
+    final scaler = _cacheScaler ?? TextScaler.noScaling;
+    final style = TextStyle(fontSize: fs, height: 1.1);
+    final strut = StrutStyle(
+      fontSize: fs,
+      height: 1.1,
+      forceStrutHeight: true,
+    );
+
+    final showLine = ref.read(showLineNumbersProvider);
+    final gutterFs = ref.read(gutterFontSizeProvider);
+    final gutterStyle = TextStyle(fontSize: gutterFs, height: 1.1);
+    final gutterStrut = StrutStyle(
+      fontSize: gutterFs,
+      height: 1.1,
+      forceStrutHeight: true,
+    );
+    final gutterH = showLine
+        ? measureTextHeight(
+            text: '0',
+            maxWidth: 30,
+            style: gutterStyle,
+            textScaler: scaler,
+            strutStyle: gutterStrut,
+          )
+        : 0.0;
+
+    double measureLine(String text) {
+      final t = text.isEmpty ? ' ' : text;
+      final h = measureTextHeight(
+        text: t,
+        maxWidth: width,
+        style: style,
+        textScaler: scaler,
+        strutStyle: strut,
+      );
+      return h > gutterH ? h : gutterH;
+    }
+
+    double lh = 0;
+    for (var i = b.leftStart; i < b.leftEnd; i++) {
+      if (i < 0 || i >= data.linesA.length) continue;
+      lh += measureLine(data.linesA[i]);
+    }
+    double rh = 0;
+    for (var i = b.rightStart; i < b.rightEnd; i++) {
+      if (i < 0 || i >= data.linesB.length) continue;
+      rh += measureLine(data.linesB[i]);
+    }
+
+    final blank = measureTextHeight(
+      text: ' ', maxWidth: width, style: style, textScaler: scaler,
+      strutStyle: strut);
+    if (lh == 0) lh = blank;
+    if (rh == 0) rh = blank;
+    return (lh > rh ? lh : rh) + 8;
+  }
+
+  // ==================== 高亮 + 块高 异步计算 ====================
 
   List<List<int>>? _getHighlightOrNull(int blockIndex, _Side side) {
     if (_recentlyVisible.length > 300) _recentlyVisible.clear();
@@ -979,32 +1135,56 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       return;
     }
 
+    // 每帧最多处理 4 个任务
     const int budget = 4;
     var processed = 0;
 
     while (processed < budget) {
-      if (_pendingHighlights.isEmpty) break;
+      bool didWork = false;
 
-      String? target;
-      for (final i in _recentlyVisible) {
-        for (final suffix in const ['L', 'R']) {
-          final k = '$i:$suffix';
-          if (_pendingHighlights.contains(k)) {
-            target = k;
+      // 优先块高（跳转要用），其次高亮
+      if (_pendingHeights.isNotEmpty) {
+        int? target;
+        for (final i in _recentlyVisible) {
+          if (_pendingHeights.contains(i)) {
+            target = i;
             break;
           }
         }
-        if (target != null) break;
-      }
-      target ??= _pendingHighlights.first;
+        target ??= _pendingHeights.first;
 
-      _pendingHighlights.remove(target);
-      try {
-        final parts = target.split(':');
-        final idx = int.parse(parts[0]);
-        final side = parts[1] == 'L' ? _Side.left : _Side.right;
-        _highlightsCache[target] = _computeHighlight(idx, side);
-      } catch (_) {}
+        _pendingHeights.remove(target);
+        try {
+          _chunkHeights[target] = _computeHeight(target);
+          didWork = true;
+        } catch (_) {}
+      } else if (_pendingHighlights.isNotEmpty) {
+        String? target;
+        for (final i in _recentlyVisible) {
+          for (final suffix in const ['L', 'R']) {
+            final k = '$i:$suffix';
+            if (_pendingHighlights.contains(k)) {
+              target = k;
+              break;
+            }
+          }
+          if (target != null) break;
+        }
+        target ??= _pendingHighlights.first;
+
+        _pendingHighlights.remove(target);
+        try {
+          final parts = target.split(':');
+          final idx = int.parse(parts[0]);
+          final side = parts[1] == 'L' ? _Side.left : _Side.right;
+          _highlightsCache[target] = _computeHighlight(idx, side);
+          didWork = true;
+        } catch (_) {}
+      } else {
+        break;
+      }
+
+      if (!didWork) break;
       processed++;
     }
 
@@ -1012,7 +1192,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       setState(() {});
     }
 
-    if (_pendingHighlights.isNotEmpty) {
+    if (_pendingHeights.isNotEmpty || _pendingHighlights.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _processOne());
     } else {
       _processing = false;
@@ -1127,7 +1307,6 @@ class _BlockTile extends StatelessWidget {
         : Theme.of(context).colorScheme.outline;
     final base = TextStyle(fontSize: fs, color: fg, height: 1.1);
 
-    // strut：让渲染行高严格 = fs × 1.1，使行号与正文视觉基线稳定。
     final bodyStrut = StrutStyle(
       fontSize: fs,
       height: 1.1,
