@@ -185,6 +185,7 @@ class _AdvancedOverlayContent extends StatefulWidget {
     required this.panelWidth,
     required this.conditions,
     required this.isFilterMode,
+    required this.tapGroup,
     required this.onChanged,
     required this.onSubmit,
     required this.onClearAll,
@@ -196,6 +197,7 @@ class _AdvancedOverlayContent extends StatefulWidget {
   final double panelWidth;
   final List<_SearchCondition> conditions;
   final bool isFilterMode;
+  final Object tapGroup;
   final VoidCallback onChanged;
   final VoidCallback onSubmit;
   final VoidCallback onClearAll;
@@ -214,32 +216,34 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: _handleOutsideTap,
-            behavior: HitTestBehavior.translucent,
-            child: const SizedBox.expand(),
+    return TapRegion(
+      groupId: widget.tapGroup,
+      onTapOutside: (_) {
+        if (_openMenuIndex != null) {
+          setState(() => _openMenuIndex = null);
+        } else {
+          widget.onClose();
+        }
+      },
+      child: Stack(
+        children: [
+          Positioned(
+            left: widget.panelLeft,
+            top: widget.panelTop,
+            width: widget.panelWidth,
+            child: _buildPanel(),
           ),
-        ),
-        Positioned(
-          left: widget.panelLeft,
-          top: widget.panelTop,
-          width: widget.panelWidth,
-          child: _buildPanel(),
-        ),
-        if (_openMenuIndex != null) _buildMenu(),
-      ],
+          if (_openMenuIndex != null)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => setState(() => _openMenuIndex = null),
+              ),
+            ),
+          if (_openMenuIndex != null) _buildMenu(),
+        ],
+      ),
     );
-  }
-
-  void _handleOutsideTap() {
-    if (_openMenuIndex != null) {
-      setState(() => _openMenuIndex = null);
-    } else {
-      widget.onClose();
-    }
   }
 
   Widget _buildPanel() {
@@ -276,7 +280,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   Widget _row(int i) {
     final cond = widget.conditions[i];
     return Padding(
-      padding: const EdgeInsets.only(left: 3, right: 1, top: 3, bottom: 3),
+      padding: const EdgeInsets.only(left: 8, right: 6, top: 3, bottom: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -303,14 +307,13 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
             ),
           ),
           SizedBox(
-            width: 28,
+            width: 40,
             height: 36,
             child: IconButton(
               padding: EdgeInsets.zero,
               constraints:
-                  const BoxConstraints(minWidth: 28, minHeight: 28),
-              icon: const Icon(Icons.close,
-                  size: 20, color: Colors.black54),
+                  const BoxConstraints(minWidth: 40, minHeight: 40),
+              icon: const Icon(Icons.close, size: 22, color: Colors.black54),
               tooltip: '删除此条件',
               onPressed: () => _remove(i),
             ),
@@ -323,7 +326,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   Widget _operatorBtn(int i, _SearchCondition cond) {
     return SizedBox(
       key: _keyFor(i),
-      width: 68,
+      width: 80,
       height: 36,
       child: Material(
         color: const Color(0xFFF0F0F0),
@@ -418,30 +421,25 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
     );
   }
 
-  Widget _menuItem(
-      int i, _SearchOperator op, String label, String hint) {
+  Widget _menuItem(int i, _SearchOperator op, String label, String hint) {
     final selected = widget.conditions[i].operator == op;
     return InkWell(
       onTap: () => _selectOperator(i, op),
       child: Padding(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
             SizedBox(
               width: 20,
               child: selected
-                  ? const Icon(Icons.check,
-                      size: 16, color: Colors.black)
+                  ? const Icon(Icons.check, size: 16, color: Colors.black)
                   : null,
             ),
             Text(label,
-                style: const TextStyle(
-                    fontSize: 14, color: Colors.black)),
+                style: const TextStyle(fontSize: 14, color: Colors.black)),
             const SizedBox(width: 12),
             Text(hint,
-                style: const TextStyle(
-                    fontSize: 12, color: Colors.black54)),
+                style: const TextStyle(fontSize: 12, color: Colors.black54)),
           ],
         ),
       ),
@@ -451,12 +449,12 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   Widget _addClearRow() {
     final hasAny = widget.conditions.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(3, 12, 3, 0),
+      padding: const EdgeInsets.fromLTRB(8, 12, 6, 0),
       child: Row(
         children: [
           Expanded(
             child: SizedBox(
-              height: 40,
+              height: 42,
               child: Material(
                 color: const Color(0xFFFAFAFA),
                 borderRadius: BorderRadius.circular(6),
@@ -466,7 +464,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
                   child: const Center(
                     child: Text(
                       '＋ 添加条件',
-                      style: TextStyle(fontSize: 13, color: Colors.black),
+                      style: TextStyle(fontSize: 14, color: Colors.black),
                     ),
                   ),
                 ),
@@ -476,7 +474,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
           const SizedBox(width: 8),
           Expanded(
             child: SizedBox(
-              height: 40,
+              height: 42,
               child: Material(
                 color: const Color(0xFFFAFAFA),
                 borderRadius: BorderRadius.circular(6),
@@ -487,7 +485,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
                     child: Text(
                       '🗑 清空条件',
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 14,
                         color: hasAny ? Colors.black : Colors.black38,
                       ),
                     ),
@@ -505,10 +503,10 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
     final enabled = widget.conditions.any((c) => c.text.trim().isNotEmpty);
     final label = widget.isFilterMode ? '筛选' : '搜索';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(3, 12, 3, 10),
+      padding: const EdgeInsets.fromLTRB(8, 12, 6, 10),
       child: SizedBox(
         width: double.infinity,
-        height: 44,
+        height: 46,
         child: OutlinedButton(
           onPressed: enabled ? widget.onSubmit : null,
           style: OutlinedButton.styleFrom(
@@ -518,13 +516,13 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
               width: 1.5,
             ),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(23),
             ),
           ),
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               color: enabled ? Colors.black : Colors.black38,
             ),
@@ -823,6 +821,7 @@ OverlayEntry? _advancedOverlay;
 
   /// ★ 粘性头部已停用，此字段保留但始终为 null。
 String? _stickyZipKey;
+static final Object _searchPanelTapGroup = Object();
 
 // ==================== 过滤状态 ====================
 
@@ -1511,17 +1510,19 @@ void _showAdvancedOverlay() {
     if (box == null) return;
     final pos = box.localToGlobal(Offset.zero);
     final size = box.size;
+    final screenWidth = MediaQuery.of(context).size.width;
 
     _lastHadConditions = _hasActiveConditions;
 
     _advancedOverlay = OverlayEntry(
       builder: (ctx) => _AdvancedOverlayContent(
         panelTop: pos.dy + size.height + 2,
-        panelLeft: pos.dx,
-        panelWidth: size.width,
+        panelLeft: 8,
+        panelWidth: screenWidth - 16,
         conditions: _searchConditions,
         isFilterMode:
             ref.read(searchBoxModeProvider) == SearchBoxMode.filter,
+        tapGroup: _searchPanelTapGroup,
         onChanged: () {
           if (!mounted) return;
           final wasHad = _lastHadConditions;
@@ -1544,7 +1545,7 @@ void _showAdvancedOverlay() {
             _doSearch();
           }
         },
-        onClearAll: _clearConditionsAndRealtime,
+        onClearAll: _clearConditionsInPanel,
         onClose: _closeAdvanced,
       ),
     );
@@ -2524,18 +2525,15 @@ void _runFilterNow() {
   _onFilterTextChanged(_searchCtrl.text);
 }
 
-void _clearConditionsAndRealtime() {
-  _advancedOverlay?.remove();
-  _advancedOverlay = null;
+void _clearConditionsInPanel() {
   final oldConds = List<_SearchCondition>.from(_searchConditions);
   setState(() {
-    _advancedOpen = false;
     _searchConditions.clear();
     _filterTaskId++;
     _filterDeepResults = const [];
     _lastHadConditions = false;
   });
-  // 延迟 dispose，避免 overlay 还在 build 时 controller 被回收
+  _advancedOverlay?.markNeedsBuild();
   WidgetsBinding.instance.addPostFrameCallback((_) {
     for (final c in oldConds) {
       c.dispose();
@@ -2545,6 +2543,11 @@ void _clearConditionsAndRealtime() {
   if (isFilter && _searchCtrl.text.trim().isNotEmpty) {
     _onFilterTextChanged(_searchCtrl.text);
   }
+}
+
+void _clearConditionsAndRealtime() {
+  _clearConditionsInPanel();
+  _closeAdvanced();
 }
 
 void _clearFilter() {
@@ -4701,7 +4704,7 @@ const PopupMenuItem<String>(
   // ==================== 搜索栏 UI ====================
 
 
- Widget _buildSearchBar() {
+Widget _buildSearchBar() {
   final scope = ref.watch(searchScopeProvider);
   final mode = ref.watch(searchBoxModeProvider);
   final isFilter = mode == SearchBoxMode.filter;
@@ -4734,8 +4737,7 @@ const PopupMenuItem<String>(
     btnIconColor = Colors.black87;
     inputBg = filterInputBg;
     inputFg = Colors.black;
-    
-	  suffixBg = const Color(0x33FFF0F0);   // 20% alpha
+    suffixBg = const Color(0x33FFF0F0);
     suffixFg = Colors.black87;
     btnIcon = Icons.filter_alt;
     hintText = _selectionMode
@@ -4757,152 +4759,149 @@ const PopupMenuItem<String>(
             : '输入关键词');
   }
 
- return TapRegion(
-  onTapOutside: (_) {
-    FocusManager.instance.primaryFocus?.unfocus();
-    // 不关闭悬浮层，让用户点真正的外部区域再关
-  },
+  return TapRegion(
+    groupId: _searchPanelTapGroup,
+    onTapOutside: (_) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    },
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-      child: Row(
-        children: [
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _selectionMode ? null : _showSearchSettings,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+          child: Row(
+            children: [
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _selectionMode ? null : _showSearchSettings,
                   borderRadius: BorderRadius.circular(8),
-                  color: null,
-                  border: isFilter
-                      ? Border.all(
-                          color: _selectionMode
-                              ? Colors.grey.shade300
-                              : filterBtnBg,
-                          width: 1,
-                        )
-                      : null,
-                ),
-                child: Text(
-                  '搜索设置',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _selectionMode
-                        ? Colors.grey
-                        : (isFilter ? Colors.black : accent),
-                    fontWeight: (isFilter || hasText)
-                        ? FontWeight.bold
-                        : FontWeight.normal,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: isFilter
+                          ? Border.all(
+                              color: _selectionMode
+                                  ? Colors.grey.shade300
+                                  : filterBtnBg,
+                              width: 1,
+                            )
+                          : null,
+                    ),
+                    child: Text(
+                      '搜索设置',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _selectionMode
+                            ? Colors.grey
+                            : (isFilter ? Colors.black : accent),
+                        fontWeight: (isFilter || hasText)
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-
-          const SizedBox(width: 2),
-
-          InkWell(
-            onTap: _selectionMode
-                ? null
-                : (isFilter
+              const SizedBox(width: 2),
+              InkWell(
+                onTap: _selectionMode
                     ? null
-                    : (hasText ? _doSearch : null)),
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 9,
-                vertical: 11,
-              ),
-              decoration: BoxDecoration(
+                    : (isFilter
+                        ? null
+                        : (hasText ? _doSearch : null)),
                 borderRadius: BorderRadius.circular(8),
-                color: _selectionMode ? Colors.grey.shade300 : btnBg,
-              ),
-              child: Icon(btnIcon, color: btnIconColor),
-            ),
-          ),
-          const SizedBox(width: 4),
-
-          Expanded(
-          child: TextField(
-  key: _searchInputKey,
-  controller: _searchCtrl,
-  enabled: !_selectionMode,
-              cursorColor: accent,
-              style: TextStyle(
-                color: inputFg,
-                fontWeight:
-                    isFilter ? FontWeight.bold : FontWeight.normal,
-              ),
-              decoration: InputDecoration(
-                hintText: hintText,
-                filled: isFilter,
-                fillColor: isFilter ? inputBg : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 9,
-                ),
-                     suffixIcon: Row(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    if (!_selectionMode) _buildAdvancedToggle(),
-    hasText
-        ? _suffixButton(
-            icon: Icons.backspace_outlined,
-            tooltip: '清空输入',
-            fg: suffixFg,
-            bg: suffixBg,
-            onTap: isFilter ? _clearFilter : _clearSearchInput,
-          )
-        : _suffixButton(
-            icon: Icons.history,
-            tooltip: '搜索历史',
-            fg: suffixFg,
-            bg: suffixBg,
-            onTap: _showSearchHistory,
-          ),
-  ],
-),
-                suffixIconConstraints: const BoxConstraints(
-  minWidth: 84,
-  minHeight: 44,
-),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: accent, width: 2),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 11,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: _selectionMode ? Colors.grey.shade300 : btnBg,
+                  ),
+                  child: Icon(btnIcon, color: btnIconColor),
                 ),
               ),
-              onChanged: _onSearchChanged,
-              onSubmitted: (_) {
-                if (_selectionMode) {
-                  FocusManager.instance.primaryFocus?.unfocus();
-                  return;
-                }
-                if (isFilter) {
-                  if (_hasActiveConditions) {
-                    _runFilterNow();
-                  } else {
-                    FocusManager.instance.primaryFocus?.unfocus();
-                  }
-                } else {
-                  _doSearch();
-                }
-              },
-            ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: TextField(
+                  key: _searchInputKey,
+                  controller: _searchCtrl,
+                  enabled: !_selectionMode,
+                  cursorColor: accent,
+                  style: TextStyle(
+                    color: inputFg,
+                    fontWeight:
+                        isFilter ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    filled: isFilter,
+                    fillColor: isFilter ? inputBg : null,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 9,
+                    ),
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!_selectionMode) _buildAdvancedToggle(),
+                        hasText
+                            ? _suffixButton(
+                                icon: Icons.backspace_outlined,
+                                tooltip: '清空输入',
+                                fg: suffixFg,
+                                bg: suffixBg,
+                                onTap:
+                                    isFilter ? _clearFilter : _clearSearchInput,
+                              )
+                            : _suffixButton(
+                                icon: Icons.history,
+                                tooltip: '搜索历史',
+                                fg: suffixFg,
+                                bg: suffixBg,
+                                onTap: _showSearchHistory,
+                              ),
+                      ],
+                    ),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 84,
+                      minHeight: 44,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: accent, width: 2),
+                    ),
+                  ),
+                  onChanged: _onSearchChanged,
+                  onSubmitted: (_) {
+                    if (_selectionMode) {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      return;
+                    }
+                    if (isFilter) {
+                      if (_hasActiveConditions) {
+                        _runFilterNow();
+                      } else {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                      }
+                    } else {
+                      _doSearch();
+                    }
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
         ),
         if (!_advancedOpen && _hasActiveConditions && !_selectionMode)
           _buildActionChips(),
@@ -4939,20 +4938,20 @@ Widget _buildActionChips() {
 
 Widget _actionChip({required String label, required VoidCallback onTap}) {
   return SizedBox(
-    height: 36,
+    height: 38,
     child: OutlinedButton(
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
         backgroundColor: Colors.white,
         side: const BorderSide(color: Colors.black, width: 1.5),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(19),
         ),
       ),
       child: Text(
         label,
         style: const TextStyle(
-          fontSize: 13,
+          fontSize: 14,
           fontWeight: FontWeight.bold,
           color: Colors.black,
         ),
