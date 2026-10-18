@@ -409,7 +409,7 @@ class _EntryTile extends StatelessWidget {
         : AppColors.addedOf(context);
 
     return Padding(
-      padding: const EdgeInsets.only(right: 2, top: 2, bottom: 22),
+      padding: const EdgeInsets.only(right: 2, top: 1, bottom: 6),
       child: ColoredBox(
         color: barColor.withValues(alpha: 0.07),
         child: Row(
@@ -432,7 +432,7 @@ class _EntryTile extends StatelessWidget {
             const SizedBox(width: 4),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: content,
               ),
             ),
@@ -453,7 +453,7 @@ class _EntryTile extends StatelessWidget {
         : _cachedSpans(
             text, findQuery, isCurrentMatch, matchYellow, matchPink);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       child: noWrap
           ? Text.rich(
               TextSpan(style: style, children: spans),
@@ -496,7 +496,7 @@ class _EntryTile extends StatelessWidget {
           ));
 
     return Padding(
-      padding: const EdgeInsets.only(right: 2, top: 2, bottom: 22),
+      padding: const EdgeInsets.only(right: 2, top: 1, bottom: 6),
       child: ColoredBox(
         color: color.withValues(alpha: 0.18),
         child: Row(
@@ -519,7 +519,7 @@ class _EntryTile extends StatelessWidget {
             const SizedBox(width: 4),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: content,
               ),
             ),
