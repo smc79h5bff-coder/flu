@@ -609,9 +609,9 @@ class ReaderSettings {
     hotZoneOpacity: 0.6,
     hotZoneBorderWidth: 1.5,
     hotZoneX: 0.5,
-    hotZoneY: 0.03,
-    hotZoneW: 1.0,
-    hotZoneH: 0.06,
+    hotZoneY: 0.5,
+    hotZoneW: 0.35,
+    hotZoneH: 0.22,
   );
 
   Map<String, dynamic> toJson() => {
@@ -674,8 +674,8 @@ class ReaderSettings {
         fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
         fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
         bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
-        showButtons: j['sb'] as bool? ?? true,
-        readerMode: (j['rm'] as num?)?.toInt() ?? 0,
+        showButtons: j['sb'] as bool? ?? false,
+        readerMode: (j['rm'] as num?)?.toInt() ?? 1,
 
         pageTopSafePx: (j['ptsp'] as num?)?.toInt() ?? 0,
         pageBottomSafePx: (j['pbsp'] as num?)?.toInt() ?? 0,
@@ -721,9 +721,9 @@ class ReaderSettings {
         hotZoneOpacity: (j['ho'] as num?)?.toDouble() ?? 0.6,
         hotZoneBorderWidth: (j['hbw'] as num?)?.toDouble() ?? 1.5,
         hotZoneX: (j['hx'] as num?)?.toDouble() ?? 0.5,
-        hotZoneY: (j['hy'] as num?)?.toDouble() ?? 0.03,
-        hotZoneW: (j['hw'] as num?)?.toDouble() ?? 1.0,
-        hotZoneH: (j['hh'] as num?)?.toDouble() ?? 0.06,
+        hotZoneY: (j['hy'] as num?)?.toDouble() ?? 0.5,
+        hotZoneW: (j['hw'] as num?)?.toDouble() ?? 0.35,
+        hotZoneH: (j['hh'] as num?)?.toDouble() ?? 0.22,
       );
 
   ReaderSettings copyWith({
