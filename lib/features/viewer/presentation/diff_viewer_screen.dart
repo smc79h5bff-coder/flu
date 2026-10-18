@@ -116,8 +116,13 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   // 后台精确高度表
   final Map<ViewMode, Future<_HeightBundle>> _heightFutures = {};
   final Map<ViewMode, _HeightBundle> _heightExactResults = {};
+  // 已完成精确计算的模式（用于切视图"就绪即走"判断）。
+  final Set<ViewMode> _completedHeightModes = {};
   DiffResult? _heightFuturesFor;
   String? _heightFuturesConfigKey;
+
+  static final Future<_HeightBundle> _emptyHeightFuture =
+      Future.value(const _HeightBundle());
   int? _jumpedToEntry;
 
   double? _pendingGroupedRestoreOffset;
@@ -150,8 +155,9 @@ JumpDirection _jumpDirection = JumpDirection.down;
     for (final m in ViewMode.values) m: GlobalKey(),
   };
 
-  // 切视图遮罩：非 null 表示正在切换、需要盖表情动画（保底 600ms）。
-  DateTime? _switchOverlaySince;
+  // 切视图遮罩：截止时间。非 null 且未到期时显示加载动画；
+  // 目标高度表已就绪时为 null，瞬时切换不遮罩。
+  DateTime? _switchOverlayUntil;
   Timer? _switchOverlayTimer;
 
  @override
@@ -931,9 +937,16 @@ if (_noResultHint == null &&
   // ==================== 高度表：懒加载 + 后台补精确 ====================
 
 void _startHeightComputation(DiffResult diff, ViewMode mode) {
-  if (mode == ViewMode.grouped) return;   // ← 先 return
+  if (mode == ViewMode.grouped) return;
   CrashLogger.instance.mark('启动高度计算: ${mode.name}');
   CrashTrace.mark('启动高度计算: ${mode.name}');
+  // 预热点一次，正式 build 时会命中同一个 Future 对象。
+  _getHeightFuture(diff, mode);
+}
+
+  Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
+    if (mode == ViewMode.grouped) return _emptyHeightFuture;
+
     final mq = MediaQuery.of(context);
     final configKey = '${mq.size.width}|'
         '${ref.read(bodyFontSizeProvider)}|'
@@ -947,71 +960,42 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
         _heightFuturesConfigKey != configKey) {
       _heightFutures.clear();
       _heightExactResults.clear();
+      _completedHeightModes.clear();
       _heightFuturesFor = diff;
       _heightFuturesConfigKey = configKey;
     }
 
-    if (_heightFutures.containsKey(mode)) return;
+    // ★ 关键：命中的是同一个 Future 对象，FutureBuilder 不会认为它变了。
+    // 不在这里再包 catchError，否则每次返回新 Future，视图反复重建。
+    final existing = _heightFutures[mode];
+    if (existing != null) return existing;
 
-    final f = _computeHeightBundle(diff, mode);
-    _heightFutures[mode] = f;
+    // 首次计算：catchError 只包一次，把降级后的 Future 存起来。
+    final f = _computeHeightBundle(diff, mode)
+        .catchError((Object e, StackTrace st) {
+      debugPrint('高度表计算失败(降级估算): $e\n$st');
+      return _getQuickBundle(diff, mode);
+    });
+
     f.then((exact) {
       if (!mounted) return;
       if (!identical(_heightFuturesFor, diff)) return;
+      _completedHeightModes.add(mode);
       _heightExactResults[mode] = exact;
       // 内存保护：本会话最多驻留最近 2 个模式的精确表。
       // 旧的丢掉也没关系——全局 LineHeightCache 里还有，重进秒取。
       while (_heightExactResults.length > 2) {
         _heightExactResults.remove(_heightExactResults.keys.first);
       }
-      if (ref.read(viewModeProvider) == mode) {
-        ViewerDiag.mark('精确高度表就绪，切回精确 (${mode.name})');
+      if (ref.read(viewModeProvider) == mode && _activeHeights != exact) {
+        ViewerDiag.mark('精确高度表就绪 (${mode.name})');
         _log('精确高度表就绪: ${mode.name}');
-        setState(() {
-          _activeHeights = exact;
-        });
+        setState(() => _activeHeights = exact);
       }
-    }).catchError((Object e, StackTrace st) {
-      debugPrint('高度表计算失败: $e\n$st');
     });
-  }
 
-  Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
-    if (mode == ViewMode.grouped) {
-      return Future.value(const _HeightBundle());
-    }
-    final mq = MediaQuery.of(context);
-    final configKey = '${mq.size.width}|'
-        '${ref.read(bodyFontSizeProvider)}|'
-        '${ref.read(contextFontSizeProvider)}|'
-        '${ref.read(gutterFontSizeProvider)}|'
-        '${ref.read(noWrapProvider)}|'
-        '${ref.read(showLineNumbersProvider)}|'
-        '${ref.read(importRevisionProvider)}';
-
-    if (!identical(_heightFuturesFor, diff) ||
-        _heightFuturesConfigKey != configKey) {
-      _heightFutures.clear();
-      _heightExactResults.clear();
-      _heightFuturesFor = diff;
-      _heightFuturesConfigKey = configKey;
-    }
-
-    final existing = _heightFutures[mode];
-    if (existing != null) {
-      // 计算抛异常时降级为估算表，保证视图一定能渲染出来（不崩不卡死）。
-      return existing.catchError((Object e, StackTrace st) {
-        debugPrint('高度表计算失败(降级估算): $e\n$st');
-        return _getQuickBundle(diff, mode);
-      });
-    }
-
-    final f = _computeHeightBundle(diff, mode);
     _heightFutures[mode] = f;
-    return f.catchError((Object e, StackTrace st) {
-      debugPrint('高度表计算失败(降级估算): $e\n$st');
-      return _getQuickBundle(diff, mode);
-    });
+    return f;
   }
 
   _HeightBundle _getQuickBundle(DiffResult diff, ViewMode mode) {
@@ -1644,7 +1628,11 @@ if (!jumped) {
 
     _log('切视图: ${_viewModeName(newMode)}');
     ref.read(viewModeProvider.notifier).state = newMode;
-    _switchOverlaySince = DateTime.now();
+    // 就绪即走：目标高度表已算完则瞬时切换不遮罩；
+    // 未就绪才遮罩，保底 600ms 表情动画。
+    _switchOverlayUntil = _completedHeightModes.contains(newMode)
+        ? null
+        : DateTime.now().add(const Duration(milliseconds: 600));
     _switchOverlayTimer?.cancel();
 
     final target = choice.isTop ? -1 : (choice.targetEntry ?? -1);
@@ -2440,6 +2428,7 @@ Future<void> _openLineList({List<String>? appendLines}) async {
     _entryToRowMapMode = null;
     _heightFutures.clear();
     _heightExactResults.clear();
+    _completedHeightModes.clear();
     _heightFuturesFor = null;
     _heightFuturesConfigKey = null;
     _cachedContentWidth = null;
@@ -2675,34 +2664,33 @@ void _toast(String msg) {
     return FutureBuilder<_HeightBundle>(
       future: future,
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          // 等精确高度表：期间显示表情加载页。
-          // 不用估算表顶替——估算高度和精确高度不一致，
-          // 换表时正在浏览的用户会看到文字移位，宁可等。
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('对比结果')),
+            body: Center(child: Text('加载失败：${snapshot.error}')),
+          );
+        }
+        // 遮罩策略：就绪即走，未就绪保底 600ms。
+        // 高度表已就绪（切回看过的视图）→ 瞬时渲染，不遮罩；
+        // 未就绪 → 显示表情加载页，且保底时段内即使数据到了也等时间到。
+        final overlayActive = !snapshot.hasData ||
+            (_switchOverlayUntil != null &&
+                DateTime.now().isBefore(_switchOverlayUntil!));
+        if (overlayActive) {
+          // 数据已到但还在保底时段：60ms 轮询等时间到；
+          // 数据未到：FutureBuilder 到货时会自动重建，无需轮询。
+          if (snapshot.hasData) {
+            _switchOverlayTimer?.cancel();
+            _switchOverlayTimer = Timer(const Duration(milliseconds: 60), () {
+              if (mounted) setState(() {});
+            });
+          }
           return Scaffold(
             appBar: AppBar(title: const Text('对比结果')),
             body: const _LoadingBody(),
           );
         }
-        // 切视图遮罩：就算高度表瞬间就绪，也保底展示 600ms 表情动画，
-        // 避免"一闪而过"或"看起来像卡住"。
-        final so = _switchOverlaySince;
-        if (so != null) {
-          const minShow = Duration(milliseconds: 600);
-          final elapsed = DateTime.now().difference(so);
-          if (elapsed < minShow) {
-            _switchOverlayTimer?.cancel();
-            _switchOverlayTimer = Timer(minShow - elapsed, () {
-              if (!mounted) return;
-              setState(() => _switchOverlaySince = null);
-            });
-            return Scaffold(
-              appBar: AppBar(title: const Text('对比结果')),
-              body: const _LoadingBody(),
-            );
-          }
-          _switchOverlaySince = null;
-        }
+        _switchOverlayUntil = null;
         ViewerDiag.mark('视图就绪');
         final heights = snapshot.data!;
         _activeHeights = heights;
