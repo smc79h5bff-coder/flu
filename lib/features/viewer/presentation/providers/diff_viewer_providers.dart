@@ -30,6 +30,45 @@ class DefaultViewModeNotifier extends EnumPrefNotifier<ViewMode> {
         );
 }
 
+/// 视图 tab 显示顺序（持久化）。
+final viewModeOrderProvider =
+    NotifierProvider<ViewModeOrderNotifier, List<ViewMode>>(
+  ViewModeOrderNotifier.new,
+);
+
+class ViewModeOrderNotifier extends PersistentNotifier<List<ViewMode>> {
+  @override
+  String get key => 'jianming.viewer.viewModeOrder';
+
+  @override
+  List<ViewMode> get defaultValue => ViewMode.values;
+
+  @override
+  List<ViewMode> decode(String raw) {
+    if (raw.isEmpty) return ViewMode.values;
+    final result = <ViewMode>[];
+    for (final name in raw.split('\u0000')) {
+      if (name.isEmpty) continue;
+      for (final m in ViewMode.values) {
+        if (m.name == name && !result.contains(m)) {
+          result.add(m);
+          break;
+        }
+      }
+    }
+    for (final m in ViewMode.values) {
+      if (!result.contains(m)) result.add(m); // 补漏
+    }
+    return result;
+  }
+
+  @override
+  String encode(List<ViewMode> value) =>
+      value.map((m) => m.name).join('\u0000');
+
+  void setAll(List<ViewMode> order) => update(List<ViewMode>.from(order));
+}
+
 final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
 
 final noWrapProvider = StateProvider<bool>((ref) => false);
