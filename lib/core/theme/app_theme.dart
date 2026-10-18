@@ -16,6 +16,15 @@ class AppTheme {
     borderRadius: BorderRadius.all(Radius.circular(radius)),
   );
 
+  /// 按钮专用圆角：比全局 radius 更圆，避免 6dp 在大按钮上显得方。
+  /// 想改成完全胶囊形，把下面这段换成：
+  /// static const StadiumBorder buttonShape = StadiumBorder();
+  static const double buttonRadius = 18;
+
+  static const RoundedRectangleBorder buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(buttonRadius)),
+  );
+
   /// BottomSheet 只做顶部两角（贴底时底部圆角看不见，且顶部圆角更符合 M3）。
   static const RoundedRectangleBorder bottomSheetShape =
       RoundedRectangleBorder(
@@ -83,17 +92,18 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(shape: shape),
       chipTheme: ChipThemeData(shape: shape),
 
+      // —— 按钮：使用更圆的 buttonShape，避免 6dp 在大按钮上显方 ——
       filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(shape: shape),
+        style: FilledButton.styleFrom(shape: buttonShape),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(shape: shape),
+        style: ElevatedButton.styleFrom(shape: buttonShape),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(shape: shape),
+        style: OutlinedButton.styleFrom(shape: buttonShape),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(shape: shape),
+        style: TextButton.styleFrom(shape: buttonShape),
       ),
 
       // —— 文本：从 colorScheme 派生，不硬编码黑白 ——
