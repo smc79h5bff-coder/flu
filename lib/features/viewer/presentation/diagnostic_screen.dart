@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show Clipboard;
 import '../../../core/debug/crash_logger.dart';
+import 'crash_trace.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'providers/diff_viewer_providers.dart';
 
@@ -42,14 +44,14 @@ class DiagHistory {
   static void clear() => _entries.clear();
 }
 
-final diagPerfEnabledProvider = StateProvider<bool>((ref) => false);
-final diagFileEnabledProvider = StateProvider<bool>((ref) => false);
-final diagTimeEnabledProvider = StateProvider<bool>((ref) => false);
-final diagHistoryEnabledProvider = StateProvider<bool>((ref) => false);
+final diagPerfEnabledProvider = StateProvider<bool>((ref) => true);
+final diagFileEnabledProvider = StateProvider<bool>((ref) => true);
+final diagTimeEnabledProvider = StateProvider<bool>((ref) => true);
+final diagHistoryEnabledProvider = StateProvider<bool>((ref) => true);
 
 /// 崩溃日志开关。打开后 CrashLogger 开始记录。
-/// 默认关，且不持久化（每次进 App 都是关的，跟其他四项保持一致）。
-final diagCrashLogEnabledProvider = StateProvider<bool>((ref) => false);
+/// 默认开（首次进诊断页时同步给 CrashLogger）。
+final diagCrashLogEnabledProvider = StateProvider<bool>((ref) => true);
 
 String dumpChars(String s, {Set<int> diffAt = const {}}) {
   final sb = StringBuffer();
@@ -140,14 +142,26 @@ Map<String, int> charStats(String s) {
 class DiagnosticScreen extends ConsumerWidget {
   const DiagnosticScreen({super.key});
 
+  /// 只在首次进诊断页时把开关状态同步给 CrashLogger，
+  /// 避免每次 build 都 setEnabled 重置记录。
+  static bool _crashLoggerSynced = false;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final crashLogEnabled = ref.watch(diagCrashLogEnabledProvider);
+    if (!_crashLoggerSynced) {
+      _crashLoggerSynced = true;
+      CrashLogger.instance.setEnabled(crashLogEnabled);
+    }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('诊断'),
         actions: [
+          TextButton(
+            onPressed: () => _exportAll(context, ref),
+            child: const Text('导出全部'),
+          ),
           TextButton(
             onPressed: () {
               DiagHistory.clear();
@@ -204,6 +218,98 @@ class DiagnosticScreen extends ConsumerWidget {
               CrashLogger.instance.setEnabled(v);
             },
             onTap: () => _showCrashLog(context),
+          ),
+          DiagRow(
+            title: '闪退痕迹',
+            subtitle: '落盘保存，闪退后重开 app 仍可查看死前步骤',
+            enabled: true,
+            onToggle: null,
+            onTap: () => _showCrashTrace(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 一键导出全部诊断内容：性能 / 耗时 / 历史 / 崩溃日志 / 闪退痕迹。
+  Future<void> _exportAll(BuildContext context, WidgetRef ref) async {
+    final sb = StringBuffer();
+    sb.writeln('===== DocDiff 诊断导出 ${DateTime.now()} =====');
+
+    sb.writeln('\n----- 性能 -----');
+    final perf = ref.read(lastDiffPerfProvider);
+    sb.writeln(perf?.oneLine ?? '（还没有 diff 结果）');
+
+    sb.writeln('\n----- 耗时 -----');
+    final timeEntries = ViewerDiag.entries;
+    if (timeEntries.isEmpty) {
+      sb.writeln('（还没有记录）');
+    } else {
+      var prev = 0;
+      for (final e in timeEntries) {
+        sb.writeln('+${e.ms - prev}ms  (累计 ${e.ms}ms)  ${e.tag}');
+        prev = e.ms;
+      }
+    }
+
+    sb.writeln('\n----- 历史 -----');
+    final hist = DiagHistory.entries;
+    if (hist.isEmpty) {
+      sb.writeln('（还没有记录）');
+    } else {
+      String two(int n) => n < 10 ? '0$n' : '$n';
+      for (final e in hist) {
+        final t = e.time;
+        sb.writeln(
+            '${two(t.hour)}:${two(t.minute)}:${two(t.second)}  ${e.msg}');
+      }
+    }
+
+    sb.writeln('\n----- 崩溃日志 -----');
+    try {
+      final log = await CrashLogger.instance.read();
+      sb.writeln(log.isEmpty ? '（空）' : log);
+    } catch (e) {
+      sb.writeln('读取失败: $e');
+    }
+
+    sb.writeln('\n----- 闪退痕迹（落盘） -----');
+    sb.writeln(await CrashTrace.read());
+
+    final text = sb.toString();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('全部诊断', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.6,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: text));
+              ScaffoldMessenger.of(c).showSnackBar(
+                const SnackBar(content: Text('已复制全部日志')),
+              );
+            },
+            child: const Text('复制全部'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
           ),
         ],
       ),
@@ -459,6 +565,46 @@ class DiagnosticScreen extends ConsumerWidget {
       ),
     );
   }
+
+  /// 查看落盘的闪退痕迹（进程被杀后仍在）。
+  Future<void> _showCrashTrace(BuildContext context) async {
+    final text = await CrashTrace.read();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: const Text('闪退痕迹', style: TextStyle(fontSize: 14)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(c).size.height * 0.6,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text.isEmpty ? '（暂无）' : text,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              CrashTrace.clear();
+              if (c.mounted) Navigator.pop(c);
+            },
+            child: const Text('清空'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class DiagRow extends StatelessWidget {
@@ -474,7 +620,7 @@ class DiagRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool enabled;
-  final ValueChanged<bool> onToggle;
+  final ValueChanged<bool>? onToggle;
   final VoidCallback onTap;
 
   @override
@@ -505,10 +651,11 @@ class DiagRow extends StatelessWidget {
               if (enabled)
                 Icon(Icons.chevron_right, color: s.onSurfaceVariant),
               const SizedBox(width: 4),
-              Switch(
-                value: enabled,
-                onChanged: onToggle,
-              ),
+              if (onToggle != null)
+                Switch(
+                  value: enabled,
+                  onChanged: onToggle,
+                ),
             ],
           ),
           onTap: enabled ? onTap : null,
