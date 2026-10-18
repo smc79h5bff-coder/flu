@@ -4458,22 +4458,29 @@ String _normalizePath(String path) {
             _selectionMode ? _buildSelectionAppBar() : _buildNormalAppBar(),
        body: SafeArea(
   top: false,
-  child: Column(
+  child: Stack(
     children: [
-      _buildBreadcrumbs(),
+      Column(
+        children: [
+          _buildBreadcrumbs(),
+          if (_selectionMode)
+            _buildSelectionHintBar()
+          else ...[
+            _buildSearchBar(),
+            if (_searchActive) _buildSearchStatusBar(),
+            if (!_searchActive && _expandedZipKeys.isNotEmpty)
+              _buildExpandedZipBar(),
+          ],
+          Expanded(child: _buildBody()),
+        ],
+      ),
+      // 选中底栏改为覆盖层：ScrollablePositionedList 是底部锚定的，
+      // 用 bottomNavigationBar 改变列表高度会让整个列表上下跳动。
       if (_selectionMode)
-        _buildSelectionHintBar()
-      else ...[
-        _buildSearchBar(),
-        if (_searchActive) _buildSearchStatusBar(),
-        if (!_searchActive && _expandedZipKeys.isNotEmpty)
-          _buildExpandedZipBar(),
-      ],
-      Expanded(child: _buildBody()),
+        Positioned(left: 0, right: 0, bottom: 0, child: _buildBottomBar()),
     ],
   ),
 ),
-        bottomNavigationBar: _selectionMode ? _buildBottomBar() : null,
         floatingActionButton: null,
       ),
     );
