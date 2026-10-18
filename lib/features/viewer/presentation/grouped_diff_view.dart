@@ -11,6 +11,7 @@
 //   - 块高缓存 _chunkHeights 仍保留（供 _blockOffset 采样用），但有上限。
 //   - 长按某行：弹出全屏对话框，上半编辑当前行，下半只读预览当前块 + 下一块。
 
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:diff_match_patch/diff_match_patch.dart';
@@ -238,6 +239,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
 
   // ★ 跳转遮罩：为 true 时整屏被不透明色盖住，用户看不到中间的滚动过程。
   bool _jumping = false;
+  _JumpDirection? _jumpDirection;
 
   // ★ 块高缓存（供跳转定位用）。有上限，防止无限增长。
   final Map<int, double> _chunkHeights = {};
@@ -420,7 +422,10 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       }
     }
 
-    setState(() => _jumping = true);
+    setState(() {
+      _jumping = true;
+      _jumpDirection = _JumpDirection.down;
+    });
     // 等遮罩画上去
     await WidgetsBinding.instance.endOfFrame;
 
@@ -428,7 +433,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       if (!mounted || !_ctrl.hasClients) break;
       final p = _ctrl.position;
       if (p.pixels >= p.maxScrollExtent - 1) break;
-      final next = (p.pixels + p.viewportDimension * 10)
+      final next = (p.pixels + p.viewportDimension * 30)
           .clamp(0.0, p.maxScrollExtent);
       if ((next - p.pixels).abs() < 0.5) break;
       _ctrl.jumpTo(next);
@@ -474,14 +479,17 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       return;
     }
 
-    setState(() => _jumping = true);
+    setState(() {
+      _jumping = true;
+      _jumpDirection = _JumpDirection.up;
+    });
     await WidgetsBinding.instance.endOfFrame;
 
     for (var step = 0; step < 300; step++) {
       if (!mounted || !_ctrl.hasClients) break;
       final p = _ctrl.position;
       if (p.pixels <= 0.5) break;
-      final next = (p.pixels - p.viewportDimension * 10)
+      final next = (p.pixels - p.viewportDimension * 30)
           .clamp(0.0, p.maxScrollExtent);
       if ((p.pixels - next).abs() < 0.5) break;
       _ctrl.jumpTo(next);
@@ -1027,8 +1035,11 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       color: isDark
           ? const Color(0xFF2B2B2B)
           : const Color(0xFFE8E8E8),
-      child: const Center(
-        child: CircularProgressIndicator(),
+      child: Center(
+        child: _JumpIndicator(
+          direction: _jumpDirection ?? _JumpDirection.down,
+          size: 64,
+        ),
       ),
     ),
   ),
@@ -1596,4 +1607,136 @@ class _WarningBar extends StatelessWidget {
       ),
     );
   }
+}
+
+// ==================== 跳转指示器 ====================
+
+enum _JumpDirection { up, down }
+
+/// 跳转遮罩用的指示器：呼吸环 + 环上旋转点 + 中心方向箭头。
+class _JumpIndicator extends StatefulWidget {
+  const _JumpIndicator({
+    required this.direction,
+    this.size = 64,
+  });
+
+  final _JumpDirection direction;
+  final double size;
+
+  @override
+  State<_JumpIndicator> createState() => _JumpIndicatorState();
+}
+
+class _JumpIndicatorState extends State<_JumpIndicator>
+    with TickerProviderStateMixin {
+  late final AnimationController _rotation;
+  late final AnimationController _breath;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+    _breath = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _rotation.dispose();
+    _breath.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_rotation, _breath]),
+        builder: (_, __) => Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              size: Size.square(widget.size),
+              painter: _JumpRingPainter(
+                rotation: _rotation.value,
+                breath: _breath.value,
+                color: color,
+              ),
+            ),
+            Icon(
+              widget.direction == _JumpDirection.up
+                  ? Icons.keyboard_double_arrow_up
+                  : Icons.keyboard_double_arrow_down,
+              size: widget.size * 0.38,
+              color: color.withValues(alpha: 0.85),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JumpRingPainter extends CustomPainter {
+  _JumpRingPainter({
+    required this.rotation,
+    required this.breath,
+    required this.color,
+  });
+
+  final double rotation;
+  final double breath;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.width / 2 - 4;
+
+    // 底环（呼吸：透明度 12% ↔ 20%）
+    final bg = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = color.withValues(alpha: 0.12 + 0.08 * breath);
+    canvas.drawCircle(center, radius, bg);
+
+    // 旋转的点
+    final angle = rotation * 2 * math.pi;
+    final dot = Offset(
+      center.dx + radius * math.cos(angle),
+      center.dy + radius * math.sin(angle),
+    );
+    final dotPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(dot, 4, dotPaint);
+
+    // 点后面拖的短弧，让它看起来"在跑"
+    final arcPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..color = color.withValues(alpha: 0.5);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      angle - 0.6,
+      0.6,
+      false,
+      arcPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_JumpRingPainter old) =>
+      old.rotation != rotation ||
+      old.breath != breath ||
+      old.color != color;
 }
