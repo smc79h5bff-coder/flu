@@ -4459,7 +4459,7 @@ class _LoadingRingPainter extends CustomPainter {
   static const double _pi = 3.141592653589793;
   static const double _tau = 2 * _pi;
 
-  static const double _lapMs = 1400;        // 每圈 1400ms
+  static const double _lapMs = 1000;        // 每圈 1000ms
   static const double _transitionMs = 300;  // 每圈开头 300ms 慢慢渗到本圈颜色
   static const double _blinkMs = 3000;      // 表情形态 3 秒一轮
 
