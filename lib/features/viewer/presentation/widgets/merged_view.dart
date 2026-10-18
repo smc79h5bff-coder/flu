@@ -177,8 +177,9 @@ List<int> _mergedOrder(List<DiffEntry> entries) {
   return order;
 }
 
-/// entry 索引 �?配对的对侧文本。只�?(del, ins) 成对出现的那�?entry
-/// 才在 map 里。用来让行内字符高亮知道"对面长什么样"�?DiffResult? _lastMergedPairsFor;
+/// entry 索引 → 配对的对侧文本。只有 (del, ins) 成对出现的那种 entry
+/// 才在 map 里。用来让行内字符高亮知道"对面长什么样"。
+DiffResult? _lastMergedPairsFor;
 Map<int, String>? _lastMergedPairs;
 
 Map<int, String> cachedMergedPairs(DiffResult result) {
@@ -222,7 +223,7 @@ Map<int, String> cachedMergedPairs(DiffResult result) {
   return map;
 }
 
-// ========== 查找高亮 spans �?LRU 缓存 ==========
+// ========== 查找高亮 spans 的 LRU 缓存 ==========
 
 const int _spansCacheCap = 512;
 final Map<String, List<InlineSpan>> _spansCache =
@@ -308,7 +309,7 @@ class _EntryTile extends StatelessWidget {
     final outline = Theme.of(context).colorScheme.outline;
 
     // 被改行（有配对）：用"浅色 + 行内字符差异"
-    // 纯增/纯删（无配对）：�?整行纯色"
+    // 纯增/纯删（无配对）：用"整行纯色"
     final bool isReplace =
         pairedText != null && pairedText!.isNotEmpty;
 
@@ -325,11 +326,12 @@ class _EntryTile extends StatelessWidget {
               after: entry.text,
               isLeft: false,
             )
-: _highlighted(
-        context,
-        text: entry.text,
-        color: AppColors.addedOf(context),
-        fgColor: const Color(0xFF066F00),   // �?新增，深�?        symbol: '+',
+          : _highlighted(
+              context,
+              text: entry.text,
+              color: AppColors.addedOf(context),
+              fgColor: const Color(0xFF066F00), // 新增，深绿
+              symbol: '+',
             ),
       DiffOperation.delete => isReplace
           ? _replaceRow(
@@ -338,11 +340,12 @@ class _EntryTile extends StatelessWidget {
               after: pairedText!,
               isLeft: true,
             )
-: _highlighted(
-        context,
-        text: entry.text,
-        color: AppColors.deletedOf(context),
-        fgColor: const Color(0xFF6F0000),   // �?新增，深�?        symbol: '-',
+          : _highlighted(
+              context,
+              text: entry.text,
+              color: AppColors.deletedOf(context),
+              fgColor: const Color(0xFF6F0000), // 删除，深红
+              symbol: '-',
             ),
       DiffOperation.replace => _replaceRow(
           context,
@@ -373,7 +376,8 @@ class _EntryTile extends StatelessWidget {
     );
   }
 
-  /// 被改行：浅色背景 + 行内字符差异�?  Widget _replaceRow(
+  /// 被改行：浅色背景 + 行内字符差异。
+  Widget _replaceRow(
     BuildContext context, {
     required String before,
     required String after,
@@ -382,23 +386,23 @@ class _EntryTile extends StatelessWidget {
     final style = TextStyle(
       fontSize: bodyFontSize,
       color: isLeft
-    ? const Color(0xFF6F0000)   // 改行（左）文字：深红
-      : const Color(0xFF066F00),  // 改行（右）文字：深绿
+          ? const Color(0xFF6F0000) // 改行（左）文字：深红
+          : const Color(0xFF066F00), // 改行（右）文字：深绿
       height: 1.5,
     );
 
-   final content = InlineCharDiff(
-  before: before,
-  after: after,
-  side: !isLeft,
-  style: style,
-  findQuery: findQuery,
-  isCurrentMatch: isCurrentMatch,
-  removedFg: Colors.white,
-  removedBg: const Color(0xFFD32F2F),
-  addedFg: Colors.white,
-  addedBg: const Color(0xFF388E3C),
-);
+    final content = InlineCharDiff(
+      before: before,
+      after: after,
+      side: !isLeft,
+      style: style,
+      findQuery: findQuery,
+      isCurrentMatch: isCurrentMatch,
+      removedFg: Colors.white,
+      removedBg: const Color(0xFFD32F2F),
+      addedFg: Colors.white,
+      addedBg: const Color(0xFF388E3C),
+    );
 
     final barColor = isLeft
         ? AppColors.deletedOf(context)
@@ -461,16 +465,18 @@ class _EntryTile extends StatelessWidget {
     );
   }
 
- Widget _highlighted(
-  BuildContext context, {
-  required String text,
-  required Color color,       // 背景 / 竖条 / 符号 �?  required Color fgColor,     // 文字用（新增�?  required String symbol,
-}) {
-  final style = TextStyle(
-    fontSize: bodyFontSize,
-    color: fgColor,           // �?原来�?color
-    height: 1.5,
-  );
+  Widget _highlighted(
+    BuildContext context, {
+    required String text,
+    required Color color, // 背景 / 竖条 / 符号色
+    required Color fgColor, // 文字颜色
+    required String symbol,
+  }) {
+    final style = TextStyle(
+      fontSize: bodyFontSize,
+      color: fgColor,
+      height: 1.5,
+    );
 
     final content = noWrap
         ? Text.rich(
