@@ -131,6 +131,9 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   bool _pendingJumpQueued = false;
 OverlayEntry? _floatEntry;
 Timer? _floatTimer;
+
+bool _jumping = false;
+JumpDirection _jumpDirection = JumpDirection.down;
   Timer? _findDebounce;
   bool _processing = false;
   String _processingText = '';
@@ -961,6 +964,35 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     });
   }
 
+  Future<_HeightBundle> _getHeightFuture(DiffResult diff, ViewMode mode) {
+    if (mode == ViewMode.grouped) {
+      return Future.value(const _HeightBundle());
+    }
+    final mq = MediaQuery.of(context);
+    final configKey = '${mq.size.width}|'
+        '${ref.read(bodyFontSizeProvider)}|'
+        '${ref.read(contextFontSizeProvider)}|'
+        '${ref.read(gutterFontSizeProvider)}|'
+        '${ref.read(noWrapProvider)}|'
+        '${ref.read(showLineNumbersProvider)}|'
+        '${ref.read(importRevisionProvider)}';
+
+    if (!identical(_heightFuturesFor, diff) ||
+        _heightFuturesConfigKey != configKey) {
+      _heightFutures.clear();
+      _heightExactResults.clear();
+      _heightFuturesFor = diff;
+      _heightFuturesConfigKey = configKey;
+    }
+
+    final existing = _heightFutures[mode];
+    if (existing != null) return existing;
+
+    final f = _computeHeightBundle(diff, mode);
+    _heightFutures[mode] = f;
+    return f;
+  }
+
   _HeightBundle _getQuickBundle(DiffResult diff, ViewMode mode) {
     if (mode == ViewMode.grouped) return const _HeightBundle();
 
@@ -968,7 +1000,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     if (cached != null) return cached;
 
     final fs = ref.read(bodyFontSizeProvider);
-    final h = fs * 1.5 * 1.5 + 16;
+    final h = fs * 1.5 * 1.5 + 10;
 
     int rows;
     switch (mode) {
@@ -1052,7 +1084,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 16,
+      extraVerticalPadding: 12, // 原 10，加 2px 缓冲，绝对不裁
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: merged (${order.length}行)');
@@ -1090,7 +1122,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 20,
+      extraVerticalPadding: 14, // 原 12，加 2px 缓冲
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: sbs (${rows.length}行)');
@@ -1160,7 +1192,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     style: style,
     textScaler: scaler,
     noWrap: noWrap,
-    extraVerticalPadding: 12,
+    extraVerticalPadding: 8,
     styleForItem: needContextOverride
         ? (i) => isContextRow(i) ? contextStyle : null
         : null,
@@ -1376,16 +1408,91 @@ if (!jumped) {
     return table.indexAt(_scrollController.position.pixels);
   }
 
-  void _jumpToDocTop() {
+  Future<void> _jumpToDocTop() async {
   CrashLogger.instance.mark('跳到文首');
   if (!_scrollController.hasClients) return;
-  _scrollController.jumpTo(0);
+  if (_jumping) return;
+
+  setState(() {
+    _jumping = true;
+    _jumpDirection = JumpDirection.up;
+  });
+  await WidgetsBinding.instance.endOfFrame;
+
+  var stableFrames = 0;
+  for (var step = 0; step < 3000; step++) {
+    if (!mounted || !_scrollController.hasClients) break;
+    final p = _scrollController.position;
+
+    if (p.pixels <= 0.5) {
+      stableFrames++;
+      if (stableFrames >= 3) break;
+    } else {
+      stableFrames = 0;
+      final next = (p.pixels - p.viewportDimension * 30)
+          .clamp(0.0, p.maxScrollExtent);
+      if ((p.pixels - next).abs() < 0.5) {
+        _scrollController.jumpTo(0);
+      } else {
+        _scrollController.jumpTo(next);
+      }
+    }
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
+  if (mounted && _scrollController.hasClients) {
+    if (_scrollController.position.pixels > 0.5) {
+      _scrollController.jumpTo(0);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+  }
+
+  if (!mounted) return;
+  setState(() => _jumping = false);
 }
 
-  void _jumpToDocBottom() {
+  Future<void> _jumpToDocBottom() async {
   CrashLogger.instance.mark('跳到文末');
   if (!_scrollController.hasClients) return;
-  _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  if (_jumping) return;
+
+  setState(() {
+    _jumping = true;
+    _jumpDirection = JumpDirection.down;
+  });
+  await WidgetsBinding.instance.endOfFrame;
+
+  var stableFrames = 0;
+  for (var step = 0; step < 3000; step++) {
+    if (!mounted || !_scrollController.hasClients) break;
+    final p = _scrollController.position;
+
+    if (p.pixels >= p.maxScrollExtent - 0.5) {
+      stableFrames++;
+      if (stableFrames >= 3) break;
+    } else {
+      stableFrames = 0;
+      final next = (p.pixels + p.viewportDimension * 30)
+          .clamp(0.0, p.maxScrollExtent);
+      if ((next - p.pixels).abs() < 0.5) {
+        _scrollController.jumpTo(p.maxScrollExtent);
+      } else {
+        _scrollController.jumpTo(next);
+      }
+    }
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
+  if (mounted && _scrollController.hasClients) {
+    final p = _scrollController.position;
+    if (p.pixels < p.maxScrollExtent - 0.5) {
+      _scrollController.jumpTo(p.maxScrollExtent);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+  }
+
+  if (!mounted) return;
+  setState(() => _jumping = false);
 }
 
   void _onTabScroll() {
@@ -2569,64 +2676,69 @@ void _toast(String msg) {
       _log('diff 已就绪，准备渲染');
     }
 
-    // 1. 启动/复用后台精确计算（异步，不阻塞）
-    _startHeightComputation(diff, viewMode);
-
-    // 2. 立刻渲染：优先用精确表（如果已缓存），否则用快速估算
-    final exact = _heightExactResults[viewMode];
-    final heights = exact ?? _getQuickBundle(diff, viewMode);
-    _activeHeights = heights;
-
-    ViewerDiag.mark(exact == null ? '视图就绪(估算)' : '视图就绪(精确)');
-
-    // 3. 待处理跳转
-    if ((_pendingJumpEntry != null || _pendingJumpOrigLine != null) &&
-        !_pendingJumpQueued) {
-      _pendingJumpQueued = true;
-
-      int? targetEntry = _pendingJumpEntry;
-      if (targetEntry == null && _pendingJumpOrigLine != null) {
-        targetEntry = _findEntryByOrigLine(diff, _pendingJumpOrigLine!);
-        _log('按 origLine=${_pendingJumpOrigLine} 反查到 entry=$targetEntry');
-      }
-      final target = targetEntry ?? -1;
-      _pendingJumpEntry = null;
-      _pendingJumpOrigLine = null;
-      _log('准备跳转: target=$target mode=${viewMode.name}');
-
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!mounted) return;
-        _pendingJumpEntry = null;
-        _pendingJumpOrigLine = null;
-        _pendingJumpQueued = false;
-
-        for (var attempt = 0; attempt < 5; attempt++) {
-          if (!mounted) return;
-          if (!_scrollController.hasClients) {
-            await WidgetsBinding.instance.endOfFrame;
-            continue;
-          }
-          if (_scrollController.position.maxScrollExtent > 0 ||
-              attempt >= 4) {
-            break;
-          }
-          await WidgetsBinding.instance.endOfFrame;
+    final future = _getHeightFuture(diff, viewMode);
+    return FutureBuilder<_HeightBundle>(
+      future: future,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('对比结果')),
+            body: const _LoadingBody(),
+          );
         }
-        if (!mounted) return;
+        ViewerDiag.mark('视图就绪');
+        final heights = snapshot.data!;
+        _activeHeights = heights;
 
-        if (target < 0) {
-          _log('跳转: 走 target<0 分支 → 跳到开头');
-          if (_scrollController.hasClients) {
-            _scrollController.jumpTo(0);
+        if ((_pendingJumpEntry != null || _pendingJumpOrigLine != null) &&
+            !_pendingJumpQueued) {
+          _pendingJumpQueued = true;
+
+          int? targetEntry = _pendingJumpEntry;
+          if (targetEntry == null && _pendingJumpOrigLine != null) {
+            targetEntry = _findEntryByOrigLine(diff, _pendingJumpOrigLine!);
+            _log('按 origLine=${_pendingJumpOrigLine} 反查到 entry=$targetEntry');
           }
-        } else {
-          _log('跳转: 走 _scrollToEntry($target)');
-          _scrollToEntry(target);
-        }
-      });
-    }
+          final target = targetEntry ?? -1;
+          _pendingJumpEntry = null;
+          _pendingJumpOrigLine = null;
+          _log('准备跳转: target=$target mode=${viewMode.name}');
 
-    return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            _pendingJumpEntry = null;
+            _pendingJumpOrigLine = null;
+            _pendingJumpQueued = false;
+
+            for (var attempt = 0; attempt < 5; attempt++) {
+              if (!mounted) return;
+              if (!_scrollController.hasClients) {
+                await WidgetsBinding.instance.endOfFrame;
+                continue;
+              }
+              if (_scrollController.position.maxScrollExtent > 0 ||
+                  attempt >= 4) {
+                break;
+              }
+              await WidgetsBinding.instance.endOfFrame;
+            }
+            if (!mounted) return;
+
+            if (target < 0) {
+              _log('跳转: 走 target<0 分支 → 跳到开头');
+              if (_scrollController.hasClients) {
+                _scrollController.jumpTo(0);
+              }
+            } else {
+              _log('跳转: 走 _scrollToEntry($target)');
+              _scrollToEntry(target);
+            }
+          });
+        }
+
+        return _buildDiffScaffold(diff, viewMode, origName, modName, heights);
+      },
+    );
   }
 
   // ==================== 内容宽度 ====================
@@ -2788,11 +2900,12 @@ void _toast(String msg) {
   },
   child: Scaffold(
   appBar: AppBar(
-  toolbarHeight: 43,
+  toolbarHeight: 48,
   automaticallyImplyLeading: false,
   leadingWidth: 0,
   titleSpacing: 0,
   title: Row(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       // 1. 返回
       Expanded(
@@ -3224,6 +3337,22 @@ void _toast(String msg) {
             color: ref.watch(floatingPageUpColorProvider),
             onTap: _onFloatingPageUpTap,
           ),
+        if (_jumping)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF2B2B2B)
+                    : const Color(0xFFE8E8E8),
+                child: Center(
+                  child: JumpIndicator(
+                    direction: _jumpDirection,
+                    size: 64,
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     ),
   ));
@@ -3449,11 +3578,11 @@ void _onFloatingPageUpTap() {
     return Container(
       width: double.infinity,
       color: s.tertiaryContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Text(
         _processingText,
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 13,
           color: s.onTertiaryContainer,
         ),
       ),
@@ -3594,7 +3723,7 @@ void _onFloatingPageUpTap() {
     return Container(
       width: double.infinity,
       color: Colors.red.shade900,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
           Icon(Icons.warning_amber, size: 16, color: Colors.white),
@@ -3603,7 +3732,7 @@ void _onFloatingPageUpTap() {
             child: Text(
               '${parts.join(" / ")} 已从磁盘删除（下方内容仅内存保留）',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 13,
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
@@ -3621,16 +3750,16 @@ void _onFloatingPageUpTap() {
     return Container(
       width: double.infinity,
       color: Colors.amber.shade50,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
-          Icon(Icons.info_outline, size: 14, color: Colors.amber.shade900),
+          Icon(Icons.info_outline, size: 16, color: Colors.amber.shade900),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               '两份文件编码不同（$origEnc / $modEnc），已分别解码后对比',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 13,
                 color: Colors.amber.shade900,
               ),
             ),
@@ -3644,12 +3773,12 @@ void _onFloatingPageUpTap() {
     return Container(
       width: double.infinity,
       color: Colors.green.shade800,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
           const Icon(
             Icons.check_circle_outline,
-            size: 20,
+            size: 16,
             color: Colors.white,
           ),
           const SizedBox(width: 8),
@@ -3659,7 +3788,7 @@ void _onFloatingPageUpTap() {
                   ? '两份文档完全相同'
                   : '共 $blocks 处差异，已全部显示',
               style: const TextStyle(
-                fontSize: 15,
+                fontSize: 13,
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
@@ -4334,8 +4463,8 @@ class _LoadingRingPainter extends CustomPainter {
     final fill = Paint()
       ..color = color.withValues(alpha: 0.75)
       ..style = PaintingStyle.fill;
-    canvas.drawCircle(center.translate(-3.0, -0.3), 1.3, fill);
-    canvas.drawCircle(center.translate(3.0, -0.3), 1.3, fill);
+    canvas.drawCircle(center.translate(-3.5, -0.3), 2.0, fill);
+    canvas.drawCircle(center.translate(3.5, -0.3), 2.0, fill);
   }
 
   /// 弯弯眼（笑眼 ⌒ ⌒）：两条上半圆
@@ -4343,12 +4472,12 @@ class _LoadingRingPainter extends CustomPainter {
     final stroke = Paint()
       ..color = color.withValues(alpha: 0.75)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
+      ..strokeWidth = 2.0
       ..strokeCap = StrokeCap.round;
     const pi = 3.141592653589793;
     // 左眼
     canvas.drawArc(
-      Rect.fromCircle(center: center.translate(-3.0, 0.6), radius: 1.6),
+      Rect.fromCircle(center: center.translate(-3.5, 0.8), radius: 2.2),
       pi, // startAngle = π（西）
       pi, // sweep = +π 顺时针 → 从西经北到东 = 上半圆 ∩
       false,
@@ -4356,7 +4485,7 @@ class _LoadingRingPainter extends CustomPainter {
     );
     // 右眼
     canvas.drawArc(
-      Rect.fromCircle(center: center.translate(3.0, 0.6), radius: 1.6),
+      Rect.fromCircle(center: center.translate(3.5, 0.8), radius: 2.2),
       pi,
       pi,
       false,
@@ -4369,16 +4498,16 @@ class _LoadingRingPainter extends CustomPainter {
     final stroke = Paint()
       ..color = color.withValues(alpha: 0.75)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
+      ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
-      center.translate(-4.2, 0),
-      center.translate(-1.8, 0),
+      center.translate(-4.8, 0),
+      center.translate(-1.6, 0),
       stroke,
     );
     canvas.drawLine(
-      center.translate(1.8, 0),
-      center.translate(4.2, 0),
+      center.translate(1.6, 0),
+      center.translate(4.8, 0),
       stroke,
     );
   }
