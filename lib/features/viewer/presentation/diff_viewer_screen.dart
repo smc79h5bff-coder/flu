@@ -32,6 +32,7 @@ import 'providers/diff_viewer_providers.dart';
 import 'providers/toolbar_rules_provider.dart';
 import 'regex_help_screen.dart';
 import 'viewer_widgets.dart';
+import 'rive_showcase.dart';
 import 'widgets/diff_only_plain_view.dart';
 import 'widgets/diff_only_view.dart';
 import 'widgets/merged_view.dart';
@@ -139,6 +140,7 @@ JumpDirection _jumpDirection = JumpDirection.down;
   String _processingText = '';
 
   DiffResult? _lastDiagDiff;
+  bool _riveShowcasePassed = false;
 
   final GlobalKey _groupedKey = GlobalKey();
 
@@ -152,6 +154,7 @@ JumpDirection _jumpDirection = JumpDirection.down;
  @override
 void initState() {
   super.initState();
+  _riveShowcasePassed = kRiveShowcaseItems.isEmpty;
   // 每次进入对比页，清空行列表（一次性会话）。
   ref.read(lineListTextProvider.notifier).state = '';
   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2680,6 +2683,16 @@ void _toast(String msg) {
     return FutureBuilder<_HeightBundle>(
       future: future,
       builder: (context, snapshot) {
+        if (!_riveShowcasePassed) {
+          return RiveShowcase(
+            items: kRiveShowcaseItems,
+            onFinished: () {
+              if (!mounted) return;
+              setState(() => _riveShowcasePassed = true);
+            },
+          );
+        }
+
         if (!snapshot.hasData) {
           return Scaffold(
             appBar: AppBar(title: const Text('对比结果')),
@@ -2905,32 +2918,99 @@ void _toast(String msg) {
   leadingWidth: 0,
   titleSpacing: 0,
   title: Row(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       // 1. 返回
       Expanded(
-        child: Tooltip(
-          message: '返回',
-          child: InkWell(
-            onTap: () => Navigator.of(context).maybePop(),
-            child: const Center(
-              child: Icon(Icons.arrow_back, size: 24),
+        child: SizedBox(
+          height: 48,
+          child: Tooltip(
+            message: '返回',
+            child: InkWell(
+              onTap: () => Navigator.of(context).maybePop(),
+              child: const Center(
+                child: Icon(Icons.arrow_back, size: 24),
+              ),
             ),
           ),
         ),
       ),
       // 2. 上翻页
       Expanded(
-        child: Builder(builder: (ctx) {
-          final iconColor =
-              IconTheme.of(ctx).color ?? const Color(0xFF000000);
-          return InkWell(
-            key: const Key('page-up'),
+        child: SizedBox(
+          height: 48,
+          child: Builder(builder: (ctx) {
+            final iconColor =
+                IconTheme.of(ctx).color ?? const Color(0xFF000000);
+            return InkWell(
+              key: const Key('page-up'),
+              onTap: () {
+                if (viewMode == ViewMode.grouped) {
+                  (_groupedKey.currentState as dynamic)?.pageUp();
+                } else {
+                  _pageUp();
+                }
+              },
+              onLongPress: () {
+                if (viewMode == ViewMode.grouped) {
+                  (_groupedKey.currentState as dynamic)?.jumpToTop();
+                } else {
+                  _jumpToDocTop();
+                }
+              },
+              child: Center(
+                child: CustomPaint(
+                  size: const Size.square(24),
+                  painter: _PageUpIconPainter(color: iconColor),
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+      // 3. 下翻页
+      Expanded(
+        child: SizedBox(
+          height: 48,
+          child: Builder(builder: (ctx) {
+            final iconColor =
+                IconTheme.of(ctx).color ?? const Color(0xFF000000);
+            return InkWell(
+              key: const Key('page-down'),
+              onTap: () {
+                if (viewMode == ViewMode.grouped) {
+                  (_groupedKey.currentState as dynamic)?.pageDown();
+                } else {
+                  _pageDown();
+                }
+              },
+              onLongPress: () {
+                if (viewMode == ViewMode.grouped) {
+                  (_groupedKey.currentState as dynamic)?.jumpToBottom();
+                } else {
+                  _jumpToDocBottom();
+                }
+              },
+              child: Center(
+                child: CustomPaint(
+                  size: const Size.square(24),
+                  painter: _PageDownIconPainter(color: iconColor),
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+      // 4. 上一处差异
+      Expanded(
+        child: SizedBox(
+          height: 48,
+          child: InkWell(
+            key: const Key('prev-diff'),
             onTap: () {
               if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.pageUp();
+                (_groupedKey.currentState as dynamic)?.jumpToPrevDiff();
               } else {
-                _pageUp();
+                _jumpToPrevDiff();
               }
             },
             onLongPress: () {
@@ -2940,27 +3020,23 @@ void _toast(String msg) {
                 _jumpToDocTop();
               }
             },
-            child: Center(
-              child: CustomPaint(
-                size: const Size.square(24),
-                painter: _PageUpIconPainter(color: iconColor),
-              ),
+            child: const Center(
+              child: Icon(Icons.arrow_upward, size: 24),
             ),
-          );
-        }),
+          ),
+        ),
       ),
-      // 3. 下翻页
+      // 5. 下一处差异
       Expanded(
-        child: Builder(builder: (ctx) {
-          final iconColor =
-              IconTheme.of(ctx).color ?? const Color(0xFF000000);
-          return InkWell(
-            key: const Key('page-down'),
+        child: SizedBox(
+          height: 48,
+          child: InkWell(
+            key: const Key('next-diff'),
             onTap: () {
               if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.pageDown();
+                (_groupedKey.currentState as dynamic)?.jumpToNextDiff();
               } else {
-                _pageDown();
+                _jumpToNextDiff();
               }
             },
             onLongPress: () {
@@ -2970,69 +3046,23 @@ void _toast(String msg) {
                 _jumpToDocBottom();
               }
             },
-            child: Center(
-              child: CustomPaint(
-                size: const Size.square(24),
-                painter: _PageDownIconPainter(color: iconColor),
-              ),
+            child: const Center(
+              child: Icon(Icons.arrow_downward, size: 24),
             ),
-          );
-        }),
-      ),
-      // 4. 上一处差异
-      Expanded(
-        child: InkWell(
-          key: const Key('prev-diff'),
-          onTap: () {
-            if (viewMode == ViewMode.grouped) {
-              (_groupedKey.currentState as dynamic)?.jumpToPrevDiff();
-            } else {
-              _jumpToPrevDiff();
-            }
-          },
-          onLongPress: () {
-            if (viewMode == ViewMode.grouped) {
-              (_groupedKey.currentState as dynamic)?.jumpToTop();
-            } else {
-              _jumpToDocTop();
-            }
-          },
-          child: const Center(
-            child: Icon(Icons.arrow_upward, size: 24),
-          ),
-        ),
-      ),
-      // 5. 下一处差异
-      Expanded(
-        child: InkWell(
-          key: const Key('next-diff'),
-          onTap: () {
-            if (viewMode == ViewMode.grouped) {
-              (_groupedKey.currentState as dynamic)?.jumpToNextDiff();
-            } else {
-              _jumpToNextDiff();
-            }
-          },
-          onLongPress: () {
-            if (viewMode == ViewMode.grouped) {
-              (_groupedKey.currentState as dynamic)?.jumpToBottom();
-            } else {
-              _jumpToDocBottom();
-            }
-          },
-          child: const Center(
-            child: Icon(Icons.arrow_downward, size: 24),
           ),
         ),
       ),
       // 6. 查找
       Expanded(
-        child: Tooltip(
-          message: '查找 / 替换',
-          child: InkWell(
-            onTap: () => setState(() => _showFind = !_showFind),
-            child: const Center(
-              child: Icon(Icons.find_in_page, size: 24),
+        child: SizedBox(
+          height: 48,
+          child: Tooltip(
+            message: '查找 / 替换',
+            child: InkWell(
+              onTap: () => setState(() => _showFind = !_showFind),
+              child: const Center(
+                child: Icon(Icons.find_in_page, size: 24),
+              ),
             ),
           ),
         ),
@@ -3040,9 +3070,12 @@ void _toast(String msg) {
       // 7. 更多
       Expanded(
         child: PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
           tooltip: '更多操作',
           padding: EdgeInsets.zero,
+          child: const SizedBox(
+            height: 48,
+            child: Center(child: Icon(Icons.more_vert)),
+          ),
           onSelected: (v) {
               if (v == 'edit') {
                 _openEdit();
