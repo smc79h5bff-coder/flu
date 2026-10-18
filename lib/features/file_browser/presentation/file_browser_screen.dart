@@ -791,6 +791,9 @@ static const Set<String> _archiveExts = {
   late String _currentPath;
   List<EntryInfo>? _entries;
   bool _loading = false;
+  bool _showSkeleton = false;
+  Timer? _skeletonTimer;
+  int _bodyRevision = 0; // 每次切目录 +1，用来强制 AnimatedSwitcher 重建
   String? _error;
 
   LoadCancelToken? _loadCancelToken;
@@ -917,6 +920,7 @@ Future<void> _cleanTempDirOnce() async {
  @override
 void dispose() {
   fileBrowserRouteObserver.unsubscribe(this);
+  _skeletonTimer?.cancel();
   _positionsListener.itemPositions.removeListener(_onPositionsChanged);
   _searchCtrl.dispose();
   _advancedOverlay?.remove();
@@ -1189,6 +1193,7 @@ final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
         setState(() {
           _entries = cached;
           _loading = false;
+          _showSkeleton = false;
           _error = null;
         });
         if (anchor.isNotEmpty) {
@@ -1211,6 +1216,7 @@ final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
       setState(() {
         _entries = entries;
         _loading = false;
+        _showSkeleton = false;
         _error = null;
       });
       DirCache.instance.put(cacheKey, entries);
@@ -1222,6 +1228,14 @@ final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
   setState(() {
     _loading = true;
     _error = null;
+    _bodyRevision++; // 只在真正显示 loading 时递增，缓存命中/静默刷新保持原地更新
+  });
+  _skeletonTimer?.cancel();
+  _showSkeleton = false;
+  _skeletonTimer = Timer(const Duration(milliseconds: 180), () {
+    if (mounted && _loading) {
+      setState(() => _showSkeleton = true);
+    }
   });
 } else if (_error != null) {
   setState(() => _error = null);
@@ -1235,9 +1249,11 @@ try {
         cancelToken: token,
         onUpdate: (list) {
           if (!mounted || token.isCancelled) return;
+          _skeletonTimer?.cancel();
           setState(() {
             _entries = list;
             _loading = false;
+            _showSkeleton = false;
           });
           if (anchor.isNotEmpty && !anchorRestored) {
             _restoreScrollAnchor(anchor);
@@ -1249,17 +1265,21 @@ try {
         },
         onComplete: (list) {
           if (!mounted || token.isCancelled) return;
+          _skeletonTimer?.cancel();
           setState(() {
             _entries = list;
+            _showSkeleton = false;
           });
           DirCache.instance.put(cacheKey, list);
         },
       );
     } catch (e) {
       if (!mounted || token.isCancelled) return;
+      _skeletonTimer?.cancel();
       setState(() {
         _error = e.toString();
         _loading = false;
+        _showSkeleton = false;
       });
     }
   }
@@ -4457,6 +4477,9 @@ String _normalizePath(String path) {
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
     return AppBar(
+      backgroundColor: const Color(0xFFFDFDFD), // 顶栏浅灰，比面包屑 FAFAFA 更浅
+      surfaceTintColor: Colors.transparent, // Material3 下防止主题色 tint 覆盖
+      elevation: 0, // 不要阴影，保持和面包屑同一平面
       title: GestureDetector(
         onLongPress: _showJumpToPathDialog,
         child: Text(
@@ -5599,34 +5622,60 @@ child: Row(
   // ==================== 主体 ====================
 
   Widget _buildBody() {
+    return AnimatedSwitcher(
+      key: ValueKey('switcher_$_bodyRevision'),
+      duration: const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: child,
+      ),
+      child: _buildBodyState(),
+    );
+  }
+
+  Widget _keyed(String k, Widget child) =>
+      KeyedSubtree(key: ValueKey(k), child: child);
+
+  Widget _buildBodyState() {
     if (_searchActive) {
-      return _buildSearchResultsList();
+      return _keyed('search', _buildSearchResultsList());
     }
+
+    if (_showSkeleton) {
+      return const _LoadingSkeleton(key: ValueKey('skeleton'));
+    }
+
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      // 180ms 延迟窗口内：什么都不显示，避免闪烁
+      return const SizedBox.shrink(key: ValueKey('blank'));
     }
+
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48),
-              const SizedBox(height: 12),
-              Text('无法访问目录：\n$_error', textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton(onPressed: _load, child: const Text('重试')),
-            ],
+      return _keyed(
+        'error',
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48),
+                const SizedBox(height: 12),
+                Text('无法访问目录：\n$_error', textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                FilledButton(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
           ),
         ),
       );
     }
 
-
   final entries = _entries ?? const <EntryInfo>[];
   if (entries.isEmpty) {
-    return const Center(child: Text('空目录'));
+    return _keyed('empty', const Center(child: Text('空目录')));
   }
 
   final mode = ref.read(searchBoxModeProvider);
@@ -5634,13 +5683,25 @@ child: Row(
       _searchCtrl.text.trim().isNotEmpty) {
     final items = _visibleItems ?? const <_DisplayItem>[];
     if (items.isEmpty) {
-      return const Center(child: Text('无匹配'));
+      return _keyed('nomatch', const Center(child: Text('无匹配')));
     }
   }
 
-  return ref.watch(browserGridModeProvider)
-      ? _buildGridBody(_filterEntries(entries))
-      : _buildListBody();
+  return _keyed(
+    'content',
+    TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      builder: (ctx, v, child) => Transform.translate(
+        offset: Offset(0, (1 - v) * 6), // 从下方 6px 处滑入归位
+        child: child,
+      ),
+      child: ref.watch(browserGridModeProvider)
+          ? _buildGridBody(_filterEntries(entries))
+          : _buildListBody(),
+    ),
+  );
 }
   // ==================== 列表模式（无粘性头部） ====================
 
@@ -7370,6 +7431,126 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
           child: const Text('确定'),
         ),
       ],
+    );
+  }
+}
+
+// ==================== 加载骨架屏（Shimmer 流光） ====================
+
+class _SlidingGradientTransform extends GradientTransform {
+  const _SlidingGradientTransform(this.slidePercent);
+  final double slidePercent;
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    return Matrix4.translationValues(
+      bounds.width * (slidePercent * 2 - 1),
+      0,
+      0,
+    );
+  }
+}
+
+class _LoadingSkeleton extends StatefulWidget {
+  const _LoadingSkeleton({super.key, this.rows = 16});
+  final int rows;
+
+  @override
+  State<_LoadingSkeleton> createState() => _LoadingSkeletonState();
+}
+
+class _LoadingSkeletonState extends State<_LoadingSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (ctx, _) {
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (bounds) {
+            return LinearGradient(
+              colors: [
+                Colors.grey.shade200,
+                Colors.grey.shade50,
+                Colors.grey.shade200,
+              ],
+              stops: const [0.35, 0.5, 0.65],
+              transform: _SlidingGradientTransform(_ctrl.value),
+            ).createShader(bounds);
+          },
+          child: _buildStatic(),
+        );
+      },
+    );
+  }
+
+  Widget _buildStatic() {
+    return ListView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: widget.rows,
+      itemBuilder: (ctx, i) {
+        // 每行宽度略有变化，看起来不像机器排的
+        final nameW = 120.0 + (i * 37) % 80;
+        final metaW = 70.0 + (i * 23) % 60;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          child: Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Colors.grey,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: nameW,
+                      height: 11,
+                      decoration: BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      width: metaW,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
