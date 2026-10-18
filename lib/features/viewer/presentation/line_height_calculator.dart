@@ -71,6 +71,12 @@ class LineHeightTable {
 final TextPainter _tp = TextPainter(textDirection: ui.TextDirection.ltr);
 
 /// 单行文本折行后的高度（像素）。
+///
+/// 默认走 ui.ParagraphBuilder 快路径：测完立即 dispose()，
+/// 确定性释放原生排版内存，避免 TextPainter 依赖 GC finalizer
+/// 导致的原生内存积压（大文件高度计算时 RSS 冲到 2GB 被 LMK 杀）。
+/// 仅当样式包含 strut/foreground/background/shadows 等快路径
+/// 不支持的特性时回退 TextPainter 老路，保证语义一致。
 double measureTextHeight({
   required String text,
   required double maxWidth,
@@ -78,16 +84,48 @@ double measureTextHeight({
   required TextScaler textScaler,
   bool noWrap = false,
   double extraVerticalPadding = 0,
-  StrutStyle? strutStyle,   // ★ 新增
+  StrutStyle? strutStyle,
 }) {
   if (maxWidth <= 0) return 0;
   final effective = text.isEmpty ? ' ' : text;
+
+  final hasFancyStyle = strutStyle != null ||
+      style.foreground != null ||
+      style.background != null ||
+      style.shadows != null;
+  if (!hasFancyStyle) {
+    final scaledFontSize =
+        textScaler.scale(style.fontSize ?? 14.0);
+    final pb = ui.ParagraphBuilder(ui.ParagraphStyle(
+      textDirection: ui.TextDirection.ltr,
+      maxLines: noWrap ? 1 : null,
+      ellipsis: noWrap ? '\u2026' : null,
+      textAlign: ui.TextAlign.left,
+    ))
+      ..pushStyle(ui.TextStyle(
+        color: style.color ?? const Color(0xFF000000),
+        fontSize: scaledFontSize,
+        height: style.height,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        letterSpacing: style.letterSpacing,
+        wordSpacing: style.wordSpacing,
+        fontFamily: style.fontFamily,
+        fontFamilyFallback: style.fontFamilyFallback,
+      ))
+      ..addText(effective);
+    final para = pb.build();
+    para.layout(ui.ParagraphConstraints(width: maxWidth));
+    final h = para.height + extraVerticalPadding;
+    para.dispose();
+    return h;
+  }
 
   _tp.text = TextSpan(text: effective, style: style);
   _tp.textScaler = textScaler;
   _tp.maxLines = noWrap ? 1 : null;
   _tp.ellipsis = noWrap ? '\u2026' : null;
-  _tp.strutStyle = strutStyle;   // ★ 每次显式赋值，包括 null，避免残留
+  _tp.strutStyle = strutStyle; // 每次显式赋值，包括 null，避免残留
   _tp.layout(maxWidth: maxWidth);
   final h = _tp.height + extraVerticalPadding;
   return h;
@@ -160,7 +198,7 @@ Future<LineHeightTable> computeLineHeights({
     // 每项都检查，超过 16ms 就让出
     if (sw.elapsedMilliseconds >= _yieldThresholdMs) {
       onProgress?.call(i + 1, itemCount);
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 8));
       sw.reset();
     }
   }
@@ -245,7 +283,7 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
 
       if (sw.elapsedMilliseconds >= _yieldThresholdMs) {
         onProgress?.call(i + 1, itemCount);
-        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(const Duration(milliseconds: 8));
         sw.reset();
       }
     }
@@ -326,7 +364,7 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
 
     if (sw.elapsedMilliseconds >= _yieldThresholdMs) {
       onProgress?.call(i + 1, itemCount);
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 8));
       sw.reset();
     }
   }
