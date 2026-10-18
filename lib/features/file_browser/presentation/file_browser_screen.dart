@@ -4351,7 +4351,7 @@ String _normalizePath(String path) {
     }
     return Container(
       width: double.infinity,
-      color: const Color(0xFFF2F2F2),
+      color: const Color(0xFFFAFAFA),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -4491,7 +4491,7 @@ String _normalizePath(String path) {
         ),
         IconButton(
           icon: const Icon(Icons.tune),
-          tooltip: '比较设置',
+          tooltip: '对比规则设置',
           onPressed: () {
             Navigator.of(context).push(_noAnimRoute(
               const ComparisonSettingsScreen(),
@@ -4768,36 +4768,40 @@ Widget _buildSelectionHintBar() {
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       child: Row(
         children: [
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _showSearchSettings,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  color: null,
-                  border: isFilter
-                      ? Border.all(color: filterBtnBg, width: 1)
-                      : null,
-                ),
-                child: Text(
-                  '搜索设置',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isFilter ? Colors.black : accent,
-                    fontWeight: (isFilter || hasText)
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  ),
-                ),
-              ),
-            ),
-          ),
+
+
+
+
+
+			Material(
+  color: Colors.transparent,
+  child: InkWell(
+    onTap: _showSearchSettings,
+    borderRadius: BorderRadius.circular(8),
+    child: Container(
+      height: 42,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: null,
+        border: isFilter
+            ? Border.all(color: Colors.transparent, width: 1)
+            : null,
+      ),
+      child: Text(
+        '搜索设置',
+        style: TextStyle(
+          fontSize: 12,
+          color: isFilter ? Colors.black : accent,
+          fontWeight: (isFilter || hasText)
+              ? FontWeight.bold
+              : FontWeight.normal,
+        ),
+      ),
+    ),
+  ),
+),
 
           const SizedBox(width: 2),
 
