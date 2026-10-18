@@ -411,17 +411,6 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     if (!_ctrl.hasClients) return;
     if (_jumping) return;
 
-    int? target;
-    final visible = _visible;
-    if (visible != null) {
-      for (var i = visible.length - 1; i >= 0; i--) {
-        if (visible[i].kind != GroupedBlockKind.equal) {
-          target = i;
-          break;
-        }
-      }
-    }
-
     setState(() {
       _jumping = true;
       _jumpDirection = _JumpDirection.down;
@@ -461,7 +450,9 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     if (!mounted) return;
     setState(() {
       _jumping = false;
-      _jumpedBlockIdx = target;
+      // 跳到结尾和别的视图一样，不额外高亮。
+      // 想找最后一处差异请用「下一处差异」按钮。
+      _jumpedBlockIdx = null;
     });
   }
 
