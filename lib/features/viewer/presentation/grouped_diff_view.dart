@@ -429,15 +429,33 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     // 等遮罩画上去
     await WidgetsBinding.instance.endOfFrame;
 
-    for (var step = 0; step < 300; step++) {
+    var stableFrames = 0;
+    for (var step = 0; step < 3000; step++) {
       if (!mounted || !_ctrl.hasClients) break;
       final p = _ctrl.position;
-      if (p.pixels >= p.maxScrollExtent - 1) break;
-      final next = (p.pixels + p.viewportDimension * 30)
-          .clamp(0.0, p.maxScrollExtent);
-      if ((next - p.pixels).abs() < 0.5) break;
-      _ctrl.jumpTo(next);
+
+      if (p.pixels >= p.maxScrollExtent - 0.5) {
+        stableFrames++;
+        if (stableFrames >= 3) break;
+      } else {
+        stableFrames = 0;
+        final next = (p.pixels + p.viewportDimension * 30)
+            .clamp(0.0, p.maxScrollExtent);
+        if ((next - p.pixels).abs() < 0.5) {
+          _ctrl.jumpTo(p.maxScrollExtent);
+        } else {
+          _ctrl.jumpTo(next);
+        }
+      }
       await WidgetsBinding.instance.endOfFrame;
+    }
+
+    if (mounted && _ctrl.hasClients) {
+      final p = _ctrl.position;
+      if (p.pixels < p.maxScrollExtent - 0.5) {
+        _ctrl.jumpTo(p.maxScrollExtent);
+        await WidgetsBinding.instance.endOfFrame;
+      }
     }
 
     if (!mounted) return;
@@ -941,6 +959,9 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final shortLineCount =
         _shortIsLeft ? data.linesA.length : data.linesB.length;
 
+    final origName = ref.watch(originalFileNameProvider);
+    final modName = ref.watch(modifiedFileNameProvider);
+
     final s = Theme.of(context).colorScheme;
     final divider = Container(width: 1, color: s.outlineVariant);
 
@@ -1015,36 +1036,68 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     );
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: isDark
-              ? const [Color(0xFF0F1620), Color(0xFF0A0F16)]
-              : const [Color(0xFFF0F5FA), Color(0xFFE8EFF7)],
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: (origName == null || origName.isEmpty)
+                  ? const SizedBox.shrink()
+                  : ViewerPaneHeader(
+                      fileName: origName,
+                      isLeft: true,
+                      fontSize: 12,
+                      iconSize: 16,
+                    ),
+            ),
+            divider,
+            Expanded(
+              child: (modName == null || modName.isEmpty)
+                  ? const SizedBox.shrink()
+                  : ViewerPaneHeader(
+                      fileName: modName,
+                      isLeft: false,
+                      fontSize: 12,
+                      iconSize: 16,
+                    ),
+            ),
+          ],
         ),
-      ),
-      child: Stack(
-        children: [
-          buildViewerScrollbar(child: listView, controller: _ctrl),
-      if (_jumping)
-  Positioned.fill(
-    child: ColoredBox(
-      // 不透明浅灰，深浅色主题各取一档，避免深色下整屏发白发刺眼
-      color: isDark
-          ? const Color(0xFF2B2B2B)
-          : const Color(0xFFE8E8E8),
-      child: Center(
-        child: _JumpIndicator(
-          direction: _jumpDirection ?? _JumpDirection.down,
-          size: 64,
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: isDark
+                    ? const [Color(0xFF0F1620), Color(0xFF0A0F16)]
+                    : const [Color(0xFFF0F5FA), Color(0xFFE8EFF7)],
+              ),
+            ),
+            child: Stack(
+              children: [
+                buildViewerScrollbar(child: listView, controller: _ctrl),
+                if (_jumping)
+                  Positioned.fill(
+                    child: ColoredBox(
+                      // 不透明浅灰，深浅色主题各取一档，避免深色下整屏发白发刺眼
+                      color: isDark
+                          ? const Color(0xFF2B2B2B)
+                          : const Color(0xFFE8E8E8),
+                      child: Center(
+                        child: _JumpIndicator(
+                          direction: _jumpDirection ?? _JumpDirection.down,
+                          size: 64,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
-      ),
-    ),
-  ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -1094,7 +1147,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
     final leftN = estimateLines(data.linesA, b.leftStart, b.leftEnd);
     final rightN = estimateLines(data.linesB, b.rightStart, b.rightEnd);
     final n = leftN > rightN ? leftN : rightN;
-    return n * strutH + 12;
+    return n * strutH + 8;
   }
 
   double _computeHeight(int blockIndex) {
@@ -1163,7 +1216,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
       strutStyle: strut);
     if (lh == 0) lh = blank;
     if (rh == 0) rh = blank;
-    return (lh > rh ? lh : rh) + 12;
+    return (lh > rh ? lh : rh) + 8;
   }
 
   // ==================== 高亮异步 ====================
@@ -1454,7 +1507,7 @@ class _BlockTile extends StatelessWidget {
     final content = ColoredBox(
       color: bg,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
