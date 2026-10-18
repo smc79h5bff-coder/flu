@@ -3304,7 +3304,7 @@ void _onFloatingPageUpTap() {
             child: rules.isEmpty
                 ? Center(
                     child: Text(
-                      '点 + 添加按钮（长按编辑）',
+                      '点 + 添加快捷操作按钮（长按编辑）',
                       style: TextStyle(
                         fontSize: 10,
                         color: s.onSurfaceVariant,
