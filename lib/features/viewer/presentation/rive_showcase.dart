@@ -19,7 +19,6 @@ class RiveShowcaseItem {
   final int fallbackSeconds;
 }
 
-// ★ 你的 6 个文件
 const kRiveShowcaseItems = <RiveShowcaseItem>[
   RiveShowcaseItem(path: 'assets/rive/28432-53754-loader.riv'),
   RiveShowcaseItem(path: 'assets/rive/8834-16891-orange.riv'),
@@ -68,12 +67,10 @@ class _RiveShowcaseState extends State<RiveShowcase> {
   void _disposeCurrent() {
     _timer?.cancel();
     _timer = null;
-    final ctrl = _controller;
+    // Rive 0.13.x 的 RiveFile 没有公开 dispose()，这里只清引用。
+    _controller?.dispose();
     _controller = null;
-    ctrl?.dispose();
-    final f = _file;
     _file = null;
-    f?.dispose();
     _artboard = null;
   }
 
@@ -91,13 +88,9 @@ class _RiveShowcaseState extends State<RiveShowcase> {
       _error = null;
     });
 
-    RiveFile? file;
     try {
-      file = await RiveFile.asset(item.path);
-      if (!mounted || _index != myIndex || _finishing) {
-        file.dispose();
-        return;
-      }
+      final file = await RiveFile.asset(item.path);
+      if (!mounted || _index != myIndex || _finishing) return;
 
       final artboard = item.artboard == null
           ? file.mainArtboard
@@ -123,7 +116,9 @@ class _RiveShowcaseState extends State<RiveShowcase> {
 
       final nonNullCtrl = ctrl;
       artboard.addController(nonNullCtrl);
-      nonNullCtrl.addListener(() {
+
+      // 0.13.x 的控制器用 isActiveChanged 监听，而不是 addListener。
+      nonNullCtrl.isActiveChanged.addListener(() {
         if (!mounted || _finishing) return;
         if (!identical(_controller, nonNullCtrl)) return;
         if (!nonNullCtrl.isActive) _next();
@@ -137,7 +132,6 @@ class _RiveShowcaseState extends State<RiveShowcase> {
       });
       _startFallback(item.fallbackSeconds);
     } catch (e) {
-      file?.dispose();
       if (!mounted || _index != myIndex || _finishing) return;
       setState(() {
         _error = '$e';
@@ -186,10 +180,7 @@ class _RiveShowcaseState extends State<RiveShowcase> {
       appBar: AppBar(
         title: Text('动画预览 ${_index + 1} / $total'),
         actions: [
-          TextButton(
-            onPressed: _finish,
-            child: const Text('跳过全部'),
-          ),
+          TextButton(onPressed: _finish, child: const Text('跳过全部')),
         ],
       ),
       body: Column(
@@ -202,9 +193,7 @@ class _RiveShowcaseState extends State<RiveShowcase> {
   }
 
   Widget _buildStage() {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Padding(
@@ -250,9 +239,7 @@ class _RiveShowcaseState extends State<RiveShowcase> {
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton(
-                  onPressed: () {
-                    _loadCurrent();
-                  },
+                  onPressed: _loadCurrent,
                   child: const Text('重播'),
                 ),
                 const SizedBox(width: 8),
