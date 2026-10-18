@@ -4378,11 +4378,6 @@ String _normalizePath(String path) {
     }
     return Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
-        ),
-      ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -4697,13 +4692,15 @@ Widget _buildSelectionHintBar() {
 
   return Container(
     width: double.infinity,
-    height: _searchActive ? 76 : 56, // 搜索模式补上被替换的搜索栏+状态条高度，避免列表跳动
+    // 高度 = 被替换区域总高 - 自身上下 margin(8)，保证切换选择模式时列表不跳动
+    // 普通模式：搜索栏 54 → 54-8=46；搜索模式：搜索栏54+状态条约20 → 74-8=66
+    height: _searchActive ? 66 : 46,
     margin: const EdgeInsets.fromLTRB(8, 4, 8, 4),
     padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: Colors.grey.shade300),
+      border: Border.all(color: Colors.black),
     ),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
