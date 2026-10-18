@@ -949,30 +949,39 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     if (cached != null) return cached;
 
     final fs = ref.read(bodyFontSizeProvider);
-    final h = fs * 1.35 * 1.5 + 8;
 
-    int rows;
     switch (mode) {
       case ViewMode.merged:
-        rows = cachedMergedOrder(diff).length;
+        final h = fs * 1.35 + 10; // 精确 8 + 缓冲 2
+        final rows = cachedMergedOrder(diff).length;
+        return _HeightBundle(
+          merged:
+              LineHeightTable.fromHeights(List<double>.filled(rows, h)),
+        );
       case ViewMode.sideBySide:
-        rows = cachedAlignedRows(diff).length;
+        final h = fs * 1.35 + 14; // 精确 12 + 缓冲 2
+        final rows = cachedAlignedRows(diff).length;
+        return _HeightBundle(
+          sbsSync:
+              LineHeightTable.fromHeights(List<double>.filled(rows, h)),
+        );
       case ViewMode.diffOnly:
-        rows = cachedDiffOnlyRows(diff).length;
+        final h = fs * 1.35 + 6; // 精确 4 + 缓冲 2
+        final rows = cachedDiffOnlyRows(diff).length;
+        return _HeightBundle(
+          diffOnly:
+              LineHeightTable.fromHeights(List<double>.filled(rows, h)),
+        );
       case ViewMode.diffOnlyPlain:
-        rows = cachedDiffOnlyPlainRows(diff).length;
+        final h = fs * 1.35 + 6; // 精确 4 + 缓冲 2
+        final rows = cachedDiffOnlyPlainRows(diff).length;
+        return _HeightBundle(
+          diffOnlyPlain:
+              LineHeightTable.fromHeights(List<double>.filled(rows, h)),
+        );
       case ViewMode.grouped:
         return const _HeightBundle();
     }
-
-    final table = LineHeightTable.fromHeights(List<double>.filled(rows, h));
-    return switch (mode) {
-      ViewMode.merged => _HeightBundle(merged: table),
-      ViewMode.sideBySide => _HeightBundle(sbsSync: table),
-      ViewMode.diffOnly => _HeightBundle(diffOnly: table),
-      ViewMode.diffOnlyPlain => _HeightBundle(diffOnlyPlain: table),
-      ViewMode.grouped => const _HeightBundle(),
-    };
   }
 
  Future<_HeightBundle> _computeHeightBundle(
@@ -1033,7 +1042,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 8,
+      extraVerticalPadding: 10,
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: merged (${order.length}行)');
@@ -1071,7 +1080,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
       style: style,
       textScaler: scaler,
       noWrap: noWrap,
-      extraVerticalPadding: 12,
+      extraVerticalPadding: 14,
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: sbs (${rows.length}行)');
@@ -1141,7 +1150,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     style: style,
     textScaler: scaler,
     noWrap: noWrap,
-    extraVerticalPadding: 4,
+    extraVerticalPadding: 6,
     styleForItem: needContextOverride
         ? (i) => isContextRow(i) ? contextStyle : null
         : null,
