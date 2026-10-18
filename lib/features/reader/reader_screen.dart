@@ -1554,21 +1554,24 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 ],
               ),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: menuButton(
-                      icon: Icons.article_outlined,
-                      label: '导出加载日志',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _exportLoadLog();
-                      },
-                    ),
-                  ),
-                  const Expanded(child: SizedBox.shrink()),
-                ],
-              ),
+              // 暂时隐藏「导出加载日志」入口，需要时恢复此 Row。
+              // Row(
+              //   children: [
+              //     Expanded(
+              //       child: menuButton(
+              //         icon: Icons.article_outlined,
+              //         label: '导出加载日志',
+              //         onTap: () {
+              //           Navigator.pop(ctx);
+              //           _exportLoadLog();
+              //         },
+              //       ),
+              //     ),
+              //     const Expanded(child: SizedBox.shrink()),
+              //   ],
+              // ),
+              // const Divider(height: 1),
+
               const Divider(height: 1),
 
               Row(
