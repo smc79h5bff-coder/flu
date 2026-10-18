@@ -671,6 +671,10 @@ List<({int orig, int mod})> cachedLineMeta(DiffResult diff) {
   if (identical(_lastLineMetaFor, diff) && _lastLineMeta != null) {
     return _lastLineMeta!;
   }
-  _lastLineMeta = _lineMeta(diff);
+
+
+
+    _lastLineMeta = _lineMeta(diff);
   _lastLineMetaFor = diff;
   return _lastLineMeta!;
+}
