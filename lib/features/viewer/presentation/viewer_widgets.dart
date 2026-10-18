@@ -1,8 +1,13 @@
+import 'dart:io';
+
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart'
     hide colorToHex, hexToColor;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/storage/persistent_notifier.dart';
+import '../../import/presentation/providers/import_providers.dart';
 import 'providers/grouped_color_providers.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart'
     show ruleSubtitle;
@@ -1225,6 +1230,301 @@ class _FloatingButtonSettingsState
           ],
         ),
       ],
+    );
+  }
+}
+
+// ==================== 跳转指示器（公共版） ====================
+
+enum JumpDirection { up, down }
+
+/// 跳转遮罩用的指示器：呼吸环 + 环上旋转点 + 中心方向箭头。
+class JumpIndicator extends StatefulWidget {
+  const JumpIndicator({
+    super.key,
+    required this.direction,
+    this.size = 64,
+  });
+
+  final JumpDirection direction;
+  final double size;
+
+  @override
+  State<JumpIndicator> createState() => _JumpIndicatorState();
+}
+
+class _JumpIndicatorState extends State<JumpIndicator>
+    with TickerProviderStateMixin {
+  late final AnimationController _rotation;
+  late final AnimationController _breath;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+    _breath = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _rotation.dispose();
+    _breath.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_rotation, _breath]),
+        builder: (_, __) => Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              size: Size.square(widget.size),
+              painter: JumpRingPainter(
+                rotation: _rotation.value,
+                breath: _breath.value,
+                color: color,
+              ),
+            ),
+            Icon(
+              widget.direction == JumpDirection.up
+                  ? Icons.keyboard_double_arrow_up
+                  : Icons.keyboard_double_arrow_down,
+              size: widget.size * 0.38,
+              color: color.withValues(alpha: 0.85),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class JumpRingPainter extends CustomPainter {
+  JumpRingPainter({
+    required this.rotation,
+    required this.breath,
+    required this.color,
+  });
+
+  final double rotation;
+  final double breath;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.width / 2 - 4;
+
+    // 底环（呼吸：透明度 12% ↔ 20%）
+    final bg = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = color.withValues(alpha: 0.12 + 0.08 * breath);
+    canvas.drawCircle(center, radius, bg);
+
+    // 旋转的点
+    final angle = rotation * 2 * math.pi;
+    final dot = Offset(
+      center.dx + radius * math.cos(angle),
+      center.dy + radius * math.sin(angle),
+    );
+    final dotPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(dot, 4, dotPaint);
+
+    // 点后面拖的短弧，让它看起来"在跑"
+    final arcPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..color = color.withValues(alpha: 0.5);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      angle - 0.6,
+      0.6,
+      false,
+      arcPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(JumpRingPainter old) =>
+      old.rotation != rotation ||
+      old.breath != breath ||
+      old.color != color;
+}
+
+// ==================== 视图顶部的文件名栏（四个视图共用） ====================
+//
+// 色条按左右区分：左红右绿。
+// 背景中性灰，深浅色各有档，不吃主题色。
+// 长按 / 点右上圆圈叹号 → 弹文件信息（路径、大小、修改时间、编码）。
+// onDelete 为 null 时不显示"删除此文件"按钮，其余功能正常。
+
+class ViewerPaneHeader extends ConsumerWidget {
+  const ViewerPaneHeader({
+    super.key,
+    required this.fileName,
+    required this.isLeft,
+    this.onDelete,
+    this.fontSize = 12,
+    this.iconSize = 14,
+    this.height = 34,
+  });
+
+  final String fileName;
+  final bool isLeft;
+  final VoidCallback? onDelete;
+  final double fontSize;
+  final double iconSize;
+  final double height;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF4F4F4);
+    final fg = isDark ? const Color(0xFFE0E0E0) : const Color(0xFF333333);
+    final bar = isLeft
+        ? (isDark ? const Color(0xFFE57373) : const Color(0xFFD9534F)) // 红
+        : (isDark ? const Color(0xFF81C784) : const Color(0xFF4CAF50)); // 绿
+
+    return GestureDetector(
+      onLongPress: () => _showInfo(context, ref),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: height,
+        color: bg,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 3, color: bar),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.w600,
+                    color: fg,
+                  ),
+                ),
+              ),
+            ),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _showInfo(context, ref),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  Icons.error_outline,
+                  size: iconSize,
+                  color: fg.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showInfo(BuildContext context, WidgetRef ref) async {
+    final path = ref.read(
+        isLeft ? originalFilePathProvider : modifiedFilePathProvider);
+    final encoding = ref.read(
+        isLeft ? originalEncodingProvider : modifiedEncodingProvider);
+
+    String sizeStr = '—';
+    String timeStr = '—';
+    if (path != null) {
+      try {
+        final st = await File(path).stat();
+        final s = st.size;
+        if (s < 1024) {
+          sizeStr = '$s B';
+        } else if (s < 1024 * 1024) {
+          sizeStr = '${(s / 1024).toStringAsFixed(1)} KB';
+        } else if (s < 1024 * 1024 * 1024) {
+          sizeStr = '${(s / 1024 / 1024).toStringAsFixed(1)} MB';
+        } else {
+          sizeStr = '${(s / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+        }
+        final t = st.modified;
+        String two(int n) => n < 10 ? '0$n' : '$n';
+        timeStr = '${t.year}-${two(t.month)}-${two(t.day)} '
+            '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+      } catch (_) {}
+    }
+
+    if (!context.mounted) return;
+
+    Widget row(String label, String value) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 2),
+              SelectableText(value),
+            ],
+          ),
+        );
+
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        insetPadding: const EdgeInsets.all(8),
+        title: Text(
+          fileName,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              row('路径', path ?? '（没有路径，来自剪贴板或粘贴）'),
+              row('大小', sizeStr),
+              row('修改时间', timeStr),
+              row('编码', encoding),
+            ],
+          ),
+        ),
+        actions: [
+          if (onDelete != null)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(c);
+                onDelete!();
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('删除此文件'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
     );
   }
 }
