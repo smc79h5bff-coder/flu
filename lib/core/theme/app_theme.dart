@@ -1,35 +1,31 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart'; // 必须添加：CupertinoPageTransitionsBuilder 已迁移至此[reference:0]
+import 'package:flutter/cupertino.dart';
 
 import '../constants/app_colors.dart';
 
 /// Light / Dark theme for DocDiff.
-/// PRD §4.3: follow system, brand green #6AE8C1, dark bg #121212.
+/// 主体色板来自 AppColors.lightScheme / darkScheme（纯灰底 + 灰紫主色）。
+/// 弹窗 / 菜单 / 底部弹窗 / AppBar / 卡片一律强制白色（深色用 darkCard），
+/// 不再从 scheme.surface 取，避免 M3 叠加 tint 后泛蓝。
 class AppTheme {
   const AppTheme._();
 
-  /// 全局圆角半径。改这一行即可在 6dp / 4dp / 0dp 之间切换。
   static const double radius = 6;
 
-  /// 统一形状：Dialog / PopupMenu / Card / Button / SnackBar / Chip 共用。
   static const RoundedRectangleBorder shape = RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(radius)),
   );
 
-  /// 按钮专用圆角：比全局 radius 更圆，避免 6dp 在大按钮上显得方。
-  /// 想改成完全胶囊形，把下面这段换成：
-  /// static const StadiumBorder buttonShape = StadiumBorder();
   static const double buttonRadius = 18;
 
   static const RoundedRectangleBorder buttonShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(buttonRadius)),
   );
 
-  /// BottomSheet 只做顶部两角（贴底时底部圆角看不见，且顶部圆角更符合 M3）。
   static const RoundedRectangleBorder bottomSheetShape =
       RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(radius)),
-      );
+    borderRadius: BorderRadius.vertical(top: Radius.circular(radius)),
+  );
 
   static const BorderRadius radiusAll = BorderRadius.all(
     Radius.circular(radius),
@@ -41,20 +37,51 @@ class AppTheme {
 
   static ThemeData _build(Brightness brightness) {
     final base = ThemeData(brightness: brightness, useMaterial3: true);
-    final scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.brandGreen,
-      brightness: brightness,
-    );
     final isDark = brightness == Brightness.dark;
+
+    // ★ 直接用 AppColors 里手搓的灰紫 scheme，不用 fromSeed。
+    final scheme =
+        isDark ? AppColors.darkScheme : AppColors.lightScheme;
+
+    // ★ 弹窗类统一底色：浅色纯白、深色深灰。
+    //   这个不跟 scheme.surface 走，就是为了防止某个色板调色时
+    //   弹窗跟着泛蓝。
+    final popupBg = isDark ? AppColors.darkCard : Colors.white;
+    final pageBg = isDark ? AppColors.darkSurface : Colors.white;
 
     return base.copyWith(
       colorScheme: scheme,
-      scaffoldBackgroundColor: isDark ? AppColors.darkSurface : Colors.white,
-      cardColor: isDark ? AppColors.darkCard : null,
 
-      // —— 动画：平台默认（a1）。
-      // 显式钉住是为了 Flutter 升级时默认值不漂移；
-      // 若想"完全交给当前版本默认"，把整块 pageTransitionsTheme 删掉即可。
+      // 兼容遗留组件读 primaryColor / canvasColor。
+      primaryColor: scheme.primary,
+      canvasColor: pageBg,
+
+      scaffoldBackgroundColor: pageBg,
+      cardColor: isDark ? AppColors.darkCard : Colors.white,
+
+      dividerColor: scheme.outlineVariant,
+      dividerTheme: DividerThemeData(
+        color: scheme.outlineVariant,
+        thickness: 1,
+        space: 1,
+      ),
+
+      // ★ AppBar：白底、黑字（深色：深底、浅字），去掉 tint。
+      appBarTheme: AppBarTheme(
+        backgroundColor: pageBg,
+        foregroundColor: scheme.onSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        titleTextStyle: TextStyle(
+          color: scheme.onSurface,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+        iconTheme: IconThemeData(color: scheme.onSurface),
+      ),
+
+      // —— 动画 ——
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
@@ -66,33 +93,50 @@ class AppTheme {
         },
       ),
 
-      // —— 形状：全部引用同一个 shape ——
+      // ★ 所有弹窗类背景统一白（深色 darkCard）。
       dialogTheme: DialogThemeData(
-        backgroundColor: scheme.surface,
+        backgroundColor: popupBg,
         surfaceTintColor: Colors.transparent,
         shape: shape,
+        titleTextStyle: TextStyle(
+          color: scheme.onSurface,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+        contentTextStyle: TextStyle(
+          color: scheme.onSurface,
+          fontSize: 14,
+        ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: scheme.surface,
-        modalBackgroundColor: scheme.surface,
+        backgroundColor: popupBg,
+        modalBackgroundColor: popupBg,
         surfaceTintColor: Colors.transparent,
         shape: bottomSheetShape,
       ),
       popupMenuTheme: PopupMenuThemeData(
-        color: scheme.surface,
+        color: popupBg,
         surfaceTintColor: Colors.transparent,
         shape: shape,
+        textStyle: TextStyle(
+          color: scheme.onSurface,
+          fontSize: 14,
+        ),
       ),
-      // Drawer 贴边，不设圆角。
       drawerTheme: DrawerThemeData(
-        backgroundColor: scheme.surface,
+        backgroundColor: popupBg,
         surfaceTintColor: Colors.transparent,
       ),
-      cardTheme: CardThemeData(shape: shape),
+      // 卡片也顺便定白，否则部分列表会把 Card 默认色带蓝。
+      cardTheme: CardThemeData(
+        shape: shape,
+        color: isDark ? AppColors.darkCard : Colors.white,
+        surfaceTintColor: Colors.transparent,
+      ),
       snackBarTheme: SnackBarThemeData(shape: shape),
       chipTheme: ChipThemeData(shape: shape),
 
-      // —— 按钮：使用更圆的 buttonShape，避免 6dp 在大按钮上显方 ——
+      // —— 按钮 ——
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(shape: buttonShape),
       ),
@@ -106,15 +150,13 @@ class AppTheme {
         style: TextButton.styleFrom(shape: buttonShape),
       ),
 
-      // —— 文本：从 colorScheme 派生，不硬编码黑白 ——
+      // —— 文本 ——
       textTheme: base.textTheme.apply(
         bodyColor: scheme.onSurface,
         displayColor: scheme.onSurface,
       ),
 
-      // —— 选中高亮：Diff 工具高频复制 ——
-      // 旧 API selectionTheme / SelectionThemeData 已废弃[reference:1]，
-      // 改用 textSelectionTheme / TextSelectionThemeData[reference:2]。
+      // —— 光标 / 选中 ——
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: scheme.primary,
         selectionColor: scheme.primary.withValues(alpha: 0.30),
