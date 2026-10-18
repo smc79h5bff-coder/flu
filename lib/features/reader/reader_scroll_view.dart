@@ -580,7 +580,7 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
     _loupePos = fingerPos;
 
     final fontSize = widget.settings.fontSize;
-    final lineHeight = fontSize * 1.1;
+    final lineHeight = fontSize * 1.5;
     final judge = Offset(
       handleLogic.dx,
       handleLogic.dy + fontSize - lineHeight / 3,
@@ -620,7 +620,7 @@ if (bottomRow == widget.lines.length - 1 && fullyVisible) {
     final baseStyle = TextStyle(
       fontSize: s.fontSize,
       fontWeight: _toFontWeight(s.fontWeight),
-      height: 1.1,
+      height: 1.5,
       color: const Color(0xFF222222),
     );
 
@@ -661,10 +661,10 @@ Positioned.fill(
         physics: _scrollPhysics,
         itemCount: widget.lines.length,
         padding: const EdgeInsets.only(          // ← 恢复默认
-          left: 4,
-          right: 4,
-          top: 2,
-          bottom: 2,
+          left: 20,
+          right: 20,
+          top: 8,
+          bottom: 8,
         ),
         itemBuilder: (ctx, i) {
 
