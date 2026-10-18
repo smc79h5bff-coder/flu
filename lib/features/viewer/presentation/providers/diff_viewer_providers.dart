@@ -40,12 +40,20 @@ class ViewModeOrderNotifier extends PersistentNotifier<List<ViewMode>> {
   @override
   String get key => 'jianming.viewer.viewModeOrder';
 
+  static const List<ViewMode> _defaultOrder = [
+    ViewMode.diffOnly,
+    ViewMode.diffOnlyPlain,
+    ViewMode.grouped,
+    ViewMode.merged,
+    ViewMode.sideBySide,
+  ];
+
   @override
-  List<ViewMode> get defaultValue => ViewMode.values;
+  List<ViewMode> get defaultValue => _defaultOrder;
 
   @override
   List<ViewMode> decode(String raw) {
-    if (raw.isEmpty) return ViewMode.values;
+    if (raw.isEmpty) return _defaultOrder;
     final result = <ViewMode>[];
     for (final name in raw.split('\u0000')) {
       if (name.isEmpty) continue;
@@ -56,8 +64,8 @@ class ViewModeOrderNotifier extends PersistentNotifier<List<ViewMode>> {
         }
       }
     }
-    for (final m in ViewMode.values) {
-      if (!result.contains(m)) result.add(m); // 补漏
+    for (final m in _defaultOrder) {
+      if (!result.contains(m)) result.add(m);
     }
     return result;
   }
