@@ -150,6 +150,10 @@ JumpDirection _jumpDirection = JumpDirection.down;
     for (final m in ViewMode.values) m: GlobalKey(),
   };
 
+  // 切视图遮罩：非 null 表示正在切换、需要盖表情动画（保底 600ms）。
+  DateTime? _switchOverlaySince;
+  Timer? _switchOverlayTimer;
+
  @override
 void initState() {
   super.initState();
@@ -178,6 +182,7 @@ void initState() {
     _findDebounce?.cancel();
 _floatTimer?.cancel();
 _floatEntry?.remove();
+    _switchOverlayTimer?.cancel();
     _findController.dispose();
     _replaceController.dispose();
     _tabScrollController.removeListener(_onTabScroll);
@@ -1619,11 +1624,9 @@ if (!jumped) {
       return;
     }
 
-    final diff = _diff;
-    if (diff != null) {
-      _startHeightComputation(diff, newMode);
-    }
-
+    // 注意：高度计算挪到对话框确认之后才启动。
+    // 以前是弹对话框前就开算，大文件计算会把主线程塞满，
+    // 对话框和旧画面一起冻住，用户以为死机。
     final searchEntry = _currentMatchEntry;
     final hasSearch = _findQuery.isNotEmpty && _matchEntries.isNotEmpty;
 
@@ -1634,8 +1637,15 @@ if (!jumped) {
     );
     if (!mounted || choice == null) return;
 
+    final diff = _diff;
+    if (diff != null) {
+      _startHeightComputation(diff, newMode);
+    }
+
     _log('切视图: ${_viewModeName(newMode)}');
     ref.read(viewModeProvider.notifier).state = newMode;
+    _switchOverlaySince = DateTime.now();
+    _switchOverlayTimer?.cancel();
 
     final target = choice.isTop ? -1 : (choice.targetEntry ?? -1);
     _pendingJumpEntry = target;
@@ -2673,6 +2683,25 @@ void _toast(String msg) {
             appBar: AppBar(title: const Text('对比结果')),
             body: const _LoadingBody(),
           );
+        }
+        // 切视图遮罩：就算高度表瞬间就绪，也保底展示 600ms 表情动画，
+        // 避免"一闪而过"或"看起来像卡住"。
+        final so = _switchOverlaySince;
+        if (so != null) {
+          const minShow = Duration(milliseconds: 600);
+          final elapsed = DateTime.now().difference(so);
+          if (elapsed < minShow) {
+            _switchOverlayTimer?.cancel();
+            _switchOverlayTimer = Timer(minShow - elapsed, () {
+              if (!mounted) return;
+              setState(() => _switchOverlaySince = null);
+            });
+            return Scaffold(
+              appBar: AppBar(title: const Text('对比结果')),
+              body: const _LoadingBody(),
+            );
+          }
+          _switchOverlaySince = null;
         }
         ViewerDiag.mark('视图就绪');
         final heights = snapshot.data!;
@@ -4364,23 +4393,15 @@ class _LoadingBodyState extends State<_LoadingBody>
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 72×72 容器，小圈和表情在里面同心叠放
+              // 72×72 容器：表情在里面
               SizedBox(
                 width: 72,
                 height: 72,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // 小圈：开场淡出，尺寸不变（36px）
-                    if (t < 1)
-                      Opacity(
-                        opacity: 1 - t,
-                        child: const SizedBox(
-                          width: 36,
-                          height: 36,
-                          child: CircularProgressIndicator(strokeWidth: 4),
-                        ),
-                      ),
+                    // （已删除开场小圈：它和表情缩放入场重叠时
+                    //   会从透明环里透出来，看着像闪过一个紫色小圆。）
                     // 表情圆：从 36px（scale 0.5）放大到 72px
                     Transform.scale(
                       scale: 0.5 + t * 0.5,
@@ -4459,13 +4480,13 @@ class _LoadingRingPainter extends CustomPainter {
   static const double _pi = 3.141592653589793;
   static const double _tau = 2 * _pi;
 
-  static const double _lapMs = 1000;        // 每圈 1000ms
-  static const double _transitionMs = 300;  // 每圈开头 300ms 慢慢渗到本圈颜色
+  static const double _lapMs = 400;         // 每圈 400ms（再快会频闪成模糊光晕）
+  static const double _transitionMs = 100;  // 圈速提快后按比例缩短，否则颜色永远在过渡中
   static const double _blinkMs = 3000;      // 表情形态 3 秒一轮
 
   // 马卡龙色系（Material 300 色阶，柔和粉彩）
-  static const Color _lavender = Color(0xFF9575CD);  // 浅紫
-  static const Color _pink     = Color(0xFFF48FB1);  // 浅粉
+  static const Color _lavender = Color(0xFFB388FF);  // 浅紫（提高饱和度+提亮）
+  static const Color _pink     = Color(0xFFF6A5C0);  // 浅粉（比原来浅一档）
   static const Color _peach    = Color(0xFFFFB74D);  // 浅橙
   static const Color _lemon    = Color(0xFFFFE082);  // 浅黄
   static const Color _mint     = Color(0xFF81C784);  // 薄荷绿
