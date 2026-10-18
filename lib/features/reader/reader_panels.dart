@@ -2370,8 +2370,8 @@ class _BookmarkHighlightManagerState
     super.dispose();
   }
 
-  bool get _isHighlightTab => _tab.index == 0;
-  bool get _isBookmarkTab => _tab.index == 1;
+  bool get _isHighlightTab => _tab.index == 1;
+  bool get _isBookmarkTab => _tab.index == 0;
 
   void _exitSelection() {
     setState(() {
@@ -2440,8 +2440,8 @@ class _BookmarkHighlightManagerState
             dividerColor: Colors.transparent,
             indicatorColor: AppColors.accentPurple,
             tabs: [
-              Tab(text: '高亮 (${highlights.length})'),
               Tab(text: '书签 (${bookmarks.length})'),
+              Tab(text: '高亮 (${highlights.length})'),
             ],
           ),
 
@@ -2525,8 +2525,8 @@ class _BookmarkHighlightManagerState
         body: TabBarView(
           controller: _tab,
           children: [
-            _buildHighlights(highlights, viewSettings),
             _buildBookmarks(bookmarks),
+            _buildHighlights(highlights, viewSettings),
           ],
         ),
       ),
