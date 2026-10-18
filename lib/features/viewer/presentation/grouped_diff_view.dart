@@ -1690,7 +1690,7 @@ class _JumpIndicatorState extends State<_JumpIndicator>
     super.initState();
     _rotation = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 850),
     )..repeat();
     _breath = AnimationController(
       vsync: this,
