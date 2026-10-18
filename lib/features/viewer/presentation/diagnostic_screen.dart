@@ -5,7 +5,7 @@ import '../../../core/debug/crash_logger.dart';
 import 'crash_trace.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import 'providers/diff_viewer_providers.dart';
-
+import 'package:flutter/services.dart';
 // ==================== 诊断工具 ====================
 
 class ViewerDiag {
