@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart'; // 必须添加：CupertinoPageTransitionsBuilder 已迁移至此[reference:0]
 
 import '../constants/app_colors.dart';
 
@@ -102,7 +103,9 @@ class AppTheme {
       ),
 
       // —— 选中高亮：Diff 工具高频复制 ——
-      selectionTheme: SelectionThemeData(
+      // 旧 API selectionTheme / SelectionThemeData 已废弃[reference:1]，
+      // 改用 textSelectionTheme / TextSelectionThemeData[reference:2]。
+      textSelectionTheme: TextSelectionThemeData(
         cursorColor: scheme.primary,
         selectionColor: scheme.primary.withValues(alpha: 0.30),
         selectionHandleColor: scheme.primary,
