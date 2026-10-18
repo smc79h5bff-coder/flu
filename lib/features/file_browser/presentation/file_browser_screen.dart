@@ -4463,14 +4463,7 @@ String _normalizePath(String path) {
       Column(
         children: [
           _buildBreadcrumbs(),
-          if (_selectionMode)
-            _buildSelectionHintBar()
-          else ...[
-            _buildSearchBar(),
-            if (_searchActive) _buildSearchStatusBar(),
-            if (!_searchActive && _expandedZipKeys.isNotEmpty)
-              _buildExpandedZipBar(),
-          ],
+          _buildTopBarWithSelectionOverlay(),
           Expanded(child: _buildBody()),
         ],
       ),
@@ -4669,6 +4662,43 @@ case 'favorites':
   // ==================== 搜索栏 UI ====================
 
 
+/// 顶部区域：搜索栏（+状态栏/展开条）。
+/// 选择模式下不替换，而是把提示条覆盖在上面。
+/// 用 Stack + Visibility(maintainSize) 保证两种模式高度一致，
+/// 否则 Expanded 的列表会跟着上下跳。
+/// ExcludeFocus 在选择模式下把搜索框的焦点断掉，
+/// 防止透明状态下仍弹输入法。
+Widget _buildTopBarWithSelectionOverlay() {
+  final normal = ExcludeFocus(
+    excluding: _selectionMode,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSearchBar(),
+        if (_searchActive) _buildSearchStatusBar(),
+        if (!_searchActive && _expandedZipKeys.isNotEmpty)
+          _buildExpandedZipBar(),
+      ],
+    ),
+  );
+
+  return Stack(
+    children: [
+      // 高度基准。选择模式下隐藏但仍占位。
+      Visibility(
+        visible: !_selectionMode,
+        maintainSize: true,
+        maintainAnimation: true,
+        maintainState: true,
+        child: normal,
+      ),
+      if (_selectionMode)
+        Positioned.fill(child: _buildSelectionHintBar()),
+    ],
+  );
+}
+
 /// 选中模式下替代搜索栏显示的提示条。
 /// 高度与搜索栏（8 + 44 + 4 ≈ 56）对齐，切换时不跳动。
 Widget _buildSelectionHintBar() {
@@ -4699,9 +4729,8 @@ Widget _buildSelectionHintBar() {
 
   return Container(
     width: double.infinity,
-    // 高度 = 被替换区域总高 - 自身上下 margin(8)，保证切换选择模式时列表不跳动
-    // 普通模式：搜索栏 54 → 54-8=46；搜索模式：搜索栏54+状态条约20 → 74-8=66
-    height: _searchActive ? 66 : 46,
+    // 高度不再写死：由 Positioned.fill 从 Stack 拉满，
+    // 等于搜索栏（+状态栏/展开条）的实际高度，切换选择模式时列表不动。
     margin: const EdgeInsets.fromLTRB(8, 4, 8, 4),
     padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
     decoration: BoxDecoration(
