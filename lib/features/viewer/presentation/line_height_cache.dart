@@ -69,7 +69,7 @@ String buildLineHeightCacheKey({
   final w = viewportWidth.round();
   final fs = (bodyFontSize * 10).round();
   final dpr = (devicePixelRatio * 100).round();
-  return 'v2|$contentFingerprint|$importRevision|$viewModeName|'
+  return 'v3|$contentFingerprint|$importRevision|$viewModeName|'
       'w$w|fs$fs|ln$showLineNumbers|nw$noWrap|dpr$dpr';
 }
 
