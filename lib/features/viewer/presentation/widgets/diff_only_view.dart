@@ -139,17 +139,18 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       rightWidth = _rightWidth > halfW ? _rightWidth : halfW;
     }
 
-    Widget header(String? name, Color color, {required bool isOriginal}) {
+    Widget header(String? name, {required bool isLeft}) {
       return Expanded(
         child: name == null
             ? const SizedBox.shrink()
-            : _PaneHeader(
+            : ViewerPaneHeader(
                 fileName: name,
-                color: color,
-                isOriginal: isOriginal,
+                isLeft: isLeft,
+                fontSize: 12,
+                iconSize: 14,
                 onDelete: widget.onDeleteFile == null
                     ? null
-                    : () => widget.onDeleteFile!(isOriginal: isOriginal),
+                    : () => widget.onDeleteFile!(isOriginal: isLeft),
               ),
       );
     }
@@ -238,9 +239,9 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       children: [
         Row(
           children: [
-            header(widget.originalFileName, s.error, isOriginal: true),
+            header(widget.originalFileName, isLeft: true),
             divider,
-            header(widget.modifiedFileName, s.primary, isOriginal: false),
+            header(widget.modifiedFileName, isLeft: false),
           ],
         ),
         Expanded(
@@ -602,7 +603,7 @@ final bool effectiveNoWrap = isContext ? true : noWrap;
     return ColoredBox(
       color: bg,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -635,147 +636,6 @@ final bool effectiveNoWrap = isContext ? true : noWrap;
             Expanded(child: content),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _PaneHeader extends ConsumerWidget {
-  const _PaneHeader({
-    required this.fileName,
-    required this.color,
-    required this.isOriginal,
-    this.onDelete,
-  });
-
-  final String fileName;
-  final Color color;
-  final bool isOriginal;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return GestureDetector(
-      onLongPress: () => _showInfo(context, ref),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: double.infinity,
-        color: color.withValues(alpha: 0.08),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        child: Row(
-          children: [
-            Flexible(
-              child: Text(
-                fileName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12, // 8 → 12
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => _showInfo(context, ref),
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Icon(
-                  Icons.error_outline,
-                  size: 14, // 面板窄，图标用 14
-                  color: color.withValues(alpha: 0.7),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showInfo(BuildContext context, WidgetRef ref) async {
-    final path = ref.read(isOriginal
-        ? originalFilePathProvider
-        : modifiedFilePathProvider);
-    final encoding = ref.read(isOriginal
-        ? originalEncodingProvider
-        : modifiedEncodingProvider);
-
-    String sizeStr = '—';
-    String timeStr = '—';
-    if (path != null) {
-      try {
-        final st = await File(path).stat();
-        final s = st.size;
-        if (s < 1024) {
-          sizeStr = '$s B';
-        } else if (s < 1024 * 1024) {
-          sizeStr = '${(s / 1024).toStringAsFixed(1)} KB';
-        } else if (s < 1024 * 1024 * 1024) {
-          sizeStr = '${(s / 1024 / 1024).toStringAsFixed(1)} MB';
-        } else {
-          sizeStr = '${(s / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
-        }
-        final t = st.modified;
-        String two(int n) => n < 10 ? '0$n' : '$n';
-        timeStr = '${t.year}-${two(t.month)}-${two(t.day)} '
-            '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
-      } catch (_) {}
-    }
-
-    if (!context.mounted) return;
-
-    Widget row(String label, String value) => Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: Theme.of(context).textTheme.labelSmall),
-              const SizedBox(height: 2),
-              SelectableText(value),
-            ],
-          ),
-        );
-
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
-        title: Text(
-          fileName,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              row('路径', path ?? '（没有路径，来自剪贴板或粘贴）'),
-              row('大小', sizeStr),
-              row('修改时间', timeStr),
-              row('编码', encoding),
-            ],
-          ),
-        ),
-        actions: [
-          if (onDelete != null)
-            TextButton(
-              onPressed: () {
-                Navigator.pop(c);
-                onDelete!();
-              },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('删除'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('关闭'),
-          ),
-        ],
       ),
     );
   }
