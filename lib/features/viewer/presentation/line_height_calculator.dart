@@ -135,16 +135,27 @@ Future<LineHeightTable> computeLineHeights({
   final heights = List<double>.filled(itemCount, 0);
   final sw = Stopwatch()..start();
   final w = widthForItem(0);
+  // 按行内容去重：同一文本在同一测量参数下高度必然相同，只排一次。
+  // 本分支样式/宽度/换行均固定，纯文本即可做 key，测量结果与原来逐位一致。
+  final cache = <String, double>{};
 
   for (var i = 0; i < itemCount; i++) {
-    heights[i] = measureTextHeight(
-      text: textForItem(i),
-      maxWidth: w,
-      style: style,
-      textScaler: textScaler,
-      noWrap: false,
-      extraVerticalPadding: extraVerticalPadding,
-    );
+    final t = textForItem(i);
+    final cached = cache[t];
+    if (cached != null) {
+      heights[i] = cached;
+    } else {
+      final h = measureTextHeight(
+        text: t,
+        maxWidth: w,
+        style: style,
+        textScaler: textScaler,
+        noWrap: false,
+        extraVerticalPadding: extraVerticalPadding,
+      );
+      cache[t] = h;
+      heights[i] = h;
+    }
 
     // 每项都检查，超过 16ms 就让出
     if (sw.elapsedMilliseconds >= _yieldThresholdMs) {
@@ -177,6 +188,43 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
   if (styleForItem != null || noWrapForItem != null) {
     final heights = List<double>.filled(itemCount, 0);
     final sw = Stopwatch()..start();
+    // 样式/换行可能逐项变化，key 用 (文本, 样式, 是否单行) 三元组。
+    // record 的 ==/hashCode 基于字段值，样式按值相等去重，安全无碰撞误判。
+    final cacheL = <(String, TextStyle, bool), double>{};
+    final cacheR = <(String, TextStyle, bool), double>{};
+
+    double measureL(String t, TextStyle s, bool nw) {
+      final key = (t, s, nw);
+      final v = cacheL[key];
+      if (v != null) return v;
+      final h = measureTextHeight(
+        text: t,
+        maxWidth: leftWidth,
+        style: s,
+        textScaler: textScaler,
+        noWrap: nw,
+        extraVerticalPadding: extraVerticalPadding,
+      );
+      cacheL[key] = h;
+      return h;
+    }
+
+    double measureR(String t, TextStyle s, bool nw) {
+      final key = (t, s, nw);
+      final v = cacheR[key];
+      if (v != null) return v;
+      final h = measureTextHeight(
+        text: t,
+        maxWidth: rightWidth,
+        style: s,
+        textScaler: textScaler,
+        noWrap: nw,
+        extraVerticalPadding: extraVerticalPadding,
+      );
+      cacheR[key] = h;
+      return h;
+    }
+
     for (var i = 0; i < itemCount; i++) {
       final s = styleForItem?.call(i) ?? style;
       final nw = noWrapForItem?.call(i) ?? noWrap;
@@ -184,49 +232,14 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
       final rt = rightTextForItem(i);
 
       if (nw) {
-        final hL = measureTextHeight(
-          text: lt,
-          maxWidth: leftWidth,
-          style: s,
-          textScaler: textScaler,
-          noWrap: true,
-          extraVerticalPadding: extraVerticalPadding,
-        );
-        final hR = measureTextHeight(
-          text: rt,
-          maxWidth: rightWidth,
-          style: s,
-          textScaler: textScaler,
-          noWrap: true,
-          extraVerticalPadding: extraVerticalPadding,
-        );
+        final hL = measureL(lt, s, true);
+        final hR = measureR(rt, s, true);
         heights[i] = hL > hR ? hL : hR;
       } else if (lt == rt) {
-        heights[i] = measureTextHeight(
-          text: lt,
-          maxWidth: leftWidth,
-          style: s,
-          textScaler: textScaler,
-          noWrap: false,
-          extraVerticalPadding: extraVerticalPadding,
-        );
+        heights[i] = measureL(lt, s, false);
       } else {
-        final hL = measureTextHeight(
-          text: lt,
-          maxWidth: leftWidth,
-          style: s,
-          textScaler: textScaler,
-          noWrap: false,
-          extraVerticalPadding: extraVerticalPadding,
-        );
-        final hR = measureTextHeight(
-          text: rt,
-          maxWidth: rightWidth,
-          style: s,
-          textScaler: textScaler,
-          noWrap: false,
-          extraVerticalPadding: extraVerticalPadding,
-        );
+        final hL = measureL(lt, s, false);
+        final hR = measureR(rt, s, false);
         heights[i] = hL > hR ? hL : hR;
       }
 
@@ -265,37 +278,49 @@ Future<LineHeightTable> computeLineHeightsForTwoPane({
 
   final heights = List<double>.filled(itemCount, 0);
   final sw = Stopwatch()..start();
+  // 样式/宽度固定，直接按文本去重（左右各一张表）。
+  final cacheL = <String, double>{};
+  final cacheR = <String, double>{};
+
+  double measureL(String t) {
+    final v = cacheL[t];
+    if (v != null) return v;
+    final h = measureTextHeight(
+      text: t,
+      maxWidth: leftWidth,
+      style: style,
+      textScaler: textScaler,
+      noWrap: false,
+      extraVerticalPadding: extraVerticalPadding,
+    );
+    cacheL[t] = h;
+    return h;
+  }
+
+  double measureR(String t) {
+    final v = cacheR[t];
+    if (v != null) return v;
+    final h = measureTextHeight(
+      text: t,
+      maxWidth: rightWidth,
+      style: style,
+      textScaler: textScaler,
+      noWrap: false,
+      extraVerticalPadding: extraVerticalPadding,
+    );
+    cacheR[t] = h;
+    return h;
+  }
 
   for (var i = 0; i < itemCount; i++) {
     final lt = leftTextForItem(i);
     final rt = rightTextForItem(i);
 
     if (lt == rt) {
-      heights[i] = measureTextHeight(
-        text: lt,
-        maxWidth: leftWidth,
-        style: style,
-        textScaler: textScaler,
-        noWrap: false,
-        extraVerticalPadding: extraVerticalPadding,
-      );
+      heights[i] = measureL(lt);
     } else {
-      final hL = measureTextHeight(
-        text: lt,
-        maxWidth: leftWidth,
-        style: style,
-        textScaler: textScaler,
-        noWrap: false,
-        extraVerticalPadding: extraVerticalPadding,
-      );
-      final hR = measureTextHeight(
-        text: rt,
-        maxWidth: rightWidth,
-        style: style,
-        textScaler: textScaler,
-        noWrap: false,
-        extraVerticalPadding: extraVerticalPadding,
-      );
+      final hL = measureL(lt);
+      final hR = measureR(rt);
       heights[i] = hL > hR ? hL : hR;
     }
 
