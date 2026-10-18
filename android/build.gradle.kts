@@ -51,6 +51,27 @@ subprojects {
 }
 // ================================
 
+// ===== rive_common 特殊处理 =====
+// rive_common 插件的 build.gradle 把 Java 编译目标钉死成 1.8，
+// 而全局 Kotlin 是 17，Gradle 报 JVM target 不一致。
+// 这里在它自己评估完之后，把 Java 也拉到 17，两边对齐。
+subprojects {
+    if (name == "rive_common") {
+        afterEvaluate {
+            tasks.withType<JavaCompile>().configureEach {
+                sourceCompatibility = JavaVersion.VERSION_17.toString()
+                targetCompatibility = JavaVersion.VERSION_17.toString()
+            }
+            tasks.withType<KotlinCompile>().configureEach {
+                compilerOptions {
+                    jvmTarget.set(JvmTarget.JVM_17)
+                }
+            }
+        }
+    }
+}
+// ================================
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
