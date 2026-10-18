@@ -1685,7 +1685,7 @@ Widget _buildAdvancedToggle() {
   void _toggleSelectAll() {
     final all = _cachedDisplayItems ?? const <_DisplayItem>[];
     final selectable = all
-        .where((it) => !it.isDir && !it.key.startsWith('__loading__') &&
+        .where((it) => !it.key.startsWith('__loading__') &&
             !it.key.startsWith('__error__'))
         .map((it) => it.key)
         .toList();
@@ -2553,7 +2553,10 @@ void _clearFilter() {
   if (q.isNotEmpty) {
     ref.read(browserSearchHistoryProvider.notifier).add(q);
   }
-  setState(() => _searchActive = true);
+  setState(() {
+    _searchActive = true;
+    _bodyRevision++; // 搜索/普通列表共用 _itemScrollController，整体重建避免交叉淡入期双挂载
+  });
   _startSearch();
 }
 /// 只清空输入框，退出搜索交给 AppBar 的返回箭头。
@@ -2583,6 +2586,7 @@ void _clearSearchInput() {
       _searchResults = [];
       _searching = false;
       _searchActive = false;
+      _bodyRevision++; // 退出搜索时整体重建，避免新旧列表交叉淡入双挂载 controller
     });
   }
 
@@ -2910,8 +2914,11 @@ Future<void> _startSearch() async {
       ref.read(editedModifiedProvider.notifier).state = null;
 
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const DiffViewerScreen(),
+        PageRouteBuilder<void>(
+          pageBuilder: (_, __, ___) => const DiffViewerScreen(),
+          // 零转场：进入/退出对比页均无动画，保证"加载小圈→表情圆环"接力不中断
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
         ),
       );
       if (!mounted) return;
@@ -4371,7 +4378,11 @@ String _normalizePath(String path) {
     }
     return Container(
       width: double.infinity,
-      color: const Color(0xFFFAFAFA),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -4631,7 +4642,7 @@ case 'favorites':
   PreferredSizeWidget _buildSelectionAppBar() {
     final all = _cachedDisplayItems ?? const <_DisplayItem>[];
     final selectable = all
-        .where((it) => !it.isDir && !it.key.startsWith('__loading__') &&
+        .where((it) => !it.key.startsWith('__loading__') &&
             !it.key.startsWith('__error__'))
         .map((it) => it.key)
         .toList();
@@ -4659,7 +4670,6 @@ case 'favorites':
 /// 选中模式下替代搜索栏显示的提示条。
 /// 高度与搜索栏（8 + 44 + 4 ≈ 56）对齐，切换时不跳动。
 Widget _buildSelectionHintBar() {
-  final colorScheme = Theme.of(context).colorScheme;
   final n = _selectedPaths.length;
   final items = _resolveSelectedItems();
 
@@ -4671,23 +4681,15 @@ Widget _buildSelectionHintBar() {
 
   String line1;
   String line2;
-  Color line1Color = colorScheme.onSurface.withValues(alpha: 0.7);
-  Color line2Color = Colors.grey.shade600;
-  FontWeight? line2Weight;
 
   if (allComparable && n == 2) {
     // 两个文件都在，左右已经可以自证，直接给出角色
     line1 = '左：${items[0].displayName}';
     line2 = '右：${items[1].displayName} · 可对比 / MD5 对比';
-    line1Color = colorScheme.onSurface;
-    line2Color = colorScheme.primary;
-    line2Weight = FontWeight.w600;
   } else {
     line1 = '长按另一个文件可进行区间选择，点击可继续加选';
     if (allComparable && n == 1) {
       line2 = '此项会放在对比页左边';
-      line2Color = colorScheme.primary;
-      line2Weight = FontWeight.w600;
     } else {
       line2 = '如果想对比文件，请选择两个文件';
     }
@@ -4695,9 +4697,14 @@ Widget _buildSelectionHintBar() {
 
   return Container(
     width: double.infinity,
-    height: 56,
-    color: colorScheme.primary.withValues(alpha: 0.06),
+    height: _searchActive ? 76 : 56, // 搜索模式补上被替换的搜索栏+状态条高度，避免列表跳动
+    margin: const EdgeInsets.fromLTRB(8, 4, 8, 4),
     padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.grey.shade300),
+    ),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4706,10 +4713,10 @@ Widget _buildSelectionHintBar() {
           line1,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 11.5,
             height: 1.25,
-            color: line1Color,
+            color: Colors.black,
           ),
         ),
         const SizedBox(height: 2),
@@ -4717,11 +4724,10 @@ Widget _buildSelectionHintBar() {
           line2,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 11.5,
             height: 1.25,
-            color: line2Color,
-            fontWeight: line2Weight,
+            color: Colors.black,
           ),
         ),
       ],
@@ -5689,18 +5695,9 @@ child: Row(
 
   return _keyed(
     'content',
-    TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
-      builder: (ctx, v, child) => Transform.translate(
-        offset: Offset(0, (1 - v) * 6), // 从下方 6px 处滑入归位
-        child: child,
-      ),
-      child: ref.watch(browserGridModeProvider)
-          ? _buildGridBody(_filterEntries(entries))
-          : _buildListBody(),
-    ),
+    ref.watch(browserGridModeProvider)
+        ? _buildGridBody(_filterEntries(entries))
+        : _buildListBody(),
   );
 }
   // ==================== 列表模式（无粘性头部） ====================
