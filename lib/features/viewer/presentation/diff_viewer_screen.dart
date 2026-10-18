@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import '../../../core/constants/app_colors.dart';
 import 'package:file_picker/file_picker.dart';
@@ -32,7 +33,6 @@ import 'providers/diff_viewer_providers.dart';
 import 'providers/toolbar_rules_provider.dart';
 import 'regex_help_screen.dart';
 import 'viewer_widgets.dart';
-import 'rive_showcase.dart';
 import 'widgets/diff_only_plain_view.dart';
 import 'widgets/diff_only_view.dart';
 import 'widgets/merged_view.dart';
@@ -140,8 +140,6 @@ JumpDirection _jumpDirection = JumpDirection.down;
   String _processingText = '';
 
   DiffResult? _lastDiagDiff;
-  bool _riveShowcasePassed = false;
-
   final GlobalKey _groupedKey = GlobalKey();
 
   final ScrollController _tabScrollController = ScrollController();
@@ -154,7 +152,6 @@ JumpDirection _jumpDirection = JumpDirection.down;
  @override
 void initState() {
   super.initState();
-  _riveShowcasePassed = kRiveShowcaseItems.isEmpty;
   // 每次进入对比页，清空行列表（一次性会话）。
   ref.read(lineListTextProvider.notifier).state = '';
   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2034,6 +2031,47 @@ if (!jumped) {
 
     return (left: leftParts, right: rightParts);
   }
+
+  /// 按差异块收集整行，用于导出：连续的 delete/insert 归为一组。
+  /// type: 'mod' 修改（成对）、'del' 删除（仅左侧有）、'ins' 新增（仅右侧有）。
+  List<({String type, List<String> left, List<String> right})>
+      _collectDiffGroups(DiffResult diff) {
+    final groups =
+        <({String type, List<String> left, List<String> right})>[];
+
+    final entries = diff.entries;
+    var i = 0;
+    while (i < entries.length) {
+      if (entries[i].operation == DiffOperation.equal) {
+        i++;
+        continue;
+      }
+      final delLines = <String>[];
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.delete) {
+        delLines.add(entries[i].text);
+        i++;
+      }
+      final insLines = <String>[];
+      while (i < entries.length &&
+          entries[i].operation == DiffOperation.insert) {
+        insLines.add(entries[i].text);
+        i++;
+      }
+
+      if (delLines.isEmpty && insLines.isEmpty) continue;
+      groups.add((
+        type: delLines.isEmpty
+            ? 'ins'
+            : insLines.isEmpty
+                ? 'del'
+                : 'mod',
+        left: delLines,
+        right: insLines,
+      ));
+    }
+    return groups;
+  }
 Future<void> _openLineListFromDiff({required bool isLeft}) async {
   final diff = _diff;
   if (diff == null) {
@@ -2077,118 +2115,37 @@ Future<void> _openLineList({List<String>? appendLines}) async {
     final diff = _diff;
     if (diff == null) return;
 
-    final side = await showModalBottomSheet<String>(
-      context: context,
-      builder: (c) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Text('导出哪一侧的差异？',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.arrow_back),
-              title: const Text('导出左边文件的差异处'),
-              onTap: () => Navigator.pop(c, 'left'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.arrow_forward),
-              title: const Text('导出右边文件的差异处'),
-              onTap: () => Navigator.pop(c, 'right'),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.close),
-              title: const Text('取消'),
-              onTap: () => Navigator.pop(c),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!mounted || side == null) return;
-
-    final isLeft = side == 'left';
-    final parts = _collectDiffParts(diff);
-    final list = isLeft ? parts.left : parts.right;
-
-    if (list.isEmpty) {
-      _toast('这一侧没有差异可导出');
+    final groups = _collectDiffGroups(diff);
+    if (groups.isEmpty) {
+      _toast('没有差异可导出');
       return;
     }
 
-    final fileName = isLeft
-        ? ref.read(originalFileNameProvider)
-        : ref.read(modifiedFileNameProvider);
-    final hasEdit = ref.read(
-          isLeft ? editedOriginalProvider : editedModifiedProvider,
-        ) !=
-        null;
+    final leftName = ref.read(originalFileNameProvider);
+    final rightName = ref.read(modifiedFileNameProvider);
 
     final buf = StringBuffer();
-
-    buf.writeln('# ============================================================');
-    buf.writeln('# DocDiff 差异导出');
-    buf.writeln('# ============================================================');
-    buf.writeln('#');
-    buf.writeln('# 导出侧：${isLeft ? "左边（原文件）" : "右边（修改版）"}');
-    if (fileName != null && fileName.isNotEmpty) {
-      buf.writeln('# 文件：$fileName');
-    }
-    buf.writeln('# 内容来源：对比页当前显示的内容'
-        '${hasEdit ? "（含你在对比页上的编辑）" : ""}，');
-    buf.writeln('#           已套用当前所有生效的比较规则。');
-    buf.writeln('# 导出时间：${DateTime.now()}');
-    buf.writeln('#');
-    buf.writeln('# ------------------------------------------------------------');
-    buf.writeln('# 【本文件导出的是什么】');
-    buf.writeln('# ------------------------------------------------------------');
-    buf.writeln('#');
-    buf.writeln('# 只包含「这一侧独有的差异字符片段」，相同内容一律不导出。');
-    buf.writeln('# 每个片段单独占一行。');
-    buf.writeln('#');
-    buf.writeln('# 因为做了字符级比对，一个词、一句话可能被切开，');
-    buf.writeln('# 只把"变化的那几个字"拿出来。脱离原句单看可能难以理解，');
-    buf.writeln('# 这是正常现象。');
-    buf.writeln('#');
-    buf.writeln('# 举例一：');
-    buf.writeln('#   左边：今天我回来是要吃饭的。');
-    buf.writeln('#   右边：明天我回来是要吃饭的。');
-    buf.writeln('#   本侧导出：明');
-    buf.writeln('#   （意思是这句里"今"被改成了"明"）');
-    buf.writeln('#');
-    buf.writeln('# 举例二：');
-    buf.writeln('#   左边：2024-01-01');
-    buf.writeln('#   右边：2024-02-02');
-    buf.writeln('#   本侧导出：');
-    buf.writeln('#     2');
-    buf.writeln('#     2');
-    buf.writeln('#   （意思是这行有两处数字变了：月份、日期各一处）');
-    buf.writeln('#');
-    buf.writeln('# 想看完整句子的对照？请回到对比页，');
-    buf.writeln('# 用「并排」或「合并」视图查看。');
-    buf.writeln('#');
-    buf.writeln('# 下面的说明行以 # 开头，删除它们不影响正文内容。');
-    buf.writeln('# ------------------------------------------------------------');
-    buf.writeln('# 以下为差异片段正文');
-    buf.writeln('# ------------------------------------------------------------');
+    buf.writeln('- ${leftName ?? "原文件"}');
+    buf.writeln('+ ${rightName ?? "修改版"}');
     buf.writeln();
 
-    for (final p in list) {
-      buf.writeln(p);
+    for (final g in groups) {
+      for (final l in g.left) {
+        buf.writeln('- $l');
+      }
+      for (final r in g.right) {
+        buf.writeln('+ $r');
+      }
+      buf.writeln();
     }
 
     final bytes = Uint8List.fromList(utf8.encode(buf.toString()));
 
     final out = await FilePicker.saveFile(
-      fileName:
-          'docdiff-${isLeft ? "left" : "right"}-${DateTime.now().millisecondsSinceEpoch}.txt',
+      fileName: 'docdiff-${DateTime.now().millisecondsSinceEpoch}.txt',
       bytes: bytes,
       mimeType: 'text/plain',
-      dialogTitle: isLeft ? '导出左边文件差异' : '导出右边文件差异',
+      dialogTitle: '导出差异',
       type: FileType.custom,
       allowedExtensions: ['txt'],
     );
@@ -2683,16 +2640,6 @@ void _toast(String msg) {
     return FutureBuilder<_HeightBundle>(
       future: future,
       builder: (context, snapshot) {
-        if (!_riveShowcasePassed) {
-          return RiveShowcase(
-            items: kRiveShowcaseItems,
-            onFinished: () {
-              if (!mounted) return;
-              setState(() => _riveShowcasePassed = true);
-            },
-          );
-        }
-
         if (!snapshot.hasData) {
           return Scaffold(
             appBar: AppBar(title: const Text('对比结果')),
@@ -4329,9 +4276,9 @@ class _LoadingBody extends StatefulWidget {
 
 class _LoadingBodyState extends State<_LoadingBody>
     with TickerProviderStateMixin {
-  late final AnimationController _rotation;
-  late final AnimationController _breath;
-  late final AnimationController _blink;
+  late final AnimationController _clock;   // 总时钟：算"第几圈 + 圈内进度 + 颜色"
+  late final AnimationController _breath;  // 呼吸
+
   final List<String> _stages = const [
     '正在比较…',
     '正在排版…',
@@ -4343,18 +4290,14 @@ class _LoadingBodyState extends State<_LoadingBody>
   @override
   void initState() {
     super.initState();
-    _rotation = AnimationController(
+    _clock = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(hours: 1),
     )..repeat();
     _breath = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     )..repeat(reverse: true);
-    _blink = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3000),
-    )..repeat();
     _stageTimer = Timer.periodic(
       const Duration(milliseconds: 1500),
       (_) {
@@ -4366,9 +4309,8 @@ class _LoadingBodyState extends State<_LoadingBody>
 
   @override
   void dispose() {
-    _rotation.dispose();
+    _clock.dispose();
     _breath.dispose();
-    _blink.dispose();
     _stageTimer?.cancel();
     super.dispose();
   }
@@ -4395,15 +4337,17 @@ class _LoadingBodyState extends State<_LoadingBody>
               width: 72,
               height: 72,
               child: AnimatedBuilder(
-                animation: Listenable.merge([_rotation, _breath, _blink]),
-                builder: (_, __) => CustomPaint(
-                  painter: _LoadingRingPainter(
-                    rotation: _rotation.value,
-                    breath: _breath.value,
-                    blink: _blink.value,
-                    color: s.primary,
-                  ),
-                ),
+                animation: Listenable.merge([_clock, _breath]),
+                builder: (_, __) {
+                  final elapsedMs = _clock.value * 3600000.0;
+                  return CustomPaint(
+                    painter: _LoadingRingPainter(
+                      elapsedMs: elapsedMs,
+                      breath: _breath.value,
+                      color: s.primary,
+                    ),
+                  );
+                },
               ),
             ),
             const SizedBox(height: 24),
@@ -4440,16 +4384,52 @@ class _LoadingBodyState extends State<_LoadingBody>
 
 class _LoadingRingPainter extends CustomPainter {
   _LoadingRingPainter({
-    required this.rotation,
+    required this.elapsedMs,
     required this.breath,
-    required this.blink,
     required this.color,
   });
 
-  final double rotation;
-  final double breath;
-  final double blink;
-  final Color color;
+  final double elapsedMs; // 从页面出现到现在，毫秒
+  final double breath;    // 0~1
+  final Color color;      // 主题色（颜色序列第一个）
+
+  static const double _pi = 3.141592653589793;
+  static const double _tau = 2 * _pi;
+
+  // 每圈 1400ms
+  static const double _lapMs = 1400;
+  // 每圈开头用 200ms 从上一圈颜色过渡到本圈颜色
+  static const double _transitionMs = 200;
+  // 表情形态节奏：沿用原来的 3 秒一轮
+  static const double _blinkMs = 3000;
+
+  // 颜色序列：第一圈主题色，之后粉、橙、青、蓝，循环。
+  // 想加/减颜色，直接改这个列表。
+  static const Color _pink   = Color(0xFFFF5FA2);
+  static const Color _orange = Color(0xFFFF9800);
+  static const Color _cyan   = Color(0xFF00BCD4);
+  static const Color _blue   = Color(0xFF3F51B5);
+
+  List<Color> get _palette => [color, _pink, _orange, _cyan, _blue];
+
+  /// 当前弧/表情应该用的颜色
+  Color get _currentColor {
+    final palette = _palette;
+    final n = palette.length;
+    final lapIndex = (elapsedMs ~/ _lapMs);
+    final tInLap = elapsedMs - lapIndex * _lapMs;
+
+    final curIdx = lapIndex % n;
+    // 第一圈直接用本圈颜色，不做过场
+    if (lapIndex == 0) return palette[0];
+
+    if (tInLap < _transitionMs) {
+      final prevIdx = (lapIndex - 1) % n; // Dart 里负数取模结果非负
+      final t = tInLap / _transitionMs;
+      return Color.lerp(palette[prevIdx], palette[curIdx], t)!;
+    }
+    return palette[curIdx];
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -4457,98 +4437,124 @@ class _LoadingRingPainter extends CustomPainter {
     final baseRadius = size.width / 2 - 4;
     final radius = baseRadius * (0.88 + 0.12 * breath);
 
-    // 底环
-    final bgPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..color = color.withValues(alpha: 0.15);
-    canvas.drawCircle(center, radius, bgPaint);
+    final currentColor = _currentColor;
 
-    // 旋转弧
+    // 弧在圈内的进度
+    final tInLap = (elapsedMs % _lapMs) / _lapMs;
+    final arcStart = tInLap * _tau;
+    const arcSweep = 1.9;
+
+    // ===== 底环 =====
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..color = currentColor.withValues(alpha: 0.15),
+    );
+
+    // ===== 旋转弧：头部实心，尾部透明 =====
+    final rect = Rect.fromCircle(center: center, radius: radius);
     final arcPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4
       ..strokeCap = StrokeCap.round
-      ..color = color;
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      rotation * 2 * 3.141592653589793,
-      1.9,
-      false,
-      arcPaint,
-    );
+      ..shader = SweepGradient(
+        colors: [
+          currentColor.withValues(alpha: 0.0), // 尾部透明
+          currentColor,                        // 头部实心
+        ],
+        stops: const [0.0, 0.30],
+        transform: GradientRotation(arcStart),
+      ).createShader(rect);
 
-    // ===== 眼睛 =====
-    final phase = (blink * 3000) % 3000; // 0~3000ms
-    if (phase < 1400) {
-      _drawRoundEyes(canvas, center);
-    } else if (phase < 1500) {
-      _drawClosedEyes(canvas, center);
-    } else if (phase < 2900) {
-      _drawCurvedEyes(canvas, center);
+    canvas.drawArc(rect, arcStart, arcSweep, false, arcPaint);
+
+    // ===== 弧头亮点 + 光晕 =====
+    final dotAngle = arcStart + arcSweep;
+    final dotCenter = Offset(
+      center.dx + radius * math.cos(dotAngle),
+      center.dy + radius * math.sin(dotAngle),
+    );
+    canvas.drawCircle(
+      dotCenter,
+      6,
+      Paint()
+        ..color = currentColor.withValues(alpha: 0.28)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    canvas.drawCircle(dotCenter, 3.2, Paint()..color = currentColor);
+
+    // ===== 表情形态：3 秒一轮，与颜色无关 =====
+    final blinkMs = elapsedMs % _blinkMs;
+    if (blinkMs < 1400) {
+      _drawRoundEyes(canvas, center, currentColor);
+    } else if (blinkMs < 1500) {
+      _drawClosedEyes(canvas, center, currentColor);
+    } else if (blinkMs < 2900) {
+      _drawCurvedEyes(canvas, center, currentColor);
     } else {
-      _drawClosedEyes(canvas, center);
+      _drawClosedEyes(canvas, center, currentColor);
     }
   }
 
-  /// 圆圈眼：两个实心小圆
-  void _drawRoundEyes(Canvas canvas, Offset center) {
+  void _drawRoundEyes(Canvas canvas, Offset center, Color c) {
     final fill = Paint()
-      ..color = color.withValues(alpha: 0.75)
+      ..color = c
       ..style = PaintingStyle.fill;
-    canvas.drawCircle(center.translate(-3.5, -0.3), 2.0, fill);
-    canvas.drawCircle(center.translate(3.5, -0.3), 2.0, fill);
+    canvas.drawOval(
+      Rect.fromCenter(center: center.translate(-8, -2), width: 9, height: 12),
+      fill,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(center: center.translate(8, -2), width: 9, height: 12),
+      fill,
+    );
+    final shine = Paint()
+      ..color = Colors.white.withValues(alpha: 0.9)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center.translate(-10, -5), 1.8, shine);
+    canvas.drawCircle(center.translate(6, -5), 1.8, shine);
   }
 
-  /// 弯弯眼（笑眼 ⌒ ⌒）：两条上半圆
-  void _drawCurvedEyes(Canvas canvas, Offset center) {
+  void _drawCurvedEyes(Canvas canvas, Offset center, Color c) {
     final stroke = Paint()
-      ..color = color.withValues(alpha: 0.75)
+      ..color = c
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0
+      ..strokeWidth = 3.5
       ..strokeCap = StrokeCap.round;
-    const pi = 3.141592653589793;
-    // 左眼
     canvas.drawArc(
-      Rect.fromCircle(center: center.translate(-3.5, 0.8), radius: 2.2),
-      pi, // startAngle = π（西）
-      pi, // sweep = +π 顺时针 → 从西经北到东 = 上半圆 ∩
-      false,
-      stroke,
+      Rect.fromCircle(center: center.translate(-8, 3), radius: 5.5),
+      _pi, _pi, false, stroke,
     );
-    // 右眼
     canvas.drawArc(
-      Rect.fromCircle(center: center.translate(3.5, 0.8), radius: 2.2),
-      pi,
-      pi,
-      false,
-      stroke,
+      Rect.fromCircle(center: center.translate(8, 3), radius: 5.5),
+      _pi, _pi, false, stroke,
     );
   }
 
-  /// 闭眼：两条短横
-  void _drawClosedEyes(Canvas canvas, Offset center) {
+  void _drawClosedEyes(Canvas canvas, Offset center, Color c) {
     final stroke = Paint()
-      ..color = color.withValues(alpha: 0.75)
+      ..color = c
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
+      ..strokeWidth = 3.2
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
-      center.translate(-4.8, 0),
-      center.translate(-1.6, 0),
+      center.translate(-11.5, 0),
+      center.translate(-4.5, 0),
       stroke,
     );
     canvas.drawLine(
-      center.translate(1.6, 0),
-      center.translate(4.8, 0),
+      center.translate(4.5, 0),
+      center.translate(11.5, 0),
       stroke,
     );
   }
 
   @override
   bool shouldRepaint(_LoadingRingPainter old) =>
-      old.rotation != rotation ||
+      old.elapsedMs != elapsedMs ||
       old.breath != breath ||
-      old.blink != blink ||
       old.color != color;
 }
