@@ -142,6 +142,10 @@ Timer? _floatTimer;
   final ScrollController _tabScrollController = ScrollController();
   bool _tabAtEnd = false;
 
+  final Map<ViewMode, GlobalKey> _tabKeys = {
+    for (final m in ViewMode.values) m: GlobalKey(),
+  };
+
  @override
 void initState() {
   super.initState();
@@ -153,6 +157,15 @@ void initState() {
           ref.read(defaultViewModeProvider);
     });
   _tabScrollController.addListener(_onTabScroll);
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    final mode = ref.read(viewModeProvider);
+    final ctx = _tabKeys[mode]?.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(ctx,
+          duration: Duration.zero, alignment: 0.5);
+    }
+  });
   }
 
   @override
@@ -1470,6 +1483,7 @@ if (!jumped) {
       _log('切视图: ${_viewModeName(newMode)}');
       ref.read(viewModeProvider.notifier).state = newMode;
       setState(() {});
+      _ensureTabVisible(newMode);
       return;
     }
 
@@ -1496,6 +1510,36 @@ if (!jumped) {
     _pendingJumpOrigLine = null;
     _pendingJumpQueued = false;
     setState(() {});
+    _ensureTabVisible(newMode);
+  }
+
+  void _ensureTabVisible(ViewMode mode, {bool instant = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _tabKeys[mode]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration:
+              instant ? Duration.zero : const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  String _tabLabel(ViewMode m) {
+    switch (m) {
+      case ViewMode.diffOnly:
+        return '差异行+上下2行';
+      case ViewMode.diffOnlyPlain:
+        return '仅显示差异行';
+      case ViewMode.grouped:
+        return '跨行块';
+      case ViewMode.merged:
+        return '全文上下';
+      case ViewMode.sideBySide:
+        return '全文并排';
+    }
   }
 
   String _viewModeName(ViewMode m) {
@@ -1696,26 +1740,96 @@ if (!jumped) {
   }
 
   Future<void> _pickDefaultViewMode() async {
-    final current = ref.read(defaultViewModeProvider);
-    final picked = await showDialog<ViewMode>(
+    final currentDefault = ref.read(defaultViewModeProvider);
+    final currentOrder = List<ViewMode>.from(ref.read(viewModeOrderProvider));
+
+    await showDialog<void>(
       context: context,
-      builder: (c) => SimpleDialog(
-        title: const Text('进入对比页时默认显示'),
-        children: [
-      for (final m in ViewMode.values)
-        RadioListTile<ViewMode>(
-              value: m,
-              groupValue: current,
-              title: Text(_viewModeName(m)),
-              onChanged: (v) => Navigator.pop(c, v),
+      builder: (c) {
+        var order = currentOrder;
+        var selected = currentDefault;
+        return StatefulBuilder(
+          builder: (c, setDialogState) => AlertDialog(
+            title: const Text('默认打开视图'),
+            contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.of(c).size.height * 0.6,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      '点选设为默认；拖右侧手柄可调整 tab 显示顺序。',
+                      style: Theme.of(c).textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ReorderableListView.builder(
+                      buildDefaultDragHandles: false,
+                      itemCount: order.length,
+                      onReorder: (oldIndex, newIndex) {
+                        if (newIndex > oldIndex) newIndex--;
+                        final next = List<ViewMode>.from(order);
+                        final item = next.removeAt(oldIndex);
+                        next.insert(newIndex, item);
+                        setDialogState(() => order = next);
+                      },
+                      itemBuilder: (ctx, i) {
+                        final m = order[i];
+                        return RadioListTile<ViewMode>(
+                          key: ValueKey(m.name),
+                          value: m,
+                          groupValue: selected,
+                          title: Text(_viewModeName(m)),
+                          onChanged: (v) {
+                            if (v == null) return;
+                            setDialogState(() => selected = v);
+                          },
+                          secondary: ReorderableDragStartListener(
+                            index: i,
+                            child: const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(Icons.drag_handle),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
-        ],
-      ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setDialogState(() => order = ViewMode.values.toList());
+                },
+                child: const Text('恢复默认顺序'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  ref
+                      .read(defaultViewModeProvider.notifier)
+                      .update(selected);
+                  ref.read(viewModeOrderProvider.notifier).setAll(order);
+                  Navigator.pop(c);
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        );
+      },
     );
-    if (picked != null && mounted) {
-      ref.read(defaultViewModeProvider.notifier).update(picked);
-      _toast('默认视图已设为「${_viewModeName(picked)}」');
-    }
+
+    if (!mounted) return;
+    _toast('已保存');
   }
 
   Future<void> _toggleOrientation() async {
@@ -2422,7 +2536,7 @@ void _toast(String msg) {
     return diffAsync.when(
       loading: () => Scaffold(
         appBar: AppBar(title: const Text('对比结果')),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const _LoadingBody(),
       ),
       error: (e, st) => Scaffold(
         appBar: AppBar(title: const Text('对比结果')),
@@ -2999,10 +3113,20 @@ void _toast(String msg) {
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             child: LayoutBuilder(
               builder: (context, constraints) {
+                final order = ref.watch(viewModeOrderProvider);
+                final tabFlex = {
+                  ViewMode.diffOnly: 3,
+                  ViewMode.diffOnlyPlain: 3,
+                  ViewMode.grouped: 3,
+                  ViewMode.merged: 2,
+                  ViewMode.sideBySide: 2,
+                };
+                const totalFlex = 13;
+
                 const double unitMin = 52.0;
-                final unitW = (constraints.maxWidth / 13.0)
+                final unitW = (constraints.maxWidth / totalFlex)
                     .clamp(unitMin, double.infinity);
-                final totalW = unitW * 13;
+                final totalW = unitW * totalFlex;
                 final needsScroll = totalW > constraints.maxWidth + 0.5;
 
                 final tabsRow = SizedBox(
@@ -3010,49 +3134,25 @@ void _toast(String msg) {
                   height: 38,
                   child: Row(
                     children: [
-                      SizedBox(
-                        width: unitW * 3,
-                        child: _viewChip(
-                          label: '差异行+上下2行',
-                          value: ViewMode.diffOnly,
-                          current: viewMode,
+                      for (final m in order)
+                        SizedBox(
+                          key: _tabKeys[m], // 用于自动滚到高亮
+                          width: unitW * tabFlex[m]!,
+                          child: _viewChip(
+                            label: _tabLabel(m),
+                            value: m,
+                            current: viewMode,
+                            onLongPress: m == ViewMode.grouped
+                                ? _showGroupedContextMenu
+                                : null,
+                            trailingIcon: m == ViewMode.grouped
+                                ? Icons.settings_outlined
+                                : null,
+                            onTrailingTap: m == ViewMode.grouped
+                                ? _showGroupedContextMenu
+                                : null,
+                          ),
                         ),
-                      ),
-                      SizedBox(
-                        width: unitW * 3,
-                        child: _viewChip(
-                          label: '仅显示差异行',
-                          value: ViewMode.diffOnlyPlain,
-                          current: viewMode,
-                        ),
-                      ),
-                      SizedBox(
-                        width: unitW * 3,
-                        child: _viewChip(
-                          label: '跨行块',
-                          value: ViewMode.grouped,
-                          current: viewMode,
-                          onLongPress: _showGroupedContextMenu,
-                          trailingIcon: Icons.settings_outlined,
-                          onTrailingTap: _showGroupedContextMenu,
-                        ),
-                      ),
-                      SizedBox(
-                        width: unitW * 2,
-                        child: _viewChip(
-                          label: '全文上下',
-                          value: ViewMode.merged,
-                          current: viewMode,
-                        ),
-                      ),
-                      SizedBox(
-                        width: unitW * 2,
-                        child: _viewChip(
-                          label: '全文并排',
-                          value: ViewMode.sideBySide,
-                          current: viewMode,
-                        ),
-                      ),
                     ],
                   ),
                 );
@@ -4056,4 +4156,237 @@ class _RegexError implements Exception {
   const _RegexError({required this.name, required this.detail});
   final String name;
   final String detail;
+}
+
+class _LoadingBody extends StatefulWidget {
+  const _LoadingBody();
+
+  @override
+  State<_LoadingBody> createState() => _LoadingBodyState();
+}
+
+class _LoadingBodyState extends State<_LoadingBody>
+    with TickerProviderStateMixin {
+  late final AnimationController _rotation;
+  late final AnimationController _breath;
+  late final AnimationController _blink;
+  final List<String> _stages = const [
+    '正在比较…',
+    '正在排版…',
+    '马上就绪…',
+  ];
+  int _stageIndex = 0;
+  Timer? _stageTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+    _breath = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+    _blink = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3000),
+    )..repeat();
+    _stageTimer = Timer.periodic(
+      const Duration(milliseconds: 1500),
+      (_) {
+        if (!mounted) return;
+        setState(() => _stageIndex = (_stageIndex + 1) % _stages.length);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _rotation.dispose();
+    _breath.dispose();
+    _blink.dispose();
+    _stageTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Center(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOut,
+        builder: (_, v, child) => Opacity(
+          opacity: v,
+          child: Transform.scale(
+            scale: 0.92 + 0.08 * v,
+            child: child,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 72,
+              height: 72,
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_rotation, _breath, _blink]),
+                builder: (_, __) => CustomPaint(
+                  painter: _LoadingRingPainter(
+                    rotation: _rotation.value,
+                    breath: _breath.value,
+                    blink: _blink.value,
+                    color: s.primary,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.4),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
+                ),
+              ),
+              child: Text(
+                _stages[_stageIndex],
+                key: ValueKey(_stageIndex),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: s.onSurfaceVariant,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LoadingRingPainter extends CustomPainter {
+  _LoadingRingPainter({
+    required this.rotation,
+    required this.breath,
+    required this.blink,
+    required this.color,
+  });
+
+  final double rotation;
+  final double breath;
+  final double blink;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final baseRadius = size.width / 2 - 4;
+    final radius = baseRadius * (0.88 + 0.12 * breath);
+
+    // 底环
+    final bgPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..color = color.withValues(alpha: 0.15);
+    canvas.drawCircle(center, radius, bgPaint);
+
+    // 旋转弧
+    final arcPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..color = color;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      rotation * 2 * 3.141592653589793,
+      1.9,
+      false,
+      arcPaint,
+    );
+
+    // ===== 眼睛 =====
+    final phase = (blink * 3000) % 3000; // 0~3000ms
+    if (phase < 1400) {
+      _drawRoundEyes(canvas, center);
+    } else if (phase < 1500) {
+      _drawClosedEyes(canvas, center);
+    } else if (phase < 2900) {
+      _drawCurvedEyes(canvas, center);
+    } else {
+      _drawClosedEyes(canvas, center);
+    }
+  }
+
+  /// 圆圈眼：两个实心小圆
+  void _drawRoundEyes(Canvas canvas, Offset center) {
+    final fill = Paint()
+      ..color = color.withValues(alpha: 0.75)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center.translate(-3.0, -0.3), 1.3, fill);
+    canvas.drawCircle(center.translate(3.0, -0.3), 1.3, fill);
+  }
+
+  /// 弯弯眼（笑眼 ⌒ ⌒）：两条上半圆
+  void _drawCurvedEyes(Canvas canvas, Offset center) {
+    final stroke = Paint()
+      ..color = color.withValues(alpha: 0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    const pi = 3.141592653589793;
+    // 左眼
+    canvas.drawArc(
+      Rect.fromCircle(center: center.translate(-3.0, 0.6), radius: 1.6),
+      pi, // startAngle = π（西）
+      pi, // sweep = +π 顺时针 → 从西经北到东 = 上半圆 ∩
+      false,
+      stroke,
+    );
+    // 右眼
+    canvas.drawArc(
+      Rect.fromCircle(center: center.translate(3.0, 0.6), radius: 1.6),
+      pi,
+      pi,
+      false,
+      stroke,
+    );
+  }
+
+  /// 闭眼：两条短横
+  void _drawClosedEyes(Canvas canvas, Offset center) {
+    final stroke = Paint()
+      ..color = color.withValues(alpha: 0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      center.translate(-4.2, 0),
+      center.translate(-1.8, 0),
+      stroke,
+    );
+    canvas.drawLine(
+      center.translate(1.8, 0),
+      center.translate(4.2, 0),
+      stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_LoadingRingPainter old) =>
+      old.rotation != rotation ||
+      old.breath != breath ||
+      old.blink != blink ||
+      old.color != color;
 }
