@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import '../../../core/constants/app_colors.dart';
+import 'crash_trace.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -927,6 +928,7 @@ if (_noResultHint == null &&
 void _startHeightComputation(DiffResult diff, ViewMode mode) {
   if (mode == ViewMode.grouped) return;   // ← 先 return
   CrashLogger.instance.mark('启动高度计算: ${mode.name}');
+  CrashTrace.mark('启动高度计算: ${mode.name}');
     final mq = MediaQuery.of(context);
     final configKey = '${mq.size.width}|'
         '${ref.read(bodyFontSizeProvider)}|'
@@ -952,6 +954,11 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
       if (!mounted) return;
       if (!identical(_heightFuturesFor, diff)) return;
       _heightExactResults[mode] = exact;
+      // 内存保护：本会话最多驻留最近 2 个模式的精确表。
+      // 旧的丢掉也没关系——全局 LineHeightCache 里还有，重进秒取。
+      while (_heightExactResults.length > 2) {
+        _heightExactResults.remove(_heightExactResults.keys.first);
+      }
       if (ref.read(viewModeProvider) == mode) {
         ViewerDiag.mark('精确高度表就绪，切回精确 (${mode.name})');
         _log('精确高度表就绪: ${mode.name}');
@@ -986,11 +993,20 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     }
 
     final existing = _heightFutures[mode];
-    if (existing != null) return existing;
+    if (existing != null) {
+      // 计算抛异常时降级为估算表，保证视图一定能渲染出来（不崩不卡死）。
+      return existing.catchError((Object e, StackTrace st) {
+        debugPrint('高度表计算失败(降级估算): $e\n$st');
+        return _getQuickBundle(diff, mode);
+      });
+    }
 
     final f = _computeHeightBundle(diff, mode);
     _heightFutures[mode] = f;
-    return f;
+    return f.catchError((Object e, StackTrace st) {
+      debugPrint('高度表计算失败(降级估算): $e\n$st');
+      return _getQuickBundle(diff, mode);
+    });
   }
 
   _HeightBundle _getQuickBundle(DiffResult diff, ViewMode mode) {
@@ -1031,6 +1047,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
   ViewMode mode,
 ) async {
   CrashLogger.instance.mark('开始算高度表: ${mode.name}');
+  CrashTrace.mark('开始算高度表: ${mode.name}');
   ViewerDiag.mark('高度: 开始 (${mode.name})');
   _log('开始计算高度: ${mode.name}');
 
@@ -1071,8 +1088,9 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     final rowW = showLine ? viewportW - 50.0 : viewportW - 16.0;
     final k = cacheKey('merged');
     final cached = LineHeightCache.instance.get(k);
-    if (cached != null) {
+    if (cached != null && cached.length == order.length) {
       CrashLogger.instance.mark('高度表命中缓存: merged');
+      CrashTrace.mark('高度表命中缓存: merged');
       ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
       _log('高度完成(缓存): ${mode.name}');
       return _HeightBundle(merged: cached);
@@ -1088,6 +1106,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: merged (${order.length}行)');
+    CrashTrace.mark('高度表完成: merged (${order.length}行)');
     ViewerDiag.mark('高度: 完成 (${mode.name})');
     _log('高度完成: ${mode.name}');
     return _HeightBundle(merged: table);
@@ -1099,8 +1118,9 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     final contentW = panelW - 52.0;
     final k = cacheKey('sbs_sync');
     final cached = LineHeightCache.instance.get(k);
-    if (cached != null) {
+    if (cached != null && cached.length == rows.length) {
       CrashLogger.instance.mark('高度表命中缓存: sbs');
+      CrashTrace.mark('高度表命中缓存: sbs');
       ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
       _log('高度完成(缓存): ${mode.name}');
       return _HeightBundle(sbsSync: cached);
@@ -1126,6 +1146,7 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
     );
     LineHeightCache.instance.put(k, table);
     CrashLogger.instance.mark('高度表完成: sbs (${rows.length}行)');
+    CrashTrace.mark('高度表完成: sbs (${rows.length}行)');
     ViewerDiag.mark('高度: 完成 (${mode.name})');
     _log('高度完成: ${mode.name}');
     return _HeightBundle(sbsSync: table);
@@ -1138,8 +1159,9 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
   final contentW = panelW - 44.0;
   final k = cacheKey(isPlain ? 'diff_only_plain' : 'diff_only');
   final cached = LineHeightCache.instance.get(k);
-  if (cached != null) {
+  if (cached != null && cached.length == rows.length) {
     CrashLogger.instance.mark('高度表命中缓存: diffOnly');
+    CrashTrace.mark('高度表命中缓存: diffOnly');
     ViewerDiag.mark('高度: 完成(命中缓存) (${mode.name})');
     _log('高度完成(缓存): ${mode.name}');
     return isPlain
@@ -1202,6 +1224,8 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
   );
   LineHeightCache.instance.put(k, table);
   CrashLogger.instance.mark(
+      '高度表完成: ${isPlain ? "diffOnlyPlain" : "diffOnly"} (${rows.length}行)');
+  CrashTrace.mark(
       '高度表完成: ${isPlain ? "diffOnlyPlain" : "diffOnly"} (${rows.length}行)');
   ViewerDiag.mark('高度: 完成 (${mode.name})');
   _log('高度完成: ${mode.name}');
@@ -1583,6 +1607,7 @@ if (!jumped) {
 
  Future<void> _switchView(ViewMode newMode) async {
   CrashLogger.instance.mark('切视图 -> ${_viewModeName(newMode)}');
+  CrashTrace.mark('切视图 -> ${_viewModeName(newMode)}');
   final current = ref.read(viewModeProvider);
   if (current == newMode) return;
 
@@ -2641,6 +2666,9 @@ void _toast(String msg) {
       future: future,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
+          // 等精确高度表：期间显示表情加载页。
+          // 不用估算表顶替——估算高度和精确高度不一致，
+          // 换表时正在浏览的用户会看到文字移位，宁可等。
           return Scaffold(
             appBar: AppBar(title: const Text('对比结果')),
             body: const _LoadingBody(),
@@ -3208,13 +3236,13 @@ void _toast(String msg) {
               builder: (context, constraints) {
                 final order = ref.watch(viewModeOrderProvider);
                 final tabFlex = {
-                  ViewMode.diffOnly: 3,
-                  ViewMode.diffOnlyPlain: 3,
-                  ViewMode.grouped: 3,
+                  ViewMode.diffOnly: 2.4,
+                  ViewMode.diffOnlyPlain: 2.4,
+                  ViewMode.grouped: 2.4,
                   ViewMode.merged: 2,
                   ViewMode.sideBySide: 2,
                 };
-                const totalFlex = 13;
+                const totalFlex = 11.2;
 
                 const double unitMin = 52.0;
                 final unitW = (constraints.maxWidth / totalFlex)
@@ -3406,7 +3434,9 @@ void _onFloatingPageUpTap() {
 
     return Container(
       height: 42,
-      color: s.surfaceVariant.withOpacity(0.25),
+      color: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF2A2A2A)
+          : const Color(0xFFF4F4F4),
       child: Row(
         children: [
           Expanded(
@@ -4276,8 +4306,9 @@ class _LoadingBody extends StatefulWidget {
 
 class _LoadingBodyState extends State<_LoadingBody>
     with TickerProviderStateMixin {
-  late final AnimationController _clock;   // 总时钟：算"第几圈 + 圈内进度 + 颜色"
+  late final AnimationController _clock;   // 表情主时钟
   late final AnimationController _breath;  // 呼吸
+  late final AnimationController _intro;   // 开场过渡
 
   final List<String> _stages = const [
     '正在比较…',
@@ -4298,6 +4329,12 @@ class _LoadingBodyState extends State<_LoadingBody>
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     )..repeat(reverse: true);
+    _intro = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _intro.forward();  // 播放一次，不循环
+    CrashTrace.mark('进入对比页加载页');
     _stageTimer = Timer.periodic(
       const Duration(milliseconds: 1500),
       (_) {
@@ -4311,6 +4348,7 @@ class _LoadingBodyState extends State<_LoadingBody>
   void dispose() {
     _clock.dispose();
     _breath.dispose();
+    _intro.dispose();
     _stageTimer?.cancel();
     super.dispose();
   }
@@ -4319,64 +4357,89 @@ class _LoadingBodyState extends State<_LoadingBody>
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
     return Center(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeOut,
-        builder: (_, v, child) => Opacity(
-          opacity: v,
-          child: Transform.scale(
-            scale: 0.92 + 0.08 * v,
-            child: child,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 72,
-              height: 72,
-              child: AnimatedBuilder(
-                animation: Listenable.merge([_clock, _breath]),
-                builder: (_, __) {
-                  final elapsedMs = _clock.value * 3600000.0;
-                  return CustomPaint(
-                    painter: _LoadingRingPainter(
-                      elapsedMs: elapsedMs,
-                      breath: _breath.value,
-                      color: s.primary,
+      child: AnimatedBuilder(
+        animation: _intro,
+        builder: (_, __) {
+          final t = Curves.easeOutCubic.transform(_intro.value);
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 72×72 容器，小圈和表情在里面同心叠放
+              SizedBox(
+                width: 72,
+                height: 72,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 小圈：开场淡出，尺寸不变（36px）
+                    if (t < 1)
+                      Opacity(
+                        opacity: 1 - t,
+                        child: const SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: CircularProgressIndicator(strokeWidth: 4),
+                        ),
+                      ),
+                    // 表情圆：从 36px（scale 0.5）放大到 72px
+                    Transform.scale(
+                      scale: 0.5 + t * 0.5,
+                      child: Opacity(
+                        opacity: t,
+                        child: SizedBox(
+                          width: 72,
+                          height: 72,
+                          child: AnimatedBuilder(
+                            animation: Listenable.merge([_clock, _breath]),
+                            builder: (_, __) {
+                              final elapsedMs = _clock.value * 3600000.0;
+                              return CustomPaint(
+                                painter: _LoadingRingPainter(
+                                  elapsedMs: elapsedMs,
+                                  breath: _breath.value,
+                                  color: s.primary,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
                     ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 24),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, anim) => FadeTransition(
-                opacity: anim,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0, 0.4),
-                    end: Offset.zero,
-                  ).animate(anim),
-                  child: child,
+                  ],
                 ),
               ),
-              child: Text(
-                _stages[_stageIndex],
-                key: ValueKey(_stageIndex),
-                style: TextStyle(
-                  fontSize: 14,
-                  color: s.onSurfaceVariant,
-                  letterSpacing: 0.3,
+              const SizedBox(height: 24),
+              // 文案：跟表情同步淡入
+              Opacity(
+                opacity: t,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.4),
+                        end: Offset.zero,
+                      ).animate(anim),
+                      child: child,
+                    ),
+                  ),
+                  child: Text(
+                    _stages[_stageIndex],
+                    key: ValueKey(_stageIndex),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: s.onSurfaceVariant,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -4389,30 +4452,35 @@ class _LoadingRingPainter extends CustomPainter {
     required this.color,
   });
 
-  final double elapsedMs; // 从页面出现到现在，毫秒
-  final double breath;    // 0~1
-  final Color color;      // 主题色（颜色序列第一个）
+  final double elapsedMs;
+  final double breath;
+  final Color color; // 保留参数以兼容调用方，实际不再使用
 
   static const double _pi = 3.141592653589793;
   static const double _tau = 2 * _pi;
 
-  // 每圈 1400ms
-  static const double _lapMs = 1400;
-  // 每圈开头用 200ms 从上一圈颜色过渡到本圈颜色
-  static const double _transitionMs = 200;
-  // 表情形态节奏：沿用原来的 3 秒一轮
-  static const double _blinkMs = 3000;
+  static const double _lapMs = 1400;        // 每圈 1400ms
+  static const double _transitionMs = 300;  // 每圈开头 300ms 慢慢渗到本圈颜色
+  static const double _blinkMs = 3000;      // 表情形态 3 秒一轮
 
-  // 颜色序列：第一圈主题色，之后粉、橙、青、蓝，循环。
-  // 想加/减颜色，直接改这个列表。
-  static const Color _pink   = Color(0xFFFF5FA2);
-  static const Color _orange = Color(0xFFFF9800);
-  static const Color _cyan   = Color(0xFF00BCD4);
-  static const Color _blue   = Color(0xFF3F51B5);
+  // 马卡龙色系（Material 300 色阶，柔和粉彩）
+  static const Color _lavender = Color(0xFF9575CD);  // 浅紫
+  static const Color _pink     = Color(0xFFF48FB1);  // 浅粉
+  static const Color _peach    = Color(0xFFFFB74D);  // 浅橙
+  static const Color _lemon    = Color(0xFFFFE082);  // 浅黄
+  static const Color _mint     = Color(0xFF81C784);  // 薄荷绿
+  static const Color _sky      = Color(0xFF64B5F6);  // 天蓝
 
-  List<Color> get _palette => [color, _pink, _orange, _cyan, _blue];
+  // 如果想第一圈回到主题紫，把 _lavender 换成 color
+  List<Color> get _palette => const [
+        _lavender,
+        _pink,
+        _peach,
+        _lemon,
+        _mint,
+        _sky,
+      ];
 
-  /// 当前弧/表情应该用的颜色
   Color get _currentColor {
     final palette = _palette;
     final n = palette.length;
@@ -4420,12 +4488,12 @@ class _LoadingRingPainter extends CustomPainter {
     final tInLap = elapsedMs - lapIndex * _lapMs;
 
     final curIdx = lapIndex % n;
-    // 第一圈直接用本圈颜色，不做过场
     if (lapIndex == 0) return palette[0];
 
     if (tInLap < _transitionMs) {
-      final prevIdx = (lapIndex - 1) % n; // Dart 里负数取模结果非负
-      final t = tInLap / _transitionMs;
+      final prevIdx = (lapIndex - 1) % n;
+      final raw = tInLap / _transitionMs;
+      final t = Curves.easeInOut.transform(raw); // 起步/收尾都柔
       return Color.lerp(palette[prevIdx], palette[curIdx], t)!;
     }
     return palette[curIdx];
@@ -4439,12 +4507,11 @@ class _LoadingRingPainter extends CustomPainter {
 
     final currentColor = _currentColor;
 
-    // 弧在圈内的进度
     final tInLap = (elapsedMs % _lapMs) / _lapMs;
     final arcStart = tInLap * _tau;
     const arcSweep = 1.9;
 
-    // ===== 底环 =====
+    // 底环
     canvas.drawCircle(
       center,
       radius,
@@ -4454,7 +4521,7 @@ class _LoadingRingPainter extends CustomPainter {
         ..color = currentColor.withValues(alpha: 0.15),
     );
 
-    // ===== 旋转弧：头部实心，尾部透明 =====
+    // 旋转弧：头部实心，尾部透明
     final rect = Rect.fromCircle(center: center, radius: radius);
     final arcPaint = Paint()
       ..style = PaintingStyle.stroke
@@ -4462,8 +4529,8 @@ class _LoadingRingPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..shader = SweepGradient(
         colors: [
-          currentColor.withValues(alpha: 0.0), // 尾部透明
-          currentColor,                        // 头部实心
+          currentColor.withValues(alpha: 0.0),
+          currentColor,
         ],
         stops: const [0.0, 0.30],
         transform: GradientRotation(arcStart),
@@ -4471,7 +4538,7 @@ class _LoadingRingPainter extends CustomPainter {
 
     canvas.drawArc(rect, arcStart, arcSweep, false, arcPaint);
 
-    // ===== 弧头亮点 + 光晕 =====
+    // 弧头亮点 + 光晕
     final dotAngle = arcStart + arcSweep;
     final dotCenter = Offset(
       center.dx + radius * math.cos(dotAngle),
@@ -4486,7 +4553,7 @@ class _LoadingRingPainter extends CustomPainter {
     );
     canvas.drawCircle(dotCenter, 3.2, Paint()..color = currentColor);
 
-    // ===== 表情形态：3 秒一轮，与颜色无关 =====
+    // 表情形态：3 秒一轮，与颜色无关
     final blinkMs = elapsedMs % _blinkMs;
     if (blinkMs < 1400) {
       _drawRoundEyes(canvas, center, currentColor);
