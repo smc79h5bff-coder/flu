@@ -103,6 +103,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   bool _landscape = false;
   bool _originalDeleted = false;
   bool _modifiedDeleted = false;
+  // 删除确认期间的左右指示：null=未进行，true=左(original)，false=右(modified)
+  bool? _pendingDeleteSide;
 
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
@@ -1680,26 +1682,50 @@ if (!jumped) {
   }
 
   Future<void> _pickDefaultViewMode() async {
-    final current = ref.read(defaultViewModeProvider);
-    final picked = await showDialog<ViewMode>(
+    ViewMode? toSwitch;
+    await showDialog<void>(
       context: context,
-      builder: (c) => SimpleDialog(
-        title: const Text('进入对比页时默认显示'),
-        children: [
-      for (final m in ViewMode.values)
-  if (m != ViewMode.sideBySide)
-    RadioListTile<ViewMode>(
-              value: m,
-              groupValue: current,
-              title: Text(_viewModeName(m)),
-              onChanged: (v) => Navigator.pop(c, v),
-            ),
-        ],
+      builder: (c) => StatefulBuilder(
+        builder: (c, setDialogState) {
+          final defaultMode = ref.read(defaultViewModeProvider);
+          return SimpleDialog(
+            title: const Text('切换视图'),
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  '点击切换视图，点 ★ 设为默认',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              for (final m in ViewMode.values)
+                if (m != ViewMode.sideBySide)
+                  ListTile(
+                    title: Text(_viewModeName(m)),
+                    trailing: IconButton(
+                      icon: m == defaultMode
+                          ? Icon(Icons.star,
+                              color: Theme.of(context).colorScheme.primary)
+                          : const Icon(Icons.star_border),
+                      tooltip: '设为默认',
+                      onPressed: () {
+                        ref.read(defaultViewModeProvider.notifier).update(m);
+                        _toast('默认视图已设为「${_viewModeName(m)}」');
+                        setDialogState(() {});
+                      },
+                    ),
+                    onTap: () {
+                      toSwitch = m;
+                      Navigator.pop(c);
+                    },
+                  ),
+            ],
+          );
+        },
       ),
     );
-    if (picked != null && mounted) {
-      ref.read(defaultViewModeProvider.notifier).update(picked);
-      _toast('默认视图已设为「${_viewModeName(picked)}」');
+    if (toSwitch != null && mounted) {
+      await _switchView(toSwitch!);
     }
   }
 
@@ -2329,9 +2355,17 @@ void _toast(String msg) {
     } catch (_) {}
 
     if (!mounted) return false;
+    final side = _pendingDeleteSide;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => Align(
+        // 弹窗偏向被删文件所在半边，与红色蒙层位置对应
+        alignment: side == false
+            ? Alignment.centerRight
+            : Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: AlertDialog(
         title: Text('删除$label？'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2365,6 +2399,8 @@ void _toast(String msg) {
             child: const Text('删除'),
           ),
         ],
+        ),
+        ),
       ),
     );
     return ok == true;
@@ -2375,7 +2411,13 @@ void _toast(String msg) {
       isOriginal ? originalFilePathProvider : modifiedFilePathProvider,
     );
     final label = isOriginal ? '左边文件' : '右边文件';
-    final ok = await _confirmDelete(label, path);
+    setState(() => _pendingDeleteSide = isOriginal);
+    bool ok;
+    try {
+      ok = await _confirmDelete(label, path);
+    } finally {
+      if (mounted) setState(() => _pendingDeleteSide = null);
+    }
     if (!ok || !mounted) return;
 
     try {
@@ -2667,62 +2709,47 @@ toolbarHeight: 43,
           mainAxisSize: MainAxisSize.min,
           children: [
             Builder(builder: (ctx) {
-              final iconColor =
-                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
+              final enabled = !_originalDeleted &&
+                  ref.read(originalFilePathProvider) != null;
               return SizedBox(
                 width: 56,
                 height: 42,
                 child: InkWell(
-                  key: const Key('page-up'),
-                  onTap: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.pageUp();
-                    } else {
-                      _pageUp();
-                    }
-                  },
-                  onLongPress: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.jumpToTop();
-                    } else {
-                      _jumpToDocTop();
-                    }
-                  },
+                  key: const Key('delete-left'),
+                  onTap: enabled ? () => _deleteSide(isOriginal: true) : null,
                   child: Center(
-                    child: CustomPaint(
-                      size: const Size.square(24),
-                      painter: _PageUpIconPainter(color: iconColor),
+                    child: Text(
+                      '删左',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: enabled
+                            ? Colors.red
+                            : Theme.of(ctx).disabledColor,
+                      ),
                     ),
                   ),
                 ),
               );
             }),
+            const SizedBox(width: 8),
             Builder(builder: (ctx) {
-              final iconColor =
-                  IconTheme.of(ctx).color ?? const Color(0xFF000000);
+              final enabled = !_modifiedDeleted &&
+                  ref.read(modifiedFilePathProvider) != null;
               return SizedBox(
                 width: 56,
                 height: 42,
                 child: InkWell(
-                  key: const Key('page-down'),
-                  onTap: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.pageDown();
-                    } else {
-                      _pageDown();
-                    }
-                  },
-                  onLongPress: () {
-                    if (viewMode == ViewMode.grouped) {
-                      (_groupedKey.currentState as dynamic)?.jumpToBottom();
-                    } else {
-                      _jumpToDocBottom();
-                    }
-                  },
+                  key: const Key('delete-right'),
+                  onTap: enabled ? () => _deleteSide(isOriginal: false) : null,
                   child: Center(
-                    child: CustomPaint(
-                      size: const Size.square(24),
-                      painter: _PageDownIconPainter(color: iconColor),
+                    child: Text(
+                      '删右',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: enabled
+                            ? Colors.red
+                            : Theme.of(ctx).disabledColor,
+                      ),
                     ),
                   ),
                 ),
@@ -2733,13 +2760,7 @@ toolbarHeight: 43,
         actions: [
           InkWell(
             key: const Key('prev-diff'),
-            onTap: () {
-              if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToPrevDiff();
-              } else {
-                _jumpToPrevDiff();
-              }
-            },
+            onTap: () => _openLineListFromDiff(isLeft: true),
             onLongPress: () {
               if (viewMode == ViewMode.grouped) {
                 (_groupedKey.currentState as dynamic)?.jumpToTop();
@@ -2747,20 +2768,21 @@ toolbarHeight: 43,
                 _jumpToDocTop();
               }
             },
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Icon(Icons.arrow_upward, size: 26),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: CustomPaint(
+                size: const Size(37, 26),
+                painter: _BatchExtractIconPainter(
+                  pointLeft: true,
+                  color: IconTheme.of(context).color ??
+                      Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
             ),
           ),
           InkWell(
             key: const Key('next-diff'),
-            onTap: () {
-              if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToNextDiff();
-              } else {
-                _jumpToNextDiff();
-              }
-            },
+            onTap: () => _openLineListFromDiff(isLeft: false),
             onLongPress: () {
               if (viewMode == ViewMode.grouped) {
                 (_groupedKey.currentState as dynamic)?.jumpToBottom();
@@ -2768,9 +2790,16 @@ toolbarHeight: 43,
                 _jumpToDocBottom();
               }
             },
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Icon(Icons.arrow_downward, size: 26),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: CustomPaint(
+                size: const Size(37, 26),
+                painter: _BatchExtractIconPainter(
+                  pointLeft: false,
+                  color: IconTheme.of(context).color ??
+                      Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
             ),
           ),
           IconButton(
@@ -2907,7 +2936,7 @@ PopupMenuItem<String>(
                   children: [
                     Icon(Icons.visibility),
                     SizedBox(width: 10),
-                    Text('默认打开视图'),
+                    Text('切换视图'),
                   ],
                 ),
               ),
@@ -2954,48 +2983,7 @@ PopupMenuItem<String>(
           if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
 
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '差异行+上下2行',
-                    value: ViewMode.diffOnly,
-                    current: viewMode,
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '仅显示差异行',
-                    value: ViewMode.diffOnlyPlain,
-                    current: viewMode,
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: _viewChip(
-                    label: '跨行块',
-                    value: ViewMode.grouped,
-                    current: viewMode,
-                    onLongPress: _showGroupedContextMenu,
-                  ),
-                ),
-                Expanded(
-                  flex: 1,
-                  child: _viewChip(
-                    label: '上下',
-                    value: ViewMode.merged,
-                    current: viewMode,
-                    compact: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
+          // 视图切换 tab 已隐藏，切换走更多菜单「切换视图」
           _buildToolbar(),
           if (_processing) _buildProcessingBanner(),
                    Expanded(
@@ -3010,6 +2998,20 @@ PopupMenuItem<String>(
             ),
           ],
         ),
+        // 删除确认期间的半屏红色指示（merged 上下混排无左右半区，不显示）
+        if (_pendingDeleteSide != null && viewMode != ViewMode.merged)
+          Positioned(
+            left: _pendingDeleteSide! ? 0 : null,
+            right: _pendingDeleteSide! ? null : 0,
+            top: 0,
+            bottom: 0,
+            width: MediaQuery.of(context).size.width / 2,
+            child: IgnorePointer(
+              child: ColoredBox(
+                color: Colors.red.withValues(alpha: 0.18),
+              ),
+            ),
+          ),
                if (ref.watch(floatingPageDownEnabledProvider))
           _buildFloatingButton(
             size: ref.watch(floatingPageDownSizeProvider),
@@ -3097,7 +3099,36 @@ void _onFloatingPageUpTap() {
   // ==================== 按钮栏 ====================
 
   Widget _buildToolbar() {
-    final rules = ref.watch(toolbarRulesOrderedProvider);
+    final rowCount = ref.watch(toolbarRowCountProvider);
+    // 行数 = 1：输出与旧版完全一致（不做任何视觉变化）。
+    if (rowCount <= 1) {
+      return _buildToolbarRow(
+        rules: ref.watch(toolbarRulesOrderedProvider),
+        addRow: 1,
+        showSortButton: true,
+      );
+    }
+    // 多行模式：每行一个工具条，行尾只有 ＋（在该行新建按钮）。
+    final rowLists = ref.watch(toolbarRowsOrderedProvider);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < rowCount && i < 3; i++)
+          _buildToolbarRow(
+            rules: rowLists[i],
+            addRow: i + 1,
+            showSortButton: i == 0,
+          ),
+      ],
+    );
+  }
+
+  /// 构建一排工具栏按钮。第一行行尾是 ＋ + 排序按钮，其余行只有 ＋。
+  Widget _buildToolbarRow({
+    required List<PreprocessingRule> rules,
+    required int addRow,
+    required bool showSortButton,
+  }) {
     final colors = ref.watch(toolbarButtonColorsProvider);
     final s = Theme.of(context).colorScheme;
 
@@ -3110,7 +3141,9 @@ void _onFloatingPageUpTap() {
             child: rules.isEmpty
                 ? Center(
                     child: Text(
-                      '点 + 添加按钮（长按编辑）',
+                      addRow == 1
+                          ? '点 + 添加按钮（长按编辑）'
+                          : '这一行还没有按钮，点 + 新建',
                       style: TextStyle(
                         fontSize: 10,
                         color: s.onSurfaceVariant,
@@ -3166,21 +3199,24 @@ void _onFloatingPageUpTap() {
             child: IconButton(
               icon: const Icon(Icons.add, size: 16),
               padding: EdgeInsets.zero,
-              tooltip: '新建快捷操作按钮',
+              tooltip: addRow == 1
+                  ? '新建快捷操作按钮'
+                  : '在第 $addRow 行新建快捷操作按钮',
               visualDensity: VisualDensity.compact,
-              onPressed: _addToolbarRule,
+              onPressed: () => _addToolbarRule(row: addRow),
             ),
           ),
-          SizedBox(
-            width: 28,
-            child: IconButton(
-              icon: const Icon(Icons.sort, size: 16),
-              padding: EdgeInsets.zero,
-              tooltip: '按钮排序、样式更改、删除',
-              visualDensity: VisualDensity.compact,
-              onPressed: _showToolbarOrderDialog,
+          if (showSortButton)
+            SizedBox(
+              width: 28,
+              child: IconButton(
+                icon: const Icon(Icons.sort, size: 16),
+                padding: EdgeInsets.zero,
+                tooltip: '按钮排序、样式更改、删除',
+                visualDensity: VisualDensity.compact,
+                onPressed: _showToolbarOrderDialog,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -3327,15 +3363,16 @@ void _onFloatingPageUpTap() {
     }
   }
 
-  Future<void> _addToolbarRule() async {
+  /// 新建工具栏按钮。[row] 是按钮所属行（1~3），由各行行尾的 ＋ 传入。
+  Future<void> _addToolbarRule({int row = 1}) async {
     final rule = await showDialog<PreprocessingRule>(
       context: context,
-      builder: (_) => const RuleEditorDialog(
+      builder: (_) => RuleEditorDialog(
         showCopyToPreprocess: false,
       ),
     );
     if (rule == null || !mounted) return;
-    ref.read(toolbarRulesProvider.notifier).add(rule);
+    ref.read(toolbarRulesProvider.notifier).add(rule, row: row);
     _toast('已添加按钮「${rule.name}」');
   }
 
@@ -3701,7 +3738,13 @@ child: TextField(
     const SizedBox(width: 1),
     IconButton(
       
-      icon: const Icon(Icons.edit_document, size: 30),
+      icon: CustomPaint(
+        size: const Size(30, 30),
+        painter: _BatchListIconPainter(
+          color: IconTheme.of(context).color ??
+              Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
       tooltip: '批量删除（普通文字）一行一个',
         padding: const EdgeInsets.symmetric(horizontal: 12),
       constraints: const BoxConstraints(minHeight: 28),
@@ -3934,6 +3977,226 @@ class _PageUpIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_PageUpIconPainter old) => old.color != color;
+}
+
+/// 顶栏「批处理某侧」自绘图标：
+/// 三行长短线（差异行）+ 指向某侧的箭头 + 带正文行的文档。
+/// 设计稿 40x28，渲染时等比缩放；[pointLeft] 为 false 时整体水平镜像。
+class _BatchExtractIconPainter extends CustomPainter {
+  _BatchExtractIconPainter({required this.pointLeft, required this.color});
+
+  /// true：箭头朝左（左文件按钮）；false：镜像（右文件按钮）。
+  final bool pointLeft;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 40, size.height / 28);
+    if (!pointLeft) {
+      // 右文件按钮：整体水平镜像。
+      canvas.translate(40, 0);
+      canvas.scale(-1, 1);
+    }
+
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = color;
+
+    // 左侧三行长短线。
+    p.strokeWidth = 2.4;
+    canvas.drawLine(const Offset(2, 7), const Offset(12, 7), p);
+    canvas.drawLine(const Offset(2, 14), const Offset(7, 14), p);
+    canvas.drawLine(const Offset(2, 21), const Offset(12.5, 21), p);
+
+    // 中间箭头。
+    p.strokeWidth = 2.2;
+    canvas.drawLine(const Offset(22, 14), const Offset(15.5, 14), p);
+    final head = Path()
+      ..moveTo(19.2, 10.2)
+      ..lineTo(15.5, 14)
+      ..lineTo(19.2, 17.8);
+    canvas.drawPath(head, p);
+
+    // 右侧文档：外框（圆角矩形 + 右上折角）。
+    p.strokeWidth = 2.0;
+    final doc = Path()
+      ..moveTo(27, 3.5)
+      ..lineTo(34, 3.5)
+      ..lineTo(38, 7.5)
+      ..lineTo(38, 22.5)
+      ..arcToPoint(
+        const Offset(36, 24.5),
+        radius: const Radius.circular(2),
+        clockwise: true,
+      )
+      ..lineTo(27, 24.5)
+      ..arcToPoint(
+        const Offset(25, 22.5),
+        radius: const Radius.circular(2),
+        clockwise: true,
+      )
+      ..lineTo(25, 5.5)
+      ..arcToPoint(
+        const Offset(27, 3.5),
+        radius: const Radius.circular(2),
+        clockwise: true,
+      )
+      ..close();
+    canvas.drawPath(doc, p);
+
+    // 折角线。
+    p.strokeWidth = 1.8;
+    final fold = Path()
+      ..moveTo(34, 3.5)
+      ..lineTo(34, 7.5)
+      ..lineTo(38, 7.5);
+    canvas.drawPath(fold, p);
+
+    // 文档内 5 行长短不一的正文。
+    p.strokeWidth = 1.6;
+    const rowEnds = [35.1, 32.1, 35.7, 31.4, 34.5];
+    for (var i = 0; i < rowEnds.length; i++) {
+      final y = 9.8 + i * 2.9;
+      canvas.drawLine(Offset(27.7, y), Offset(rowEnds[i], y), p);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_BatchExtractIconPainter oldDelegate) =>
+      oldDelegate.pointLeft != pointLeft || oldDelegate.color != color;
+}
+
+/// 查找栏「批量删除（一行一个）」自绘图标：
+/// 文档（5 行长短不一的正文）+ 左右指向文档的箭头 + 右下角浅黄铅笔。
+/// 设计稿 24x24（Material 标准网格），渲染时等比缩放。
+class _BatchListIconPainter extends CustomPainter {
+  _BatchListIconPainter({required this.color});
+
+  /// 文档、正文线、箭头的颜色（跟随图标主题色）。
+  final Color color;
+
+  static const Color _penFill = Color(0xFFFFF3BF); // 笔身：非常浅的浅黄
+  static const Color _penLine = Color(0xFFE3B23C); // 笔的金褐细节线
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 24, size.height / 24);
+
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = color;
+
+    // 文档外框（圆角矩形）。
+    stroke.strokeWidth = 1.7;
+    final doc = Path()
+      ..moveTo(9.2, 5)
+      ..lineTo(15, 5)
+      ..arcToPoint(
+        const Offset(16.8, 6.8),
+        radius: const Radius.circular(1.8),
+        clockwise: true,
+      )
+      ..lineTo(16.8, 17.2)
+      ..arcToPoint(
+        const Offset(15, 19),
+        radius: const Radius.circular(1.8),
+        clockwise: true,
+      )
+      ..lineTo(9.2, 19)
+      ..arcToPoint(
+        const Offset(7.4, 17.2),
+        radius: const Radius.circular(1.8),
+        clockwise: true,
+      )
+      ..lineTo(7.4, 6.8)
+      ..arcToPoint(
+        const Offset(9.2, 5),
+        radius: const Radius.circular(1.8),
+        clockwise: true,
+      )
+      ..close();
+    canvas.drawPath(doc, stroke);
+
+    // 文档内 5 行长短不一的正文。
+    stroke.strokeWidth = 1.3;
+    canvas.drawLine(const Offset(9.4, 7), const Offset(14.6, 7), stroke);
+    canvas.drawLine(const Offset(9.4, 9.2), const Offset(12.4, 9.2), stroke);
+    canvas.drawLine(const Offset(9.4, 11.4), const Offset(14.2, 11.4), stroke);
+    canvas.drawLine(const Offset(9.4, 13.6), const Offset(11.6, 13.6), stroke);
+    canvas.drawLine(const Offset(9.4, 15.8), const Offset(12.4, 15.8), stroke);
+
+    // 左右各一个箭头，指向文档。
+    stroke.strokeWidth = 2.0;
+    canvas.drawLine(const Offset(0.5, 9), const Offset(4.6, 9), stroke);
+    canvas.drawPath(
+      Path()
+        ..moveTo(3, 7.2)
+        ..lineTo(4.6, 9)
+        ..lineTo(3, 10.8),
+      stroke,
+    );
+    canvas.drawLine(const Offset(23.5, 9), const Offset(19.4, 9), stroke);
+    canvas.drawPath(
+      Path()
+        ..moveTo(21, 7.2)
+        ..lineTo(19.4, 9)
+        ..lineTo(21, 10.8),
+      stroke,
+    );
+
+    // 右下角浅黄铅笔：顺时针斜放 55°（0.95993 弧度）。
+    canvas.save();
+    canvas.translate(15.6, 16.1);
+    canvas.rotate(0.95993);
+
+    final penFill = Paint()..color = _penFill;
+    final penLine = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..strokeWidth = 1.2
+      ..color = _penLine;
+
+    // 笔身：浅黄填充 + 金褐描边（尖朝左下，尾在右上）。
+    final body = Path()
+      ..moveTo(0, 5)
+      ..lineTo(-1.8, 1.6)
+      ..lineTo(-1.8, -4.2)
+      ..lineTo(1.8, -4.2)
+      ..lineTo(1.8, 1.6)
+      ..close();
+    canvas.drawPath(body, penFill);
+    canvas.drawPath(body, penLine);
+
+    // 笔尖分界线。
+    canvas.drawLine(const Offset(-1.8, 1.6), const Offset(1.8, 1.6), penLine);
+    // 橡皮头分隔线。
+    canvas.drawLine(const Offset(-1.8, -2.6), const Offset(1.8, -2.6), penLine);
+    // 笔芯：实心小三角。
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, 5)
+        ..lineTo(-0.75, 2.9)
+        ..lineTo(0.75, 2.9)
+        ..close(),
+      Paint()..color = _penLine,
+    );
+
+    canvas.restore(); // 铅笔
+    canvas.restore(); // 整体
+  }
+
+  @override
+  bool shouldRepaint(_BatchListIconPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _RegexError implements Exception {
