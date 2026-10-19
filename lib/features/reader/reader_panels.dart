@@ -97,7 +97,7 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
 
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -3186,7 +3186,7 @@ class _HighlightCard extends StatelessWidget {
             width: 0.5,
           ),
         ),
-        padding: const EdgeInsets.fromLTRB(2, 1, 1, 1),
+        padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
@@ -3328,7 +3328,7 @@ class _HighlightCard extends StatelessWidget {
       return Center(
         child: Container(
           decoration: BoxDecoration(color: colors.first),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           child: Text(
             entry.keyword,
             maxLines: 5,
@@ -3365,7 +3365,7 @@ class _HighlightCard extends StatelessWidget {
                     ),
                   ),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                   child: Text(line, maxLines: 1, style: textStyle),
                 ),
             ],
