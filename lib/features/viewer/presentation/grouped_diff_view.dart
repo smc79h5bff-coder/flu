@@ -1072,10 +1072,7 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
                 if (_jumping)
                   Positioned.fill(
                     child: ColoredBox(
-                      // 不透明浅灰，深浅色主题各取一档，避免深色下整屏发白发刺眼
-                      color: isDark
-                          ? const Color(0xFF2B2B2B)
-                          : const Color(0xFFE8E8E8),
+                      color: Theme.of(context).colorScheme.surface,
                       child: Center(
                         child: _JumpIndicator(
                           direction: _jumpDirection ?? _JumpDirection.down,
