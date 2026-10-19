@@ -601,13 +601,28 @@ String? _resolveHelpText(PreprocessingRule rule) {
                 ),
             ],
           ),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: MediaQuery.of(c).size.height * 0.6,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+
+
+
+
+          
+          
+
+// 改成
+content: ConstrainedBox(
+  constraints: BoxConstraints(
+    maxWidth: double.maxFinite,
+    maxHeight: MediaQuery.of(c).size.height * 0.6,
+  ),
+  child: SingleChildScrollView(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      
+
+      
+
+                
                 children: [
                   Row(
                     children: [
