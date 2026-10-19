@@ -15,7 +15,7 @@ class BuiltinRules {
         // ============ 通用规范化 ============
         PreprocessingRule(
           id: 'norm_eol',
-          name: '统一换行',
+          name: '统一换行符',
           findPattern: r'\r\n|\r',
           replaceWith: '\n',
           enabled: true,
@@ -56,23 +56,29 @@ class BuiltinRules {
           isBuiltin: true,
           implType: '正则',
           implDetail: r'查找：[""“”]' '\n替换：英文直引号 "',
-          helpText: r'各种方向引号统一成英文直引号 "。',
+          helpText: r'中文左右引号统一成英文直引号 "。',
         ),
-        PreprocessingRule(
-          id: 'half_to_full',
-          name: '半角转全角',
-          script: 'halfToFull',
-          enabled: false,
-          isBuiltin: true,
-          implType: '代码',
-          implDetail: '逐字符 unicode 映射：\n'
-              '半角 U+0021~007E → 加 0xFEE0\n'
-              '半角空格 U+0020 → U+3000',
-          replacementType: 'warn',
-          replacementDetail: '正则能做，但要写 95 个字符的映射，'
-              '非常长，不建议',
-          helpText: r'半角字母数字标点转全角，空格转全角。',
-        ),
+
+
+    PreprocessingRule(
+  id: 'half_to_full',          // 建议不动，避免开关状态被重置
+  name: '全角字母数字转半角',
+  script: 'fullToHalf',
+  enabled: false,
+  isBuiltin: true,
+  implType: '代码',
+  implDetail: '逐字符 unicode 映射：\n'
+      '全角数字 U+FF10~FF19 → 减 0xFEE0\n'
+      '全角大写 U+FF21~FF3A → 减 0xFEE0\n'
+      '全角小写 U+FF41~FF5A → 减 0xFEE0',
+  replacementType: 'warn',
+  replacementDetail: '正则能做，但要写 62 个字符的映射，'
+      '非常长，不建议',
+  helpText: r'全角数字和英文字母转成半角。',
+),
+
+
+    
         PreprocessingRule(
           id: 'en_punct_to_cn',
           name: '忽略标点符号',
@@ -82,9 +88,7 @@ class BuiltinRules {
           implType: '代码',
           implDetail: '逐字符查表替换\n映射表约 11 对',
           replacementType: 'ok',
-          replacementDetail: '正则：逐条 replaceAll，'
-              '如 ,→， .→。 !→！ 等\n'
-              '性能：大致相当',
+          replacementDetail: '正则：逐条 replaceAll',
           helpText: r'英文标点替换成对应中文标点。',
         ),
 
