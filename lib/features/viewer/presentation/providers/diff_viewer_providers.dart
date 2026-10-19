@@ -26,7 +26,7 @@ class DefaultViewModeNotifier extends EnumPrefNotifier<ViewMode> {
       : super(
           key: PrefKeys.defaultViewMode,
           values: ViewMode.values,
-          initial: ViewMode.diffOnly,
+          initial: ViewMode.grouped,
         );
 }
 
@@ -109,7 +109,7 @@ final groupedContextLinesProvider =
 
 class GroupedContextLinesNotifier extends DoublePrefNotifier {
   GroupedContextLinesNotifier()
-      : super(key: PrefKeys.groupedContextLines, initial: 2.0);
+      : super(key: PrefKeys.groupedContextLines, initial: 0.0);
 }
 
 
@@ -701,7 +701,7 @@ class DeleteRowBgNotifier extends ColorPrefNotifier {
   DeleteRowBgNotifier()
       : super(
           key: PrefKeys.colorDeleteRowBg,
-          initial: const Color(0xFFFFA6A6),
+          initial: const Color(0xFFFFDDE0),
         );
 }
 
@@ -723,7 +723,7 @@ class InsertRowBgNotifier extends ColorPrefNotifier {
   InsertRowBgNotifier()
       : super(
           key: PrefKeys.colorInsertRowBg,
-          initial: const Color(0xFF7DFF5E),
+          initial: const Color(0xFFD0F5CE),
         );
 }
 
