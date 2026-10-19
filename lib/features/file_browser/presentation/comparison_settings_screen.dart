@@ -415,82 +415,93 @@ class _ComparisonSettingsScreenState
   Widget _buildSingleTile(_SingleRuleItem item, Widget dragHandle) {
     final rule = item.rule;
     final preview = _shortPreview(rule);
+    final s = Theme.of(context).colorScheme;
 
-    return Container(
+    // 轻卡片：与 _buildBlockTile 同一套设计语言（但用中性灰，弱化层级）。
+    // 禁用状态整卡变淡 + 标题变灰，一眼看出开关状态。
+    return Padding(
       key: item.key,
-      padding: const EdgeInsets.only(right: 4),
-      child: Row(
-        children: [
-          dragHandle,
-          Expanded(
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GestureDetector(
-  onLongPress: () => _showRuleDetail(rule),
-  behavior: HitTestBehavior.opaque,
-  child: Text(
-    rule.name,
-    maxLines: 1,
-    overflow: TextOverflow.ellipsis,
-    style: const TextStyle(fontSize: 14),
-  ),
-),
-                  
-                  if (preview.isNotEmpty) ...[
-                    const SizedBox(height: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Material(
+        color: rule.enabled
+            ? s.surfaceVariant.withValues(alpha: 0.25)
+            : s.surfaceVariant.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          children: [
+            dragHandle,
+            Expanded(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     GestureDetector(
                       onLongPress: () => _showRuleDetail(rule),
                       behavior: HitTestBehavior.opaque,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: LayoutBuilder(
-                          builder: (ctx, constraints) => _buildTwoDotsText(
-                            preview,
-                            constraints.maxWidth,
-                            TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                      child: Text(
+                        rule.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: rule.enabled ? null : s.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+
+                    if (preview.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      GestureDetector(
+                        onLongPress: () => _showRuleDetail(rule),
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: LayoutBuilder(
+                            builder: (ctx, constraints) => _buildTwoDotsText(
+                              preview,
+                              constraints.maxWidth,
+                              TextStyle(
+                                fontSize: 12,
+                                color: s.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-          Switch(
-            value: rule.enabled,
-            onChanged: (v) {
-              if (rule.isBuiltin) {
-                ref
-                    .read(builtinRuleEnablesProvider.notifier)
-                    .setOne(rule.id, v);
-              } else {
-                ref
-                    .read(userRulesProvider.notifier)
-                    .updateRule(rule.copyWith(enabled: v));
-              }
-            },
-          ),
-          if (!rule.isBuiltin)
-            SizedBox(
-              width: 52,
-              child: IconButton(
-                tooltip: '编辑',
-                icon: const Icon(Icons.edit_outlined),
-                onPressed: () => _editUserRule(rule),
-              ),
+            Switch(
+              value: rule.enabled,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: (v) {
+                if (rule.isBuiltin) {
+                  ref
+                      .read(builtinRuleEnablesProvider.notifier)
+                      .setOne(rule.id, v);
+                } else {
+                  ref
+                      .read(userRulesProvider.notifier)
+                      .updateRule(rule.copyWith(enabled: v));
+                }
+              },
             ),
-        ],
+            if (!rule.isBuiltin)
+              SizedBox(
+                width: 52,
+                child: IconButton(
+                  tooltip: '编辑',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => _editUserRule(rule),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -601,28 +612,13 @@ String? _resolveHelpText(PreprocessingRule rule) {
                 ),
             ],
           ),
-
-
-
-
-          
-          
-
-// 改成
-content: ConstrainedBox(
-  constraints: BoxConstraints(
-    maxWidth: double.maxFinite,
-    maxHeight: MediaQuery.of(c).size.height * 0.6,
-  ),
-  child: SingleChildScrollView(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      
-
-      
-
-                
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.of(c).size.height * 0.6,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
