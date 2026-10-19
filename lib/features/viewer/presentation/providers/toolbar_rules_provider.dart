@@ -42,10 +42,15 @@ class ToolbarRulesNotifier
   String encode(List<PreprocessingRule> value) =>
       jsonEncode([for (final r in value) r.toJson()]);
 
-  void add(PreprocessingRule rule) {
+  /// 新增按钮。[row] 是按钮所属行（1~3），默认第 1 行。
+  void add(PreprocessingRule rule, {int row = 1}) {
     final normalized = _normalizeForToolbar(rule);
     update([...state, normalized]);
     ref.read(toolbarOrderProvider.notifier).append(normalized.id);
+    // 记录按钮所属行。
+    ref
+        .read(toolbarButtonRowsProvider.notifier)
+        .setOne(normalized.id, row.clamp(1, 3));
   }
 
   void updateRule(PreprocessingRule rule) {
@@ -59,8 +64,9 @@ class ToolbarRulesNotifier
   void remove(String id) {
     update(state.where((r) => r.id != id).toList());
     ref.read(toolbarOrderProvider.notifier).removeId(id);
-    // 顺便清掉这个按钮的颜色设置，避免残留。
+    // 顺便清掉这个按钮的颜色和行号设置，避免残留。
     ref.read(toolbarButtonColorsProvider.notifier).remove(id);
+    ref.read(toolbarButtonRowsProvider.notifier).remove(id);
   }
 
   void setAll(List<PreprocessingRule> rules) {
@@ -161,6 +167,88 @@ final toolbarRulesOrderedProvider =
   // 不在 order 里的兜底补上。
   for (final r in rules) {
     if (!seen.contains(r.id)) result.add(r);
+  }
+  return result;
+});
+
+// ==================== 按钮所属行（新增） ====================
+
+/// 按钮所属行的持久化 key。直接内联，避免改 pref_keys.dart。
+const String _toolbarRowsKey = 'jianming.toolbar.rows';
+
+/// 按钮所属行表：ruleId → 行号（1~3）。
+/// 老数据没有这个表，读取时不在表里的按钮一律视为第 1 行（迁移即默认值）。
+final toolbarButtonRowsProvider =
+    NotifierProvider<ToolbarButtonRowsNotifier, Map<String, int>>(
+  ToolbarButtonRowsNotifier.new,
+);
+
+class ToolbarButtonRowsNotifier
+    extends PersistentNotifier<Map<String, int>> {
+  @override
+  String get key => _toolbarRowsKey;
+
+  @override
+  Map<String, int> get defaultValue => const {};
+
+  @override
+  Map<String, int> decode(String raw) {
+    final map = jsonDecode(raw) as Map<String, dynamic>;
+    return map.map((k, v) {
+      final n = v is int ? v : int.tryParse('$v') ?? 1;
+      return MapEntry(k, n.clamp(1, 3));
+    });
+  }
+
+  @override
+  String encode(Map<String, int> value) => jsonEncode(value);
+
+  /// 读取某个按钮的行号。不在表里的老按钮视为第 1 行。
+  int rowOf(String ruleId) => state[ruleId] ?? 1;
+
+  /// 设置某个按钮的行号。
+  void setOne(String ruleId, int row) {
+    final next = Map<String, int>.from(state);
+    next[ruleId] = row.clamp(1, 3);
+    update(next);
+  }
+
+  /// 批量写回行号（排序对话框保存时用）。
+  void setMany(Map<String, int> rows) {
+    final next = Map<String, int>.from(state);
+    rows.forEach((id, row) => next[id] = row.clamp(1, 3));
+    update(next);
+  }
+
+  /// 删除某个按钮的行记录。
+  void remove(String ruleId) {
+    if (!state.containsKey(ruleId)) return;
+    final next = Map<String, int>.from(state);
+    next.remove(ruleId);
+    update(next);
+  }
+
+  /// 批量删除（排序对话框保存时清理已删除按钮）。
+  void removeMany(Iterable<String> ids) {
+    final next = Map<String, int>.from(state);
+    var changed = false;
+    for (final id in ids) {
+      if (next.remove(id) != null) changed = true;
+    }
+    if (changed) update(next);
+  }
+}
+
+/// 把按钮按行分好组：返回固定 3 个列表，依次是第 1/2/3 行内排好序的按钮。
+/// 行号读 toolbarButtonRowsProvider，没有记录的按钮算第 1 行。
+final toolbarRowsOrderedProvider =
+    Provider<List<List<PreprocessingRule>>>((ref) {
+  final ordered = ref.watch(toolbarRulesOrderedProvider);
+  final rows = ref.watch(toolbarButtonRowsProvider);
+  final result = List.generate(3, (_) => <PreprocessingRule>[]);
+  for (final r in ordered) {
+    final row = (rows[r.id] ?? 1).clamp(1, 3);
+    result[row - 1].add(r);
   }
   return result;
 });
