@@ -96,6 +96,32 @@ class SyncScrollNotifier extends BoolPrefNotifier {
   SyncScrollNotifier() : super(key: PrefKeys.syncScroll, initial: true);
 }
 
+/// 工具栏（按钮栏）行数：1~3，持久化。默认 1 行（与旧版一致）。
+final toolbarRowCountProvider =
+    NotifierProvider<ToolbarRowCountNotifier, int>(
+  ToolbarRowCountNotifier.new,
+);
+
+class ToolbarRowCountNotifier extends PersistentNotifier<int> {
+  @override
+  String get key => 'jianming.viewer.toolbarRowCount';
+
+  @override
+  int get defaultValue => 1;
+
+  @override
+  int decode(String raw) {
+    final n = int.tryParse(raw) ?? 1;
+    return n.clamp(1, 3);
+  }
+
+  @override
+  String encode(int value) => '$value';
+
+  /// 设置行数（自动夹到 1~3）。
+  void setCount(int n) => update(n.clamp(1, 3));
+}
+
 class DiffPerfStats {
   const DiffPerfStats({
     required this.prepMs,
