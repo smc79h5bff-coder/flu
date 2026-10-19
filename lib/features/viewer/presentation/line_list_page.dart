@@ -574,12 +574,13 @@ class _LineListPageState extends ConsumerState<LineListPage> {
           fontFamily: 'monospace',
         );
 
-        // ★ 只在文本变化时用 TextPainter 精确测量最宽行，其余时间用缓存。
+        // ★ 只在文本变化时按字符数估算必够宽，其余时间用缓存。
+        //   不再用 TextPainter 精确测量：测量值只要差 1px 最宽行就会
+        //   折行，行号/色块跟着错位。改为按字符宽度上限估算，只多不少。
         final text = _textCtrl.text;
         if (_cachedMaxLineWidthForText != text) {
           final scaler = MediaQuery.textScalerOf(context);
-          _cachedMaxLineWidth =
-              _measureMaxLineWidth(_lines, style, scaler);
+          _cachedMaxLineWidth = _estimateSafeWidth(_lines, scaler);
           _cachedMaxLineWidthForText = text;
         }
         final maxW = _cachedMaxLineWidth ?? 0.0;
@@ -631,22 +632,32 @@ class _LineListPageState extends ConsumerState<LineListPage> {
     );
   }
 
-  // ★ 用 TextPainter 精确测量每行宽度，返回最宽那一行的像素宽度。
-  double _measureMaxLineWidth(
-    List<String> lines,
-    TextStyle style,
-    TextScaler scaler,
-  ) {
-    final tp = TextPainter(textDirection: TextDirection.ltr);
+  // ★ 按字符数估算“必够宽”的最宽行宽度（只多不少）。
+  //   每个字符按其实际渲染宽度的上限来算：
+  //     半角 ASCII   实际 ≤0.6em（monospace 半角 0.6em）→ 按 0.62em
+  //     中文/全角/emoji 等其余字符 实际基本 ≤1em → 按 1.05em
+  //     制表符 \t    实际 4~8 个半角宽 → 一律按 8 个半角估
+  //   估算值永远 ≥ 实际渲染宽度，TextField 拿到这个宽度就绝不折行，
+  //   行号/色块/高亮也就永远对齐。代价只是长行横向滚动到最右时
+  //   可能有一点点空白，不影响使用。
+  double _estimateSafeWidth(List<String> lines, TextScaler scaler) {
+    final scale = scaler.scale(_kFontSize) / _kFontSize;
+    final halfW = 0.62 * _kFontSize * scale;
+    final wideW = 1.05 * _kFontSize * scale;
+    final tabW = 8 * halfW;
     var maxW = 0.0;
     for (final line in lines) {
       if (line.isEmpty) continue;
-      tp.text = TextSpan(text: line, style: style);
-      tp.textScaler = scaler;
-      tp.maxLines = 1;
-      tp.ellipsis = null;
-      tp.layout();
-      final w = tp.width;
+      var w = 0.0;
+      for (final r in line.runes) {
+        if (r == 0x09) {
+          w += tabW;
+        } else if (r >= 0x20 && r <= 0x7E) {
+          w += halfW;
+        } else {
+          w += wideW;
+        }
+      }
       if (w > maxW) maxW = w;
     }
     return maxW;
