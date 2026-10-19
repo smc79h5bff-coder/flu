@@ -423,10 +423,16 @@ class _ComparisonSettingsScreenState
       key: item.key,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       child: Material(
-        color: rule.enabled
-            ? s.surfaceVariant.withValues(alpha: 0.25)
-            : s.surfaceVariant.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: rule.enabled
+                ? s.outlineVariant.withValues(alpha: 0.6)
+                : s.outlineVariant.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
         child: Row(
           children: [
             dragHandle,
@@ -612,9 +618,11 @@ String? _resolveHelpText(PreprocessingRule rule) {
                 ),
             ],
           ),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: MediaQuery.of(c).size.height * 0.6,
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: double.maxFinite,
+              maxHeight: MediaQuery.of(c).size.height * 0.6,
+            ),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -728,7 +736,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
                       Text(
                         rule.replacementNote!,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           height: 1.4,
                           color: s.onSurfaceVariant,
                         ),
@@ -753,7 +761,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
     TextButton(
       style: TextButton.styleFrom(foregroundColor: Colors.red),
       onPressed: () => Navigator.pop(c, 'hide'),
-      child: const Text('隐藏'),
+      child: const Text('删除'),
     ),
 
               
@@ -884,7 +892,7 @@ Future<void> _confirmHideBuiltinRule(PreprocessingRule rule) async {
     context: context,
     builder: (c) => AlertDialog(
       insetPadding: const EdgeInsets.all(8),
-      title: const Text('隐藏此条内置规则？'),
+      title: const Text('删除此条内置规则？'),
       content: Text(
         '「${rule.name}」将不再出现在规则列表里。\n',
         
@@ -897,7 +905,7 @@ Future<void> _confirmHideBuiltinRule(PreprocessingRule rule) async {
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: Colors.red),
           onPressed: () => Navigator.pop(c, true),
-          child: const Text('隐藏'),
+          child: const Text('删除'),
         ),
       ],
     ),
@@ -2141,7 +2149,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
                   Text(
                     hint,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 12,
                       height: 1.3,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -2149,7 +2157,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
                   Text(
                     '（长按查看详细说明）',
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       height: 1.3,
                       color: Theme.of(context).colorScheme.outline,
                     ),
@@ -2761,7 +2769,7 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Text(
                 '这里是该开关的详细说明，可直接编辑。保存后覆盖默认内容。',
-                style: TextStyle(fontSize: 11, color: s.onSurfaceVariant),
+                style: TextStyle(fontSize: 12, color: s.onSurfaceVariant),
               ),
             ),
             Expanded(
