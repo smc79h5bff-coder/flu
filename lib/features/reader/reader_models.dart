@@ -180,39 +180,41 @@ class HighlightPalette {
             clearDefaultGroup ? null : (defaultGroupId ?? this.defaultGroupId),
       );
 
-  /// 20 个默认色块（全部纯色）
+  /// 20 个默认色块（未指定的槽位保持纯色）
   static List<HighlightPalette> defaults() {
-    const presets = <(String, int, int)>[
-      ('样式1', 0xFFFFCDD2, 0xFF000000),
-      ('样式2', 0xFFBBDEFB, 0xFF000000),
-      ('样式3', 0xFFC8E6C9, 0xFF000000),
-      ('样式4', 0xFFFFF9C4, 0xFF000000),
-      ('样式5', 0xFFF8BBD0, 0xFF000000),
-      ('样式6', 0xFFD1C4E9, 0xFF000000),
-      ('样式7', 0xFFB2DFDB, 0xFF000000),
-      ('样式8', 0xFFFFE0B2, 0xFF000000),
-      ('样式9', 0xFFDCEDC8, 0xFF000000),
-      ('样式10', 0xFFFFCCBC, 0xFF000000),
-      ('样式11', 0xFFF0F4C3, 0xFF000000),
-      ('样式12', 0xFFFFAB91, 0xFF000000),
-      ('样式13', 0xFFCE93D8, 0xFF000000),
-      ('样式14', 0xFFB3E5FC, 0xFF000000),
-      ('样式15', 0xFFFFF59D, 0xFF000000),
-      ('样式16', 0xFFA5D6A7, 0xFF000000),
-      ('样式17', 0xFFFFE082, 0xFF000000),
-      ('样式18', 0xFFEF9A9A, 0xFF000000),
-      ('样式19', 0xFF80DEEA, 0xFF000000),
-      ('样式20', 0xFFE1BEE7, 0xFF000000),
+    // (名称, 渐变色列表, stops, 文字色)；单色即纯色
+    const presets = <(String, List<int>, List<double>, int)>[
+      ('样式1', [0xFF7EBEE6, 0xFFBEB6DE], [0.0, 1.0], 0xFF000000),
+      ('样式2', [0xFFEDB8C0, 0xFFF8EFE5], [0.0, 1.0], 0xFF000000),
+      ('样式3', [0xFFBBDDD2, 0xFFECF9F0], [0.0, 1.0], 0xFF000000),
+      ('样式4', [0xFFFFE89C, 0xFFB6A6DE], [0.0, 1.0], 0xFF000000),
+      ('样式5', [0xFFF8BBD0], [0.0], 0xFF000000),
+      ('样式6', [0xFFD1C4E9], [0.0], 0xFF000000),
+      ('样式7', [0xFFB2DFDB], [0.0], 0xFF000000),
+      ('样式8', [0xFFFFE0B2], [0.0], 0xFF000000),
+      ('样式9', [0xFFDCEDC8], [0.0], 0xFF000000),
+      ('样式10', [0xFFFFCCBC], [0.0], 0xFF000000),
+      ('样式11', [0xFFB2E3B1, 0xFFFAF3D8], [0.0, 1.0], 0xFF000000),
+      ('样式12', [0xFF8EB6D6, 0xFFC6DA6C], [0.0, 1.0], 0xFF000000),
+      ('样式13', [0xFFBE1A32, 0xFFE9D4B5], [0.0, 1.0], 0xFF000000),
+      ('样式14', [0xFFFC8EC5, 0xFF9DDD86], [0.0, 1.0], 0xFF000000),
+      ('样式15', [0xFFE2E1FF, 0xFFFFF7D4, 0xFFD9F7FC],
+          [0.0, 0.5, 1.0], 0xFF000000),
+      ('样式16', [0xFFA5D6A7], [0.0], 0xFF000000),
+      ('样式17', [0xFFFFE082], [0.0], 0xFF000000),
+      ('样式18', [0xFFEF9A9A], [0.0], 0xFF000000),
+      ('样式19', [0xFF80DEEA], [0.0], 0xFF000000),
+      ('样式20', [0xFFE1BEE7], [0.0], 0xFF000000),
     ];
     return [
       for (var i = 0; i < presets.length; i++)
         HighlightPalette(
           index: i,
           name: presets[i].$1,
-          colors: [presets[i].$2],
-          stops: const [0.0],
+          colors: presets[i].$2,
+          stops: presets[i].$3,
           angle: 0.0,
-          textColor: presets[i].$3,
+          textColor: presets[i].$4,
         ),
     ];
   }
