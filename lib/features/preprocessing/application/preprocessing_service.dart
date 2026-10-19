@@ -230,13 +230,13 @@ String unifyToAnsi(String text) {
   return sb.toString();
 }
 
-/// 半角 → 全角。
-/// U+0021 ~ U+007E 每个 +0xFEE0 变成对应全角；U+0020 → U+3000。
-/// 覆盖字母、数字、常见标点（含半角逗号 , → 全角逗号 ，）。
-String halfToFull(String text) {
+
+/// 全角数字/英文字母 → 半角。  标点、空格不动。
+String fullToHalf(String text) {
   return String.fromCharCodes(text.runes.map((c) {
-    if (c >= 0x21 && c <= 0x7E) return c + 0xFEE0;
-    if (c == 0x20) return 0x3000;
+    if (c >= 0xFF10 && c <= 0xFF19) return c - 0xFEE0; // ０-９
+    if (c >= 0xFF21 && c <= 0xFF3A) return c - 0xFEE0; // Ａ-Ｚ
+    if (c >= 0xFF41 && c <= 0xFF5A) return c - 0xFEE0; // ａ-ｚ
     return c;
   }));
 }
