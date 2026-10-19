@@ -338,30 +338,71 @@ class DisplaySettingsSheet extends ConsumerWidget {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 4),
-                    _colorRow(context, ref, '左文件独有行 · 整行底色',
-                        deleteRowBgProvider),
-                    _colorRow(context, ref, '左文件独有行 · 文字颜色',
-                        deleteRowFgProvider),
-                    _colorRow(context, ref, '右文件独有行 · 整行底色',
-                        insertRowBgProvider),
-                    _colorRow(context, ref, '右文件独有行 · 文字颜色',
-                        insertRowFgProvider),
-                    _colorRow(context, ref, '被改行（左）· 整行底色',
-                        replaceLeftBgProvider),
-                    _colorRow(context, ref, '被改行（左）· 文字颜色',
-                        replaceLeftFgProvider),
-                    _colorRow(context, ref, '被改行（右）· 整行底色',
-                        replaceRightBgProvider),
-                    _colorRow(context, ref, '被改行（右）· 文字颜色',
-                        replaceRightFgProvider),
-                    _colorRow(context, ref, '左侧行内改动字 · 底色',
-                        charDeleteBgProvider),
-                    _colorRow(context, ref, '左侧行内改动字 · 文字颜色',
-                        charDeleteFgProvider),
-                    _colorRow(context, ref, '右侧行内改动字 · 底色',
-                        charInsertBgProvider),
-                    _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
-                        charInsertFgProvider),
+                    // 合并视图配色固定，12 个差异颜色都调不了，
+                    // 原位置显示提示，避免用户调了没效果的困惑。
+                    if (viewMode == ViewMode.merged)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 16,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '当前视图为「全文上下合并」，配色固定，不支持自定义颜色。切换到其他视图后即可调节。',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  height: 1.5,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else ...[
+                      _colorRow(context, ref, '左文件独有行 · 整行底色',
+                          deleteRowBgProvider),
+                      _colorRow(context, ref, '左文件独有行 · 文字颜色',
+                          deleteRowFgProvider),
+                      _colorRow(context, ref, '右文件独有行 · 整行底色',
+                          insertRowBgProvider),
+                      _colorRow(context, ref, '右文件独有行 · 文字颜色',
+                          insertRowFgProvider),
+                      _colorRow(context, ref, '被改行（左）· 整行底色',
+                          replaceLeftBgProvider),
+                      _colorRow(context, ref, '被改行（左）· 文字颜色',
+                          replaceLeftFgProvider),
+                      _colorRow(context, ref, '被改行（右）· 整行底色',
+                          replaceRightBgProvider),
+                      _colorRow(context, ref, '被改行（右）· 文字颜色',
+                          replaceRightFgProvider),
+                      _colorRow(context, ref, '左侧行内改动字 · 底色',
+                          charDeleteBgProvider),
+                      _colorRow(context, ref, '左侧行内改动字 · 文字颜色',
+                          charDeleteFgProvider),
+                      _colorRow(context, ref, '右侧行内改动字 · 底色',
+                          charInsertBgProvider),
+                      _colorRow(context, ref, '右侧行内改动字 · 文字颜色',
+                          charInsertFgProvider),
+                    ],
 
                     // ========== 跨行块视图专属颜色 ==========
                     if (ref.watch(viewModeProvider) == ViewMode.grouped) ...[
