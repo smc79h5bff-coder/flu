@@ -63,7 +63,7 @@ class BuiltinRules {
           script: 'enPunctToCn',
           enabled: false,
           isBuiltin: true,
-          helpText: r'统一成中文标点，方便对比。',
+          helpText: r'统一标点，方便对比。',
         ),
 
         // ============ 原「忽略项」搬入 ============
