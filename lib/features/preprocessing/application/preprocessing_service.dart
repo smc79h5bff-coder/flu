@@ -257,6 +257,7 @@ const Map<String, String> _enToCnPunct = {
   '~': '～',
 };
 
+
 String enPunctToCn(String text) {
   var out = text;
 
@@ -271,7 +272,6 @@ String enPunctToCn(String text) {
   for (var i = 0; i < lines.length; i++) {
     final line = lines[i];
     var k = 0;
-    // 跳过行首空白
     while (k < line.length &&
         (line[k] == ' ' || line[k] == '\t' || line[k] == '\u3000')) {
       k++;
@@ -280,10 +280,15 @@ String enPunctToCn(String text) {
     while (k < line.length && line[k] == '-') {
       k++;
     }
-    if (k == dashStart) continue; // 没有 '-'
+    if (k == dashStart) continue;
     lines[i] = line.substring(0, dashStart) +
         '—' * (k - dashStart) +
         line.substring(k);
   }
-  return lines.join('\n');
+  out = lines.join('\n');
+
+  // 3. 连续点号折叠成 ……（放最后：此时英文 . 已经变成 。）
+  out = out.replaceAll(RegExp(r'[.。…⋯]{2,}'), '……');
+
+  return out;
 }
