@@ -4809,7 +4809,7 @@ Widget _buildSelectionHintBar() {
     accent = isCustom ? customText : currentText;
     btnBg = isCustom ? customBtnBg : currentBtnBg;
     btnIconColor =
-        (hasText || _hasActiveConditions) ? accent : Colors.black54;
+        (hasText || _hasActiveConditions) ? accent : Colors.black38;
     inputBg = Colors.transparent;
     inputFg = Colors.black;
     suffixBg = Colors.transparent;
@@ -4931,6 +4931,7 @@ Widget _buildSelectionHintBar() {
 ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: accent, width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -5459,8 +5460,14 @@ Widget _buildExpandedZipBar() {
 
   Widget _buildBottomBar() {
     final n = _selectedPaths.length;
-    final canCompare = n == 2;
-    final canMd5 = n == 2;
+    // 与提示条同一套判定：文件夹 / 压缩包本体不能对比，按钮置灰。
+    final selItems = _resolveSelectedItems();
+    bool isComparable(_DisplayItem it) =>
+        !it.isDir && !(it.isZip && !it.isZipInner);
+    final allComparable =
+        selItems.isNotEmpty && selItems.every(isComparable);
+    final canCompare = n == 2 && allComparable;
+    final canMd5 = n == 2 && allComparable;
     final canProps = n == 1;
     final canOpenWith = n == 1;
     final canShare = n >= 1;
@@ -5740,11 +5747,20 @@ Widget _buildListBody() {
   final colorScheme = Theme.of(context).colorScheme;
 
   final items = _visibleItems ?? const <_DisplayItem>[];
+  // 选中模式下底栏是 Stack 覆盖层，不占布局；
+  // 在列表末尾补一段滚动留白，让最后一个文件能滚出底栏遮挡。
+  // 留白在滚动内容末尾，不改变可视区高度，进入/退出选中模式内容不跳。
+  final extra = _selectionMode ? 1 : 0;
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
-      itemCount: items.length,
+      itemCount: items.length + extra,
       itemBuilder: (ctx, i) {
+        if (i >= items.length) {
+          return SizedBox(
+            height: MediaQuery.of(context).padding.bottom + 110,
+          );
+        }
         final item = items[i];
         return RepaintBoundary(
           key: ValueKey('rb_${item.key}'),
@@ -6054,12 +6070,19 @@ return Listener(
     final fontMeta = ref.watch(browserFontGridMetaProvider);
 
     final rowCount = (entries.length + 1) ~/ 2;
+    // 选中模式下底栏是覆盖层，网格末尾同样补一段滚动留白。
+    final extraRow = _selectionMode ? 1 : 0;
 
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
-      itemCount: rowCount,
+      itemCount: rowCount + extraRow,
       itemBuilder: (ctx, rowIdx) {
+        if (rowIdx >= rowCount) {
+          return SizedBox(
+            height: MediaQuery.of(context).padding.bottom + 110,
+          );
+        }
         final leftIdx = rowIdx * 2;
         final rightIdx = leftIdx + 1;
 
@@ -6276,12 +6299,19 @@ return Listener(
     final fontMeta = ref.watch(browserFontListMetaProvider);
 
     final items = _cachedDisplayItems ?? const <_DisplayItem>[];
+    // 选中模式下底栏是覆盖层，搜索结果列表末尾同样补滚动留白。
+    final extra = _selectionMode ? 1 : 0;
 
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
-      itemCount: items.length,
+      itemCount: items.length + extra,
       itemBuilder: (ctx, i) {
+        if (i >= items.length) {
+          return SizedBox(
+            height: MediaQuery.of(context).padding.bottom + 110,
+          );
+        }
         final item = items[i];
         return RepaintBoundary(
           key: ValueKey('rb_search_${item.key}'),
