@@ -4492,7 +4492,6 @@ String _normalizePath(String path) {
                   ref.watch(searchScopeProvider) == SearchScope.custom)
               ? '自定义的搜索范围'
               : _title,
-          style: const TextStyle(fontSize: 14),
         ),
       ),
       leading: _searchActive
