@@ -20,8 +20,6 @@ class BuiltinRules {
           replaceWith: '\n',
           enabled: true,
           isBuiltin: true,
-          implType: '正则',
-          implDetail: r'查找：\r\n|\r' '\n替换：\n',
           helpText: r'\r\n 和 \r 都换成 \n。',
         ),
         PreprocessingRule(
@@ -31,8 +29,6 @@ class BuiltinRules {
           replaceWith: ' ',
           enabled: true,
           isBuiltin: true,
-          implType: '正则',
-          implDetail: r'查找：[ \t\u3000]{2,}' '\n替换：一个半角空格',
           helpText: r'连续空格/Tab/全角空格压成一个空格。',
         ),
         PreprocessingRule(
@@ -42,9 +38,6 @@ class BuiltinRules {
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
-          implType: '正则',
-          implDetail:
-              r'查找：^[ \t\u3000]+|[ \t\u3000]+$' '\n替换：（空）',
           helpText: r'删掉每行首尾的空格、Tab、全角空格。',
         ),
         PreprocessingRule(
@@ -54,41 +47,22 @@ class BuiltinRules {
           replaceWith: '"',
           enabled: false,
           isBuiltin: true,
-          implType: '正则',
-          implDetail: r'查找：[""“”]' '\n替换：英文直引号 "',
           helpText: r'中文左右引号统一成英文直引号 "。',
         ),
-
-
-    PreprocessingRule(
-  id: 'half_to_full',          // 建议不动，避免开关状态被重置
-  name: '全角字母数字转半角',
-  script: 'fullToHalf',
-  enabled: false,
-  isBuiltin: true,
-  implType: '代码',
-  implDetail: '逐字符 unicode 映射：\n'
-      '全角数字 U+FF10~FF19 → 减 0xFEE0\n'
-      '全角大写 U+FF21~FF3A → 减 0xFEE0\n'
-      '全角小写 U+FF41~FF5A → 减 0xFEE0',
-  replacementType: 'warn',
-  replacementDetail: '正则能做，但要写 62 个字符的映射，'
-      '非常长，不建议',
-  helpText: r'全角数字和英文字母转成半角。',
-),
-
-
-    
+        PreprocessingRule(
+          id: 'half_to_full', // 建议不动，避免开关状态被重置
+          name: '全角字母数字转半角',
+          script: 'fullToHalf',
+          enabled: false,
+          isBuiltin: true,
+          helpText: r'全角数字和英文字母转成半角。',
+        ),
         PreprocessingRule(
           id: 'en_punct_to_cn',
           name: '忽略标点符号',
           script: 'enPunctToCn',
           enabled: false,
           isBuiltin: true,
-          implType: '代码',
-          implDetail: '逐字符查表替换\n映射表约 11 对',
-          replacementType: 'ok',
-          replacementDetail: '正则：逐条 replaceAll',
           helpText: r'英文标点替换成对应中文标点。',
         ),
 
@@ -101,11 +75,6 @@ class BuiltinRules {
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
-          implType: '正则',
-          implDetail: r'查找：[\u00A0\u00AD\u200B-\u200F'
-              r'\u202A-\u202E\u202F\u2060-\u2064'
-              r'\u2066-\u2069\uFEFF]'
-              '\n替换：（空）',
           helpText: r'删掉零宽空格、BOM 等看不见的字符。',
         ),
         PreprocessingRule(
@@ -115,8 +84,6 @@ class BuiltinRules {
           replaceWith: '',
           enabled: true,
           isBuiltin: true,
-          implType: '正则',
-          implDetail: r'查找：[ \t\u3000]+' '\n替换：（空）',
           helpText: r'删掉所有空格、Tab 和全角空格。',
         ),
         PreprocessingRule(
@@ -125,15 +92,6 @@ class BuiltinRules {
           script: 'dropEmptyLines',
           enabled: true,
           isBuiltin: true,
-          implType: '代码',
-          implDetail: "text.split('\\n')\n"
-              "    .where((l) => l.isNotEmpty)\n"
-              "    .join('\\n')",
-          replacementType: 'ok',
-          replacementDetail: r'正则：\n{2,} → \n' '\n'
-              '性能：大致相当',
-          replacementNote: '正则改写必须用 {2,}，'
-              '写 \\n\\n 会漏掉 3 个以上连续换行',
           helpText: r'删掉一个字符都没有的空行。',
         ),
         PreprocessingRule(
@@ -143,8 +101,6 @@ class BuiltinRules {
           replaceWith: '<NUM>',
           enabled: false,
           isBuiltin: true,
-          implType: '正则',
-          implDetail: r'查找：[0-9]+' '\n替换：<NUM>',
           helpText: r'连续数字替换成 <NUM> 占位符。',
         ),
         PreprocessingRule(
@@ -153,11 +109,6 @@ class BuiltinRules {
           script: 'lowercase',
           enabled: false,
           isBuiltin: true,
-          implType: '代码',
-          implDetail: 'text.toLowerCase()',
-          replacementType: 'impossible',
-          replacementDetail: '正则只能匹配和替换，'
-              '不能把字符变大写或小写',
           helpText: r'所有英文大写字母转成小写。',
         ),
         PreprocessingRule(
@@ -166,12 +117,6 @@ class BuiltinRules {
           script: 'unifyAnsi',
           enabled: false,
           isBuiltin: true,
-          implType: '代码',
-          implDetail: 'GBK 编解码：\n'
-              '1. GBK 编码再解码，能无损还原则保留\n'
-              '2. 否则逐字符判断，GBK 无法表示的删掉',
-          replacementType: 'impossible',
-          replacementDetail: '需要调 GBK 编解码器，正则做不到',
           helpText: r'删掉 GBK 无法表示的字符（如 emoji）。',
         ),
       ];
