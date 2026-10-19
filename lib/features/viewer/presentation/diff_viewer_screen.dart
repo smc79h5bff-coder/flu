@@ -128,6 +128,8 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   double? _pendingGroupedRestoreOffset;
 
   _HeightBundle? _activeHeights;
+  // 是否已经成功显示过一次正文。首次进入 = false，切视图 = true。
+  bool _hasShownContentOnce = false;
 
   double? _cachedContentWidth;
   DiffResult? _cachedContentWidthFor;
@@ -1225,6 +1227,22 @@ void _startHeightComputation(DiffResult diff, ViewMode mode) {
 
   LineHeightTable? _activeTableFor(ViewMode mode) {
     final h = _activeHeights;
+    if (h == null) return null;
+    switch (mode) {
+      case ViewMode.merged:
+        return h.merged;
+      case ViewMode.sideBySide:
+        return h.sbsSync ?? h.sbsLeft;
+      case ViewMode.diffOnly:
+        return h.diffOnly;
+      case ViewMode.diffOnlyPlain:
+        return h.diffOnlyPlain;
+      case ViewMode.grouped:
+        return null;
+    }
+  }
+
+  LineHeightTable? _tableOf(_HeightBundle? h, ViewMode mode) {
     if (h == null) return null;
     switch (mode) {
       case ViewMode.merged:
@@ -2664,36 +2682,58 @@ void _toast(String msg) {
     return FutureBuilder<_HeightBundle>(
       future: future,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('对比结果')),
-            body: Center(child: Text('加载失败：${snapshot.error}')),
-          );
+        // ────────── 场景 1：首次进入（还没成功显示过正文）──────────
+        // 保留原来的整页 Scaffold + 原转圈动画
+        if (!_hasShownContentOnce) {
+          if (snapshot.hasError) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('对比结果')),
+              body: Center(child: Text('加载失败：${snapshot.error}')),
+            );
+          }
+          if (!snapshot.hasData) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('对比结果')),
+              body: const _LoadingBody(),
+            );
+          }
+          // 高度表首次就绪，从这里开始进入「已显示过正文」的状态
+          _hasShownContentOnce = true;
         }
-        // 遮罩策略：就绪即走，未就绪保底 600ms。
-        // 高度表已就绪（切回看过的视图）→ 瞬时渲染，不遮罩；
-        // 未就绪 → 显示表情加载页，且保底时段内即使数据到了也等时间到。
-        final overlayActive = !snapshot.hasData ||
-            (_switchOverlayUntil != null &&
-                DateTime.now().isBefore(_switchOverlayUntil!));
-        if (overlayActive) {
-          // 数据已到但还在保底时段：60ms 轮询等时间到；
-          // 数据未到：FutureBuilder 到货时会自动重建，无需轮询。
-          if (snapshot.hasData) {
+
+        // ────────── 从这里开始，_hasShownContentOnce == true ──────────
+        final now = DateTime.now();
+        final overlayActive =
+            _switchOverlayUntil != null && now.isBefore(_switchOverlayUntil!);
+
+        final heights = snapshot.data;
+        final tableForCurrent = _tableOf(heights, viewMode);
+        final tableReady = viewMode == ViewMode.grouped ||
+            (tableForCurrent != null && tableForCurrent.length > 0);
+
+        // ────────── 场景 2：切视图遮罩 / 表还没就绪 ──────────
+        // 保留 AppBar、tab、工具栏，只遮内容区
+        if (overlayActive || !tableReady) {
+          if (overlayActive) {
             _switchOverlayTimer?.cancel();
             _switchOverlayTimer = Timer(const Duration(milliseconds: 60), () {
               if (mounted) setState(() {});
             });
           }
-          return Scaffold(
-            appBar: AppBar(title: const Text('对比结果')),
-            body: const _LoadingBody(),
+          return _buildDiffScaffold(
+            diff,
+            viewMode,
+            origName,
+            modName,
+            heights ?? const _HeightBundle(),
+            showLoadingOverlay: true,
           );
         }
+
+        // ────────── 场景 3：表就绪，正常渲染 ──────────
         _switchOverlayUntil = null;
         ViewerDiag.mark('视图就绪');
-        final heights = snapshot.data!;
-        _activeHeights = heights;
+        _activeHeights = heights!;
 
         if ((_pendingJumpEntry != null || _pendingJumpOrigLine != null) &&
             !_pendingJumpQueued) {
@@ -2892,8 +2932,9 @@ void _toast(String msg) {
     ViewMode viewMode,
     String? origName,
     String? modName,
-    _HeightBundle heights,
-  ) {
+    _HeightBundle heights, {
+    bool showLoadingOverlay = false,
+  }) {
     final noWrap = ref.watch(noWrapProvider);
     final diffBlocks = _diffBlockCount(diff);
 
@@ -3331,14 +3372,21 @@ void _toast(String msg) {
           _buildToolbar(),
           if (_processing) _buildProcessingBanner(),
                    Expanded(
-              child: _buildActiveView(
-                diff,
-                viewMode,
-                origName,
-                modName,
-                heights,
-                noWrap,
-              ),
+              child: showLoadingOverlay
+                  ? ColoredBox(
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFF2B2B2B)
+                          : const Color(0xFFE8E8E8),
+                      child: const Center(child: _SwitchLoadingBody()),
+                    )
+                  : _buildActiveView(
+                      diff,
+                      viewMode,
+                      origName,
+                      modName,
+                      heights,
+                      noWrap,
+                    ),
             ),
           ],
         ),
@@ -4633,4 +4681,244 @@ class _LoadingRingPainter extends CustomPainter {
       old.elapsedMs != elapsedMs ||
       old.breath != breath ||
       old.color != color;
+}
+
+// ==================== 切视图专用加载动画 ====================
+//
+// 和 _LoadingBody 的区别：
+//   1. 不依赖 AnimationController.repeat()，纯 Timer 驱动
+//      → 主线程在算高度表时，它依然能跳状态
+//   2. 用于「切视图」的遮罩，只在内容区显示（AppBar / tab / 工具栏保留）
+//
+// 设计：
+//   - 圆圈固定不动，颜色每 1.8 秒换一次
+//   - 眼睛三态（圆 / 眯 / 闭）每 3 秒变一次
+//   - 文字沿用「正在比较 / 排版 / 就绪」
+//   - 下面三个点每 0.5 秒轮流亮
+class _SwitchLoadingBody extends StatefulWidget {
+  const _SwitchLoadingBody();
+
+  @override
+  State<_SwitchLoadingBody> createState() => _SwitchLoadingBodyState();
+}
+
+class _SwitchLoadingBodyState extends State<_SwitchLoadingBody> {
+  static const List<String> _stages = [
+    '正在比较…',
+    '正在排版…',
+    '马上就绪…',
+  ];
+
+  static const List<Color> _palette = [
+    Color(0xFFB388FF), // 紫
+    Color(0xFFF6A5C0), // 粉
+    Color(0xFFFFB74D), // 橙
+    Color(0xFFFFE082), // 黄
+    Color(0xFF81C784), // 绿
+    Color(0xFF64B5F6), // 蓝
+  ];
+
+  int _stageIndex = 0;
+  int _colorIndex = 0;
+  int _dotIndex = 0;
+  int _eyeIndex = 0;
+
+  Timer? _stageTimer;
+  Timer? _colorTimer;
+  Timer? _dotTimer;
+  Timer? _eyeTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    CrashTrace.mark('进入切视图加载页');
+    _stageTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+      if (!mounted) return;
+      setState(() => _stageIndex = (_stageIndex + 1) % _stages.length);
+    });
+    _colorTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
+      if (!mounted) return;
+      setState(() => _colorIndex = (_colorIndex + 1) % _palette.length);
+    });
+    _dotTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (!mounted) return;
+      setState(() => _dotIndex = (_dotIndex + 1) % 3);
+    });
+    _eyeTimer = Timer.periodic(const Duration(milliseconds: 3000), (_) {
+      if (!mounted) return;
+      setState(() => _eyeIndex = (_eyeIndex + 1) % 3);
+    });
+  }
+
+  @override
+  void dispose() {
+    _stageTimer?.cancel();
+    _colorTimer?.cancel();
+    _dotTimer?.cancel();
+    _eyeTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _palette[_colorIndex];
+    final s = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 72,
+            height: 72,
+            child: CustomPaint(
+              painter: _SwitchRingPainter(
+                color: color,
+                eyeIndex: _eyeIndex,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.3),
+                  end: Offset.zero,
+                ).animate(anim),
+                child: child,
+              ),
+            ),
+            child: Text(
+              _stages[_stageIndex],
+              key: ValueKey(_stageIndex),
+              style: TextStyle(
+                fontSize: 14,
+                color: s.onSurfaceVariant,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(3, (i) {
+              final active = i == _dotIndex;
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: active ? 9 : 6,
+                height: active ? 9 : 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: active ? color : color.withValues(alpha: 0.25),
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwitchRingPainter extends CustomPainter {
+  _SwitchRingPainter({required this.color, required this.eyeIndex});
+  final Color color;
+  final int eyeIndex;
+
+  static const double _pi = 3.141592653589793;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.width / 2 - 4;
+
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..color = color.withValues(alpha: 0.2),
+    );
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..color = color,
+    );
+
+    switch (eyeIndex) {
+      case 0:
+        _drawRoundEyes(canvas, center);
+        break;
+      case 1:
+        _drawCurvedEyes(canvas, center);
+        break;
+      case 2:
+        _drawClosedEyes(canvas, center);
+        break;
+    }
+  }
+
+  void _drawRoundEyes(Canvas canvas, Offset center) {
+    final fill = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawOval(
+      Rect.fromCenter(center: center.translate(-8, -2), width: 9, height: 12),
+      fill,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(center: center.translate(8, -2), width: 9, height: 12),
+      fill,
+    );
+    final shine = Paint()
+      ..color = Colors.white.withValues(alpha: 0.9)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center.translate(-10, -5), 1.8, shine);
+    canvas.drawCircle(center.translate(6, -5), 1.8, shine);
+  }
+
+  void _drawCurvedEyes(Canvas canvas, Offset center) {
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromCircle(center: center.translate(-8, 3), radius: 5.5),
+      _pi, _pi, false, stroke,
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: center.translate(8, 3), radius: 5.5),
+      _pi, _pi, false, stroke,
+    );
+  }
+
+  void _drawClosedEyes(Canvas canvas, Offset center) {
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      center.translate(-11.5, 0),
+      center.translate(-4.5, 0),
+      stroke,
+    );
+    canvas.drawLine(
+      center.translate(4.5, 0),
+      center.translate(11.5, 0),
+      stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SwitchRingPainter old) =>
+      old.color != color || old.eyeIndex != eyeIndex;
 }
