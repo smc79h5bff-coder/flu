@@ -727,7 +727,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   static const double _gridCellPadV = 6.0;
   static const double _gridDividerThickness = 0.5;
   static const Color _gridDividerColor = Color(0xFFE0E0E0);
-  static const Color _gridSelectedBg = Color(0xFFFFF3FB);
 
   static const Set<String> _textExts = {
     '.txt', '.md', '.markdown', '.log', '.lst', '.diz', '.nfo',
@@ -6126,6 +6125,8 @@ return Listener(
     }
     final metaLine = metaParts.join(' · ');
 
+    final displayItem = _displayItemForEntry(info);
+
     return GestureDetector(
       onTap: () {
         if (_selectionMode) {
@@ -6138,33 +6139,22 @@ return Listener(
           _openFile(e.path, info.name, info.size, allowExpand: false);
         }
       },
-      onLongPress: () {
-        final all = _cachedDisplayItems ?? const <_DisplayItem>[];
-        final it = all.firstWhere(
-          (x) => x.key == e.path,
-          orElse: () => _DisplayItem(
-            key: e.path,
-            displayName: info.name,
-            depth: 0,
-          ),
-        );
-        _onLongPressItem(it);
-      },
+      onLongPress: () => _onLongPressItem(displayItem),
       child: Container(
         decoration: BoxDecoration(
+          // 背景只保留选中态，和列表模式一致；
+          // 文本/二进制靠图标颜色区分，灰底属于隐式规则。
           color: selected
-              ? _gridSelectedBg
-              : (info.isDir
-                  ? null
-                  : (_textExts.contains(_extOf(info.name))
-                      ? null
-                      : const Color(0xFFF0F0F0))),
+              ? colorScheme.primary.withValues(alpha: 0.10)
+              : null,
         ),
         foregroundDecoration: BoxDecoration(
           border: selected
-              ? Border.all(
-                  color: colorScheme.primary,
-                  width: 2,
+              ? Border(
+                  top: BorderSide(color: colorScheme.primary, width: 1),
+                  bottom: BorderSide(color: colorScheme.primary, width: 1),
+                  left: BorderSide(color: colorScheme.primary, width: 2),
+                  right: BorderSide(color: colorScheme.primary, width: 2),
                 )
               : Border(
                   bottom: BorderSide(
@@ -6181,7 +6171,36 @@ return Listener(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildGridName(info, fontName),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _toggleSelectionByKey(e.path),
+                  onLongPress: () => _onLongPressItem(displayItem),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: Center(
+                        child: Icon(
+                          info.isDir
+                              ? Icons.folder
+                              : Icons.insert_drive_file_outlined,
+                          size: 15,
+                          color: info.isDir
+                              ? Colors.amber.shade600
+                              : _fileColor(info.name),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(child: _buildGridName(info, fontName)),
+              ],
+            ),
             if (metaLine.isNotEmpty) ...[
               const SizedBox(height: 2),
               Text(
@@ -6200,6 +6219,19 @@ return Listener(
     );
   }
 
+  /// 网格长按需要的 item 解析逻辑，图标/整格手势共用一份。
+  _DisplayItem _displayItemForEntry(EntryInfo info) {
+    final all = _cachedDisplayItems ?? const <_DisplayItem>[];
+    return all.firstWhere(
+      (x) => x.key == info.entity.path,
+      orElse: () => _DisplayItem(
+        key: info.entity.path,
+        displayName: info.name,
+        depth: 0,
+      ),
+    );
+  }
+
   Widget _buildGridName(EntryInfo info, double fontSize) {
     if (info.isDir) {
       return Text(
@@ -6209,56 +6241,21 @@ return Listener(
         style: TextStyle(
           fontSize: fontSize,
           fontWeight: FontWeight.bold,
+          height: 1.3,
         ),
       );
     }
-
-    final name = info.name;
-    final isText = _textExts.contains(_extOf(name));
-    final isLarge = isText &&
-        info.size != null &&
-        info.size! > 3 * 1024 * 1024;
-
-    final dotIdx = name.lastIndexOf('.');
-    final hasExt = dotIdx > 0 && dotIdx < name.length - 1;
-
-    if (!isLarge || !hasExt) {
-      return Text(
-        name,
-        maxLines: 3,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-        ),
-      );
-    }
-
-    final base = name.substring(0, dotIdx);
-    final ext = name.substring(dotIdx);
-
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(
-            text: base,
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          TextSpan(
-            text: ext,
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.normal,
-              color: Colors.grey.shade500,
-            ),
-          ),
-        ],
-      ),
+    // 粗细与列表模式对齐：文件夹 bold、文件 w500。
+    // 不再按大小拆扩展名，避免"有的名字粗有的不粗"的随机感。
+    return Text(
+      info.name,
       maxLines: 3,
       overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: fontSize,
+        fontWeight: FontWeight.w500,
+        height: 1.3,
+      ),
     );
   }
 
