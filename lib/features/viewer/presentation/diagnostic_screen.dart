@@ -44,14 +44,14 @@ class DiagHistory {
   static void clear() => _entries.clear();
 }
 
-final diagPerfEnabledProvider = StateProvider<bool>((ref) => true);
-final diagFileEnabledProvider = StateProvider<bool>((ref) => true);
-final diagTimeEnabledProvider = StateProvider<bool>((ref) => true);
-final diagHistoryEnabledProvider = StateProvider<bool>((ref) => true);
+final diagPerfEnabledProvider = StateProvider<bool>((ref) => false);
+final diagFileEnabledProvider = StateProvider<bool>((ref) => false);
+final diagTimeEnabledProvider = StateProvider<bool>((ref) => false);
+final diagHistoryEnabledProvider = StateProvider<bool>((ref) => false);
 
 /// 崩溃日志开关。打开后 CrashLogger 开始记录。
-/// 默认开（首次进诊断页时同步给 CrashLogger）。
-final diagCrashLogEnabledProvider = StateProvider<bool>((ref) => true);
+/// 默认关；App 启动时需 setEnabled(false)，首次进诊断页时会按开关同步。
+final diagCrashLogEnabledProvider = StateProvider<bool>((ref) => false);
 
 String dumpChars(String s, {Set<int> diffAt = const {}}) {
   final sb = StringBuffer();
