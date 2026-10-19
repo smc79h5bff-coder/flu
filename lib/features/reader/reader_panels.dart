@@ -235,7 +235,7 @@ Row(
                       padding: const EdgeInsets.only(top: 4, bottom: 8),
                       child: Text(
                         '分页：全屏点击下翻 / 从左→右滑回上页。\n'
-                        '滚动：上下自由滑动，点击会往下滚一屏。',
+                        '滚动：上下自由滑动，点击屏幕会往下滚一屏，左右滑动有也可翻页。',
                         style: TextStyle(
                           fontSize: 11,
                           color: Colors.grey.shade600,
