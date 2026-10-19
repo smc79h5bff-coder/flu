@@ -1721,7 +1721,7 @@ Widget _buildAdvancedToggle() {
   void _toggleSelectAll() {
     final all = _cachedDisplayItems ?? const <_DisplayItem>[];
     final selectable = all
-        .where((it) => !it.isDir && !it.key.startsWith('__loading__') &&
+        .where((it) => !it.key.startsWith('__loading__') &&
             !it.key.startsWith('__error__'))
         .map((it) => it.key)
         .toList();
@@ -4586,7 +4586,7 @@ if (!_searchActive &&
         ),
         IconButton(
           icon: const Icon(Icons.tune),
-          tooltip: '比较设置',
+          tooltip: '对比规则设置',
           onPressed: () {
             Navigator.of(context).push(_noAnimRoute(
               const ComparisonSettingsScreen(),
@@ -4619,7 +4619,7 @@ if (!_searchActive &&
       _importConfig();
    case 'refresh':
   DirCache.instance.invalidate(_currentPath);
-  _load(skipCache: true);
+  _load(skipCache: true, restoreScroll: true, silent: true);
 case 'jumpToPath':
   _showJumpToPathDialog();
 case 'jumpToTop':
@@ -4740,7 +4740,7 @@ const PopupMenuItem<String>(
   PreferredSizeWidget _buildSelectionAppBar() {
     final all = _cachedDisplayItems ?? const <_DisplayItem>[];
     final selectable = all
-        .where((it) => !it.isDir && !it.key.startsWith('__loading__') &&
+        .where((it) => !it.key.startsWith('__loading__') &&
             !it.key.startsWith('__error__'))
         .map((it) => it.key)
         .toList();
