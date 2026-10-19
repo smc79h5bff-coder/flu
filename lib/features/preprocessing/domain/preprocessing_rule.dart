@@ -70,6 +70,9 @@ class PreprocessingRule {
   /// kind == replace 且非空时，优先走内置脚本。
   final String? script;
 
+  /// 是否脚本型内置规则。UI 层（列表副标题 / 详情弹窗）据此不显示脚本文本。
+  bool get isScriptRule => script != null && script!.isNotEmpty;
+
   // ==================== 7 个处理开关（kind == replace 时用） ====================
 
   final bool findRegex;
