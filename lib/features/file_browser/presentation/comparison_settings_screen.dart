@@ -441,26 +441,28 @@ class _ComparisonSettingsScreenState
   ),
 ),
                   
-                  const SizedBox(height: 2),
-                  GestureDetector(
-                    onLongPress: () => _showRuleDetail(rule),
-                    behavior: HitTestBehavior.opaque,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: LayoutBuilder(
-                        builder: (ctx, constraints) => _buildTwoDotsText(
-                          preview,
-                          constraints.maxWidth,
-                          TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
+                  if (preview.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    GestureDetector(
+                      onLongPress: () => _showRuleDetail(rule),
+                      behavior: HitTestBehavior.opaque,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: LayoutBuilder(
+                          builder: (ctx, constraints) => _buildTwoDotsText(
+                            preview,
+                            constraints.maxWidth,
+                            TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -524,8 +526,8 @@ class _ComparisonSettingsScreenState
   }
 
   String _shortPreview(PreprocessingRule rule) {
-    if (rule.script != null && rule.script!.isNotEmpty) {
-      return '内置实现 · ${rule.script}';
+    if (rule.isScriptRule) {
+      return ''; // 脚本型规则不显示副标题，列表里只留名字一行
     }
     switch (rule.kind) {
       case RuleKind.preset:
@@ -561,11 +563,6 @@ String? _resolveHelpText(PreprocessingRule rule) {
   // 如果有 helpText，拼到下面一起显示。
   final detail = ruleSubtitle(rule);
   final helpText = _resolveHelpText(rule);
-  final kindLabel = switch (rule.kind) {
-      RuleKind.replace => '查找替换',
-      RuleKind.preset => '预置功能',
-      RuleKind.js => 'JS 脚本',
-    };
     final scopeLabel = switch (rule.scope) {
       RuleScope.both => '两侧文件',
       RuleScope.originalOnly => '仅左侧文件',
@@ -614,8 +611,6 @@ String? _resolveHelpText(PreprocessingRule rule) {
                 children: [
                   Row(
                     children: [
-                      _tag(kindLabel, s),
-                      const SizedBox(width: 6),
                       _tag(scopeLabel, s),
                       const SizedBox(width: 6),
                       _tag(rule.enabled ? '已启用' : '已禁用', s),
@@ -626,7 +621,11 @@ String? _resolveHelpText(PreprocessingRule rule) {
                   const SizedBox(height: 12),
                   SelectableText(
   () {
-    final main = detail.isEmpty ? '(无内容)' : detail;
+    final main = detail;
+    if (main.isEmpty) {
+      // 没有主内容（脚本型规则）：只显示 helpText
+      return (helpText == null || helpText.isEmpty) ? '(无内容)' : helpText;
+    }
     if (helpText == null || helpText.isEmpty) {
       return main;
     }
@@ -1028,7 +1027,7 @@ Future<void> _showHiddenRules() async {
     final hasNote = (notes[_orderNoteSectionId] ?? '').trim().isNotEmpty;
 
     return Material(
-      color: const Color(0xFFE9DFF0),
+      color: const Color(0xFFF3EDF9),
       child: InkWell(
         onTap: _openOrderNoteDialog,
         child: Padding(
@@ -1185,10 +1184,9 @@ Future<void> _showHiddenRules() async {
 
 // ==================== 副标题生成（公开，按钮栏也用） ====================
 
-// ==================== 副标题生成（公开，按钮栏也用） ====================
 String ruleSubtitle(PreprocessingRule rule) {
-  if (rule.script != null && rule.script!.isNotEmpty) {
-    return '(内置实现: ${rule.script})';
+  if (rule.isScriptRule) {
+    return ''; // 脚本型规则：弹窗主内容为空，只显示 helpText
   }
 
   switch (rule.kind) {
