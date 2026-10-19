@@ -612,8 +612,8 @@ class ReaderSettings {
     hotZoneBorderWidth: 1.5,
     hotZoneX: 0.5,
     hotZoneY: 0.5,
-    hotZoneW: 0.35,
-    hotZoneH: 0.22,
+    hotZoneW: 0.45,
+    hotZoneH: 0.28,
   );
 
   Map<String, dynamic> toJson() => {
@@ -724,8 +724,8 @@ class ReaderSettings {
         hotZoneBorderWidth: (j['hbw'] as num?)?.toDouble() ?? 1.5,
         hotZoneX: (j['hx'] as num?)?.toDouble() ?? 0.5,
         hotZoneY: (j['hy'] as num?)?.toDouble() ?? 0.5,
-        hotZoneW: (j['hw'] as num?)?.toDouble() ?? 0.35,
-        hotZoneH: (j['hh'] as num?)?.toDouble() ?? 0.22,
+        hotZoneW: (j['hw'] as num?)?.toDouble() ?? 0.45,
+        hotZoneH: (j['hh'] as num?)?.toDouble() ?? 0.28,
       );
 
   ReaderSettings copyWith({
