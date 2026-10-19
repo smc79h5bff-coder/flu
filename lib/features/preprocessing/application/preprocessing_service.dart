@@ -148,8 +148,8 @@ String _applyReplace(String text, PreprocessingRule rule) {
         return text.split('\n').where((l) => l.trim().isNotEmpty).join('\n');
       case 'unifyAnsi':
         return unifyToAnsi(text);
-      case 'halfToFull':
-        return halfToFull(text);
+      case 'fullToHalf':
+        return fullToHalf(text);
       case 'enPunctToCn':
         return enPunctToCn(text);
     }
@@ -230,8 +230,7 @@ String unifyToAnsi(String text) {
   return sb.toString();
 }
 
-
-/// 全角数字/英文字母 → 半角。  标点、空格不动。
+/// 全角数字/英文字母 → 半角。标点、空格不动。
 String fullToHalf(String text) {
   return String.fromCharCodes(text.runes.map((c) {
     if (c >= 0xFF10 && c <= 0xFF19) return c - 0xFEE0; // ０-９
@@ -242,7 +241,8 @@ String fullToHalf(String text) {
 }
 
 /// 英文标点 → 中文标点。
-/// 只转下表列出的常见英文标点，其它字符不动。
+/// 除 '-' 外，全篇任意位置替换；
+/// '-' 只在"跳过行首空白（半角空格/Tab/全角空格）后连续出现"时转。
 const Map<String, String> _enToCnPunct = {
   ',': '，',
   '.': '。',
@@ -259,8 +259,31 @@ const Map<String, String> _enToCnPunct = {
 
 String enPunctToCn(String text) {
   var out = text;
+
+  // 1. 除 '-' 外，其它标点全篇替换。
   for (final e in _enToCnPunct.entries) {
+    if (e.key == '-') continue;
     out = out.replaceAll(e.key, e.value);
   }
-  return out;
+
+  // 2. '-'：跳过行首空白后，连续的 '-' 才转成 '—'。
+  final lines = out.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    var k = 0;
+    // 跳过行首空白
+    while (k < line.length &&
+        (line[k] == ' ' || line[k] == '\t' || line[k] == '\u3000')) {
+      k++;
+    }
+    final dashStart = k;
+    while (k < line.length && line[k] == '-') {
+      k++;
+    }
+    if (k == dashStart) continue; // 没有 '-'
+    lines[i] = line.substring(0, dashStart) +
+        '—' * (k - dashStart) +
+        line.substring(k);
+  }
+  return lines.join('\n');
 }
