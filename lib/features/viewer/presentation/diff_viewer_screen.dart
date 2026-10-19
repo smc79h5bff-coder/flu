@@ -3374,9 +3374,7 @@ void _toast(String msg) {
                    Expanded(
               child: showLoadingOverlay
                   ? ColoredBox(
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? const Color(0xFF2B2B2B)
-                          : const Color(0xFFE8E8E8),
+                      color: Theme.of(context).colorScheme.surface,
                       child: const Center(child: _SwitchLoadingBody()),
                     )
                   : _buildActiveView(
@@ -3414,9 +3412,7 @@ void _toast(String msg) {
           Positioned.fill(
             child: AbsorbPointer(
               child: ColoredBox(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? const Color(0xFF2B2B2B)
-                    : const Color(0xFFE8E8E8),
+                color: Theme.of(context).colorScheme.surface,
                 child: Center(
                   child: JumpIndicator(
                     direction: _jumpDirection,
