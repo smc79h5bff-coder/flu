@@ -713,7 +713,7 @@ class _ToolbarOrderDialogState extends ConsumerState<ToolbarOrderDialog> {
       title: _buildTitle(),
       content: SizedBox(
         width: double.maxFinite,
-        height: MediaQuery.of(context).size.height * 0.7,
+        height: MediaQuery.of(context).size.height * 0.9,
         child: Column(
           children: [
             if (_pickingTarget) _buildTargetBanner(),
@@ -1169,21 +1169,22 @@ class _ToolbarOrderDialogState extends ConsumerState<ToolbarOrderDialog> {
 
   /// 多选选中样式：浅黄绿底 + 粉色边框 + 左侧 4px 粉色粗条。
   Widget _selectionWrap({required Key key, required Widget child}) {
-    return Container(
+    return KeyedSubtree(
       key: key,
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: _selBg,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: _selLine),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(width: 4, color: _selLine),
-          Expanded(child: child),
-        ],
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: _selBg,
+          borderRadius: BorderRadius.circular(6),
+          border: Border(
+            left: BorderSide(color: _selLine, width: 4),
+            top: BorderSide(color: _selLine, width: 1),
+            bottom: BorderSide(color: _selLine, width: 1),
+            right: BorderSide(color: _selLine, width: 1),
+          ),
+        ),
+        child: child,
       ),
     );
   }
