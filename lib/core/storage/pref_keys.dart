@@ -72,7 +72,14 @@ static const colorGroupedFindPink = 'colorGroupedFindPink';
 static const String searchSortField = 'jianming.browser.searchSortField';
 static const String searchSortAsc = 'jianming.browser.searchSortAsc';
   static const String searchBoxMode = 'jianming.browser.searchBoxMode';
-static const String filterDepth = 'jianming.browser.filterDepth';
+
+  /// 搜索栏当前是否折叠（临时开关，用户点折叠按钮时切换）。
+  static const String searchBarCollapsed =
+      'jianming.browser.searchBarCollapsed';
+
+  /// 搜索栏显示方式：可折叠 / 始终显示（持久偏好）。
+  static const String searchBarVisibility =
+      'jianming.browser.searchBarVisibility';
   // ==================== 文件浏览器 ====================
   static const String sortField = '${_p}browser.sortField';
   static const String recentMoveTargets = '${_p}browser.recentMoveTargets';
