@@ -16,6 +16,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../preprocessing/application/aho_corasick.dart';
 import '../preprocessing/application/encoding_detector.dart';
 import '../preprocessing/domain/encoding_type.dart';
+import '../file_browser/presentation/dir_loader.dart';
+import '../file_browser/presentation/dialogs/directory_picker_dialog.dart';
+import '../file_browser/presentation/providers/file_browser_providers.dart';
 import 'reader_load_log.dart';
 import 'reader_loupe.dart';
 import 'reader_models.dart';
@@ -1360,6 +1363,133 @@ void _saveProgressNow({bool fromPaginator = false}) {
     await _ensureLoaded();
   }
 
+  Future<void> _moveCurrentFile() async {
+    if (_filePaths.isEmpty) return;
+    final oldPath = _filePaths[_fileIndex];
+    final fileName = oldPath.split('/').last;
+
+    // 1. 选目标目录
+    final target = await showDialog<String>(
+      context: context,
+      builder: (_) => DirectoryPickerDialog(
+        title: '把「$fileName」移动到哪？',
+        rootPath: '/storage',
+        initialPath: File(oldPath).parent.path,
+        pickedPaths: [oldPath],
+      ),
+    );
+    if (target == null || !mounted) return;
+
+    if (target == File(oldPath).parent.path) {
+      _showToast('已经在这个目录了');
+      return;
+    }
+
+    // 2. 冲突处理（单个文件，三选一）
+    var dst = '$target/$fileName';
+    if (FileSystemEntity.typeSync(dst) != FileSystemEntityType.notFound) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('目标目录已有同名项'),
+          content: Text(fileName),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, 'rename'),
+              child: const Text('自动改名'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(c, 'overwrite'),
+              child: const Text('覆盖'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null || !mounted) return;
+      if (choice == 'rename') {
+        dst = _findNonConflictPath(dst);
+      } else if (choice == 'overwrite') {
+        try {
+          if (Directory(dst).existsSync()) {
+            await Directory(dst).delete(recursive: true);
+          } else {
+            await File(dst).delete();
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 3. 执行移动
+    try {
+      await File(oldPath).rename(dst);
+    } catch (e) {
+      if (!mounted) return;
+      _showToast('移动失败：$e');
+      return;
+    }
+    if (!mounted) return;
+
+    // 4. 从列表里移除，跳到下一个（与删除完全一致）
+    setState(() {
+      _filePaths.removeAt(_fileIndex);
+    });
+
+    if (_filePaths.isEmpty) {
+      _showToast('目录里的文件已移走完，返回文件浏览器');
+      await Future.delayed(const Duration(milliseconds: 900));
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      return;
+    }
+
+    var nextIndex = _fileIndex;
+    var hitEnd = false;
+    if (nextIndex >= _filePaths.length) {
+      nextIndex = _filePaths.length - 1;
+      hitEnd = true;
+    }
+
+    _clearSelection();
+    _manualEncoding = null;
+    _lastLoadedKey = null;
+    setState(() {
+      _fileIndex = nextIndex;
+    });
+
+    // 5. 缓存失效（原目录 + 目标目录）
+    DirCache.instance.invalidate(File(oldPath).parent.path);
+    DirCache.instance.invalidate(target);
+    ref.read(recentMoveTargetsProvider.notifier).add(target);
+
+    final nextName = _filePaths[nextIndex].split('/').last;
+    _showToast(
+      hitEnd ? '已移动，已到最后：$nextName' : '已移动，跳到：$nextName',
+    );
+
+    await _ensureLoaded();
+  }
+
+  String _findNonConflictPath(String originalDst) {
+    final dotIdx = originalDst.lastIndexOf('.');
+    final slashIdx = originalDst.lastIndexOf('/');
+    final hasExt = dotIdx > slashIdx && dotIdx < originalDst.length - 1;
+    final base = hasExt ? originalDst.substring(0, dotIdx) : originalDst;
+    final ext = hasExt ? originalDst.substring(dotIdx) : '';
+    for (var i = 1; i < 10000; i++) {
+      final candidate = '$base ($i)$ext';
+      if (FileSystemEntity.typeSync(candidate) ==
+          FileSystemEntityType.notFound) {
+        return candidate;
+      }
+    }
+    return '$base (${DateTime.now().millisecondsSinceEpoch})$ext';
+  }
+
   // ==================== 顶部菜单 ====================
 
   void _showTopMenu() {
@@ -2229,6 +2359,10 @@ void _saveProgressNow({bool fromPaginator = false}) {
       _deleteCurrentFile();
       return;
     }
+    if (btn == 'move') {
+      _moveCurrentFile();
+      return;
+    }
     if (_isInHotZone(globalPos)) {
       _showTopMenu();
       return;
@@ -2607,7 +2741,10 @@ void _saveProgressNow({bool fromPaginator = false}) {
   List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
     return [
       _buildHotZone(settings, size),
-      if (settings.showButtons)
+      if (settings.showTopButton ||
+          settings.showBottomButton ||
+          settings.showDelButton ||
+          settings.showMoveButton)
         Positioned.fill(
           child: IgnorePointer(
             ignoring: _scrollSelectionActive,
@@ -2617,35 +2754,40 @@ void _saveProgressNow({bool fromPaginator = false}) {
               curve: Curves.easeOut,
               child: Stack(
                 children: [
-                  _buildFloatButton(
-                    style: settings.topBtnStyle,
-                    bgColor: Color(settings.topBtnBgColor),
-                    fgColor: Color(settings.topBtnFgColor),
-                    ringColor: Color(settings.topBtnRingColor),
-                    ringWidth: settings.topBtnRingWidth,
-                    x: settings.topBtnX,
-                    y: settings.topBtnY,
-                    scale: settings.topBtnScale,
-                    opacity: settings.topBtnOpacity,
-                    icon: Icons.keyboard_arrow_up,
-                    size: size,
-                    onTap: _prevFile,
-                  ),
-                  _buildFloatButton(
-                    style: settings.bottomBtnStyle,
-                    bgColor: Color(settings.bottomBtnBgColor),
-                    fgColor: Color(settings.bottomBtnFgColor),
-                    ringColor: Color(settings.bottomBtnRingColor),
-                    ringWidth: settings.bottomBtnRingWidth,
-                    x: settings.bottomBtnX,
-                    y: settings.bottomBtnY,
-                    scale: settings.bottomBtnScale,
-                    opacity: settings.bottomBtnOpacity,
-                    icon: Icons.keyboard_arrow_down,
-                    size: size,
-                    onTap: _nextFile,
-                  ),
-                  _buildDeleteButton(settings, size),
+                  if (settings.showTopButton)
+                    _buildFloatButton(
+                      style: settings.topBtnStyle,
+                      bgColor: Color(settings.topBtnBgColor),
+                      fgColor: Color(settings.topBtnFgColor),
+                      ringColor: Color(settings.topBtnRingColor),
+                      ringWidth: settings.topBtnRingWidth,
+                      x: settings.topBtnX,
+                      y: settings.topBtnY,
+                      scale: settings.topBtnScale,
+                      opacity: settings.topBtnOpacity,
+                      icon: Icons.keyboard_arrow_up,
+                      size: size,
+                      onTap: _prevFile,
+                    ),
+                  if (settings.showBottomButton)
+                    _buildFloatButton(
+                      style: settings.bottomBtnStyle,
+                      bgColor: Color(settings.bottomBtnBgColor),
+                      fgColor: Color(settings.bottomBtnFgColor),
+                      ringColor: Color(settings.bottomBtnRingColor),
+                      ringWidth: settings.bottomBtnRingWidth,
+                      x: settings.bottomBtnX,
+                      y: settings.bottomBtnY,
+                      scale: settings.bottomBtnScale,
+                      opacity: settings.bottomBtnOpacity,
+                      icon: Icons.keyboard_arrow_down,
+                      size: size,
+                      onTap: _nextFile,
+                    ),
+                  if (settings.showDelButton)
+                    _buildDeleteButton(settings, size),
+                  if (settings.showMoveButton)
+                    _buildMoveButton(settings, size),
                 ],
               ),
             ),
@@ -2705,6 +2847,10 @@ void _saveProgressNow({bool fromPaginator = false}) {
               _deleteCurrentFile();
               return true;
             }
+            if (btn == 'move') {
+              _moveCurrentFile();
+              return true;
+            }
             if (_isInHotZone(pos)) {
               _showTopMenu();
               return true;
@@ -2759,7 +2905,12 @@ void _saveProgressNow({bool fromPaginator = false}) {
 
   String? _hitFloatButton(Offset globalPos) {
     final settings = ref.read(readerSettingsProvider);
-    if (!settings.showButtons) return null;
+    if (!settings.showDelButton &&
+        !settings.showMoveButton &&
+        !settings.showTopButton &&
+        !settings.showBottomButton) {
+      return null;
+    }
 
     final size = _lastContentSize;
     if (size.width < 10 || size.height < 10) return null;
@@ -2774,14 +2925,21 @@ void _saveProgressNow({bool fromPaginator = false}) {
       return dx * dx + dy * dy < r * r;
     }
 
-    if (inBtn(settings.delBtnX, settings.delBtnY, settings.delBtnScale)) {
+    if (settings.showDelButton &&
+        inBtn(settings.delBtnX, settings.delBtnY, settings.delBtnScale)) {
       return 'del';
     }
-    if (inBtn(settings.topBtnX, settings.topBtnY, settings.topBtnScale)) {
+    if (settings.showMoveButton &&
+        inBtn(settings.moveBtnX, settings.moveBtnY, settings.moveBtnScale)) {
+      return 'move';
+    }
+    if (settings.showTopButton &&
+        inBtn(settings.topBtnX, settings.topBtnY, settings.topBtnScale)) {
       return 'prev';
     }
-    if (inBtn(settings.bottomBtnX, settings.bottomBtnY,
-        settings.bottomBtnScale)) {
+    if (settings.showBottomButton &&
+        inBtn(settings.bottomBtnX, settings.bottomBtnY,
+            settings.bottomBtnScale)) {
       return 'next';
     }
     return null;
@@ -3298,6 +3456,61 @@ final effectiveStyle = _baseStyle(settings);
         child: CustomPaint(
           size: Size.square(iconSize),
           painter: _TrashIconPainter(color: iconColor),
+        ),
+      );
+    }
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: IgnorePointer(child: body),
+    );
+  }
+
+  Widget _buildMoveButton(ReaderSettings settings, Size size) {
+    final btnSize = 50.0 * settings.moveBtnScale;
+    final left = settings.moveBtnX * size.width - btnSize / 2;
+    final top = settings.moveBtnY * size.height - btnSize / 2;
+    final alpha = settings.moveBtnOpacity.clamp(0.0, 1.0);
+
+    final iconBaseColor = settings.moveBtnStyle == 0
+        ? Color(settings.moveBtnFgColor)
+        : Color(settings.moveBtnRingColor);
+    final iconColor = iconBaseColor.withValues(alpha: iconBaseColor.a * alpha);
+    final iconSize = btnSize * 0.6;
+
+    Widget body;
+    if (settings.moveBtnStyle == 0) {
+      final bg = Color(settings.moveBtnBgColor);
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          color: bg.withValues(alpha: bg.a * alpha),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Icons.drive_file_move_outline,
+          color: iconColor,
+          size: iconSize,
+        ),
+      );
+    } else {
+      final ring = Color(settings.moveBtnRingColor);
+      body = Container(
+        width: btnSize,
+        height: btnSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: ring.withValues(alpha: ring.a * alpha),
+            width: settings.moveBtnRingWidth,
+          ),
+        ),
+        child: Icon(
+          Icons.drive_file_move_outline,
+          color: iconColor,
+          size: iconSize,
         ),
       );
     }
