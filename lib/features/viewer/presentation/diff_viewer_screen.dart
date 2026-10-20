@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import '../../../core/constants/app_colors.dart';
 import 'crash_trace.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -2356,9 +2355,18 @@ Future<void> _openLineList({List<String>? appendLines}) async {
                         fontSize: 14,
                         height: 1.4,
                       ),
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.all(10),
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                            color: Theme.of(c).colorScheme.primary,
+                            width: 1.5,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.all(12),
                       ),
                     ),
                   ),
@@ -2380,9 +2388,18 @@ Future<void> _openLineList({List<String>? appendLines}) async {
                         fontSize: 14,
                         height: 1.4,
                       ),
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.all(10),
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                            color: Theme.of(c).colorScheme.primary,
+                            width: 1.5,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.all(12),
                       ),
                     ),
                   ),
@@ -2499,7 +2516,10 @@ Future<void> _openLineList({List<String>? appendLines}) async {
       child: IgnorePointer(
         child: Center(
           child: Material(
-            color: Colors.black.withValues(alpha: 0.82),
+            color: Theme.of(context)
+                .colorScheme
+                .inverseSurface
+                .withValues(alpha: 0.9),
             elevation: 8,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
@@ -2509,8 +2529,8 @@ Future<void> _openLineList({List<String>? appendLines}) async {
               ),
               child: Text(
                 msg,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onInverseSurface,
                   fontSize: 13,
                 ),
                 maxLines: 3,
@@ -2585,10 +2605,12 @@ void _toast(String msg) {
               Text('修改时间：${_fmtTime(modified)}',
                   style: Theme.of(c).textTheme.bodySmall),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               '删除后无法恢复。',
-              style:
-                  TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Theme.of(c).colorScheme.error,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -2598,7 +2620,9 @@ void _toast(String msg) {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -2973,7 +2997,7 @@ void _toast(String msg) {
           height: 48,
           child: Builder(builder: (ctx) {
             final iconColor =
-                IconTheme.of(ctx).color ?? const Color(0xFF000000);
+                IconTheme.of(ctx).color ?? Theme.of(ctx).colorScheme.onSurface;
             return InkWell(
               key: const Key('page-up'),
               onTap: () {
@@ -3006,7 +3030,7 @@ void _toast(String msg) {
           height: 48,
           child: Builder(builder: (ctx) {
             final iconColor =
-                IconTheme.of(ctx).color ?? const Color(0xFF000000);
+                IconTheme.of(ctx).color ?? Theme.of(ctx).colorScheme.onSurface;
             return InkWell(
               key: const Key('page-down'),
               onTap: () {
@@ -3163,13 +3187,17 @@ void _toast(String msg) {
                   children: [
                     Icon(
                       Icons.delete_outline,
-                      color: canDeleteOriginal ? Colors.red : null,
+                      color: canDeleteOriginal
+                          ? Theme.of(context).colorScheme.error
+                          : null,
                     ),
                     const SizedBox(width: 10),
                     Text(
                       _originalDeleted ? '左边文件已删除' : '删除左边文件',
                       style: TextStyle(
-                        color: canDeleteOriginal ? Colors.red : null,
+                        color: canDeleteOriginal
+                            ? Theme.of(context).colorScheme.error
+                            : null,
                       ),
                     ),
                   ],
@@ -3182,13 +3210,17 @@ void _toast(String msg) {
                   children: [
                     Icon(
                       Icons.delete_outline,
-                      color: canDeleteModified ? Colors.red : null,
+                      color: canDeleteModified
+                          ? Theme.of(context).colorScheme.error
+                          : null,
                     ),
                     const SizedBox(width: 10),
                     Text(
                       _modifiedDeleted ? '右边文件已删除' : '删除右边文件',
                       style: TextStyle(
-                        color: canDeleteModified ? Colors.red : null,
+                        color: canDeleteModified
+                            ? Theme.of(context).colorScheme.error
+                            : null,
                       ),
                     ),
                   ],
@@ -3495,9 +3527,7 @@ void _onFloatingPageUpTap() {
 
     return Container(
       height: 42,
-      color: Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF2A2A2A)
-          : const Color(0xFFF4F4F4),
+      color: s.surfaceContainer,
       child: Row(
         children: [
           Expanded(
@@ -3518,9 +3548,9 @@ void _onFloatingPageUpTap() {
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
                       final c = colors[r.id];
-                      final bg = c?.bg ?? Colors.white;
-                      final fg = c?.fg ?? Colors.black;
-                      final border = c?.border ?? Colors.black.withOpacity(0.5);
+                      final bg = c?.bg ?? s.surface;
+                      final fg = c?.fg ?? s.onSurface;
+                      final border = c?.border ?? s.outline;
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 1,
@@ -3791,20 +3821,21 @@ void _onFloatingPageUpTap() {
     final parts = <String>[];
     if (_originalDeleted) parts.add('左边文件');
     if (_modifiedDeleted) parts.add('右边文件');
+    final s = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
-      color: Colors.red.shade900,
+      color: s.error,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
-          Icon(Icons.warning_amber, size: 16, color: Colors.white),
+          Icon(Icons.warning_amber, size: 16, color: s.onError),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               '${parts.join(" / ")} 已从磁盘删除（下方内容仅内存保留）',
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.white,
+                color: s.onError,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -3818,20 +3849,21 @@ void _onFloatingPageUpTap() {
     final origEnc = ref.watch(originalEncodingProvider);
     final modEnc = ref.watch(modifiedEncodingProvider);
     if (origEnc == modEnc) return const SizedBox.shrink();
+    final s = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
-      color: Colors.amber.shade50,
+      color: s.tertiaryContainer,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
-          Icon(Icons.info_outline, size: 16, color: Colors.amber.shade900),
+          Icon(Icons.info_outline, size: 16, color: s.onTertiaryContainer),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               '两份文件编码不同（$origEnc / $modEnc），已分别解码后对比',
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.amber.shade900,
+                color: s.onTertiaryContainer,
               ),
             ),
           ),
@@ -3841,16 +3873,17 @@ void _onFloatingPageUpTap() {
   }
 
   Widget _buildFewDiffsBanner(int blocks) {
+    final s = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
-      color: Colors.green.shade800,
+      color: s.secondaryContainer,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.check_circle_outline,
             size: 16,
-            color: Colors.white,
+            color: s.onSecondaryContainer,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -3858,9 +3891,9 @@ void _onFloatingPageUpTap() {
               blocks == 0
                   ? '两份文档完全相同'
                   : '共 $blocks 处差异，已全部显示',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
-                color: Colors.white,
+                color: s.onSecondaryContainer,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -3876,6 +3909,7 @@ void _onFloatingPageUpTap() {
     final total = _matchEntries.length;
     final pendingCount =
         _pendingOrigChanges.length + _pendingModChanges.length;
+    final s = Theme.of(context).colorScheme;
 
     Widget toggle({
       required String label,
@@ -3895,7 +3929,7 @@ void _onFloatingPageUpTap() {
             decoration: value
                 ? BoxDecoration(
                     border: Border.all(
-                      color: Colors.orange.shade300,
+                      color: s.primary,
                       width: 1.5,
                     ),
                     borderRadius: BorderRadius.circular(4),
@@ -3906,9 +3940,7 @@ void _onFloatingPageUpTap() {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: value ? FontWeight.bold : FontWeight.normal,
-                color: value
-                    ? AppColors.accentPurple
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
+                color: value ? s.primary : s.onSurfaceVariant,
               ),
             ),
           ),
@@ -3928,8 +3960,8 @@ void _onFloatingPageUpTap() {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(6),
-          splashColor: AppColors.accentPurple.withOpacity(0.18),
-          highlightColor: AppColors.accentPurple.withOpacity(0.08),
+          splashColor: s.primary.withValues(alpha: 0.18),
+          highlightColor: s.primary.withValues(alpha: 0.08),
           child: Container(
             height: 32,
             alignment: Alignment.center,
@@ -3937,8 +3969,7 @@ void _onFloatingPageUpTap() {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
-                color:
-                    selected ? AppColors.accentPurple : Colors.transparent,
+                color: selected ? s.primary : Colors.transparent,
                 width: 1.5,
               ),
             ),
@@ -3947,7 +3978,7 @@ void _onFloatingPageUpTap() {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                color: selected ? AppColors.accentPurple : s.onSurfaceVariant,
+                color: selected ? s.primary : s.onSurfaceVariant,
               ),
             ),
           ),
@@ -3956,7 +3987,7 @@ void _onFloatingPageUpTap() {
     }
 
     return Material(
-      color: Colors.white,
+      color: s.surface,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
         child: Column(
@@ -3971,7 +4002,7 @@ void _onFloatingPageUpTap() {
   child: TextField(
     controller: _findController,
                     autofocus: true,
-                    cursorColor: AppColors.accentPurple,
+                    cursorColor: s.primary,
                     decoration: const InputDecoration(
                       hintText: '查找',
                       isDense: true,
@@ -3984,7 +4015,7 @@ void _onFloatingPageUpTap() {
                 ),
                 IconButton(
                   icon: const Icon(Icons.search),
-                  color: AppColors.accentPurple,
+                  color: s.primary,
                   tooltip: '立即搜索',
                   visualDensity: VisualDensity.compact,
                   onPressed: () {
@@ -4014,14 +4045,14 @@ void _onFloatingPageUpTap() {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF8F0),
-                  border: Border.all(color: Colors.orange.shade300),
+                  color: s.tertiaryContainer.withValues(alpha: 0.5),
+                  border: Border.all(color: s.tertiary),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
                   children: [
                     Icon(Icons.info_outline,
-                        size: 15, color: Colors.orange.shade800),
+                        size: 15, color: s.onTertiaryContainer),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -4029,7 +4060,7 @@ void _onFloatingPageUpTap() {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
-                          color: Colors.orange.shade900,
+                          color: s.onTertiaryContainer,
                         ),
                       ),
                     ),
@@ -4046,7 +4077,7 @@ child: SizedBox(
 height: 36,
 child: TextField(
   controller: _replaceController,
-                    cursorColor: AppColors.accentPurple,
+                    cursorColor: s.primary,
                     decoration: const InputDecoration(
                       hintText: '替换为（留空 = 删掉）',
                       isDense: true,
@@ -4061,7 +4092,7 @@ child: TextField(
                TextButton(
   style: TextButton.styleFrom(
     visualDensity: VisualDensity.compact,
-    foregroundColor: AppColors.accentPurple,
+    foregroundColor: s.primary,
   ),
   onPressed: _matchEntries.isEmpty ? null : _replaceCurrentInline,
   child: const Text('替换当前'),
@@ -4069,7 +4100,7 @@ child: TextField(
 TextButton(
   style: TextButton.styleFrom(
     visualDensity: VisualDensity.compact,
-    foregroundColor: AppColors.accentPurple,
+    foregroundColor: s.primary,
   ),
   onPressed: _matchEntries.isEmpty ? null : _replaceAllInline,
   child: const Text('全部替换'),
@@ -4087,8 +4118,8 @@ TextButton(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF5F5),
-                  border: Border.all(color: Colors.red.shade800),
+                  color: s.errorContainer.withValues(alpha: 0.5),
+                  border: Border.all(color: s.error),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -4097,7 +4128,7 @@ TextButton(
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
                       child: Icon(Icons.warning_amber,
-                          size: 15, color: Colors.red.shade800),
+                          size: 15, color: s.error),
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -4108,11 +4139,11 @@ TextButton(
                           if (_replaceHint != null)
                             '替换框：$_replaceHint',
                         ].join('\n\n'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           height: 1.2,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF000000),
+                          color: s.onErrorContainer,
                         ),
                       ),
                     ),
@@ -4171,7 +4202,7 @@ TextButton(
       IconButton(
         icon: const Icon(Icons.arrow_upward),
         iconSize: 30,
-        color: AppColors.accentPurple,
+        color: s.primary,
         tooltip: '上一个',
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
@@ -4180,7 +4211,7 @@ TextButton(
       IconButton(
         icon: const Icon(Icons.arrow_downward),
         iconSize: 30,
-        color: AppColors.accentPurple,
+        color: s.primary,
         tooltip: '下一个',
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
@@ -4232,7 +4263,7 @@ TextButton(
           '待应用 $pendingCount',
           style: TextStyle(
             fontSize: 12,
-            color: Colors.orange.shade800,
+            color: s.tertiary,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -4241,8 +4272,7 @@ TextButton(
       TextButton.icon(
         style: TextButton.styleFrom(
           visualDensity: VisualDensity.compact,
-          foregroundColor:
-              pendingCount > 0 ? Colors.orange.shade800 : null,
+          foregroundColor: pendingCount > 0 ? s.tertiary : null,
         ),
         onPressed: pendingCount > 0 ? _applyPendingChanges : null,
         icon: const Icon(Icons.done_all, size: 16),
