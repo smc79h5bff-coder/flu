@@ -3527,7 +3527,15 @@ void _onFloatingPageUpTap() {
 
     return Container(
       height: 42,
-      color: s.surfaceContainer,
+      decoration: BoxDecoration(
+        color: s.surface,
+        border: Border(
+          bottom: BorderSide(
+            color: s.outlineVariant,
+            width: 0.5,
+          ),
+        ),
+      ),
       child: Row(
         children: [
           Expanded(
