@@ -2970,6 +2970,9 @@ void _toast(String msg) {
   },
   child: Scaffold(
   appBar: AppBar(
+  backgroundColor: Theme.of(context).colorScheme.surface,
+  surfaceTintColor: Colors.transparent,
+  elevation: 0,
   toolbarHeight: 48,
   automaticallyImplyLeading: false,
   leadingWidth: 0,
