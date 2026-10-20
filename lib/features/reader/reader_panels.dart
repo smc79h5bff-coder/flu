@@ -889,16 +889,16 @@ Padding(
         initialValue: value,
         keyboardType: TextInputType.number,
         cursorColor: Theme.of(context).colorScheme.primary,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           isDense: true,
-          border: OutlineInputBorder(),
+          border: const OutlineInputBorder(),
           focusedBorder: OutlineInputBorder(
             borderSide: BorderSide(
               color: Theme.of(context).colorScheme.primary,
               width: 2,
             ),
           ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         ),
         onFieldSubmitted: onSubmitted,
       ),
@@ -1612,8 +1612,8 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
                   TextSelection.collapsed(offset: _name.length),
             onChanged: (v) => _name = v,
             cursorColor: Theme.of(context).colorScheme.primary,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
                   color: Theme.of(context).colorScheme.primary,
@@ -1703,8 +1703,8 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             value: _defaultGroupId,
             isExpanded: true,
             iconEnabledColor: Theme.of(context).colorScheme.primary,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
                   color: Theme.of(context).colorScheme.primary,
@@ -3992,8 +3992,8 @@ class _HighlightEditScreenState
           TextField(
             controller: _nameCtrl,
             cursorColor: Theme.of(context).colorScheme.primary,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
                   color: Theme.of(context).colorScheme.primary,
@@ -4091,8 +4091,8 @@ class _HighlightEditScreenState
               initialValue: _groupIndex.toString(),
               keyboardType: TextInputType.number,
               cursorColor: Theme.of(context).colorScheme.primary,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
                 focusedBorder: OutlineInputBorder(
                   borderSide: BorderSide(
                     color: Theme.of(context).colorScheme.primary,
@@ -4232,8 +4232,8 @@ class _HighlightEditScreenState
             value: _groupId,
             isExpanded: true,
             iconEnabledColor: Theme.of(context).colorScheme.primary,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
                   color: Theme.of(context).colorScheme.primary,
@@ -4616,8 +4616,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               TextField(
                 controller: _nameCtrl,
                 cursorColor: Theme.of(context).colorScheme.primary,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
                   focusedBorder: OutlineInputBorder(
                     borderSide: BorderSide(
                       color: Theme.of(context).colorScheme.primary,
@@ -4709,8 +4709,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   initialValue: _groupIndex.toString(),
                   keyboardType: TextInputType.number,
                   cursorColor: Theme.of(context).colorScheme.primary,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    border: const OutlineInputBorder(),
                     focusedBorder: OutlineInputBorder(
                       borderSide: BorderSide(
                         color: Theme.of(context).colorScheme.primary,
@@ -4954,8 +4954,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                 value: _groupId,
                 isExpanded: true,
                 iconEnabledColor: Theme.of(context).colorScheme.primary,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
                   focusedBorder: OutlineInputBorder(
                     borderSide: BorderSide(
                       color: Theme.of(context).colorScheme.primary,
