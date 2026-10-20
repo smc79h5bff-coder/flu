@@ -269,6 +269,9 @@ class _ComparisonSettingsScreenState
       },
       child: Scaffold(
        appBar: AppBar(
+  backgroundColor: Theme.of(context).colorScheme.surface,
+  surfaceTintColor: Colors.transparent,
+  elevation: 0,
   title: GestureDetector(
     onLongPress: _showHiddenRules,
     behavior: HitTestBehavior.opaque,
