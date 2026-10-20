@@ -10,14 +10,23 @@ import 'app_theme.dart';
 ///
 /// `grayPurple` 是默认皮肤，直接用手搓的 AppColors.lightScheme / darkScheme；
 /// 其余皮肤用 [seed] 通过 ColorScheme.fromSeed 生成。
+///
+/// 新增皮肤时**加在末尾**：EnumPrefNotifier 可能存的是 index，
+/// 中间插入会让旧用户已保存的皮肤错位。
+///
+/// seed 原则：低饱和（30-50%），避免纯 Material 500/800 色阶。
+/// 高饱和种子会让 fromSeed 生成刺眼的 primaryContainer，
+/// 列表底、按钮底、选中态都会"荧光"，切皮肤时全 App 都在跳。
 enum AppSkin {
   grayPurple('灰紫', Color(0xFF6B5A7E)),
-  pink('粉', Color(0xFFE91E63)),
-  orange('橙', Color(0xFFE65100)),
-  yellow('黄', Color(0xFFF9A825)),
-  green('绿', Color(0xFF2E7D32)),
-  teal('青', Color(0xFF00897B)),
-  blue('蓝', Color(0xFF1565C0));
+  pink('品红', Color(0xFFA8509C)),
+  orange('赭石', Color(0xFF8B6B4A)),
+  yellow('琥珀', Color(0xFFC8BF5E)),
+  green('苔绿', Color(0xFF4A6B5A)),
+  teal('湖青', Color(0xFF5D98AB)),
+  blue('墨蓝', Color(0xFF3A4A6B)),
+  sky('天蓝', Color(0xFF7AB8D9)),
+  indigoBlue('紫蓝', Color(0xFF7878CC));
 
   final String label;
   final Color seed;
