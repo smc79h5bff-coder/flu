@@ -726,7 +726,6 @@ class _FileBrowserScreenState extends ConsumerState<FileBrowserScreen>
   static const double _gridCellPadH = 8.0;
   static const double _gridCellPadV = 6.0;
   static const double _gridDividerThickness = 0.5;
-  static const Color _gridDividerColor = Color(0xFFE0E0E0);
 
   static const Set<String> _textExts = {
     '.txt', '.md', '.markdown', '.log', '.lst', '.diz', '.nfo',
@@ -777,13 +776,15 @@ static const Set<String> _archiveExts = {
     return name.substring(i).toLowerCase();
   }
 
-  static Color _fileColor(String name) {
-    final ext = _extOf(name);
-    if (_textExts.contains(ext)) return Colors.blue.shade600;
-    if (_isExpandableArchiveName(name)) return Colors.blue.shade600;
-    if (_binaryExts.contains(ext)) return Colors.orange.shade700;
-    return Colors.grey.shade600;
+  // 图标颜色：不再按扩展名区分色相。文件类型靠图标形状区分。
+  // 文件夹用 onSurface（更深），文件用 onSurfaceVariant（更浅）。
+  Color _fileIconColor(BuildContext context, {required bool isDir}) {
+    final cs = Theme.of(context).colorScheme;
+    return isDir ? cs.onSurface : cs.onSurfaceVariant;
   }
+
+  Color _gridDividerColorOf(BuildContext context) =>
+      Theme.of(context).colorScheme.outlineVariant;
 
   // ==================== 状态字段 ====================
 
@@ -798,7 +799,11 @@ static const Set<String> _archiveExts = {
   LoadCancelToken? _loadCancelToken;
 
   final TextEditingController _searchCtrl = TextEditingController();
-  
+
+  /// 搜索输入框的焦点节点。
+  /// 用于：展开搜索栏时自动聚焦；监听聚焦变化以刷新边框/标签颜色。
+  final FocusNode _searchFocus = FocusNode();
+
   final ItemScrollController _itemScrollController = ItemScrollController();
   final ItemPositionsListener _positionsListener =
       ItemPositionsListener.create();
@@ -837,7 +842,6 @@ String? _stickyZipKey;
 
 // ==================== 过滤状态 ====================
 
-List<_SearchHit> _filterDeepResults = const [];
 int _filterTaskId = 0;
 List<_DisplayItem>? _visibleItems;
 List<_DisplayItem>? _cachedDisplayItems;
@@ -870,7 +874,12 @@ void initState() {
   final saved = ref.read(lastPathProvider);
   _currentPath = _resolveInitialPath(saved);
   _positionsListener.itemPositions.addListener(_onPositionsChanged);
+  _searchFocus.addListener(_onSearchFocusChanged);
   _load();
+}
+
+void _onSearchFocusChanged() {
+  if (mounted) setState(() {});
 }
 
 /// 清空 systemTemp 里所有 zzz_ 前缀的文件。
@@ -921,6 +930,8 @@ void dispose() {
   fileBrowserRouteObserver.unsubscribe(this);
   _skeletonTimer?.cancel();
   _positionsListener.itemPositions.removeListener(_onPositionsChanged);
+  _searchFocus.removeListener(_onSearchFocusChanged);
+  _searchFocus.dispose();
   _searchCtrl.dispose();
   _advancedOverlay?.remove();
   _advancedOverlay = null;
@@ -1377,7 +1388,6 @@ _advancedOverlay = null;
 _advancedOpen = false;
 _clearConditions();
 _filterTaskId++;
-_filterDeepResults = const [];
 _searchTaskId++;
 _expandedZipKeys.clear();
     _stickyZipKey = null;
@@ -2386,7 +2396,7 @@ void _jumpToTop() {
     required VoidCallback onToggle,
   }) {
     final icon = isDir ? Icons.folder : Icons.insert_drive_file_outlined;
-    final color = isDir ? Colors.amber.shade600 : _fileColor(name);
+    final color = _fileIconColor(context, isDir: isDir);
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Icon(icon, color: color),
@@ -2407,82 +2417,7 @@ void _jumpToTop() {
 
 void _onFilterTextChanged(String q) {
   _filterTaskId++;
-  final taskId = _filterTaskId;
-  _filterDeepResults = const [];
   setState(() {});
-
-  if (q.trim().isEmpty) return;
-
-  final depth = ref.read(filterDepthProvider);
-  if (depth <= 0) return;
-
-  Future<void>.delayed(const Duration(milliseconds: 200), () async {
-    if (!mounted || taskId != _filterTaskId) return;
-    await _scanFilterDepth(_currentPath, taskId, depth);
-  });
-}
-
-Future<void> _scanFilterDepth(
-  String rootPath,
-  int taskId,
-  int depth,
-) async {
-  final out = <_SearchHit>[];
-  final q = _searchCtrl.text.trim().toLowerCase();
-  if (q.isEmpty) return;
-
-  Future<void> walk(String dirPath, int remaining) async {
-    if (remaining < 0) return;
-    try {
-      await for (final e in Directory(dirPath).list(followLinks: false)) {
-        if (taskId != _filterTaskId) return;
-        if (out.length >= 500) return;
-
-        final name = e.path.split('/').last;
-        if (name.startsWith('.')) continue;
-
-        final lowerPath = e.path.toLowerCase();
-        if (lowerPath.contains('/android/data') ||
-            lowerPath.contains('/android/obb')) {
-          continue;
-        }
-
-        final slash = e.path.lastIndexOf('/');
-        final parentPath = slash >= 0 ? e.path.substring(0, slash) : '';
-        final isCurrentLayer = parentPath == _currentPath;
-
-        if (!isCurrentLayer && name.toLowerCase().contains(q)) {
-  final isDir = e is Directory;
-  int? size;
-  DateTime? modified;
-  try {
-    final st = await e.stat();
-    if (!isDir) size = st.size;
-    modified = st.modified;
-  } catch (_) {}
-  out.add(_SearchHit(
-    path: e.path,
-    name: name,
-    isDir: isDir,
-    size: size,
-    modified: modified,
-  ));
-}
-
-
-		  
-
-        if (e is Directory && remaining > 0) {
-          await walk(e.path, remaining - 1);
-        }
-      }
-    } catch (_) {}
-  }
-
-  await walk(rootPath, depth);
-
-  if (!mounted || taskId != _filterTaskId) return;
-  setState(() => _filterDeepResults = out);
 }
 
 List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
@@ -2492,8 +2427,6 @@ List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
   final q = _searchCtrl.text.trim().toLowerCase();
   if (q.isEmpty) return all;
 
-  final out = <_DisplayItem>[];
-
   final matchedTop = <String>{};
   for (final it in all) {
     if (it.depth != 0) continue;
@@ -2501,28 +2434,15 @@ List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
       matchedTop.add(it.key);
     }
   }
-  for (final it in all) {
-    if (it.depth == 0) {
-      if (matchedTop.contains(it.key)) out.add(it);
-    } else if (it.ownerZipKey != null &&
-        matchedTop.contains(it.ownerZipKey)) {
-      out.add(it);
-    }
-  }
 
-  for (final hit in _filterDeepResults) {
-  out.add(_DisplayItem(
-    key: hit.path,
-    displayName: hit.name,
-    depth: 0,
-    isDir: hit.isDir,
-    size: hit.size,
-    modified: hit.modified,
-    searchHit: hit,
-  ));
-}
-
-  return out;
+  return [
+    for (final it in all)
+      if (it.depth == 0 && matchedTop.contains(it.key))
+        it
+      else if (it.ownerZipKey != null &&
+          matchedTop.contains(it.ownerZipKey))
+        it,
+  ];
 }
 
 List<EntryInfo> _filterEntries(List<EntryInfo> entries) {
@@ -2540,7 +2460,6 @@ void _clearFilter() {
   _searchTaskId++;
   _filterTaskId++;
   _searchCtrl.clear();
-  _filterDeepResults = const [];
   _selectionMode = false;
   _selectedPaths.clear();
   _anchorPath = null;
@@ -3471,6 +3390,37 @@ Future<void> _showDirInfoDialog() async {
 
   // ==================== 收藏 / 配置 ====================
 
+  void _toggleSearchBarCollapsed() {
+    final notifier = ref.read(searchBarCollapsedProvider.notifier);
+    final currentlyCollapsed = ref.read(searchBarCollapsedProvider);
+
+    if (currentlyCollapsed) {
+      // 展开 + 自动聚焦
+      notifier.update(false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchFocus.requestFocus();
+      });
+    } else {
+      // 折叠前：清空搜索 + 退出模式 + 收键盘
+      _clearSearch();
+      FocusManager.instance.primaryFocus?.unfocus();
+      notifier.update(true);
+    }
+  }
+
+  /// 搜索栏区域当前是否可见。
+  /// - 选择模式：始终可见（显示提示条）
+  /// - 始终显示：可见
+  /// - 可折叠 + 已折叠：隐藏
+  bool get _searchBarAreaVisible {
+    if (_selectionMode) return true;
+    if (ref.watch(searchBarVisibilityProvider) ==
+        SearchBarVisibility.alwaysVisible) {
+      return true;
+    }
+    return !ref.watch(searchBarCollapsedProvider);
+  }
+
   void _toggleFavorite() {
     final favs = ref.read(favoritesProvider);
     final wasFav = favs.contains(_currentPath);
@@ -3698,8 +3648,8 @@ Future<void> _showDirInfoDialog() async {
     SnackBar(
       content: Text(
         msg,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onInverseSurface,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -4351,7 +4301,7 @@ String _normalizePath(String path) {
         widgets.add(Icon(
           Icons.chevron_right,
           size: 16,
-          color: _selectionMode ? Colors.grey.shade300 : s.outline,
+          color: _selectionMode ? s.outlineVariant : s.outline,
         ));
       }
       widgets.add(
@@ -4366,8 +4316,8 @@ String _normalizePath(String path) {
               style: TextStyle(
                 fontSize: 12,
                 color: _selectionMode
-                    ? Colors.grey.shade400
-                    : (isLast ? Colors.black : Colors.black54),
+                    ? s.onSurfaceVariant.withValues(alpha: 0.4)
+                    : (isLast ? s.onSurface : s.onSurfaceVariant),
                 fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
               ),
             ),
@@ -4462,7 +4412,15 @@ String _normalizePath(String path) {
       Column(
         children: [
           _buildBreadcrumbs(),
-          _buildTopBarWithSelectionOverlay(),
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              child: _searchBarAreaVisible
+                  ? _buildTopBarWithSelectionOverlay()
+                  : const SizedBox(width: double.infinity, height: 0),
+            ),
+          ),
           Expanded(child: _buildBody()),
         ],
       ),
@@ -4482,7 +4440,7 @@ String _normalizePath(String path) {
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
     return AppBar(
-      backgroundColor: const Color(0xFFFDFDFD), // 顶栏浅灰，比面包屑 FAFAFA 更浅
+      backgroundColor: Theme.of(context).colorScheme.surface, // 顶栏与主题同色
       surfaceTintColor: Colors.transparent, // Material3 下防止主题色 tint 覆盖
       elevation: 0, // 不要阴影，保持和面包屑同一平面
       title: GestureDetector(
@@ -4507,6 +4465,20 @@ String _normalizePath(String path) {
                   ? _smallBackButton(onPressed: _goUp)
                   : null)),
       actions: [
+        // 折叠按钮：只在 collapsible 时显示
+        if (ref.watch(searchBarVisibilityProvider) ==
+            SearchBarVisibility.collapsible)
+          IconButton(
+            icon: Icon(
+              ref.watch(searchBarCollapsedProvider)
+                  ? Icons.search
+                  : Icons.search_off,
+            ),
+            tooltip: ref.watch(searchBarCollapsedProvider)
+                ? '展开搜索栏'
+                : '收起搜索栏',
+            onPressed: _toggleSearchBarCollapsed,
+          ),
         IconButton(
           icon: Icon(
             isFav ? Icons.star : Icons.star_border,
@@ -4725,6 +4697,7 @@ Widget _buildSelectionHintBar() {
     }
   }
 
+  final cs = Theme.of(context).colorScheme;
   return Container(
     width: double.infinity,
     // 高度不再写死：由 Positioned.fill 从 Stack 拉满，
@@ -4732,9 +4705,9 @@ Widget _buildSelectionHintBar() {
     margin: const EdgeInsets.fromLTRB(8, 4, 8, 4),
     padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
     decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: Colors.black),
+      color: cs.surface,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: cs.outlineVariant),
     ),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -4744,10 +4717,10 @@ Widget _buildSelectionHintBar() {
           line1,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11.5,
             height: 1.25,
-            color: Colors.black,
+            color: cs.onSurface,
           ),
         ),
         const SizedBox(height: 2),
@@ -4755,10 +4728,10 @@ Widget _buildSelectionHintBar() {
           line2,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11.5,
             height: 1.25,
-            color: Colors.black,
+            color: cs.onSurfaceVariant,
           ),
         ),
       ],
@@ -4766,208 +4739,210 @@ Widget _buildSelectionHintBar() {
   );
 }
 
- Widget _buildSearchBar() {
+  Widget _buildSearchBar() {
+  final cs = Theme.of(context).colorScheme;
   final scope = ref.watch(searchScopeProvider);
   final mode = ref.watch(searchBoxModeProvider);
   final isFilter = mode == SearchBoxMode.filter;
   final isCustom = scope == SearchScope.custom;
   final customFolders = ref.watch(customSearchFoldersProvider);
   final hasText = _searchCtrl.text.isNotEmpty;
+  final focused = _searchFocus.hasFocus;
 
-  const currentText = Color(0xFFB79800);
-  const currentBtnBg = Color(0xFFFFF7D2);
-  const customText = Color(0xFF009EDD);
-  const customBtnBg = Color(0xFFE4FAFF);
-
-  const filterAccent = Color(0xFFE53935);
-  const filterBtnBg = Color(0xFFFFCDD2);
-  const filterInputBg = Color(0xFFFFF0F0);
-
-  final Color accent;
-  final Color btnBg;
-  final Color btnIconColor;
-  final Color inputBg;
-  final Color inputFg;
-  final Color suffixBg;
-  final Color suffixFg;
-  final IconData btnIcon;
-  final String hintText;
-
+  // ===== 左侧标签 =====
+  final String label;
+  final String? badge;
   if (isFilter) {
-    accent = filterAccent;
-    btnBg = filterBtnBg;
-    btnIconColor = Colors.black87;
-    inputBg = filterInputBg;
-    inputFg = Colors.black;
-    
-	  suffixBg = const Color(0x33FFF0F0);   // 20% alpha
-    suffixFg = Colors.black87;
-    btnIcon = Icons.filter_alt;
-    hintText = '输入关键词过滤文件';
+    label = '过滤';
+    badge = null;
+  } else if (isCustom) {
+    label = '自定义';
+    badge = customFolders.isEmpty ? null : '${customFolders.length}';
   } else {
-    accent = isCustom ? customText : currentText;
-    btnBg = isCustom ? customBtnBg : currentBtnBg;
-    btnIconColor =
-        (hasText || _hasActiveConditions) ? accent : Colors.black38;
-    inputBg = Colors.transparent;
-    inputFg = Colors.black;
-    suffixBg = Colors.transparent;
-    suffixFg = accent;
-    btnIcon = Icons.search;
-    hintText = isCustom && customFolders.isEmpty
-        ? '点左侧"搜索设置"配置范围'
-        : '输入关键词';
+    label = '当前目录';
+    badge = null;
   }
 
- return TapRegion(
-  onTapOutside: (_) {
-    FocusManager.instance.primaryFocus?.unfocus();
-    // 不关闭悬浮层，让用户点真正的外部区域再关
-  },
+  // ===== 输入框占位文案 =====
+  final String hintText;
+  if (isFilter) {
+    hintText = '过滤当前目录';
+  } else if (isCustom) {
+    if (customFolders.isEmpty) {
+      hintText = '点左侧标签设置搜索范围';
+    } else if (customFolders.length == 1) {
+      hintText = '在 1 个自定义目录中搜索';
+    } else {
+      hintText = '在 ${customFolders.length} 个自定义目录中搜索';
+    }
+  } else {
+    hintText = '在当前目录中搜索';
+  }
+
+  // ===== 右侧按钮：形状区分模式 =====
+  final IconData actionIcon =
+      isFilter ? Icons.filter_alt_outlined : Icons.search;
+  final Color actionColor = (isFilter || !hasText)
+      ? cs.onSurfaceVariant
+      : cs.onSurface;
+
+  // ===== 输入框形状：搜索=胶囊，过滤=圆角矩形 =====
+  final double radius = isFilter ? 8.0 : 22.0;
+  final Color borderColor = focused ? cs.onSurface : cs.outline;
+  final double borderWidth = focused ? 1.5 : 1.0;
+
+  // ===== 标签颜色：聚焦或有字时加深 =====
+  final bool labelActive = focused || hasText;
+  final Color labelColor =
+      labelActive ? cs.onSurface : cs.onSurfaceVariant;
+
+  return TapRegion(
+    onTapOutside: (_) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    },
     child: Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       child: Row(
         children: [
-
-
-
-
-
-			Material(
-  color: Colors.transparent,
-  child: InkWell(
-    onTap: _showSearchSettings,
-    borderRadius: BorderRadius.circular(8),
-    child: Container(
-      height: 42,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: null,
-        border: isFilter
-            ? Border.all(color: Colors.transparent, width: 1)
-            : null,
-      ),
-      child: Text(
-        '搜索设置',
-        style: TextStyle(
-          fontSize: 12,
-          color: isFilter ? Colors.black : accent,
-          fontWeight: (isFilter || hasText)
-              ? FontWeight.bold
-              : FontWeight.normal,
-        ),
-      ),
-    ),
-  ),
-),
-
-          const SizedBox(width: 2),
-
-          InkWell(
-            onTap: isFilter
-                ? null
-                : ((hasText || _hasActiveConditions) ? _doSearch : null),
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 7,
-                vertical: 9,
+          // ===== 左侧活字标签 =====
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _showSearchSettings,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: labelActive
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        color: labelColor,
+                      ),
+                    ),
+                    if (badge != null) ...[
+                      const SizedBox(width: 3),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: cs.surfaceVariant,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          badge,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
+            ),
+          ),
+          const SizedBox(width: 6),
+
+          // ===== 输入框 =====
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              height: 44,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                color: btnBg,
+                borderRadius: BorderRadius.circular(radius),
+                border: Border.all(
+                  color: borderColor,
+                  width: borderWidth,
+                ),
               ),
-              child: Icon(btnIcon, color: btnIconColor),
+              child: Row(
+                children: [
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      key: _searchInputKey,
+                      controller: _searchCtrl,
+                      focusNode: _searchFocus,
+                      cursorColor: cs.primary,
+                      style: TextStyle(fontSize: 14, color: cs.onSurface),
+                      decoration: InputDecoration(
+                        hintText: hintText,
+                        hintStyle: TextStyle(
+                          fontSize: 14,
+                          color: cs.onSurfaceVariant,
+                        ),
+                        isDense: true,
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      onChanged: _onSearchChanged,
+                      onSubmitted: isFilter
+                          ? (_) => FocusManager.instance
+                              .primaryFocus
+                              ?.unfocus()
+                          : (_) => _doSearch(),
+                    ),
+                  ),
+                  // 清空 / 历史
+                  SizedBox(
+                    width: 40,
+                    height: 44,
+                    child: InkResponse(
+                      onTap: hasText
+                          ? (isFilter ? _clearFilter : _clearSearchInput)
+                          : _showSearchHistory,
+                      radius: 20,
+                      child: Tooltip(
+                        message: hasText ? '清空输入' : '搜索历史',
+                        child: Icon(
+                          hasText ? Icons.backspace_outlined : Icons.history,
+                          size: 20,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 4),
 
-          Expanded(
-          child: TextField(
-  key: _searchInputKey,
-  controller: _searchCtrl,
-              cursorColor: accent,
-              style: TextStyle(
-                color: inputFg,
-                fontWeight:
-                    isFilter ? FontWeight.bold : FontWeight.normal,
-              ),
-              decoration: InputDecoration(
-                hintText: hintText,
-                filled: isFilter,
-                fillColor: isFilter ? inputBg : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 9,
-                ),
-                     suffixIcon: Row(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    if (hasText && !isFilter) _buildAdvancedToggle(),
-    hasText
-        ? _suffixButton(
-            icon: Icons.backspace_outlined,
-            tooltip: '清空输入',
-            fg: suffixFg,
-            bg: suffixBg,
-            onTap: isFilter ? _clearFilter : _clearSearchInput,
-          )
-        : _suffixButton(
-            icon: Icons.history,
-            tooltip: '搜索历史',
-            fg: suffixFg,
-            bg: suffixBg,
-            onTap: _showSearchHistory,
-          ),
-  ],
-),
-                suffixIconConstraints: const BoxConstraints(
-  minWidth: 44,
-  minHeight: 44,
-),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: accent, width: 1),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: accent, width: 2),
-                ),
-              ),
-              onChanged: _onSearchChanged,
-              onSubmitted: isFilter
-                  ? (_) => FocusManager.instance.primaryFocus?.unfocus()
-                  : (_) => _doSearch(),
+          // ===== 右侧执行 / 标识按钮 =====
+          SizedBox(
+            width: 44,
+            height: 44,
+            child: InkResponse(
+              radius: 22,
+              onTap: () {
+                if (isFilter) {
+                  // 过滤模式：点击 = 收键盘（过滤是实时的，无"执行"语义）
+                  FocusManager.instance.primaryFocus?.unfocus();
+                } else if (hasText || _hasActiveConditions) {
+                  _doSearch();
+                } else {
+                  // 搜索模式无内容：聚焦输入框
+                  _searchFocus.requestFocus();
+                }
+              },
+              child: Icon(actionIcon, size: 22, color: actionColor),
             ),
           ),
         ],
-      ),
-    ),
-  );
-}
-
-
-Widget _suffixButton({
-  required IconData icon,
-  required String tooltip,
-  required Color fg,
-  required Color bg,
-  required VoidCallback onTap,
-}) {
-  return SizedBox(
-    width: 40,
-    height: 44,
-    child: Material(
-      color: bg,
-      child: InkWell(
-        onTap: onTap,
-        child: Tooltip(
-          message: tooltip,
-          child: Icon(icon, size: 22, color: fg),
-        ),
       ),
     ),
   );
@@ -4985,7 +4960,6 @@ Future<void> _showSearchSettings() async {
         final searchSortField = ref.watch(searchSortFieldProvider);
         final searchSortAsc = ref.watch(searchSortAscProvider);
         final boxMode = ref.watch(searchBoxModeProvider);
-        final depth = ref.watch(filterDepthProvider);
         final isFilter = boxMode == SearchBoxMode.filter;
 
         const currentColor = Color(0xFFB79800);
@@ -5131,62 +5105,15 @@ modeRow(
                   const SizedBox(height: 8),
 
                   if (isFilter) ...[
-                    const _SearchSettingsSectionTitle('过滤深度'),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        children: [
-                          const Text('深度：',
-                              style: TextStyle(fontSize: 14)),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 64,
-                            child: TextFormField(
-                              key: ValueKey('fd_$depth'),
-                              initialValue: depth.toString(),
-                              keyboardType: TextInputType.number,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 14),
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 8,
-                                ),
-                              ),
-                              onFieldSubmitted: (v) {
-                                final n = int.tryParse(v.trim());
-                                if (n == null) return;
-                                ref
-                                    .read(filterDepthProvider.notifier)
-                                    .set(n);
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(4, 10, 4, 4),
+                      padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
                       child: Text(
-                        '0 = 只过滤当前目录\n'
-                        '1 = 包含一级子目录\n'
-                        '2 = 包含二级子目录\n'
-                        '……\n'
-                        '9 = 包含九级子目录',
-                        style: TextStyle(fontSize: 12, height: 1.6),
-                      ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(4, 8, 4, 4),
-                      child: Text(
-                        'ⓘ 过滤固定作用于"当前目录 + 子目录"，'
-                        '不能像搜索那样自定义范围。',
+                        '过滤只在当前目录内生效。\n'
+                        '想跨目录查找，请切回"搜索"模式。',
                         style: TextStyle(
-                          fontSize: 11,
-                          height: 1.4,
-                          color: Colors.grey,
+                          fontSize: 12,
+                          height: 1.6,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
@@ -5209,17 +5136,26 @@ modeRow(
                         top: 4,
                         bottom: 8,
                       ),
-                      child: FilledButton.tonalIcon(
-  style: FilledButton.styleFrom(
-    backgroundColor: scope == SearchScope.custom
-        ? const Color(0xFF93E6F0)   // 自定义范围：现状色
-        : const Color(0xFFD9F3F0),  // 子目录：更浅的蓝
-    foregroundColor: Colors.black87,
-  ),
-  icon: const Icon(Icons.folder_special, size: 20),
-  label: const Text('管理搜索范围'),
-  onPressed: () => _showSearchFolderPicker(),
-),
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor:
+                              Theme.of(context).colorScheme.primary,
+                          side: BorderSide(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        icon: const Icon(Icons.folder_special, size: 18),
+                        label: const Text('管理搜索范围'),
+                        onPressed: () => _showSearchFolderPicker(),
+                      ),
                     ),
                     const SizedBox(height: 4),
                     const Divider(height: 1),
@@ -5352,28 +5288,32 @@ Widget _buildExpandedZipBar() {
       _expandedZipKeys.where((k) => !_isZipInnerKey(k)).length;
   if (topLevelCount == 0) return const SizedBox.shrink();
 
+  final cs = Theme.of(context).colorScheme;
   return Container(
     width: double.infinity,
-    color: Colors.blue.shade50,
+    color: cs.secondaryContainer,
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
     child: Row(
       children: [
-       
-    Icon(Icons.folder_zip_outlined, size: 16, color: Colors.blue.shade700),
+    Icon(
+      Icons.folder_zip_outlined,
+      size: 16,
+      color: cs.onSecondaryContainer,
+    ),
               const SizedBox(width: 8),
         Expanded(
           child: Text(
             '已展开 $topLevelCount 个压缩包',
             style: TextStyle(
               fontSize: 12,
-              color: Colors.blue.shade900,
+              color: cs.onSecondaryContainer,
             ),
           ),
         ),
         TextButton(
           style: TextButton.styleFrom(
             visualDensity: VisualDensity.compact,
-            foregroundColor: Colors.blue.shade800,
+            foregroundColor: cs.onSecondaryContainer,
             padding: const EdgeInsets.symmetric(horizontal: 8),
           ),
           onPressed: () {
@@ -5401,8 +5341,8 @@ Widget _buildExpandedZipBar() {
         child: Row(
           children: [
             const SizedBox(
-              width: 14,
-              height: 14,
+              width: 16,
+              height: 16,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 8),
@@ -5480,11 +5420,13 @@ Widget _buildExpandedZipBar() {
 
     final s = Theme.of(context).colorScheme;
 
-    final outlineStyle = FilledButton.styleFrom(
-      padding: const EdgeInsets.symmetric(horizontal: 1),
-      backgroundColor: Colors.transparent,
-      foregroundColor: Colors.black,
-      side: BorderSide(color: s.primary),
+    final outlineStyle = OutlinedButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      foregroundColor: s.onSurface,
+      side: BorderSide(color: s.outline),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
     );
 
     const labelStyle = TextStyle(
@@ -5511,14 +5453,15 @@ Widget _buildExpandedZipBar() {
 child: Row(
   children: [
     SizedBox(
-      width: 160,
+      width: 110,
+      height: 38,
       child: FilledButton.icon(
         icon: const Icon(Icons.compare_arrows, size: 16),
         label: const Text(
           '对比',
           style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
           ),
         ),
         onPressed: canCompare ? _startCompare : null,
@@ -5526,8 +5469,8 @@ child: Row(
     ),
     const SizedBox(width: 4),
     SizedBox(
-      width: 68,
-      child: FilledButton(
+      width: 76,
+      child: OutlinedButton(
         style: outlineStyle,
         onPressed: canCopyPath ? _copyPath : null,
         child: const Text(
@@ -5540,8 +5483,8 @@ child: Row(
     ),
     const SizedBox(width: 3),
     SizedBox(
-      width: 68,
-      child: FilledButton(
+      width: 76,
+      child: OutlinedButton(
         style: outlineStyle,
         onPressed: canOpenWith ? _openWithApp : null,
         child: const Text(
@@ -5554,8 +5497,8 @@ child: Row(
     ),
     const SizedBox(width: 3),
     SizedBox(
-      width: 68,
-      child: FilledButton(
+      width: 76,
+      child: OutlinedButton(
         style: outlineStyle,
         onPressed: canShare ? _shareSelected : null,
         child: const Text(
@@ -5568,8 +5511,8 @@ child: Row(
     ),
     const SizedBox(width: 3),
     SizedBox(
-      width: 68,
-      child: FilledButton(
+      width: 76,
+      child: OutlinedButton(
         style: outlineStyle,
         onPressed: canMd5 ? _md5Compare : null,
         child: const Text(
@@ -5619,6 +5562,7 @@ child: Row(
                   child: _wideAction(
                     icon: Icons.delete_outline,
                     label: '删除',
+                    color: canDelete ? s.error : null,
                     onPressed: canDelete ? _delete : null,
                   ),
                 ),
@@ -5668,7 +5612,7 @@ child: Row(
   Widget _buildBody() {
     return AnimatedSwitcher(
       key: ValueKey('switcher_$_bodyRevision'),
-      duration: const Duration(milliseconds: 280),
+      duration: const Duration(milliseconds: 180),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, animation) => FadeTransition(
@@ -5718,9 +5662,32 @@ child: Row(
     }
 
   final entries = _entries ?? const <EntryInfo>[];
-  if (entries.isEmpty) {
-    return _keyed('empty', const Center(child: Text('空目录')));
-  }
+    if (entries.isEmpty) {
+      final cs = Theme.of(context).colorScheme;
+      return _keyed(
+        'empty',
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.folder_open_outlined,
+                size: 64,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '这里还没有文件',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
   final mode = ref.read(searchBoxModeProvider);
   if (mode == SearchBoxMode.filter &&
@@ -5818,12 +5785,13 @@ Widget _buildListBody() {
         ),
         child: Row(
           children: [
-            const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
+            Icon(Icons.warning_amber,
+                size: 16, color: colorScheme.error),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 item.displayName,
-                style: const TextStyle(fontSize: 12, color: Colors.orange),
+                style: TextStyle(fontSize: 12, color: colorScheme.error),
               ),
             ),
           ],
@@ -5849,16 +5817,13 @@ if (item.isZip) {
 return Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
-  foregroundDecoration: selected
-      ? BoxDecoration(
-          border: Border(
-            top: BorderSide(color: colorScheme.primary, width: 1),
-            bottom: BorderSide(color: colorScheme.primary, width: 1),
-            left: BorderSide(color: colorScheme.primary, width: 2),
-            right: BorderSide(color: colorScheme.primary, width: 2),
-          ),
-        )
-      : null,
+    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: selected
+          ? colorScheme.primary.withValues(alpha: 0.08)
+          : null,
+      borderRadius: BorderRadius.circular(10),
+    ),
   child: ListTile(
       dense: true,
   visualDensity: const VisualDensity(horizontal: 0, vertical: 0),
@@ -5868,8 +5833,6 @@ return Listener(
   top: 4,
   bottom: 4,
 ),
-selected: selected,
-selectedTileColor: colorScheme.primary.withValues(alpha: 0.10),
 leading: SizedBox(
   width: 48,
   child: Padding(
@@ -5878,7 +5841,7 @@ leading: SizedBox(
       child: Icon(
         zipIcon,
         size: 24,
-        color: Colors.blue.shade600,
+        color: colorScheme.onSurfaceVariant,
       ),
     ),
   ),
@@ -5935,7 +5898,8 @@ leading: SizedBox(
         child: Row(
           children: [
             const SizedBox(width: 22),
-            Icon(Icons.folder, size: 18, color: Colors.black87),
+            Icon(Icons.folder,
+                size: 18, color: _fileIconColor(context, isDir: true)),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -5960,16 +5924,13 @@ leading: SizedBox(
 return Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
-  foregroundDecoration: selected
-      ? BoxDecoration(
-          border: Border(
-            top: BorderSide(color: colorScheme.primary, width: 1),
-            bottom: BorderSide(color: colorScheme.primary, width: 1),
-            left: BorderSide(color: colorScheme.primary, width: 2),
-            right: BorderSide(color: colorScheme.primary, width: 2),
-          ),
-        )
-      : null,
+    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: selected
+          ? colorScheme.primary.withValues(alpha: 0.08)
+          : null,
+      borderRadius: BorderRadius.circular(10),
+    ),
   child: ListTile(
   dense: true,
   visualDensity: const VisualDensity(horizontal: 0, vertical: 0),
@@ -5980,8 +5941,6 @@ return Listener(
         top: 4,
         bottom: 4,
       ),
-      selected: selected,
-      selectedTileColor: colorScheme.primary.withValues(alpha: 0.10),
       leading: SizedBox(
         width: 48,
         child: Padding(
@@ -5995,10 +5954,8 @@ return Listener(
                       : Icons.insert_drive_file_outlined),
               size: 24,
               color: isZipInner
-                  ? Colors.blueGrey.shade300
-                  : (item.isDir
-                      ? Colors.black87
-                      : _fileColor(item.displayName)),
+                  ? colorScheme.onSurfaceVariant.withValues(alpha: 0.6)
+                  : _fileIconColor(context, isDir: item.isDir),
             ),
           ),
         ),
@@ -6116,7 +6073,7 @@ return Listener(
                 Expanded(child: leftWidget),
                 Container(
                   width: _gridDividerThickness,
-                  color: _gridDividerColor,
+                  color: _gridDividerColorOf(context),
                 ),
                 Expanded(child: rightWidget),
               ],
@@ -6167,23 +6124,16 @@ return Listener(
           // 背景只保留选中态，和列表模式一致；
           // 文本/二进制靠图标颜色区分，灰底属于隐式规则。
           color: selected
-              ? colorScheme.primary.withValues(alpha: 0.10)
+              ? colorScheme.primary.withValues(alpha: 0.08)
               : null,
         ),
         foregroundDecoration: BoxDecoration(
-          border: selected
-              ? Border(
-                  top: BorderSide(color: colorScheme.primary, width: 1),
-                  bottom: BorderSide(color: colorScheme.primary, width: 1),
-                  left: BorderSide(color: colorScheme.primary, width: 2),
-                  right: BorderSide(color: colorScheme.primary, width: 2),
-                )
-              : Border(
-                  bottom: BorderSide(
-                    color: _gridDividerColor,
-                    width: _gridDividerThickness,
-                  ),
-                ),
+          border: Border(
+            bottom: BorderSide(
+              color: _gridDividerColorOf(context),
+              width: _gridDividerThickness,
+            ),
+          ),
         ),
         padding: EdgeInsets.symmetric(
           horizontal: _gridCellPadH,
@@ -6211,9 +6161,8 @@ return Listener(
                               ? Icons.folder
                               : Icons.insert_drive_file_outlined,
                           size: 15,
-                          color: info.isDir
-                              ? Colors.amber.shade600
-                              : _fileColor(info.name),
+                          color: _fileIconColor(context,
+                              isDir: info.isDir),
                         ),
                       ),
                     ),
@@ -6353,16 +6302,13 @@ return Listener(
     return Listener(
       onPointerDown: (e) => _lastTapX = e.localPosition.dx,
       child: Container(
-        foregroundDecoration: selected
-            ? BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: colorScheme.primary, width: 1),
-                  bottom: BorderSide(color: colorScheme.primary, width: 1),
-                  left: BorderSide(color: colorScheme.primary, width: 2),
-                  right: BorderSide(color: colorScheme.primary, width: 2),
-                ),
-              )
-            : null,
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: selected
+              ? colorScheme.primary.withValues(alpha: 0.08)
+              : null,
+          borderRadius: BorderRadius.circular(10),
+        ),
         child: ListTile(
           dense: true,
           isThreeLine: true,
@@ -6373,8 +6319,6 @@ return Listener(
             top: 4,
             bottom: 4,
           ),
-          selected: selected,
-          selectedTileColor: colorScheme.primary.withValues(alpha: 0.10),
           leading: SizedBox(
             width: 48,
             child: Padding(
@@ -6389,10 +6333,8 @@ return Listener(
                           : Icons.insert_drive_file_outlined),
                   size: 24,
                   color: isZipInner
-                      ? Colors.blueGrey.shade300
-                      : (item.isDir
-                          ? Colors.black87
-                          : _fileColor(item.displayName)),
+                      ? colorScheme.onSurfaceVariant.withValues(alpha: 0.6)
+                      : _fileIconColor(context, isDir: item.isDir),
                 ),
               ),
             ),
@@ -6430,7 +6372,7 @@ return Listener(
                 pathLine,
                 style: TextStyle(
                   fontSize: fontMeta,
-                  color: colorScheme.onSurface,
+                  color: colorScheme.onSurfaceVariant,
                   height: 1.3,
                 ),
                 softWrap: true,
@@ -7542,11 +7484,12 @@ class _LoadingSkeletonState extends State<_LoadingSkeleton>
         return ShaderMask(
           blendMode: BlendMode.srcATop,
           shaderCallback: (bounds) {
+            final cs = Theme.of(context).colorScheme;
             return LinearGradient(
               colors: [
-                Colors.grey.shade200,
-                Colors.grey.shade50,
-                Colors.grey.shade200,
+                cs.surfaceVariant,
+                cs.surfaceVariant.withValues(alpha: 0.4),
+                cs.surfaceVariant,
               ],
               stops: const [0.35, 0.5, 0.65],
               transform: _SlidingGradientTransform(_ctrl.value),
@@ -7574,7 +7517,7 @@ class _LoadingSkeletonState extends State<_LoadingSkeleton>
                 width: 24,
                 height: 24,
                 decoration: BoxDecoration(
-                  color: Colors.grey,
+                  color: Theme.of(context).colorScheme.surfaceVariant,
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
@@ -7587,7 +7530,7 @@ class _LoadingSkeletonState extends State<_LoadingSkeleton>
                       width: nameW,
                       height: 11,
                       decoration: BoxDecoration(
-                        color: Colors.grey,
+                        color: Theme.of(context).colorScheme.surfaceVariant,
                         borderRadius: BorderRadius.circular(3),
                       ),
                     ),
@@ -7596,7 +7539,7 @@ class _LoadingSkeletonState extends State<_LoadingSkeleton>
                       width: metaW,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: Colors.grey,
+                        color: Theme.of(context).colorScheme.surfaceVariant,
                         borderRadius: BorderRadius.circular(3),
                       ),
                     ),
