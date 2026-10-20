@@ -378,7 +378,10 @@ class ReaderSettings {
     required this.fontSize,
     required this.fontWeight,
     required this.bgColor,
-    required this.showButtons,
+    required this.showTopButton,
+    required this.showBottomButton,
+    required this.showDelButton,
+    required this.showMoveButton,
     required this.readerMode,
 
     // ====== 分页模式安全边距 ======
@@ -424,6 +427,18 @@ class ReaderSettings {
     required this.delBtnX,
     required this.delBtnY,
 
+    // ====== 移动文件按钮 ======
+    required this.showMoveButton,
+    required this.moveBtnStyle,
+    required this.moveBtnBgColor,
+    required this.moveBtnFgColor,
+    required this.moveBtnRingColor,
+    required this.moveBtnRingWidth,
+    required this.moveBtnOpacity,
+    required this.moveBtnScale,
+    required this.moveBtnX,
+    required this.moveBtnY,
+
     // ====== 菜单热区 ======
     required this.hotZoneVisible,
     required this.hotZoneStyle,
@@ -445,9 +460,17 @@ class ReaderSettings {
   /// 背景色 ARGB
   final int bgColor;
 
-  /// 浮动按钮总开关。关了之后按钮彻底不显示、不可点，
-  /// 点击原位置会走正常逻辑（顶部菜单 / 翻页）。
-  final bool showButtons;
+  /// 上一文件按钮开关。关掉后不显示、不可点。
+  final bool showTopButton;
+
+  /// 下一文件按钮开关。关掉后不显示、不可点。
+  final bool showBottomButton;
+
+  /// 删除文件按钮开关。关掉后不显示、不可点。
+  final bool showDelButton;
+
+  /// 移动文件按钮开关。
+  final bool showMoveButton;
 
   /// 阅读模式：0 = 分页，1 = 滚动。
   final int readerMode;
@@ -534,6 +557,22 @@ class ReaderSettings {
   final double delBtnX;
   final double delBtnY;
 
+  // ==================== 移动文件按钮 ====================
+  //
+  // 和删除按钮完全同构：三种样式开关、三组颜色、透明度、
+  // 大小、位置，全部独立可配。图标固定用"文件夹+箭头"（不随配置变）。
+
+  /// 样式：0 = 纯色圆（有文件夹箭头图标），1 = 圆环（也有文件夹箭头图标）。
+  final int moveBtnStyle;
+  final int moveBtnBgColor;    // 纯色圆背景色
+  final int moveBtnFgColor;    // 纯色圆图标色
+  final int moveBtnRingColor;  // 圆环颜色（兼图标色）
+  final double moveBtnRingWidth;
+  final double moveBtnOpacity;
+  final double moveBtnScale;
+  final double moveBtnX;
+  final double moveBtnY;
+
   // ==================== 菜单热区 ====================
   //
   // 热区是一个矩形，中心在 (hotZoneX, hotZoneY)（0-1 相对屏幕内容区），
@@ -562,7 +601,10 @@ class ReaderSettings {
     fontSize: 17.0,
     fontWeight: 400,
     bgColor: bgCream,
-    showButtons: false,
+    showTopButton: false,
+    showBottomButton: false,
+    showDelButton: false,
+    showMoveButton: false,
     readerMode: 1,
 
     pageTopSafePx: 0,
@@ -603,6 +645,17 @@ class ReaderSettings {
     delBtnX: 0.10,
     delBtnY: 0.85,
 
+    // 移动按钮：右侧中间，半透明黑。
+    moveBtnStyle: 0,
+    moveBtnBgColor: 0x59000000,
+    moveBtnFgColor: 0xFFFFFFFF,
+    moveBtnRingColor: 0xFF3D7CFF,
+    moveBtnRingWidth: 2.0,
+    moveBtnOpacity: 0.7,
+    moveBtnScale: 1.0,
+    moveBtnX: 0.90,
+    moveBtnY: 0.50,
+
     hotZoneVisible: false,
     hotZoneStyle: 1,
     hotZoneColor: 0xFFFF0000,
@@ -618,7 +671,11 @@ class ReaderSettings {
         'fs': fontSize,
         'fw': fontWeight,
         'bg': bgColor,
-        'sb': showButtons,
+        'sb': showTopButton || showBottomButton || showDelButton || showMoveButton,
+        'stb': showTopButton,
+        'sbb': showBottomButton,
+        'sdb': showDelButton,
+        'smb': showMoveButton,
         'rm': readerMode,
 
         'ptsp': pageTopSafePx,
@@ -659,6 +716,16 @@ class ReaderSettings {
         'dx': delBtnX,
         'dy': delBtnY,
 
+        'mbs': moveBtnStyle,
+        'mbb': moveBtnBgColor,
+        'mbf': moveBtnFgColor,
+        'mbr': moveBtnRingColor,
+        'mbrw': moveBtnRingWidth,
+        'mbo': moveBtnOpacity,
+        'mbscl': moveBtnScale,
+        'mbx': moveBtnX,
+        'mby': moveBtnY,
+
         'hv': hotZoneVisible,
         'hs': hotZoneStyle,
         'hc': hotZoneColor,
@@ -674,7 +741,13 @@ class ReaderSettings {
         fontSize: (j['fs'] as num?)?.toDouble() ?? 17.0,
         fontWeight: (j['fw'] as num?)?.toInt() ?? 400,
         bgColor: (j['bg'] as num?)?.toInt() ?? bgCream,
-        showButtons: j['sb'] as bool? ?? true,
+        showTopButton:
+            j['stb'] as bool? ?? (j['sb'] as bool? ?? true),
+        showBottomButton:
+            j['sbb'] as bool? ?? (j['sb'] as bool? ?? true),
+        showDelButton:
+            j['sdb'] as bool? ?? (j['sb'] as bool? ?? true),
+        showMoveButton: j['smb'] as bool? ?? false,
         readerMode: (j['rm'] as num?)?.toInt() ?? 0,
 
         pageTopSafePx: (j['ptsp'] as num?)?.toInt() ?? 0,
@@ -715,6 +788,16 @@ class ReaderSettings {
         delBtnX: (j['dx'] as num?)?.toDouble() ?? 0.10,
         delBtnY: (j['dy'] as num?)?.toDouble() ?? 0.85,
 
+        moveBtnStyle: (j['mbs'] as num?)?.toInt() ?? 0,
+        moveBtnBgColor: (j['mbb'] as num?)?.toInt() ?? 0x59000000,
+        moveBtnFgColor: (j['mbf'] as num?)?.toInt() ?? 0xFFFFFFFF,
+        moveBtnRingColor: (j['mbr'] as num?)?.toInt() ?? 0xFF3D7CFF,
+        moveBtnRingWidth: (j['mbrw'] as num?)?.toDouble() ?? 2.0,
+        moveBtnOpacity: (j['mbo'] as num?)?.toDouble() ?? 0.7,
+        moveBtnScale: (j['mbscl'] as num?)?.toDouble() ?? 1.0,
+        moveBtnX: (j['mbx'] as num?)?.toDouble() ?? 0.90,
+        moveBtnY: (j['mby'] as num?)?.toDouble() ?? 0.50,
+
         hotZoneVisible: j['hv'] as bool? ?? false,
         hotZoneStyle: (j['hs'] as num?)?.toInt() ?? 1,
         hotZoneColor: (j['hc'] as num?)?.toInt() ?? 0xFFFF0000,
@@ -730,7 +813,10 @@ class ReaderSettings {
     double? fontSize,
     int? fontWeight,
     int? bgColor,
-    bool? showButtons,
+    bool? showTopButton,
+    bool? showBottomButton,
+    bool? showDelButton,
+    bool? showMoveButton,
     int? readerMode,
 
     int? pageTopSafePx,
@@ -771,6 +857,16 @@ class ReaderSettings {
     double? delBtnX,
     double? delBtnY,
 
+    int? moveBtnStyle,
+    int? moveBtnBgColor,
+    int? moveBtnFgColor,
+    int? moveBtnRingColor,
+    double? moveBtnRingWidth,
+    double? moveBtnOpacity,
+    double? moveBtnScale,
+    double? moveBtnX,
+    double? moveBtnY,
+
     bool? hotZoneVisible,
     int? hotZoneStyle,
     int? hotZoneColor,
@@ -785,7 +881,10 @@ class ReaderSettings {
         fontSize: fontSize ?? this.fontSize,
         fontWeight: fontWeight ?? this.fontWeight,
         bgColor: bgColor ?? this.bgColor,
-        showButtons: showButtons ?? this.showButtons,
+        showTopButton: showTopButton ?? this.showTopButton,
+        showBottomButton: showBottomButton ?? this.showBottomButton,
+        showDelButton: showDelButton ?? this.showDelButton,
+        showMoveButton: showMoveButton ?? this.showMoveButton,
         readerMode: readerMode ?? this.readerMode,
 
         pageTopSafePx: pageTopSafePx ?? this.pageTopSafePx,
@@ -825,6 +924,16 @@ class ReaderSettings {
         delBtnScale: delBtnScale ?? this.delBtnScale,
         delBtnX: delBtnX ?? this.delBtnX,
         delBtnY: delBtnY ?? this.delBtnY,
+
+        moveBtnStyle: moveBtnStyle ?? this.moveBtnStyle,
+        moveBtnBgColor: moveBtnBgColor ?? this.moveBtnBgColor,
+        moveBtnFgColor: moveBtnFgColor ?? this.moveBtnFgColor,
+        moveBtnRingColor: moveBtnRingColor ?? this.moveBtnRingColor,
+        moveBtnRingWidth: moveBtnRingWidth ?? this.moveBtnRingWidth,
+        moveBtnOpacity: moveBtnOpacity ?? this.moveBtnOpacity,
+        moveBtnScale: moveBtnScale ?? this.moveBtnScale,
+        moveBtnX: moveBtnX ?? this.moveBtnX,
+        moveBtnY: moveBtnY ?? this.moveBtnY,
 
         hotZoneVisible: hotZoneVisible ?? this.hotZoneVisible,
         hotZoneStyle: hotZoneStyle ?? this.hotZoneStyle,
