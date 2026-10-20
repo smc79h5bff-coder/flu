@@ -2699,65 +2699,16 @@ void _toast(String msg) {
   child: Scaffold(
   appBar: AppBar(
 toolbarHeight: 43,
+  leadingWidth: 40,
   leading: IconButton(
     icon: const Icon(Icons.disabled_by_default),
     tooltip: '关闭',
+    padding: EdgeInsets.zero,
     onPressed: () => Navigator.of(context).maybePop(),
   ),
-  titleSpacing: 1,
-  title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Builder(builder: (ctx) {
-              final enabled = !_originalDeleted &&
-                  ref.read(originalFilePathProvider) != null;
-              return SizedBox(
-                width: 56,
-                height: 42,
-                child: InkWell(
-                  key: const Key('delete-left'),
-                  onTap: enabled ? () => _deleteSide(isOriginal: true) : null,
-                  child: Center(
-                    child: Text(
-                      '删左',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: enabled
-                            ? Colors.red
-                            : Theme.of(ctx).disabledColor,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
-            const SizedBox(width: 8),
-            Builder(builder: (ctx) {
-              final enabled = !_modifiedDeleted &&
-                  ref.read(modifiedFilePathProvider) != null;
-              return SizedBox(
-                width: 56,
-                height: 42,
-                child: InkWell(
-                  key: const Key('delete-right'),
-                  onTap: enabled ? () => _deleteSide(isOriginal: false) : null,
-                  child: Center(
-                    child: Text(
-                      '删右',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: enabled
-                            ? Colors.red
-                            : Theme.of(ctx).disabledColor,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
+  titleSpacing: 0,
         actions: [
+          // ===== 左侧组：批左 + 删左 =====
           InkWell(
             key: const Key('prev-diff'),
             onTap: () => _openLineListFromDiff(isLeft: true),
@@ -2769,7 +2720,7 @@ toolbarHeight: 43,
               }
             },
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: CustomPaint(
                 size: const Size(37, 26),
                 painter: _BatchExtractIconPainter(
@@ -2778,6 +2729,38 @@ toolbarHeight: 43,
                       Theme.of(context).colorScheme.onSurface,
                 ),
               ),
+            ),
+          ),
+          Builder(builder: (ctx) {
+            final enabled = !_originalDeleted &&
+                ref.read(originalFilePathProvider) != null;
+            return SizedBox(
+              width: 54,
+              height: 42,
+              child: InkWell(
+                key: const Key('delete-left'),
+                onTap: enabled ? () => _deleteSide(isOriginal: true) : null,
+                child: Center(
+                  child: Text(
+                    '删左',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color:
+                          enabled ? Colors.red : Theme.of(ctx).disabledColor,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+
+          // ===== 分组竖线 =====
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Container(
+              width: 1,
+              height: 20,
+              color: Theme.of(context).colorScheme.outlineVariant,
             ),
           ),
           InkWell(
@@ -2791,7 +2774,7 @@ toolbarHeight: 43,
               }
             },
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: CustomPaint(
                 size: const Size(37, 26),
                 painter: _BatchExtractIconPainter(
@@ -2802,6 +2785,28 @@ toolbarHeight: 43,
               ),
             ),
           ),
+          Builder(builder: (ctx) {
+            final enabled = !_modifiedDeleted &&
+                ref.read(modifiedFilePathProvider) != null;
+            return SizedBox(
+              width: 54,
+              height: 42,
+              child: InkWell(
+                key: const Key('delete-right'),
+                onTap: enabled ? () => _deleteSide(isOriginal: false) : null,
+                child: Center(
+                  child: Text(
+                    '删右',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color:
+                          enabled ? Colors.red : Theme.of(ctx).disabledColor,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
           IconButton(
           icon: const Icon(Icons.find_in_page),
             iconSize: 26,
