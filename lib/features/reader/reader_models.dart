@@ -381,7 +381,6 @@ class ReaderSettings {
     required this.showTopButton,
     required this.showBottomButton,
     required this.showDelButton,
-    required this.showMoveButton,
     required this.readerMode,
 
     // ====== 分页模式安全边距 ======
