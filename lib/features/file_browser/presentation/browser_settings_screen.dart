@@ -38,6 +38,8 @@ class BrowserSettingsScreen extends ConsumerWidget {
         children: [
           _buildSkinSection(context, ref),
           const Divider(height: 1),
+          _buildSearchBarSection(context, ref),
+          const Divider(height: 1),
           _buildDisplayModeSection(context, ref),
           const Divider(height: 1),
 
@@ -84,6 +86,52 @@ class BrowserSettingsScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  // ==================== 搜索栏 ====================
+
+  Widget _buildSearchBarSection(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(searchBarVisibilityProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(
+          title: '搜索栏',
+          subtitle: '控制文件浏览器里搜索栏的显示方式。',
+        ),
+        RadioListTile<SearchBarVisibility>(
+          value: SearchBarVisibility.collapsible,
+          groupValue: current,
+          onChanged: (v) {
+            if (v != null) {
+              ref.read(searchBarVisibilityProvider.notifier).update(v);
+            }
+          },
+          title: const Text('可折叠'),
+          subtitle: const Text(
+            '平时显示，点右上角图标可以收起，随时再展开。',
+            style: TextStyle(fontSize: 12),
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+        RadioListTile<SearchBarVisibility>(
+          value: SearchBarVisibility.alwaysVisible,
+          groupValue: current,
+          onChanged: (v) {
+            if (v != null) {
+              ref.read(searchBarVisibilityProvider.notifier).update(v);
+            }
+          },
+          title: const Text('始终显示'),
+          subtitle: const Text(
+            '搜索栏永远显示，右上角不出现收起按钮。',
+            style: TextStyle(fontSize: 12),
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+        const SizedBox(height: 8),
       ],
     );
   }
