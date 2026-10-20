@@ -817,7 +817,7 @@ static const Set<String> _archiveExts = {
 // ==================== 高级搜索条件状态 ====================
 bool _advancedOpen = false;
 final List<_SearchCondition> _searchConditions = [];
-final GlobalKey _searchInputKey = GlobalKey();
+final GlobalKey _searchBarBoxKey = GlobalKey();
 OverlayEntry? _advancedOverlay;
 
 
@@ -1460,8 +1460,14 @@ _expandedZipKeys.clear();
   // ==================== 选中 ====================
 // ==================== 高级搜索条件 · 逻辑 ====================
 
-bool get _hasActiveConditions =>
-    _searchConditions.any((c) => c.text.trim().isNotEmpty);
+bool get _activeConditionCount =>
+    _searchConditions.where((c) => c.text.trim().isNotEmpty).length;
+
+/// 有没有非空条件。
+bool get _hasActiveConditions => _activeConditionCount > 0;
+
+/// 上一次点"搜索"时的关键词。关键词变了就清空高级条件。
+String _lastSearchedQuery = '';
 
 
 
@@ -1536,7 +1542,7 @@ void _showAdvancedOverlay() {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (!mounted) return;
     final box =
-        _searchInputKey.currentContext?.findRenderObject() as RenderBox?;
+        _searchBarBoxKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final pos = box.localToGlobal(Offset.zero);
     final size = box.size;
@@ -1578,17 +1584,15 @@ void _showAdvancedOverlay() {
 
 Widget _buildAdvancedToggle() {
   final cs = Theme.of(context).colorScheme;
-  final IconData icon;
-  if (_advancedOpen) {
-    icon = Icons.arrow_drop_up;
-  } else if (_hasActiveConditions) {
-    icon = Icons.arrow_drop_down;
-  } else {
-    icon = Icons.keyboard_arrow_down;
-  }
-  // 状态由图标形状区分（arrow_drop_up / arrow_drop_down /
-  // keyboard_arrow_down），颜色统一中性，不用颜色重复表达。
-  final color = cs.onSurfaceVariant;
+  // 只有两态：展开 / 收起。有没有条件靠颜色和 tooltip 表达。
+  final icon = _advancedOpen
+      ? Icons.keyboard_arrow_up
+      : Icons.keyboard_arrow_down;
+  final color =
+      _hasActiveConditions ? cs.primary : cs.onSurfaceVariant;
+  final tip = _hasActiveConditions
+      ? '高级搜索（有 $_activeConditionCount 条条件）'
+      : '高级搜索';
   return SizedBox(
     width: 40,
     height: 44,
@@ -1596,7 +1600,7 @@ Widget _buildAdvancedToggle() {
       onTap: _toggleAdvanced,
       radius: 20,
       child: Tooltip(
-        message: '高级搜索',
+        message: tip,
         child: Icon(icon, color: color, size: 22),
       ),
     ),
@@ -2455,6 +2459,19 @@ void _clearFilter() {
   void _doSearch() {
   final q = _searchCtrl.text.trim();
   if (q.isEmpty && !_hasActiveConditions) return;
+
+  // 关键词变了 → 清空高级搜索条件，关闭面板。
+  // 用户从"搜张三+排除斗罗"改到"搜我吃西红柿"时，条件不应跟着走。
+  if (_lastSearchedQuery != q) {
+    if (_searchConditions.isNotEmpty) {
+      _clearConditions();
+      _advancedOverlay?.remove();
+      _advancedOverlay = null;
+      _advancedOpen = false;
+    }
+    _lastSearchedQuery = q;
+  }
+
   if (q.isNotEmpty) {
     ref.read(browserSearchHistoryProvider.notifier).add(q);
   }
@@ -3465,15 +3482,11 @@ Future<void> _showDirInfoDialog() async {
           return AlertDialog(
             insetPadding: const EdgeInsets.all(16),
             title: const Text('已收藏目录'),
-            content: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.7,
-              ),
-              child: SizedBox(
-                width: 360,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+            content: SizedBox(
+              width: 360,
+              height: MediaQuery.of(context).size.height * 0.55,
+              child: Column(
+                children: [
                     ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
@@ -3499,16 +3512,18 @@ Future<void> _showDirInfoDialog() async {
                       },
                     ),
                     const Divider(height: 1),
-                    Flexible(
+                    Expanded(
                       child: favorites.isEmpty
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(32),
-                                child: Text('还没有收藏任何目录'),
+                          ? Center(
+                              child: Text(
+                                '还没有收藏任何目录',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: cs.onSurfaceVariant,
+                                ),
                               ),
                             )
                           : ListView.builder(
-                              shrinkWrap: true,
                               itemCount: favorites.length,
                               itemBuilder: (ctx, i) {
                                 final p = favorites[i];
@@ -3569,7 +3584,6 @@ Future<void> _showDirInfoDialog() async {
                     ),
                   ],
                 ),
-              ),
             ),
             actions: [
               TextButton(
@@ -4555,6 +4569,8 @@ String _normalizePath(String path) {
         DirCache.instance.invalidate(_currentPath);
         _load();
       }
+    case 'searchSettings':
+      _showSearchSettings();
     case 'exportConfig':
       _exportConfig();
     case 'importConfig':
@@ -4578,6 +4594,10 @@ case 'favorites':
             const PopupMenuItem<String>(
               value: 'browserSettings',
               child: Text('浏览器设置'),
+            ),
+            const PopupMenuItem<String>(
+              value: 'searchSettings',
+              child: Text('搜索设置'),
             ),
             const PopupMenuDivider(),
             const PopupMenuItem<String>(
@@ -4887,6 +4907,12 @@ Widget _buildSelectionHintBar() {
                         ),
                       ),
                     ],
+                    const SizedBox(width: 3),
+                    Icon(
+                      Icons.tune,
+                      size: 14,
+                      color: labelColor,
+                    ),
                   ],
                 ),
               ),
@@ -4897,6 +4923,7 @@ Widget _buildSelectionHintBar() {
           // ===== 输入框 =====
           Expanded(
             child: AnimatedContainer(
+              key: _searchBarBoxKey,
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeOutCubic,
               height: 44,
@@ -4935,6 +4962,36 @@ Widget _buildSelectionHintBar() {
                           : (_) => _doSearch(),
                     ),
                   ),
+                  // 条件徽章：只显示数字，点它打开高级面板
+                  if (_hasActiveConditions)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 2),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _toggleAdvanced,
+                          borderRadius: BorderRadius.circular(4),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: cs.primaryContainer,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '条件·$_activeConditionCount',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onPrimaryContainer,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   // 高级搜索（仅搜索模式 + 有文字时出现）
                   if (hasText && !isFilter) _buildAdvancedToggle(),
                   // 清空 / 历史
@@ -4988,13 +5045,18 @@ Widget _buildSelectionHintBar() {
   );
 }
 Future<void> _showSearchSettings() async {
-    FocusManager.instance.primaryFocus?.unfocus();
+  FocusManager.instance.primaryFocus?.unfocus();
 
-    
-  await showDialog<void>(
+  await showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
+    backgroundColor: Theme.of(context).colorScheme.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
     builder: (c) => Consumer(
       builder: (c, ref, _) {
+        final cs = Theme.of(c).colorScheme;
         final scope = ref.watch(searchScopeProvider);
         final customFolders = ref.watch(customSearchFoldersProvider);
         final searchSortField = ref.watch(searchSortFieldProvider);
@@ -5002,284 +5064,386 @@ Future<void> _showSearchSettings() async {
         final boxMode = ref.watch(searchBoxModeProvider);
         final isFilter = boxMode == SearchBoxMode.filter;
 
-        final cs = Theme.of(c).colorScheme;
+        final String scopeLabel;
+        if (isFilter) {
+          scopeLabel = '过滤当前目录';
+        } else if (scope == SearchScope.custom) {
+          scopeLabel = '在 ${customFolders.length} 个自定义目录中搜索';
+        } else {
+          scopeLabel = '在当前目录及子目录中搜索';
+        }
 
-        Widget scopeRow({
-          required SearchScope value,
-          required String label,
-          required Color activeColor,
-        }) {
-          final selected = scope == value;
-          return InkWell(
-            onTap: () {
-              ref.read(searchScopeProvider.notifier).update(value);
-              if (_searchActive && _searchCtrl.text.isNotEmpty) {
-    _startSearch();
-              }
-            },
-            borderRadius: BorderRadius.circular(6),
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-              child: Row(
-                children: [
-                  _RadioDot(selected: selected, color: activeColor),
-                  const SizedBox(width: 12),
-                  Expanded(
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // drag handle
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // 标题
+                Text(
+                  '搜索设置',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  scopeLabel,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // ===== 搜索框行为 =====
+                _settingsSectionHeader(cs, '搜索框行为'),
+                const SizedBox(height: 8),
+                _settingsChoiceGroup<SearchBoxMode>(
+                  context: context,
+                  cs: cs,
+                  value: boxMode,
+                  onChanged: (v) => ref
+                      .read(searchBoxModeProvider.notifier)
+                      .update(v),
+                  options: const [
+                    (
+                      value: SearchBoxMode.search,
+                      label: '搜索',
+                      hint: '回车或点搜索按钮才执行，扫子目录',
+                    ),
+                    (
+                      value: SearchBoxMode.filter,
+                      label: '过滤',
+                      hint: '边打字边筛，只当前目录',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // ===== 搜索模式：范围 + 排序 =====
+                if (!isFilter) ...[
+                  _settingsSectionHeader(cs, '搜索范围'),
+                  const SizedBox(height: 8),
+                  _settingsChoiceGroup<SearchScope>(
+                    context: context,
+                    cs: cs,
+                    value: scope,
+                    onChanged: (v) {
+                      ref.read(searchScopeProvider.notifier).update(v);
+                      if (_searchActive && _searchCtrl.text.isNotEmpty) {
+                        _startSearch();
+                      }
+                    },
+                    options: const [
+                      (
+                        value: SearchScope.currentRecursive,
+                        label: '当前目录及子目录',
+                        hint: null,
+                      ),
+                      (
+                        value: SearchScope.custom,
+                        label: '自定义的搜索范围',
+                        hint: null,
+                      ),
+                    ],
+                  ),
+                  if (scope == SearchScope.custom) ...[
+                    const SizedBox(height: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 30),
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: cs.primary,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        icon: const Icon(Icons.folder_special, size: 16),
+                        label: Text(
+                          customFolders.isEmpty
+                              ? '选择搜索目录'
+                              : '管理搜索目录（${customFolders.length}）',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        onPressed: () => _showSearchFolderPicker(),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+
+                  _settingsSectionHeader(cs, '结果排序'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _settingsSortChip(
+                        cs: cs,
+                        label: '名称',
+                        selected: searchSortField == SortField.name,
+                        onTap: () {
+                          ref
+                              .read(searchSortFieldProvider.notifier)
+                              .update(SortField.name);
+                          _resortSearchResults();
+                        },
+                      ),
+                      _settingsSortChip(
+                        cs: cs,
+                        label: '修改时间',
+                        selected: searchSortField == SortField.modified,
+                        onTap: () {
+                          ref
+                              .read(searchSortFieldProvider.notifier)
+                              .update(SortField.modified);
+                          _resortSearchResults();
+                        },
+                      ),
+                      _settingsSortChip(
+                        cs: cs,
+                        label: '大小',
+                        selected: searchSortField == SortField.size,
+                        onTap: () {
+                          ref
+                              .read(searchSortFieldProvider.notifier)
+                              .update(SortField.size);
+                          _resortSearchResults();
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _settingsSortChip(
+                        cs: cs,
+                        label: '升序',
+                        selected: searchSortAsc,
+                        onTap: () {
+                          ref
+                              .read(searchSortAscProvider.notifier)
+                              .update(true);
+                          _resortSearchResults();
+                        },
+                      ),
+                      _settingsSortChip(
+                        cs: cs,
+                        label: '降序',
+                        selected: !searchSortAsc,
+                        onTap: () {
+                          ref
+                              .read(searchSortAscProvider.notifier)
+                              .update(false);
+                          _resortSearchResults();
+                        },
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  // ===== 过滤模式：说明条 =====
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Text(
-                      label,
+                      '过滤只在当前目录内生效。\n'
+                      '想跨目录查找，请切回"搜索"模式。',
                       style: TextStyle(
-                        
-  fontSize: selected ? 15 : 14,
-                        color: selected ? activeColor : cs.onSurfaceVariant,
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.normal,
+                        fontSize: 12,
+                        height: 1.6,
+                        color: cs.onSurfaceVariant,
                       ),
                     ),
                   ),
                 ],
-              ),
-            ),
-          );
-        }
+                const SizedBox(height: 24),
 
-        Widget modeRow({
-          required SearchBoxMode value,
-          required String title,
-          required String subtitle,
-          required Color activeColor,
-        }) {
-          final selected = boxMode == value;
-          return InkWell(
-            onTap: () => ref
-                .read(searchBoxModeProvider.notifier)
-                .update(value),
-            borderRadius: BorderRadius.circular(6),
+                // ===== 完成按钮 =====
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(c),
+                    child: const Text(
+                      '完成',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+// ==================== 搜索设置弹窗 · 小部件 ====================
+
+/// 设置弹窗里的小节标题。13px，主题色，字重 600。
+Widget _settingsSectionHeader(ColorScheme cs, String text) {
+  return Text(
+    text,
+    style: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      color: cs.primary,
+      letterSpacing: 0.3,
+    ),
+  );
+}
+
+/// 一组单选项，卡片式。第一个和最后一个圆角，中间直角。
+/// 每一项：圆点 + 标题 + 可选副标题。
+Widget _settingsChoiceGroup<T>({
+  required BuildContext context,
+  required ColorScheme cs,
+  required T value,
+  required ValueChanged<T> onChanged,
+  required List<({T value, String label, String? hint})> options,
+}) {
+  return Container(
+    decoration: BoxDecoration(
+      color: cs.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < options.length; i++) ...[
+          if (i > 0)
+            Divider(
+              height: 1,
+              indent: 44,
+              endIndent: 16,
+              color: cs.outlineVariant.withValues(alpha: 0.5),
+            ),
+          InkWell(
+            onTap: () => onChanged(options[i].value),
+            borderRadius: i == 0
+                ? const BorderRadius.vertical(top: Radius.circular(10))
+                : i == options.length - 1
+                    ? const BorderRadius.vertical(bottom: Radius.circular(10))
+                    : BorderRadius.zero,
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: _RadioDot(
-                      selected: selected,
-                      color: activeColor,
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Icon(
+                      value == options[i].value
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      size: 20,
+                      color: value == options[i].value
+                          ? cs.primary
+                          : cs.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                     
-						  
-						  
-						  
                         Text(
-                          title,
+                          options[i].label,
                           style: TextStyle(
-                            fontSize: selected ? 15 : 14,
-                            color: selected
-                                ? activeColor
-                                : cs.onSurfaceVariant,
-                            fontWeight: selected
+                            fontSize: 14,
+                            fontWeight: value == options[i].value
                                 ? FontWeight.w600
                                 : FontWeight.normal,
+                            color: value == options[i].value
+                                ? cs.primary
+                                : cs.onSurface,
                           ),
                         ),
-                        const SizedBox(height: 2),
-Text(
-  subtitle,
-  style: TextStyle(
-    fontSize: selected ? 12 : 11,
-    height: 1.4,
-    color: selected ? activeColor : cs.onSurfaceVariant,
-    fontWeight: selected
-        ? FontWeight.w600
-        : FontWeight.normal,
-  ),
-),
+                        if (options[i].hint != null) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            options[i].hint!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.4,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-          );
-        }
-
-        return AlertDialog(
-          insetPadding: _dlgInset,
-          titlePadding: _dlgTitlePad,
-          contentPadding: _dlgContentPad,
-          actionsPadding: _dlgActionsPad,
-          title: const Text('搜索相关设置'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: MediaQuery.of(c).size.height * 0.7,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const _SearchSettingsSectionTitle('搜索框行为'),
-                  modeRow(
-  value: SearchBoxMode.search,
-  title: '搜索',
-  subtitle:
-      '打字不响应，点按钮或回车才开始；'
-      '递归搜索子目录（切页显示结果）',
-  activeColor: cs.primary,
-),
-modeRow(
-  value: SearchBoxMode.filter,
-  title: '过滤',
-  subtitle: '边输入边筛文件，页面不跳转；回车无动作',
-  activeColor: cs.primary,
-),
-
-                  const SizedBox(height: 4),
-                  const Divider(height: 1),
-                  const SizedBox(height: 8),
-
-                  if (isFilter) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
-                      child: Text(
-                        '过滤只在当前目录内生效。\n'
-                        '想跨目录查找，请切回"搜索"模式。',
-                        style: TextStyle(
-                          fontSize: 12,
-                          height: 1.6,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ] else ...[
-                    const _SearchSettingsSectionTitle('搜索范围'),
-                    scopeRow(
-                      value: SearchScope.currentRecursive,
-                      label: '当前目录及子目录',
-                      activeColor: cs.primary,
-                    ),
-                    scopeRow(
-                      value: SearchScope.custom,
-                      label:
-                          '自定义的搜索范围（${customFolders.length}）',
-                      activeColor: cs.primary,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        left: 38,
-                        top: 4,
-                        bottom: 8,
-                      ),
-                      child: FilledButton.tonalIcon(
-                        icon: const Icon(Icons.folder_special, size: 18),
-                        label: const Text('管理搜索范围'),
-                        onPressed: () => _showSearchFolderPicker(),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Divider(height: 1),
-                    const SizedBox(height: 8),
-
-                const _SearchSettingsSectionTitle('搜索结果排序'),
-for (final f in SortField.values)
-  RadioListTile<SortField>(
-    dense: true,
-    contentPadding: EdgeInsets.zero,
-	  title: Text(
-  _sortLabel(f),
-  style: TextStyle(
-    fontSize: searchSortField == f ? 15 : 14,
-    color: searchSortField == f
-        ? cs.primary
-        : cs.onSurfaceVariant,
-    fontWeight: searchSortField == f
-        ? FontWeight.w600
-        : FontWeight.normal,
-  ),
-),
-value: f,
-groupValue: searchSortField,
-activeColor: cs.primary,
-    onChanged: (v) {
-      if (v == null) return;
-      ref
-          .read(searchSortFieldProvider.notifier)
-          .update(v);
-      _resortSearchResults();
-    },
-  ),
-                 const Divider(height: 1),
-RadioListTile<bool>(
-  dense: true,
-  contentPadding: EdgeInsets.zero,
-  title: Text(
-    '升序',
-    style: TextStyle(
-      fontSize: searchSortAsc ? 15 : 14,
-      color: searchSortAsc
-          ? cs.primary
-          : cs.onSurfaceVariant,
-      fontWeight: searchSortAsc
-          ? FontWeight.w600
-          : FontWeight.normal,
-    ),
-  ),
-  value: true,
-  groupValue: searchSortAsc,
-  activeColor: cs.primary,
-  onChanged: (_) {
-    ref
-        .read(searchSortAscProvider.notifier)
-        .update(true);
-    _resortSearchResults();
-  },
-),
-RadioListTile<bool>(
-  dense: true,
-  contentPadding: EdgeInsets.zero,
-  title: Text(
-    '降序',
-    style: TextStyle(
-      fontSize: !searchSortAsc ? 15 : 14,
-      color: !searchSortAsc
-          ? cs.primary
-          : cs.onSurfaceVariant,
-      fontWeight: !searchSortAsc
-          ? FontWeight.w600
-          : FontWeight.normal,
-    ),
-  ),
-  value: false,
-  groupValue: searchSortAsc,
-  activeColor: cs.primary,
-  onChanged: (_) {
-    ref
-        .read(searchSortAscProvider.notifier)
-        .update(false);
-    _resortSearchResults();
-  },
-),
-                    
-                    
-                  ],
-                ],
-              ),
-            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('关闭'),
-            ),
-          ],
-        );
-      },
+        ],
+      ],
+    ),
+  );
+}
+
+/// 排序胶囊。选中：主题色底 + 主题色边框；未选中：浅灰底。
+Widget _settingsSortChip({
+  required ColorScheme cs,
+  required String label,
+  required bool selected,
+  required VoidCallback onTap,
+}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: selected ? cs.primaryContainer : cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: selected ? cs.primary : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+          color: selected ? cs.onPrimaryContainer : cs.onSurface,
+        ),
+      ),
     ),
   );
 }
@@ -7233,67 +7397,6 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
       onPressed: _computeMd5,
       icon: const Icon(Icons.fingerprint, size: 16),
       label: const Text('点击计算 MD5'),
-    );
-  }
-}
-
-// ==================== 搜索设置弹窗用的小部件 ====================
-
-class _SearchSettingsSectionTitle extends StatelessWidget {
-  const _SearchSettingsSectionTitle(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 6),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-          color: cs.primary,
-        ),
-      ),
-    );
-  }
-}
-
-/// "圆圈里带圆点"的单选标记。
-class _RadioDot extends StatelessWidget {
-  const _RadioDot({required this.selected, required this.color});
-
-  final bool selected;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 20,
-      height: 20,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: selected
-              ? color
-              : Theme.of(context).colorScheme.outline,
-          width: 2,
-        ),
-      ),
-      child: selected
-          ? Center(
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color,
-                ),
-              ),
-            )
-          : null,
     );
   }
 }
