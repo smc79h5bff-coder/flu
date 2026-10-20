@@ -1045,7 +1045,7 @@ Future<void> _showHiddenRules() async {
     final hasNote = (notes[_orderNoteSectionId] ?? '').trim().isNotEmpty;
 
     return Material(
-      color: s.primaryContainer,
+      color: s.surfaceContainerLow,
       child: InkWell(
         onTap: _openOrderNoteDialog,
         child: Padding(
