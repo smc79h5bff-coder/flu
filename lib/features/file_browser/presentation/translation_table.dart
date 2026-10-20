@@ -374,7 +374,7 @@ class _TranslationTableScreenState extends State<TranslationTableScreen> {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -513,7 +513,7 @@ class _TranslationTableScreenState extends State<TranslationTableScreen> {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('恢复'),
           ),
@@ -676,7 +676,10 @@ class _TranslationTableScreenState extends State<TranslationTableScreen> {
     return ScrollbarTheme(
       data: ScrollbarThemeData(
         thumbColor: WidgetStatePropertyAll(
-          const Color(0xFFD4D4DC).withValues(alpha: 0.40),
+          Theme.of(context)
+              .colorScheme
+              .outlineVariant
+              .withValues(alpha: 0.6),
         ),
         thickness: const WidgetStatePropertyAll(12),
         radius: const Radius.circular(6),
@@ -899,7 +902,7 @@ class _ConflictResolverDialogState extends State<ConflictResolverDialog> {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -975,10 +978,13 @@ class _ConflictResolverDialogState extends State<ConflictResolverDialog> {
             const Divider(height: 1),
             Expanded(
               child: _remainingGroups == 0
-                  ? const Center(
+                  ? Center(
                       child: Text(
                         '点右下角"确定"应用修改',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     )
                   : ListView.builder(
@@ -1043,7 +1049,7 @@ class _ConflictResolverDialogState extends State<ConflictResolverDialog> {
   Widget _buildGroup(String key, List<_EditableLine> lines) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Column(
@@ -1066,7 +1072,10 @@ class _ConflictResolverDialogState extends State<ConflictResolverDialog> {
                 ),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Container(height: 1, color: Colors.grey.shade400),
+                  child: Container(
+                    height: 1,
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
               ],
             ),
@@ -1091,11 +1100,11 @@ class _ConflictResolverDialogState extends State<ConflictResolverDialog> {
               alignment: Alignment.center,
               child: Text(
                 '${line.lineNumber}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'monospace',
-                  color: Colors.grey,
+                  color: Theme.of(context).colorScheme.outline,
                 ),
               ),
             ),
