@@ -4,7 +4,9 @@ import 'package:flutter/cupertino.dart';
 import '../constants/app_colors.dart';
 
 /// Light / Dark theme for DocDiff.
-/// 主体色板来自 AppColors.lightScheme / darkScheme（纯灰底 + 灰紫主色）。
+/// 主体色板由调用方通过 [scheme] 参数传入
+/// （默认皮肤用 AppColors.lightScheme / darkScheme，
+///  其他皮肤用 ColorScheme.fromSeed 生成）。
 /// 弹窗 / 菜单 / 底部弹窗 / AppBar / 卡片一律强制白色（深色用 darkCard），
 /// 不再从 scheme.surface 取，避免 M3 叠加 tint 后泛蓝。
 class AppTheme {
@@ -31,17 +33,15 @@ class AppTheme {
     Radius.circular(radius),
   );
 
-  static ThemeData light() => _build(Brightness.light);
+  static ThemeData light(ColorScheme scheme) =>
+      _build(Brightness.light, scheme);
 
-  static ThemeData dark() => _build(Brightness.dark);
+  static ThemeData dark(ColorScheme scheme) =>
+      _build(Brightness.dark, scheme);
 
-  static ThemeData _build(Brightness brightness) {
+  static ThemeData _build(Brightness brightness, ColorScheme scheme) {
     final base = ThemeData(brightness: brightness, useMaterial3: true);
     final isDark = brightness == Brightness.dark;
-
-    // ★ 直接用 AppColors 里手搓的灰紫 scheme，不用 fromSeed。
-    final scheme =
-        isDark ? AppColors.darkScheme : AppColors.lightScheme;
 
     // ★ 弹窗类统一底色：浅色纯白、深色深灰。
     //   这个不跟 scheme.surface 走，就是为了防止某个色板调色时
