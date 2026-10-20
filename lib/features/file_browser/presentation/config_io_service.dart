@@ -35,6 +35,10 @@ class ConfigIoService {
     'jianming.viewer.findHistory',
     'jianming.browser.searchHistory',
     'jianming.toolbar.colors',
+
+    // 搜索栏显示方式与折叠状态，都是本机 UI 偏好，跨设备无意义
+    'jianming.browser.searchBarCollapsed',
+    'jianming.browser.searchBarVisibility',
   };
 
   /// 导出配置。返回 true 表示保存成功，false 表示用户取消。
