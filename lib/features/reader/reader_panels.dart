@@ -320,24 +320,63 @@ Padding(
   ),
 ),
 
-                    // ---------- 悬浮按钮总开关 ----------
+                    // ---------- 三个悬浮按钮独立开关 ----------
                     Row(
                       children: [
-                        const Text('悬浮按钮',
+                        const Text('上一文件按钮',
                             style: TextStyle(
                                 fontSize: 14, fontWeight: FontWeight.w600)),
                         const Spacer(),
                         Switch(
-                          value: s.showButtons,
-                          onChanged: (_) => n.toggleButtons(),
+                          value: s.showTopButton,
+                          onChanged: n.setShowTopButton,
                         ),
                       ],
                     ),
-                    if (!s.showButtons)
+                    Row(
+                      children: [
+                        const Text('下一文件按钮',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Switch(
+                          value: s.showBottomButton,
+                          onChanged: n.setShowBottomButton,
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Text('删除文件按钮',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Switch(
+                          value: s.showDelButton,
+                          onChanged: n.setShowDelButton,
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Text('移动文件按钮',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Switch(
+                          value: s.showMoveButton,
+                          onChanged: n.setShowMoveButton,
+                        ),
+                      ],
+                    ),
+                    if (!s.showTopButton &&
+                        !s.showBottomButton &&
+                        !s.showDelButton &&
+                        !s.showMoveButton)
                       Padding(
                         padding: const EdgeInsets.only(top: 4, bottom: 8),
                         child: Text(
-                          '已关闭。点击原来按钮的位置，只会正常翻页/打开菜单。',
+                          '四个按钮都已关闭。点击原来按钮的位置，只会正常翻页/打开菜单。',
                           style: TextStyle(
                               fontSize: 11, color: Colors.grey.shade600),
                         ),
@@ -356,7 +395,7 @@ Padding(
 ),
 
                     
-                    if (s.showButtons) ...[
+                    if (s.showTopButton) ...[
                       // ---------- 上一文件按钮 ----------
                       _sectionTitle('上一文件按钮'),
                       _buttonStyleChooser(
@@ -429,7 +468,9 @@ Padding(
                         onChanged: n.setTopBtnY,
                       ),
                       const SizedBox(height: 12),
+                    ],
 
+                    if (s.showBottomButton) ...[
                       // ---------- 下一文件按钮 ----------
                       _sectionTitle('下一文件按钮'),
                       _buttonStyleChooser(
@@ -501,7 +542,9 @@ Padding(
                         onChanged: n.setBottomBtnY,
                       ),
                       const SizedBox(height: 12),
+                    ],
 
+                    if (s.showDelButton) ...[
                       // ---------- 删除文件按钮 ----------
                       _sectionTitle('删除文件按钮'),
                       _buttonStyleChooser(
@@ -571,6 +614,79 @@ Padding(
                         max: 1.5,
                         value: s.delBtnY.clamp(-0.5, 1.5),
                         onChanged: n.setDelBtnY,
+                      ),
+                    ],
+
+                    if (s.showMoveButton) ...[
+                      // ---------- 移动文件按钮 ----------
+                      _sectionTitle('移动文件按钮'),
+                      _buttonStyleChooser(
+                        style: s.moveBtnStyle,
+                        onChanged: n.setMoveBtnStyle,
+                      ),
+                      if (s.moveBtnStyle == 0) ...[
+                        _colorRow(
+                          context: context,
+                          label: '背景色',
+                          color: Color(s.moveBtnBgColor),
+                          onPick: n.setMoveBtnBgColor,
+                        ),
+                        _colorRow(
+                          context: context,
+                          label: '图标色',
+                          color: Color(s.moveBtnFgColor),
+                          onPick: n.setMoveBtnFgColor,
+                        ),
+                      ] else ...[
+                        _colorRow(
+                          context: context,
+                          label: '圆环颜色',
+                          color: Color(s.moveBtnRingColor),
+                          onPick: n.setMoveBtnRingColor,
+                        ),
+                        _sliderHeader('圆环粗细',
+                            '${s.moveBtnRingWidth.toStringAsFixed(1)} px'),
+                        Slider(
+                          min: 0.5,
+                          max: 20,
+                          value: s.moveBtnRingWidth.clamp(0.5, 20),
+                          onChanged: n.setMoveBtnRingWidth,
+                        ),
+                      ],
+                      _sliderHeader(
+                          '透明度',
+                          '${(s.moveBtnOpacity * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: 0.05,
+                        max: 1.0,
+                        value: s.moveBtnOpacity.clamp(0.05, 1.0),
+                        onChanged: n.setMoveBtnOpacity,
+                      ),
+                      _sliderHeader(
+                          '大小', '${s.moveBtnScale.toStringAsFixed(1)}×'),
+                      Slider(
+                        min: 0.2,
+                        max: 10.0,
+                        value: s.moveBtnScale.clamp(0.2, 10.0),
+                        onChanged: n.setMoveBtnScale,
+                      ),
+                      _sliderHeader(
+                          '横向 X',
+                          '${(s.moveBtnX * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: -0.5,
+                        max: 1.5,
+                        value: s.moveBtnX.clamp(-0.5, 1.5),
+                        onChanged: n.setMoveBtnX,
+                      ),
+                      _sliderHeader(
+                          '纵向 Y',
+                          '${(s.moveBtnY * 100).toStringAsFixed(0)}%'),
+                      Slider(
+                        min: -0.5,
+                        max: 1.5,
+                        value: s.moveBtnY.clamp(-0.5, 1.5),
+                        onChanged: n.setMoveBtnY,
                       ),
                     ],
 
@@ -1014,7 +1130,7 @@ Widget _miniPreview(
               ),
             ),
 
-            if (s.showButtons) ...[
+            if (s.showTopButton)
               _previewButton(
                 scale: scale,
                 screenW: screenSize.width,
@@ -1030,6 +1146,7 @@ Widget _miniPreview(
                 ringWidth: s.topBtnRingWidth * scale,
                 icon: Icons.keyboard_arrow_up,
               ),
+            if (s.showBottomButton)
               _previewButton(
                 scale: scale,
                 screenW: screenSize.width,
@@ -1045,6 +1162,7 @@ Widget _miniPreview(
                 ringWidth: s.bottomBtnRingWidth * scale,
                 icon: Icons.keyboard_arrow_down,
               ),
+            if (s.showDelButton)
               _previewButton(
                 scale: scale,
                 screenW: screenSize.width,
@@ -1060,7 +1178,22 @@ Widget _miniPreview(
                 ringWidth: s.delBtnRingWidth * scale,
                 icon: Icons.delete_outline,
               ),
-            ],
+            if (s.showMoveButton)
+              _previewButton(
+                scale: scale,
+                screenW: screenSize.width,
+                screenH: screenSize.height,
+                centerX: s.moveBtnX * w,
+                centerY: s.moveBtnY * h,
+                btnSize: 50.0 * s.moveBtnScale * scale,
+                opacity: s.moveBtnOpacity,
+                style: s.moveBtnStyle,
+                bg: Color(s.moveBtnBgColor),
+                fg: Color(s.moveBtnFgColor),
+                ringColor: Color(s.moveBtnRingColor),
+                ringWidth: s.moveBtnRingWidth * scale,
+                icon: Icons.drive_file_move_outline,
+              ),
           ],
         );
       },
