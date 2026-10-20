@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../../core/storage/pref_keys.dart';
 import '../../../../core/storage/persistent_notifier.dart';
 import '../../help/presentation/help_screen.dart';
@@ -235,7 +234,7 @@ class _ComparisonSettingsScreenState
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
         title: const Text('规则已修改'),
         content: const Text(
           '返回后，左右两边会在当前内容基础上，重新套一遍所有生效的规则。',
@@ -591,7 +590,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
       builder: (c) {
         final s = Theme.of(c).colorScheme;
         return AlertDialog(
-          insetPadding: const EdgeInsets.all(8),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
           titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -759,7 +758,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
               ),
               
     TextButton(
-      style: TextButton.styleFrom(foregroundColor: Colors.red),
+      style: TextButton.styleFrom(foregroundColor: Theme.of(c).colorScheme.error),
       onPressed: () => Navigator.pop(c, 'hide'),
       child: const Text('删除'),
     ),
@@ -775,7 +774,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
                 child: const Text('编辑'),
               ),
               TextButton(
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                style: TextButton.styleFrom(foregroundColor: Theme.of(c).colorScheme.error),
                 onPressed: () => Navigator.pop(c, 'delete'),
                 child: const Text('删除'),
               ),
@@ -801,7 +800,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: s.secondaryContainer.withOpacity(0.6),
+        color: s.secondaryContainer.withValues(alpha:0.6),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
@@ -820,7 +819,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
     final newName = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
         title: const Text('重命名内置规则'),
         content: TextField(
           controller: ctrl,
@@ -866,7 +865,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
         title: const Text('删除规则？'),
         content: Text('「${rule.name}」将被删除，无法恢复。'),
         actions: [
@@ -875,7 +874,7 @@ String? _resolveHelpText(PreprocessingRule rule) {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -891,7 +890,7 @@ Future<void> _confirmHideBuiltinRule(PreprocessingRule rule) async {
   final ok = await showDialog<bool>(
     context: context,
     builder: (c) => AlertDialog(
-      insetPadding: const EdgeInsets.all(8),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
       title: const Text('删除此条内置规则？'),
       content: Text(
         '「${rule.name}」将不再出现在规则列表里。\n',
@@ -903,7 +902,7 @@ Future<void> _confirmHideBuiltinRule(PreprocessingRule rule) async {
           child: const Text('取消'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
           onPressed: () => Navigator.pop(c, true),
           child: const Text('删除'),
         ),
@@ -927,7 +926,7 @@ Future<void> _showHiddenRules() async {
   await showDialog<void>(
     context: context,
     builder: (c) => AlertDialog(
-      insetPadding: const EdgeInsets.all(8),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
       title: const Text('已隐藏的内置规则'),
       content: SizedBox(
         width: double.maxFinite,
@@ -996,7 +995,7 @@ Future<void> _showHiddenRules() async {
       key: key,
       padding: const EdgeInsets.fromLTRB(0, 4, 8, 4),
       child: Material(
-        color: s.secondaryContainer.withOpacity(0.35),
+        color: s.secondaryContainer.withValues(alpha:0.35),
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           onTap: onTap,
@@ -1046,7 +1045,7 @@ Future<void> _showHiddenRules() async {
     final hasNote = (notes[_orderNoteSectionId] ?? '').trim().isNotEmpty;
 
     return Material(
-      color: const Color(0xFFF3EDF9),
+      color: s.primaryContainer,
       child: InkWell(
         onTap: _openOrderNoteDialog,
         child: Padding(
@@ -1081,7 +1080,7 @@ Future<void> _showHiddenRules() async {
               Icon(
                 hasNote ? Icons.sticky_note_2 : Icons.sticky_note_2_outlined,
                 size: 20,
-                color: hasNote ? AppColors.accentPurple : s.onSurfaceVariant,
+                color: hasNote ? s.primary : s.onSurfaceVariant,
               ),
             ],
           ),
@@ -1098,7 +1097,7 @@ Future<void> _showHiddenRules() async {
     final saved = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
         titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
         contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -1475,7 +1474,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         child: IgnorePointer(
           child: Center(
             child: Material(
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
               elevation: 4,
               borderRadius: BorderRadius.circular(8),
               child: Padding(
@@ -1485,8 +1484,8 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
                 ),
                 child: Text(
                   msg,
-                  style: const TextStyle(
-                    color: Colors.black,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 13,
                   ),
                 ),
@@ -1528,7 +1527,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     final s = Theme.of(context).colorScheme;
 
     return Dialog(
-      insetPadding: const EdgeInsets.all(4),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
       child: SizedBox(
         width: double.maxFinite,
         height: mq.size.height * 0.94,
@@ -1543,13 +1542,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
                   // ========== 改动（A7）：规则名输入框 ==========
                   TextField(
                     controller: _nameCtrl,
-                    cursorColor: AppColors.accentPurple,
-                    decoration: const InputDecoration(
+                    cursorColor: Theme.of(context).colorScheme.primary,
+                    decoration: InputDecoration(
                       labelText: '规则名',
                       border: OutlineInputBorder(),
                       focusedBorder: OutlineInputBorder(
                         borderSide: BorderSide(
-                          color: AppColors.accentPurple,
+                          color: Theme.of(context).colorScheme.primary,
                           width: 2,
                         ),
                       ),
@@ -1646,14 +1645,14 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         controller: _findCtrl,
         minLines: 3,
         maxLines: 8,
-        cursorColor: AppColors.accentPurple,
+        cursorColor: Theme.of(context).colorScheme.primary,
         style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           hintText: r'例如：\d{4}-\d{2}-\d{2}',
           border: OutlineInputBorder(),
           focusedBorder: OutlineInputBorder(
             borderSide: BorderSide(
-              color: AppColors.accentPurple,
+              color: Theme.of(context).colorScheme.primary,
               width: 2,
             ),
           ),
@@ -1692,14 +1691,14 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         controller: _replaceCtrl,
         minLines: 3,
         maxLines: 8,
-        cursorColor: AppColors.accentPurple,
+        cursorColor: Theme.of(context).colorScheme.primary,
         style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           hintText: r'例如：$1年$2月$3日',
           border: OutlineInputBorder(),
           focusedBorder: OutlineInputBorder(
             borderSide: BorderSide(
-              color: AppColors.accentPurple,
+              color: Theme.of(context).colorScheme.primary,
               width: 2,
             ),
           ),
@@ -1751,13 +1750,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       DropdownButtonFormField<String>(
         value: _presetId,
         isExpanded: true,
-        iconEnabledColor: AppColors.accentPurple,
-        decoration: const InputDecoration(
+        iconEnabledColor: Theme.of(context).colorScheme.primary,
+        decoration: InputDecoration(
           labelText: '选择功能',
           border: OutlineInputBorder(),
           focusedBorder: OutlineInputBorder(
             borderSide: BorderSide(
-              color: AppColors.accentPurple,
+              color: Theme.of(context).colorScheme.primary,
               width: 2,
             ),
           ),
@@ -1768,7 +1767,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
             DropdownMenuItem(
               value: p.id,
               child: Text(p.name,
-                  style: const TextStyle(color: Colors.black)),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
         ],
         onChanged: (v) {
@@ -1820,13 +1819,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         return DropdownButtonFormField<String>(
           value: value,
           isExpanded: true,
-          iconEnabledColor: AppColors.accentPurple,
+          iconEnabledColor: Theme.of(context).colorScheme.primary,
           decoration: InputDecoration(
             labelText: p.label,
             border: const OutlineInputBorder(),
-            focusedBorder: const OutlineInputBorder(
+            focusedBorder: OutlineInputBorder(
               borderSide: BorderSide(
-                color: AppColors.accentPurple,
+                color: Theme.of(context).colorScheme.primary,
                 width: 2,
               ),
             ),
@@ -1838,7 +1837,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
               DropdownMenuItem(
                 value: _optValue(o),
                 child: Text(_optLabel(o),
-                    style: const TextStyle(color: Colors.black)),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
           ],
           onChanged: (v) {
@@ -1853,13 +1852,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         return TextFormField(
           initialValue: value,
           keyboardType: TextInputType.number,
-          cursorColor: AppColors.accentPurple,
+          cursorColor: Theme.of(context).colorScheme.primary,
           decoration: InputDecoration(
             labelText: p.label,
             border: const OutlineInputBorder(),
-            focusedBorder: const OutlineInputBorder(
+            focusedBorder: OutlineInputBorder(
               borderSide: BorderSide(
-                color: AppColors.accentPurple,
+                color: Theme.of(context).colorScheme.primary,
                 width: 2,
               ),
             ),
@@ -1873,13 +1872,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       case PresetParamType.text:
         return TextFormField(
           initialValue: value,
-          cursorColor: AppColors.accentPurple,
+          cursorColor: Theme.of(context).colorScheme.primary,
           decoration: InputDecoration(
             labelText: p.label,
             border: const OutlineInputBorder(),
-            focusedBorder: const OutlineInputBorder(
+            focusedBorder: OutlineInputBorder(
               borderSide: BorderSide(
-                color: AppColors.accentPurple,
+                color: Theme.of(context).colorScheme.primary,
                 width: 2,
               ),
             ),
@@ -1911,7 +1910,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color:
-              Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+              Theme.of(context).colorScheme.surfaceVariant.withValues(alpha:0.4),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(
@@ -1923,7 +1922,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
           style: TextStyle(
             fontSize: 12,
             height: 1.5,
-            color: Colors.black,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ),
@@ -1934,19 +1933,19 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         controller: _jsCtrl,
         minLines: 12,
         maxLines: 24,
-        cursorColor: AppColors.accentPurple,
+        cursorColor: Theme.of(context).colorScheme.primary,
         style: const TextStyle(
           fontFamily: 'monospace',
           fontSize: 13,
           height: 1.5,
         ),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           hintText:
               '// 例如：删除空行\ntext.split(\'\\n\').filter(l => l.trim()).join(\'\\n\')',
           border: OutlineInputBorder(),
           focusedBorder: OutlineInputBorder(
             borderSide: BorderSide(
-              color: AppColors.accentPurple,
+              color: Theme.of(context).colorScheme.primary,
               width: 2,
             ),
           ),
@@ -1978,7 +1977,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     showDialog<void>(
       context: context,
       builder: (c) => AlertDialog(
-        insetPadding: const EdgeInsets.all(8),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
         title: const Text('JS 脚本 · 使用说明'),
         content: SizedBox(
           width: double.maxFinite,
@@ -2009,31 +2008,34 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
     return DropdownButtonFormField<RuleScope>(
       value: _scope,
       isExpanded: true,
-      iconEnabledColor: AppColors.accentPurple,
-      decoration: const InputDecoration(
+      iconEnabledColor: Theme.of(context).colorScheme.primary,
+      decoration: InputDecoration(
         labelText: '作用范围',
         border: OutlineInputBorder(),
         focusedBorder: OutlineInputBorder(
           borderSide: BorderSide(
-            color: AppColors.accentPurple,
+            color: Theme.of(context).colorScheme.primary,
             width: 2,
           ),
         ),
         isDense: true,
       ),
-      items: const [
+      items: [
         DropdownMenuItem(
             value: RuleScope.both,
             child: Text('两侧文件',
-                style: TextStyle(color: Colors.black))),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface))),
         DropdownMenuItem(
             value: RuleScope.originalOnly,
             child: Text('仅左侧文件',
-                style: TextStyle(color: Colors.black))),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface))),
         DropdownMenuItem(
             value: RuleScope.modifiedOnly,
             child: Text('仅右侧文件',
-                style: TextStyle(color: Colors.black))),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface))),
       ],
       onChanged: (v) => setState(() => _scope = v ?? RuleScope.both),
     );
@@ -2089,7 +2091,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: s.surfaceVariant.withOpacity(0.4),
+        color: s.surfaceVariant.withValues(alpha:0.4),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -2097,7 +2099,7 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
         style: TextStyle(
           fontSize: 12,
           height: 1.5,
-          color: Colors.black,
+          color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
     );
@@ -2693,7 +2695,7 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
         child: IgnorePointer(
           child: Center(
             child: Material(
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
               elevation: 4,
               borderRadius: BorderRadius.circular(8),
               child: Padding(
@@ -2703,8 +2705,8 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
                 ),
                 child: Text(
                   msg,
-                  style: const TextStyle(
-                    color: Colors.black,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 13,
                   ),
                 ),
@@ -2728,7 +2730,7 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
     final s = Theme.of(context).colorScheme;
 
     return Dialog(
-      insetPadding: const EdgeInsets.all(4),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
       child: SizedBox(
         width: double.maxFinite,
         height: mq.size.height * 0.94,
@@ -2764,7 +2766,7 @@ class _FlagHelpDialogState extends State<_FlagHelpDialog> {
             const Divider(height: 1),
             Container(
               width: double.infinity,
-              color: s.surfaceVariant.withOpacity(0.4),
+              color: s.surfaceVariant.withValues(alpha:0.4),
               padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Text(
