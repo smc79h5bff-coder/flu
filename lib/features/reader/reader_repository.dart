@@ -57,8 +57,25 @@ class ReaderSettingsNotifier extends PersistentNotifier<ReaderSettings> {
   void setReaderMode(int v) =>
       update(state.copyWith(readerMode: v.clamp(0, 1)));
 
-  void toggleButtons() =>
-      update(state.copyWith(showButtons: !state.showButtons));
+  // 保留旧 API：一次切换四个开关。UI 已不再使用，仅做兼容。
+  void toggleButtons() => update(state.copyWith(
+        showTopButton: !state.showTopButton,
+        showBottomButton: !state.showBottomButton,
+        showDelButton: !state.showDelButton,
+        showMoveButton: !state.showMoveButton,
+      ));
+
+  void setShowTopButton(bool v) =>
+      update(state.copyWith(showTopButton: v));
+
+  void setShowBottomButton(bool v) =>
+      update(state.copyWith(showBottomButton: v));
+
+  void setShowDelButton(bool v) =>
+      update(state.copyWith(showDelButton: v));
+
+  void setShowMoveButton(bool v) =>
+      update(state.copyWith(showMoveButton: v));
 
   /// 分页模式：顶部安全边距。范围 -400 ~ +400 像素。
   ///
@@ -156,6 +173,28 @@ void setDelBtnX(double v) =>
     update(state.copyWith(delBtnX: v.clamp(-0.5, 1.5)));
 void setDelBtnY(double v) =>
     update(state.copyWith(delBtnY: v.clamp(-0.5, 1.5)));
+
+  // ---- 移动文件按钮 ----
+
+  void setMoveBtnStyle(int v) => update(state.copyWith(moveBtnStyle: v));
+  void setMoveBtnBgColor(int v) =>
+      update(state.copyWith(moveBtnBgColor: v));
+  void setMoveBtnFgColor(int v) =>
+      update(state.copyWith(moveBtnFgColor: v));
+  void setMoveBtnRingColor(int v) =>
+      update(state.copyWith(moveBtnRingColor: v));
+  void setMoveBtnRingWidth(double v) =>
+      update(state.copyWith(moveBtnRingWidth: v.clamp(0.5, 20.0)));
+  void setMoveBtnOpacity(double v) =>
+      update(state.copyWith(moveBtnOpacity: v.clamp(0.05, 1.0)));
+  void setMoveBtnScale(double v) =>
+      update(state.copyWith(moveBtnScale: v.clamp(0.2, 10.0)));
+
+  void setMoveBtnX(double v) =>
+      update(state.copyWith(moveBtnX: v.clamp(-0.5, 1.5)));
+  void setMoveBtnY(double v) =>
+      update(state.copyWith(moveBtnY: v.clamp(-0.5, 1.5)));
+
   // ---- 菜单热区 ----
 
   void setHotZoneVisible(bool v) =>
