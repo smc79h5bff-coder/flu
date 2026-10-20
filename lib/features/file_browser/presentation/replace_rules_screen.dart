@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../../core/storage/persistent_notifier.dart';
 import '../../import/presentation/providers/import_providers.dart';
 
@@ -175,12 +174,12 @@ class _ReplaceRulesScreenState extends ConsumerState<ReplaceRulesScreen> {
               icon: Icon(
                 Icons.save,
                 size: 18,
-                color: _dirty ? AppColors.accentPurple : null,
+                color: _dirty ? Theme.of(context).colorScheme.primary : null,
               ),
               label: Text(
                 '保存',
                 style: TextStyle(
-                  color: _dirty ? AppColors.accentPurple : null,
+                  color: _dirty ? Theme.of(context).colorScheme.primary : null,
                 ),
               ),
             ),
@@ -433,17 +432,17 @@ class _RulesHelpDialogState extends State<_RulesHelpDialog> {
                   maxLines: null,
                   expands: true,
                   textAlignVertical: TextAlignVertical.top,
-                  cursorColor: AppColors.accentPurple,
+                  cursorColor: Theme.of(context).colorScheme.primary,
                   style: const TextStyle(fontSize: 14, height: 1.6),
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    border: const OutlineInputBorder(),
                     focusedBorder: OutlineInputBorder(
                       borderSide: BorderSide(
-                        color: AppColors.accentPurple,
+                        color: Theme.of(context).colorScheme.primary,
                         width: 2,
                       ),
                     ),
-                    contentPadding: EdgeInsets.all(12),
+                    contentPadding: const EdgeInsets.all(12),
                     hintText: '在这里编辑详细说明…',
                   ),
                 ),
