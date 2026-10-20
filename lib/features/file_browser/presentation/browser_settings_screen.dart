@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/skin.dart';
 import 'providers/file_browser_providers.dart';
 
 /// 文件浏览器设置页。
 ///
 /// 包含：
+///   · 主题皮肤
 ///   · 显示方式（列表 / 网格）
 ///   · 网格显示内容
 ///   · 字号
@@ -34,6 +36,8 @@ class BrowserSettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          _buildSkinSection(context, ref),
+          const Divider(height: 1),
           _buildDisplayModeSection(context, ref),
           const Divider(height: 1),
 
@@ -50,6 +54,37 @@ class BrowserSettingsScreen extends ConsumerWidget {
           _buildOpenModeSection(context, ref),
         ],
       ),
+    );
+  }
+
+  // ==================== 主题皮肤 ====================
+
+  Widget _buildSkinSection(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(skinProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(
+          title: '主题皮肤',
+          subtitle: '切换后立即生效，自动保存，下次启动仍生效。',
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            children: [
+              for (final skin in AppSkin.values)
+                _SkinDot(
+                  skin: skin,
+                  selected: skin == current,
+                  onTap: () =>
+                      ref.read(skinProvider.notifier).update(skin),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -383,6 +418,59 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
 }
 
 // ==================== 复用小部件 ====================
+
+/// 一个皮肤色块：彩色圆圈 + 名字，选中时外面套一圈 + 打勾。
+class _SkinDot extends StatelessWidget {
+  const _SkinDot({
+    required this.skin,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppSkin skin;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: skin.seed,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: selected ? s.onSurface : Colors.transparent,
+                  width: 2.5,
+                ),
+              ),
+              child: selected
+                  ? const Icon(Icons.check, color: Colors.white, size: 20)
+                  : null,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              skin.label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.bold : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
