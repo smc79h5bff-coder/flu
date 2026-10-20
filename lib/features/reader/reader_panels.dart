@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/constants/app_colors.dart';
 import '../file_browser/presentation/single_file_editor_screen.dart';
 import 'reader_models.dart';
 import 'reader_pagination.dart';
@@ -889,13 +888,13 @@ Padding(
       child: TextFormField(
         initialValue: value,
         keyboardType: TextInputType.number,
-        cursorColor: AppColors.accentPurple,
+        cursorColor: Theme.of(context).colorScheme.primary,
         decoration: const InputDecoration(
           isDense: true,
           border: OutlineInputBorder(),
           focusedBorder: OutlineInputBorder(
             borderSide: BorderSide(
-              color: AppColors.accentPurple,
+              color: Theme.of(context).colorScheme.primary,
               width: 2,
             ),
           ),
@@ -1612,12 +1611,12 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
               ..selection =
                   TextSelection.collapsed(offset: _name.length),
             onChanged: (v) => _name = v,
-            cursorColor: AppColors.accentPurple,
+            cursorColor: Theme.of(context).colorScheme.primary,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: AppColors.accentPurple,
+                  color: Theme.of(context).colorScheme.primary,
                   width: 2,
                 ),
               ),
@@ -1627,10 +1626,10 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
-              icon: const Icon(Icons.add, size: 16,
-                  color: AppColors.accentPurple),
-              label: const Text('新建正则高亮',
-                  style: TextStyle(color: AppColors.accentPurple)),
+              icon: Icon(Icons.add, size: 16,
+                  color: Theme.of(context).colorScheme.primary),
+              label: Text('新建正则高亮',
+                  style: TextStyle(color: Theme.of(context).colorScheme.primary)),
               onPressed: () => _createRegexHighlight(),
             ),
           ),
@@ -1703,12 +1702,12 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           DropdownButtonFormField<String?>(
             value: _defaultGroupId,
             isExpanded: true,
-            iconEnabledColor: AppColors.accentPurple,
+            iconEnabledColor: Theme.of(context).colorScheme.primary,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: AppColors.accentPurple,
+                  color: Theme.of(context).colorScheme.primary,
                   width: 2,
                 ),
               ),
@@ -2438,7 +2437,7 @@ class _BookmarkHighlightManagerState
           title: TabBar(
             controller: _tab,
             dividerColor: Colors.transparent,
-            indicatorColor: AppColors.accentPurple,
+            indicatorColor: Theme.of(context).colorScheme.primary,
             tabs: [
               Tab(text: '书签 (${bookmarks.length})'),
               Tab(text: '高亮 (${highlights.length})'),
@@ -3513,10 +3512,10 @@ class _HighlightFilterSheetState extends State<_HighlightFilterSheet> {
                 ),
                 const Spacer(),
                 TextButton.icon(
-                  icon: const Icon(Icons.folder_outlined, size: 18,
-                      color: AppColors.accentPurple),
-                  label: const Text('管理分组',
-                      style: TextStyle(color: AppColors.accentPurple)),
+                  icon: Icon(Icons.folder_outlined, size: 18,
+                      color: Theme.of(context).colorScheme.primary),
+                  label: Text('管理分组',
+                      style: TextStyle(color: Theme.of(context).colorScheme.primary)),
                   onPressed: () {
                     Navigator.pop(context);
                     Navigator.of(context).push(
@@ -3992,12 +3991,12 @@ class _HighlightEditScreenState
           const Text('高亮名'),
           TextField(
             controller: _nameCtrl,
-            cursorColor: AppColors.accentPurple,
+            cursorColor: Theme.of(context).colorScheme.primary,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: AppColors.accentPurple,
+                  color: Theme.of(context).colorScheme.primary,
                   width: 2,
                 ),
               ),
@@ -4017,15 +4016,15 @@ class _HighlightEditScreenState
           Text(_isRegex ? '正则表达式' : '关键词'),
           TextField(
             controller: _kwCtrl,
-            cursorColor: AppColors.accentPurple,
+            cursorColor: Theme.of(context).colorScheme.primary,
             style: _isRegex
                 ? const TextStyle(fontFamily: 'monospace')
                 : null,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
-              focusedBorder: const OutlineInputBorder(
+              focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: AppColors.accentPurple,
+                  color: Theme.of(context).colorScheme.primary,
                   width: 2,
                 ),
               ),
@@ -4091,12 +4090,12 @@ class _HighlightEditScreenState
               key: ValueKey('group_$_groupIndex'),
               initialValue: _groupIndex.toString(),
               keyboardType: TextInputType.number,
-              cursorColor: AppColors.accentPurple,
+              cursorColor: Theme.of(context).colorScheme.primary,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 focusedBorder: OutlineInputBorder(
                   borderSide: BorderSide(
-                    color: AppColors.accentPurple,
+                    color: Theme.of(context).colorScheme.primary,
                     width: 2,
                   ),
                 ),
@@ -4232,12 +4231,12 @@ class _HighlightEditScreenState
           DropdownButtonFormField<String?>(
             value: _groupId,
             isExpanded: true,
-            iconEnabledColor: AppColors.accentPurple,
+            iconEnabledColor: Theme.of(context).colorScheme.primary,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: AppColors.accentPurple,
+                  color: Theme.of(context).colorScheme.primary,
                   width: 2,
                 ),
               ),
@@ -4616,12 +4615,12 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               const Text('名称'),
               TextField(
                 controller: _nameCtrl,
-                cursorColor: AppColors.accentPurple,
+                cursorColor: Theme.of(context).colorScheme.primary,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   focusedBorder: OutlineInputBorder(
                     borderSide: BorderSide(
-                      color: AppColors.accentPurple,
+                      color: Theme.of(context).colorScheme.primary,
                       width: 2,
                     ),
                   ),
@@ -4635,15 +4634,15 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               TextField(
                 controller: _kwCtrl,
                 onChanged: (_) => _validateRegex(),
-                cursorColor: AppColors.accentPurple,
+                cursorColor: Theme.of(context).colorScheme.primary,
                 style: _isRegex
                     ? const TextStyle(fontFamily: 'monospace')
                     : null,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
-                  focusedBorder: const OutlineInputBorder(
+                  focusedBorder: OutlineInputBorder(
                     borderSide: BorderSide(
-                      color: AppColors.accentPurple,
+                      color: Theme.of(context).colorScheme.primary,
                       width: 2,
                     ),
                   ),
@@ -4709,12 +4708,12 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   key: ValueKey('new_group_$_groupIndex'),
                   initialValue: _groupIndex.toString(),
                   keyboardType: TextInputType.number,
-                  cursorColor: AppColors.accentPurple,
+                  cursorColor: Theme.of(context).colorScheme.primary,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     focusedBorder: OutlineInputBorder(
                       borderSide: BorderSide(
-                        color: AppColors.accentPurple,
+                        color: Theme.of(context).colorScheme.primary,
                         width: 2,
                       ),
                     ),
@@ -4954,12 +4953,12 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               DropdownButtonFormField<String?>(
                 value: _groupId,
                 isExpanded: true,
-                iconEnabledColor: AppColors.accentPurple,
+                iconEnabledColor: Theme.of(context).colorScheme.primary,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   focusedBorder: OutlineInputBorder(
                     borderSide: BorderSide(
-                      color: AppColors.accentPurple,
+                      color: Theme.of(context).colorScheme.primary,
                       width: 2,
                     ),
                   ),
