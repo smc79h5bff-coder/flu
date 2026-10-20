@@ -1453,6 +1453,7 @@ class _LineRow extends StatelessWidget {
                   textAlign: TextAlign.end,
                   style: TextStyle(
                     fontSize: fontSize - 3,
+                    height: 1.4,
                     color: (isSelectionStart || isSelectionEnd)
                         ? (isSelectionStart ? Colors.blue : Colors.orange)
                         : gutterColor,
