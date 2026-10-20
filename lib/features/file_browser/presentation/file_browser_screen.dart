@@ -12,7 +12,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../parser/application/document_parser.dart';
 import '../../preprocessing/application/encoding_detector.dart';
@@ -184,9 +183,6 @@ class _AdvancedOverlayContent extends StatefulWidget {
     required this.panelLeft,
     required this.panelWidth,
     required this.conditions,
-    required this.submitBg,
-    required this.submitFg,
-    required this.accentColor,
     required this.onChanged,
     required this.onClearAll,
     required this.onSubmit,
@@ -197,9 +193,6 @@ class _AdvancedOverlayContent extends StatefulWidget {
   final double panelLeft;
   final double panelWidth;
   final List<_SearchCondition> conditions;
-  final Color submitBg;
-  final Color submitFg;
-  final Color accentColor;
   final VoidCallback onChanged;
   final VoidCallback onClearAll;
   final VoidCallback onSubmit;
@@ -248,10 +241,11 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
 
   Widget _buildPanel() {
     final hasAny = widget.conditions.any((c) => c.text.trim().isNotEmpty);
+    final cs = Theme.of(context).colorScheme;
     return Material(
       elevation: 4,
-      borderRadius: BorderRadius.circular(8),
-      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      color: cs.surface,
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.5,
@@ -293,23 +287,23 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
                 controller: cond.controller,
                 onChanged: (_) => widget.onChanged(),
                 style: const TextStyle(fontSize: 14),
-                cursorColor: widget.accentColor,
+                cursorColor: Theme.of(context).colorScheme.primary,
                 decoration: InputDecoration(
                   isDense: true,
                   hintText: '输入文字',
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide(
-                      color: widget.accentColor,
+                      color: Theme.of(context).colorScheme.primary,
                       width: 1.5,
                     ),
                   ),
                   contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
+                    horizontal: 12,
+                    vertical: 12,
                   ),
                 ),
               ),
@@ -322,8 +316,9 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
               padding: EdgeInsets.zero,
               constraints:
                   const BoxConstraints(minWidth: 28, minHeight: 28),
-              icon: const Icon(Icons.close,
-                  size: 20, color: Colors.black54),
+              icon: Icon(Icons.close,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
               tooltip: '删除此条件',
               onPressed: () => _remove(i),
             ),
@@ -334,15 +329,16 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   }
 
   Widget _operatorBtn(int i, _SearchCondition cond) {
+    final cs = Theme.of(context).colorScheme;
     return SizedBox(
       key: _keyFor(i),
       width: 68,
       height: 36,
       child: Material(
-        color: const Color(0xFFF0F0F0),
-        borderRadius: BorderRadius.circular(6),
+        color: cs.surfaceVariant,
+        borderRadius: BorderRadius.circular(8),
         child: InkWell(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
           onTap: () => _toggleMenu(i),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -351,10 +347,10 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
               children: [
                 Text(
                   _label(cond.operator),
-                  style: const TextStyle(fontSize: 13, color: Colors.black),
+                  style: TextStyle(fontSize: 13, color: cs.onSurface),
                 ),
-                const Icon(Icons.arrow_drop_down,
-                    size: 18, color: Colors.black),
+                Icon(Icons.arrow_drop_down,
+                    size: 18, color: cs.onSurface),
               ],
             ),
           ),
@@ -413,9 +409,9 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
       left: left,
       top: top,
       child: Material(
-        elevation: 8,
-        borderRadius: BorderRadius.circular(6),
-        color: Colors.white,
+        elevation: 3,
+        borderRadius: BorderRadius.circular(8),
+        color: Theme.of(context).colorScheme.surface,
         child: SizedBox(
           width: 210,
           child: Column(
@@ -433,6 +429,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
 
   Widget _menuItem(
       int i, _SearchOperator op, String label, String hint) {
+    final cs = Theme.of(context).colorScheme;
     final selected = widget.conditions[i].operator == op;
     return InkWell(
       onTap: () => _selectOperator(i, op),
@@ -444,17 +441,17 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
             SizedBox(
               width: 20,
               child: selected
-                  ? const Icon(Icons.check,
-                      size: 16, color: Colors.black)
+                  ? Icon(Icons.check,
+                      size: 16, color: cs.primary)
                   : null,
             ),
             Text(label,
-                style: const TextStyle(
-                    fontSize: 14, color: Colors.black)),
+                style: TextStyle(
+                    fontSize: 14, color: cs.onSurface)),
             const SizedBox(width: 12),
             Text(hint,
-                style: const TextStyle(
-                    fontSize: 12, color: Colors.black54)),
+                style: TextStyle(
+                    fontSize: 12, color: cs.onSurfaceVariant)),
           ],
         ),
       ),
@@ -462,6 +459,7 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   }
 
   Widget _addClearRow(bool hasAny) {
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(3, 12, 3, 0),
       child: Row(
@@ -470,15 +468,15 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
             child: SizedBox(
               height: 40,
               child: Material(
-                color: const Color(0xFFFAFAFA),
-                borderRadius: BorderRadius.circular(6),
+                color: cs.surfaceVariant,
+                borderRadius: BorderRadius.circular(8),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(8),
                   onTap: _add,
-                  child: const Center(
+                  child: Center(
                     child: Text(
                       '＋ 添加条件',
-                      style: TextStyle(fontSize: 13, color: Colors.black),
+                      style: TextStyle(fontSize: 13, color: cs.onSurface),
                     ),
                   ),
                 ),
@@ -490,17 +488,19 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
             child: SizedBox(
               height: 40,
               child: Material(
-                color: const Color(0xFFFAFAFA),
-                borderRadius: BorderRadius.circular(6),
+                color: cs.surfaceVariant,
+                borderRadius: BorderRadius.circular(8),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(8),
                   onTap: hasAny ? widget.onClearAll : null,
                   child: Center(
                     child: Text(
                       '🗑 清空条件',
                       style: TextStyle(
                         fontSize: 13,
-                        color: hasAny ? Colors.black : Colors.black38,
+                        color: hasAny
+                            ? cs.onSurface
+                            : cs.onSurfaceVariant.withValues(alpha: 0.4),
                       ),
                     ),
                   ),
@@ -514,30 +514,21 @@ class _AdvancedOverlayContentState extends State<_AdvancedOverlayContent> {
   }
 
   Widget _submitButton(bool hasAny) {
-    final bg = hasAny ? widget.submitBg : widget.submitBg.withValues(alpha: 0.4);
-    final fg = hasAny ? widget.submitFg : widget.submitFg.withValues(alpha: 0.4);
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(3, 12, 3, 10),
       child: SizedBox(
         width: double.infinity,
         height: 44,
-        child: OutlinedButton(
+        child: FilledButton(
           onPressed: hasAny ? widget.onSubmit : null,
-          style: OutlinedButton.styleFrom(
-            backgroundColor: bg,
-            side: BorderSide.none,
+          style: FilledButton.styleFrom(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(22),
             ),
           ),
-          child: Text(
+          child: const Text(
             '搜索',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: fg,
-            ),
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           ),
         ),
       ),
@@ -777,10 +768,10 @@ static const Set<String> _archiveExts = {
   }
 
   // 图标颜色：不再按扩展名区分色相。文件类型靠图标形状区分。
-  // 文件夹用 onSurface（更深），文件用 onSurfaceVariant（更浅）。
+  // 文件夹用 primary（主题色，导航暗示），文件用 onSurfaceVariant（中性灰）。
   Color _fileIconColor(BuildContext context, {required bool isDir}) {
     final cs = Theme.of(context).colorScheme;
-    return isDir ? cs.onSurface : cs.onSurfaceVariant;
+    return isDir ? cs.primary : cs.onSurfaceVariant;
   }
 
   Color _gridDividerColorOf(BuildContext context) =>
@@ -1551,23 +1542,12 @@ void _showAdvancedOverlay() {
     final size = box.size;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    final scope = ref.read(searchScopeProvider);
-    final submitBg = scope == SearchScope.custom
-        ? const Color(0xFFE4FAFF)
-        : const Color(0xFFFFF7D2);
-    final submitFg = scope == SearchScope.custom
-        ? const Color(0xFF009EDD)
-        : const Color(0xFFB79800);
-
     _advancedOverlay = OverlayEntry(
       builder: (ctx) => _AdvancedOverlayContent(
         panelTop: pos.dy + size.height + 2,
         panelLeft: 8,
         panelWidth: screenWidth - 16,
         conditions: _searchConditions,
-        submitBg: submitBg,
-        submitFg: submitFg,
-        accentColor: submitFg,
         onChanged: () {
           if (!mounted) return;
           setState(() {});
@@ -1597,6 +1577,7 @@ void _showAdvancedOverlay() {
 
 
 Widget _buildAdvancedToggle() {
+  final cs = Theme.of(context).colorScheme;
   final IconData icon;
   if (_advancedOpen) {
     icon = Icons.arrow_drop_up;
@@ -1605,13 +1586,19 @@ Widget _buildAdvancedToggle() {
   } else {
     icon = Icons.keyboard_arrow_down;
   }
+  // 状态由图标形状区分（arrow_drop_up / arrow_drop_down /
+  // keyboard_arrow_down），颜色统一中性，不用颜色重复表达。
+  final color = cs.onSurfaceVariant;
   return SizedBox(
     width: 40,
     height: 44,
-    child: InkWell(
-      customBorder: const CircleBorder(),
+    child: InkResponse(
       onTap: _toggleAdvanced,
-      child: Icon(icon, color: Colors.black, size: 28),
+      radius: 20,
+      child: Tooltip(
+        message: '高级搜索',
+        child: Icon(icon, color: color, size: 22),
+      ),
     ),
   );
 }
@@ -2282,7 +2269,7 @@ if (!allowExpand) {
     final remember = ValueNotifier<bool>(false);
     final picked = await showModalBottomSheet<FileOpenMode>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -2944,7 +2931,9 @@ Future<void> _startSearch() async {
                   Text(
                     same ? '相同' : '不同',
                     style: TextStyle(
-                      color: same ? Colors.red : Colors.green,
+                      color: same
+                          ? Theme.of(c).colorScheme.primary
+                          : Theme.of(c).colorScheme.error,
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
                     ),
@@ -3301,79 +3290,80 @@ Future<void> _showDirInfoDialog() async {
       }
 
       return AlertDialog(
-        insetPadding: _dlgInset,
-        titlePadding: _dlgTitlePad,
-        contentPadding: _dlgContentPad,
-        actionsPadding: _dlgActionsPad,
+        insetPadding: const EdgeInsets.all(16),
         title: const Text('当前目录信息'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: MediaQuery.of(c).size.height * 0.7,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                kv('路径', _currentPath, selectable: true),
-                const SizedBox(height: 4),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(c).size.height * 0.7,
+          ),
+          child: SizedBox(
+            width: 380,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  kv('路径', _currentPath, selectable: true),
+                  const SizedBox(height: 4),
 
-                Text(
-                  '共 ${entries.length} 项',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                  Text(
+                    '共 ${entries.length} 项',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '$dirCount 个文件夹 · $fileCount 个文件',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: s.onSurfaceVariant,
+                  const SizedBox(height: 4),
+                  Text(
+                    '$dirCount 个文件夹 · $fileCount 个文件',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: s.onSurfaceVariant,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
 
-                kv('总大小（不含子目录）', sizeText),
+                  kv('总大小（不含子目录）', sizeText),
 
-                if (maxSizeName != null)
-                  kv('最大文件',
-                      '$maxSizeName（${_formatSize(maxSize!)}）'),
+                  if (maxSizeName != null)
+                    kv('最大文件',
+                        '$maxSizeName（${_formatSize(maxSize!)}）'),
 
-                if (newestTime != null)
-                  kv('最新文件',
-                      '$newestName（${_formatTime(newestTime!)}）'),
+                  if (newestTime != null)
+                    kv('最新文件',
+                        '$newestName（${_formatTime(newestTime!)}）'),
 
-                if (oldestTime != null)
-                  kv('最旧文件',
-                      '$oldestName（${_formatTime(oldestTime!)}）'),
+                  if (oldestTime != null)
+                    kv('最旧文件',
+                        '$oldestName（${_formatTime(oldestTime!)}）'),
 
-                kv('当前排序',
-                    '${_sortLabel(sortField)} · ${sortAsc ? "升序" : "降序"}'),
+                  kv('当前排序',
+                      '${_sortLabel(sortField)} · ${sortAsc ? "升序" : "降序"}'),
 
-                kv('显示模式', gridMode ? '网格' : '列表'),
+                  kv('显示模式', gridMode ? '网格' : '列表'),
 
-                const SizedBox(height: 4),
-                const Divider(height: 1),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 4),
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
 
-                Text(
-                  '类型分布',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: s.onSurfaceVariant,
+                  Text(
+                    '类型分布',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: s.onSurfaceVariant,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '文本 $textCount · 图片 $imageCount · 视频 $videoCount · '
-                  '音频 $audioCount · 压缩包 $archiveCount · 其他 $otherCount',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    '文本 $textCount · 图片 $imageCount · 视频 $videoCount · '
+                    '音频 $audioCount · 压缩包 $archiveCount · 其他 $otherCount',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -3470,98 +3460,115 @@ Future<void> _showDirInfoDialog() async {
         builder: (c, setInnerState) {
           final favorites = ref.watch(favoritesProvider);
           final isFav = favorites.contains(_currentPath);
+          final cs = Theme.of(context).colorScheme;
 
           return AlertDialog(
-            insetPadding: _dlgInset,
-            titlePadding: _dlgTitlePad,
-            contentPadding: _dlgContentPad,
-            actionsPadding: _dlgActionsPad,
+            insetPadding: const EdgeInsets.all(16),
             title: const Text('已收藏目录'),
-            content: SizedBox(
-              width: double.maxFinite,
-              height: MediaQuery.of(context).size.height * 0.7,
-              child: Column(
-                children: [
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(
-                      isFav ? Icons.star : Icons.star_border,
-                      color: isFav ? Colors.amber : null,
-                    ),
-                    title: Text(
-  isFav ? '取消收藏当前目录' : '收藏当前目录',
-),
-                    subtitle: Text(
-                      _currentPath,
-                      style: const TextStyle(fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: () {
-                      ref
-                          .read(favoritesProvider.notifier)
-                          .toggle(_currentPath);
-                      setInnerState(() {});
-                    },
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: favorites.isEmpty
-                        ? const Center(child: Text('还没有收藏任何目录'))
-                      : ListView.builder(
-    itemCount: favorites.length,
-    itemBuilder: (ctx, i) {
-      final p = favorites[i];
-      return ListTile(
-        dense: true,
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.folder,
-            color: Colors.black),
-        title: Text(
-  p,
-  style: const TextStyle(
-    fontSize: 12,
-    color: Colors.black,
-  ),
-),
-        onTap: () => Navigator.pop(c, p),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline,
-              size: 20),
-          tooltip: '移除收藏',
-          onPressed: () async {
-            final ok = await showDialog<bool>(
-              context: ctx,
-              builder: (dc) => AlertDialog(
-                title: const Text('移除收藏？'),
-                content: Text(p),
-                actions: [
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.pop(dc, false),
-                    child: const Text('取消'),
-                  ),
-                  FilledButton(
-                    onPressed: () =>
-                        Navigator.pop(dc, true),
-                    child: const Text('移除'),
-                  ),
-                ],
+            content: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.7,
               ),
-            );
-            if (ok != true) return;
-            ref
-                .read(favoritesProvider.notifier)
-                .remove(p);
-            setInnerState(() {});
-          },
-        ),
-      );
-    },
-  ),
-                  ),
-                ],
+              child: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        isFav ? Icons.star : Icons.star_border,
+                        color: isFav ? Colors.amber : cs.onSurfaceVariant,
+                      ),
+                      title: Text(
+                        isFav ? '取消收藏当前目录' : '收藏当前目录',
+                        style: TextStyle(color: cs.onSurface),
+                      ),
+                      subtitle: Text(
+                        _currentPath,
+                        style: const TextStyle(fontSize: 11),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        ref
+                            .read(favoritesProvider.notifier)
+                            .toggle(_currentPath);
+                        setInnerState(() {});
+                      },
+                    ),
+                    const Divider(height: 1),
+                    Flexible(
+                      child: favorites.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(32),
+                                child: Text('还没有收藏任何目录'),
+                              ),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: favorites.length,
+                              itemBuilder: (ctx, i) {
+                                final p = favorites[i];
+                                return ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    Icons.folder,
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                  title: Text(
+                                    p,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: cs.onSurface,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  onTap: () => Navigator.pop(c, p),
+                                  trailing: IconButton(
+                                    icon: Icon(
+                                      Icons.delete_outline,
+                                      size: 20,
+                                      color: cs.onSurfaceVariant,
+                                    ),
+                                    tooltip: '移除收藏',
+                                    onPressed: () async {
+                                      final ok = await showDialog<bool>(
+                                        context: ctx,
+                                        builder: (dc) => AlertDialog(
+                                          title: const Text('移除收藏？'),
+                                          content: Text(p),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(dc, false),
+                                              child: const Text('取消'),
+                                            ),
+                                            FilledButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(dc, true),
+                                              child: const Text('移除'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (ok != true) return;
+                                      ref
+                                          .read(favoritesProvider.notifier)
+                                          .remove(p);
+                                      setInnerState(() {});
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               ),
             ),
             actions: [
@@ -3622,7 +3629,9 @@ Future<void> _showDirInfoDialog() async {
             child: const Text('保留'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(c, 'remove'),
             child: const Text('移除'),
           ),
@@ -3663,10 +3672,10 @@ Future<void> _showDirInfoDialog() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        insetPadding: _dlgInset,
-        titlePadding: _dlgTitlePad,
-        contentPadding: _dlgContentPad,
-        actionsPadding: _dlgActionsPad,
+        insetPadding: const EdgeInsets.symmetric(
+          horizontal: 32,
+          vertical: 24,
+        ),
         title: Text(title),
         content: Text(message),
         actions: [
@@ -3975,7 +3984,9 @@ Future<_ConflictAction?> _askConflict(List<String> conflictNames) async {
           child: const Text('跳过'),
         ),
         TextButton(
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(c).colorScheme.error,
+          ),
           onPressed: () => Navigator.pop(c, _ConflictAction.overwrite),
           child: const Text('覆盖'),
         ),
@@ -4111,36 +4122,57 @@ _toast('已新建 $trimmed');
 
   Future<void> _showJumpToPathDialog() async {
     final ctrl = TextEditingController();
+    final cs = Theme.of(context).colorScheme;
     final path = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        insetPadding: _dlgInset,
-        titlePadding: _dlgTitlePad,
-        contentPadding: _dlgContentPad,
-        actionsPadding: _dlgActionsPad,
+        insetPadding: const EdgeInsets.symmetric(
+          horizontal: 32,
+          vertical: 24,
+        ),
         title: const Text('跳转到目录'),
         content: SizedBox(
-          width: double.maxFinite,
+          width: 340,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('输入或粘贴完整路径：',
-                  style: TextStyle(fontSize: 12)),
+              Text(
+                '输入或粘贴完整路径',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
               const SizedBox(height: 8),
               TextField(
                 controller: ctrl,
                 autofocus: true,
-                decoration: const InputDecoration(
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  isDense: true,
                   hintText: '/storage/emulated/0/xxx',
-                  border: OutlineInputBorder(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: cs.primary, width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
                 ),
                 onSubmitted: (v) => Navigator.pop(c, v),
               ),
               const SizedBox(height: 8),
               Text(
                 '若粘贴的是文件路径，会跳到该文件所在目录',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -4318,7 +4350,7 @@ String _normalizePath(String path) {
                 color: _selectionMode
                     ? s.onSurfaceVariant.withValues(alpha: 0.4)
                     : (isLast ? s.onSurface : s.onSurfaceVariant),
-                fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+                fontWeight: isLast ? FontWeight.w500 : FontWeight.normal,
               ),
             ),
           ),
@@ -4450,6 +4482,11 @@ String _normalizePath(String path) {
                   ref.watch(searchScopeProvider) == SearchScope.custom)
               ? '自定义的搜索范围'
               : _title,
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w500,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         ),
       ),
       leading: _searchActive
@@ -4469,11 +4506,12 @@ String _normalizePath(String path) {
         if (ref.watch(searchBarVisibilityProvider) ==
             SearchBarVisibility.collapsible)
           IconButton(
-            icon: Icon(
-              ref.watch(searchBarCollapsedProvider)
-                  ? Icons.search
-                  : Icons.search_off,
-            ),
+                  iconSize: 22,
+                  icon: Icon(
+                    ref.watch(searchBarCollapsedProvider)
+                        ? Icons.search
+                        : Icons.search_off,
+                  ),
             tooltip: ref.watch(searchBarCollapsedProvider)
                 ? '展开搜索栏'
                 : '收起搜索栏',
@@ -4897,6 +4935,8 @@ Widget _buildSelectionHintBar() {
                           : (_) => _doSearch(),
                     ),
                   ),
+                  // 高级搜索（仅搜索模式 + 有文字时出现）
+                  if (hasText && !isFilter) _buildAdvancedToggle(),
                   // 清空 / 历史
                   SizedBox(
                     width: 40,
@@ -4909,7 +4949,7 @@ Widget _buildSelectionHintBar() {
                       child: Tooltip(
                         message: hasText ? '清空输入' : '搜索历史',
                         child: Icon(
-                          hasText ? Icons.backspace_outlined : Icons.history,
+                          hasText ? Icons.close : Icons.history,
                           size: 20,
                           color: cs.onSurfaceVariant,
                         ),
@@ -4962,9 +5002,7 @@ Future<void> _showSearchSettings() async {
         final boxMode = ref.watch(searchBoxModeProvider);
         final isFilter = boxMode == SearchBoxMode.filter;
 
-        const currentColor = Color(0xFFB79800);
-        const customColor = Color(0xFF009EDD);
-        const filterColor = Color(0xFFE53935);
+        final cs = Theme.of(c).colorScheme;
 
         Widget scopeRow({
           required SearchScope value,
@@ -4993,9 +5031,9 @@ Future<void> _showSearchSettings() async {
                       style: TextStyle(
                         
   fontSize: selected ? 15 : 14,
-                        color: selected ? activeColor : Colors.grey,
+                        color: selected ? activeColor : cs.onSurfaceVariant,
                         fontWeight:
-                            selected ? FontWeight.bold : FontWeight.normal,
+                            selected ? FontWeight.w600 : FontWeight.normal,
                       ),
                     ),
                   ),
@@ -5043,9 +5081,11 @@ Future<void> _showSearchSettings() async {
                           title,
                           style: TextStyle(
                             fontSize: selected ? 15 : 14,
-                            color: selected ? activeColor : Colors.grey,
+                            color: selected
+                                ? activeColor
+                                : cs.onSurfaceVariant,
                             fontWeight: selected
-                                ? FontWeight.bold
+                                ? FontWeight.w600
                                 : FontWeight.normal,
                           ),
                         ),
@@ -5055,9 +5095,9 @@ Text(
   style: TextStyle(
     fontSize: selected ? 12 : 11,
     height: 1.4,
-    color: selected ? activeColor : Colors.grey,
+    color: selected ? activeColor : cs.onSurfaceVariant,
     fontWeight: selected
-        ? FontWeight.bold
+        ? FontWeight.w600
         : FontWeight.normal,
   ),
 ),
@@ -5091,13 +5131,13 @@ Text(
   subtitle:
       '打字不响应，点按钮或回车才开始；'
       '递归搜索子目录（切页显示结果）',
-  activeColor: Colors.black,   
+  activeColor: cs.primary,
 ),
 modeRow(
   value: SearchBoxMode.filter,
   title: '过滤',
   subtitle: '边输入边筛文件，页面不跳转；回车无动作',
-  activeColor: const Color(0xFFA74848),
+  activeColor: cs.primary,
 ),
 
                   const SizedBox(height: 4),
@@ -5122,13 +5162,13 @@ modeRow(
                     scopeRow(
                       value: SearchScope.currentRecursive,
                       label: '当前目录及子目录',
-                      activeColor: currentColor,
+                      activeColor: cs.primary,
                     ),
                     scopeRow(
                       value: SearchScope.custom,
                       label:
                           '自定义的搜索范围（${customFolders.length}）',
-                      activeColor: customColor,
+                      activeColor: cs.primary,
                     ),
                     Padding(
                       padding: const EdgeInsets.only(
@@ -5136,22 +5176,7 @@ modeRow(
                         top: 4,
                         bottom: 8,
                       ),
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor:
-                              Theme.of(context).colorScheme.primary,
-                          side: BorderSide(
-                            color: Theme.of(context).colorScheme.outline,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          textStyle: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
+                      child: FilledButton.tonalIcon(
                         icon: const Icon(Icons.folder_special, size: 18),
                         label: const Text('管理搜索范围'),
                         onPressed: () => _showSearchFolderPicker(),
@@ -5171,16 +5196,16 @@ for (final f in SortField.values)
   style: TextStyle(
     fontSize: searchSortField == f ? 15 : 14,
     color: searchSortField == f
-        ? Colors.black
-        : Colors.grey,
+        ? cs.primary
+        : cs.onSurfaceVariant,
     fontWeight: searchSortField == f
-        ? FontWeight.bold
+        ? FontWeight.w600
         : FontWeight.normal,
   ),
 ),
 value: f,
 groupValue: searchSortField,
-activeColor: Colors.black,
+activeColor: cs.primary,
     onChanged: (v) {
       if (v == null) return;
       ref
@@ -5198,16 +5223,16 @@ RadioListTile<bool>(
     style: TextStyle(
       fontSize: searchSortAsc ? 15 : 14,
       color: searchSortAsc
-          ? Colors.black
-          : Colors.grey,
+          ? cs.primary
+          : cs.onSurfaceVariant,
       fontWeight: searchSortAsc
-          ? FontWeight.bold
+          ? FontWeight.w600
           : FontWeight.normal,
     ),
   ),
   value: true,
   groupValue: searchSortAsc,
-  activeColor: Colors.black,
+  activeColor: cs.primary,
   onChanged: (_) {
     ref
         .read(searchSortAscProvider.notifier)
@@ -5223,16 +5248,16 @@ RadioListTile<bool>(
     style: TextStyle(
       fontSize: !searchSortAsc ? 15 : 14,
       color: !searchSortAsc
-          ? Colors.black
-          : Colors.grey,
+          ? cs.primary
+          : cs.onSurfaceVariant,
       fontWeight: !searchSortAsc
-          ? FontWeight.bold
+          ? FontWeight.w600
           : FontWeight.normal,
     ),
   ),
   value: false,
   groupValue: searchSortAsc,
-  activeColor: Colors.black,
+  activeColor: cs.primary,
   onChanged: (_) {
     ref
         .read(searchSortAscProvider.notifier)
@@ -6435,17 +6460,35 @@ class _TextInputDialogState extends State<_TextInputDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return AlertDialog(
-      insetPadding: _dlgInsetG,
-      titlePadding: _dlgTitlePadG,
-      contentPadding: _dlgContentPadG,
-      actionsPadding: _dlgActionsPadG,
+      insetPadding: const EdgeInsets.symmetric(
+        horizontal: 32,
+        vertical: 24,
+      ),
       title: Text(widget.title),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        decoration: const InputDecoration(border: OutlineInputBorder()),
-        onSubmitted: (v) => Navigator.pop(context, v),
+      content: SizedBox(
+        width: 320,
+        child: TextField(
+          controller: _ctrl,
+          autofocus: true,
+          style: const TextStyle(fontSize: 14),
+          decoration: InputDecoration(
+            isDense: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: cs.primary, width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+          ),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
       ),
       actions: [
         TextButton(
@@ -6479,8 +6522,11 @@ class _SearchFolderPickerDialog extends StatefulWidget {
 
 class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
   static const String _internalRoot = '/storage/emulated/0';
-  static const Color _rangeBlue = Color(0xFF3D7CFF);
-  static const Color _rangeHighlight = Color(0x333D7CFF);
+
+  // 7.4：区间高亮色改读主题 token（原为 static const 硬编码）
+  Color get _rangeBlue => Theme.of(context).colorScheme.primary;
+  Color get _rangeHighlight =>
+      Theme.of(context).colorScheme.primary.withValues(alpha: 0.2);
 
   late String _path;
   late List<String> _selected;
@@ -6744,21 +6790,24 @@ String _normalizePath(String path) {
                   Expanded(
                     child: TextField(
                       controller: _jumpCtrl,
-                      cursorColor: AppColors.accentPurple,
+                      cursorColor: Theme.of(context).colorScheme.primary,
                       style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: '粘贴路径跳转',
                         isDense: true,
-                        border: OutlineInputBorder(),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
                           borderSide: BorderSide(
-                            color: AppColors.accentPurple,
+                            color: Theme.of(context).colorScheme.primary,
                             width: 2,
                           ),
                         ),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
                         ),
                       ),
                       onSubmitted: (v) => _jumpToPath(v.trim()),
@@ -6767,7 +6816,7 @@ String _normalizePath(String path) {
                   const SizedBox(width: 4),
                   IconButton(
                     icon: const Icon(Icons.arrow_forward),
-                    color: AppColors.accentPurple,
+                    color: Theme.of(context).colorScheme.primary,
                     tooltip: '跳转',
                     visualDensity: VisualDensity.compact,
                     onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
@@ -6833,7 +6882,10 @@ String _normalizePath(String path) {
                                                 : Icons
                                                     .check_box_outline_blank,
                                             color: _rangeMode
-                                                ? Colors.grey.shade300
+                                                ? Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurfaceVariant
+                                                    .withValues(alpha: 0.3)
                                                 : (selected
                                                     ? Theme.of(context)
                                                         .colorScheme
@@ -6893,21 +6945,22 @@ String _normalizePath(String path) {
                     label: const Text('全选'),
                     selected: _allVisibleSelected,
                     onSelected: (_) => _toggleSelectAll(),
-                    backgroundColor: Colors.white,
-                    selectedColor: Colors.white,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.surface,
+                    selectedColor: Theme.of(context).colorScheme.surface,
                     surfaceTintColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     elevation: 0,
-                    checkmarkColor: AppColors.accentPurple,
-                    labelStyle: const TextStyle(
+                    checkmarkColor: Theme.of(context).colorScheme.primary,
+                    labelStyle: TextStyle(
                       fontSize: 12,
-                      color: Colors.black,
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.normal,
                     ),
                     side: BorderSide(
                       color: _allVisibleSelected
-                          ? AppColors.accentPurple
-                          : Colors.grey.shade400,
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.outlineVariant,
                     ),
                     visualDensity: VisualDensity.compact,
                     materialTapTargetSize:
@@ -6918,21 +6971,23 @@ String _normalizePath(String path) {
                     label: const Text('区间'),
                     selected: _rangeMode,
                     onSelected: (_) => _toggleRangeMode(),
-                    backgroundColor: Colors.white,
-                    selectedColor: const Color(0xFFE3F2FD),
+                    backgroundColor:
+                        Theme.of(context).colorScheme.surface,
+                    selectedColor:
+                        Theme.of(context).colorScheme.primaryContainer,
                     surfaceTintColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     elevation: 0,
                     checkmarkColor: _rangeBlue,
-                    labelStyle: const TextStyle(
+                    labelStyle: TextStyle(
                       fontSize: 12,
-                      color: Colors.black,
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.normal,
                     ),
                     side: BorderSide(
                       color: _rangeMode
                           ? _rangeBlue
-                          : Colors.grey.shade400,
+                          : Theme.of(context).colorScheme.outlineVariant,
                     ),
                     visualDensity: VisualDensity.compact,
                     materialTapTargetSize:
@@ -7004,11 +7059,6 @@ class _PropertiesDialog extends StatefulWidget {
 }
 
 class _PropertiesDialogState extends State<_PropertiesDialog> {
-  static const EdgeInsets _dlgInset = EdgeInsets.all(4);
-  static const EdgeInsets _dlgTitlePad = EdgeInsets.fromLTRB(12, 8, 12, 0);
-  static const EdgeInsets _dlgContentPad = EdgeInsets.fromLTRB(8, 4, 8, 4);
-  static const EdgeInsets _dlgActionsPad = EdgeInsets.fromLTRB(4, 0, 4, 4);
-
   String? _md5;
   bool _md5Loading = false;
   String? _md5Error;
@@ -7054,55 +7104,56 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
         );
 
     return AlertDialog(
-      insetPadding: _dlgInset,
-      titlePadding: _dlgTitlePad,
-      contentPadding: _dlgContentPad,
-      actionsPadding: _dlgActionsPad,
+      insetPadding: const EdgeInsets.all(16),
       title: const Text('属性'),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: MediaQuery.of(context).size.height * 0.7,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              row('名称', widget.name),
-              row('路径', widget.path),
-              row('类型', widget.isDir ? '文件夹' : '文件'),
-              row(
-                '大小',
-                widget.isDir
-                    ? '—'
-                    : (widget.size == null
-                        ? '—'
-                        : _FileBrowserScreenState._formatSize(widget.size)),
-              ),
-              if (widget.modified != null)
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: SizedBox(
+          width: 360,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                row('名称', widget.name),
+                row('路径', widget.path),
+                row('类型', widget.isDir ? '文件夹' : '文件'),
                 row(
-                  '修改时间',
-                  _FileBrowserScreenState._formatTimeFull(widget.modified!),
+                  '大小',
+                  widget.isDir
+                      ? '—'
+                      : (widget.size == null
+                          ? '—'
+                          : _FileBrowserScreenState._formatSize(widget.size)),
                 ),
-              if (widget.accessed != null)
-                row(
-                  '访问时间',
-                  _FileBrowserScreenState._formatTimeFull(widget.accessed!),
+                if (widget.modified != null)
+                  row(
+                    '修改时间',
+                    _FileBrowserScreenState._formatTimeFull(widget.modified!),
+                  ),
+                if (widget.accessed != null)
+                  row(
+                    '访问时间',
+                    _FileBrowserScreenState._formatTimeFull(widget.accessed!),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'MD5',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      _buildMd5Area(),
+                    ],
+                  ),
                 ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'MD5',
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    _buildMd5Area(),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -7117,9 +7168,12 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
 
   Widget _buildMd5Area() {
     if (widget.isDir) {
-      return const Text(
+      return Text(
         '文件夹不支持计算 MD5',
-        style: TextStyle(fontSize: 13, color: Colors.grey),
+        style: TextStyle(
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       );
     }
 
@@ -7165,7 +7219,10 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
               padding: const EdgeInsets.only(top: 2),
               child: Text(
                 '计算失败：$_md5Error',
-                style: const TextStyle(color: Colors.red, fontSize: 12),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
               ),
             ),
         ],
@@ -7188,13 +7245,16 @@ class _SearchSettingsSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 6),
       child: Text(
         text,
-        style: const TextStyle(
-          fontSize: 16,
+        style: TextStyle(
+          fontSize: 13,
           fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+          color: cs.primary,
         ),
       ),
     );
@@ -7216,7 +7276,9 @@ class _RadioDot extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: selected ? color : Colors.grey,
+          color: selected
+              ? color
+              : Theme.of(context).colorScheme.outline,
           width: 2,
         ),
       ),
@@ -7387,7 +7449,7 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
     }
 
     return AlertDialog(
-      insetPadding: const EdgeInsets.all(4),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
       titlePadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       contentPadding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
       actionsPadding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
@@ -7413,7 +7475,10 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
               const SizedBox(height: 8),
               Text(
                 '选中的 $n 项将从磁盘删除，无法恢复。',
-                style: const TextStyle(fontSize: 13, color: Colors.red),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ],
           ),
