@@ -6874,9 +6874,9 @@ return _wrapWithFlash(
         ),
       ),
     ),
-  ),
   e.path,
 );
+  }
 
   Widget _buildGridName(EntryInfo info, double fontSize) {
     if (info.isDir) {
