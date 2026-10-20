@@ -1,5 +1,6 @@
 
 import 'dart:convert';
+import 'dart:ui' show Color;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -1601,6 +1602,19 @@ class SearchBoxModeNotifier extends EnumPrefNotifier<SearchBoxMode> {
         );
 }
 
+// ==================== 搜索框收起开关 ====================
+
+/// 搜索框是否收起。false = 展开（默认），true = 收起。
+final browserSearchBarCollapsedProvider =
+    NotifierProvider<BrowserSearchBarCollapsedNotifier, bool>(
+  BrowserSearchBarCollapsedNotifier.new,
+);
+
+class BrowserSearchBarCollapsedNotifier extends BoolPrefNotifier {
+  BrowserSearchBarCollapsedNotifier()
+      : super(key: PrefKeys.browserSearchBarCollapsed, initial: false);
+}
+
 // ==================== 过滤深度 ====================
 
 /// 过滤深度：往下钻几层。0 = 只当前层。范围 0~9。
@@ -1621,4 +1635,132 @@ class FilterDepthNotifier extends PersistentNotifier<int> {
   String encode(int value) => value.toString();
 
   void set(int v) => update(v.clamp(0, 9));
+}
+
+// ==================== 文件浏览器 · 标记 ====================
+//
+// 注意：这里持久化的只是「设置」——是否弹面板、默认色、默认透明度、预设色。
+// 「哪些文件被标记了」是内存态（在 _FileBrowserScreenState 里），进程结束清空。
+
+final browserMarkShowPickerProvider =
+    NotifierProvider<BrowserMarkShowPickerNotifier, bool>(
+  BrowserMarkShowPickerNotifier.new,
+);
+
+class BrowserMarkShowPickerNotifier extends BoolPrefNotifier {
+  BrowserMarkShowPickerNotifier()
+      : super(key: PrefKeys.browserMarkShowPicker, initial: true);
+}
+
+final browserMarkDefaultColorProvider =
+    NotifierProvider<BrowserMarkDefaultColorNotifier, Color>(
+  BrowserMarkDefaultColorNotifier.new,
+);
+
+class BrowserMarkDefaultColorNotifier extends PersistentNotifier<Color> {
+  @override
+  String get key => PrefKeys.browserMarkDefaultColor;
+
+  @override
+  Color get defaultValue => const Color(0xFFFFEB3B); // 亮黄
+
+  @override
+  Color decode(String raw) {
+    final v = int.tryParse(raw);
+    if (v == null) return defaultValue;
+    return Color(v);
+  }
+
+  @override
+  String encode(Color value) => value.toARGB32().toString();
+
+  void set(Color c) => update(c);
+}
+
+final browserMarkDefaultOpacityProvider =
+    NotifierProvider<BrowserMarkDefaultOpacityNotifier, double>(
+  BrowserMarkDefaultOpacityNotifier.new,
+);
+
+class BrowserMarkDefaultOpacityNotifier extends DoublePrefNotifier {
+  BrowserMarkDefaultOpacityNotifier()
+      : super(key: PrefKeys.browserMarkDefaultOpacity, initial: 0.85);
+
+  void set(double v) => update(v.clamp(0.01, 1.0));
+}
+
+final browserMarkPresetColorsProvider =
+    NotifierProvider<BrowserMarkPresetColorsNotifier, List<Color>>(
+  BrowserMarkPresetColorsNotifier.new,
+);
+
+class BrowserMarkPresetColorsNotifier
+    extends PersistentNotifier<List<Color>> {
+  @override
+  String get key => PrefKeys.browserMarkPresetColors;
+
+  @override
+  List<Color> get defaultValue => const [
+        Color(0xFFFF5252), // 红
+        Color(0xFFFF9800), // 橙
+        Color(0xFFFFEB3B), // 黄
+        Color(0xFF4CAF50), // 绿
+        Color(0xFF2196F3), // 蓝
+        Color(0xFF9C27B0), // 紫
+      ];
+
+  @override
+  List<Color> decode(String raw) {
+    if (raw.isEmpty) return defaultValue;
+    final out = <Color>[];
+    for (final p in raw.split(',')) {
+      final v = int.tryParse(p);
+      if (v != null) out.add(Color(v));
+    }
+    return out.isEmpty ? defaultValue : out;
+  }
+
+  @override
+  String encode(List<Color> value) =>
+      value.map((c) => c.toARGB32().toString()).join(',');
+
+  void setAt(int index, Color c) {
+    final next = List<Color>.from(state);
+    if (index < 0 || index >= next.length) return;
+    next[index] = c;
+    update(next);
+  }
+}
+
+// ==================== 文件收藏 ====================
+
+final fileBookmarksProvider =
+    NotifierProvider<FileBookmarksNotifier, List<String>>(
+  FileBookmarksNotifier.new,
+);
+
+class FileBookmarksNotifier extends StringListPrefNotifier {
+  FileBookmarksNotifier() : super(key: PrefKeys.fileBookmarks);
+
+  bool contains(String path) => state.contains(path);
+
+  void toggle(String path) {
+    if (state.contains(path)) {
+      update(state.where((p) => p != path).toList());
+    } else {
+      update([...state, path]);
+    }
+  }
+
+  void addAll(Iterable<String> paths) {
+    final set = state.toSet();
+    for (final p in paths) {
+      set.add(p);
+    }
+    update(set.toList());
+  }
+
+  void remove(String path) {
+    update(state.where((p) => p != path).toList());
+  }
 }
