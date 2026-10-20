@@ -4910,7 +4910,7 @@ Widget _buildSelectionHintBar() {
                     ],
                     const SizedBox(width: 3),
                     Icon(
-                      Icons.tune,
+                      Icons.settings_outlined,
                       size: 14,
                       color: labelColor,
                     ),
