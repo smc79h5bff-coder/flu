@@ -25,7 +25,6 @@ enum AppSkin {
   green('苔绿', Color(0xFF4A6B5A)),
   teal('湖青', Color(0xFF5D98AB)),
   blue('墨蓝', Color(0xFF3A4A6B)),
-  sky('天蓝', Color(0xFF7AB8D9)),
   indigoBlue('紫蓝', Color(0xFF7878CC));
 
   final String label;
