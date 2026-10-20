@@ -765,16 +765,17 @@ class _TableLineRow extends StatelessWidget {
             child: SizedBox(
               width: 56,
               child: Padding(
-                padding: const EdgeInsets.only(top: 8, right: 6),
-                child: Text(
-                  '$lineNumber',
-                  textAlign: TextAlign.end,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+              padding: const EdgeInsets.only(right: 6),
+              child: Text(
+                '$lineNumber',
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.0,
+                  color: Theme.of(context).colorScheme.outline,
                 ),
               ),
+            ),
             ),
           ),
           // 编辑区
