@@ -94,6 +94,9 @@ class BrowserSettingsScreen extends ConsumerWidget {
 
   Widget _buildSearchBarSection(BuildContext context, WidgetRef ref) {
     final current = ref.watch(searchBarVisibilityProvider);
+    final isCollapsible = current == SearchBarVisibility.collapsible;
+    final isAlwaysVisible = current == SearchBarVisibility.alwaysVisible;
+    final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -101,10 +104,6 @@ class BrowserSettingsScreen extends ConsumerWidget {
           title: '搜索栏',
           subtitle: '控制文件浏览器里搜索栏的显示方式。',
         ),
-        final isCollapsible = current == SearchBarVisibility.collapsible;
-        final isAlwaysVisible =
-            current == SearchBarVisibility.alwaysVisible;
-        final cs = Theme.of(context).colorScheme;
         RadioListTile<SearchBarVisibility>(
           value: SearchBarVisibility.collapsible,
           groupValue: current,
