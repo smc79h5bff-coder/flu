@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
+import 'core/theme/skin.dart';
 import 'features/file_browser/presentation/file_browser_screen.dart';
 import 'features/file_browser/presentation/permission_gate.dart';
 
@@ -11,11 +12,13 @@ class DocDiffApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final skin = ref.watch(skinProvider);
+
     return MaterialApp(
       title: 'DocDiff',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
+      theme: lightThemeOf(skin),
+      darkTheme: darkThemeOf(skin),
       themeMode: ThemeMode.system,
 
       // 中文本地化：系统组件（Copy/Paste/Back 等）不再显示英文。
