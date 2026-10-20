@@ -5,6 +5,9 @@ class PrefKeys {
 
   static const String _p = 'jianming.';
 
+  // ==================== 主题 / 皮肤 ====================
+  static const String skin = '${_p}theme.skin';
+
   static const String comparisonNotes = 'comparison_notes';
 
   // ==================== 对比页显示设置 ====================
