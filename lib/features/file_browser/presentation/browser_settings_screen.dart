@@ -25,6 +25,9 @@ class BrowserSettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         title: const Text('浏览器设置'),
         actions: [
           IconButton(
@@ -169,8 +172,6 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             ChoiceChip(
               label: const Text('列表'),
               selected: !gridMode,
-              backgroundColor:
-                  Theme.of(context).colorScheme.surface,
               onSelected: (_) {
                 ref.read(browserGridModeProvider.notifier).update(false);
               },
@@ -179,8 +180,6 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             ChoiceChip(
               label: const Text('网格'),
               selected: gridMode,
-              backgroundColor:
-                  Theme.of(context).colorScheme.surface,
               onSelected: (_) {
                 ref.read(browserGridModeProvider.notifier).update(true);
               },
