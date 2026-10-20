@@ -726,7 +726,7 @@ class ReplaceLeftBgNotifier extends ColorPrefNotifier {
   ReplaceLeftBgNotifier()
       : super(
           key: PrefKeys.colorReplaceLeftBg,
-          initial: const Color(0xFFFFEEEF),
+          initial: const Color(0xFFFFF3F4),
         );
 }
 
@@ -752,7 +752,7 @@ class ReplaceRightBgNotifier extends ColorPrefNotifier {
   ReplaceRightBgNotifier()
       : super(
           key: PrefKeys.colorReplaceRightBg,
-          initial: const Color(0xFFD8FFDA),
+          initial: const Color(0xFFEDFCEB),
         );
 }
 
