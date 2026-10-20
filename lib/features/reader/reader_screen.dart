@@ -264,7 +264,7 @@ class _EncodingPickerSheet extends StatelessWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300,
+              color: s.outlineVariant,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -277,7 +277,7 @@ class _EncodingPickerSheet extends StatelessWidget {
             child: Text(
               '如果自动检测错了，可以在这里手动指定。\n'
               '切换后当前文件会立即按新编码重新打开。',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12, color: s.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
           ),
@@ -1188,7 +1188,10 @@ void _saveProgressNow({bool fromPaginator = false}) {
             child: Material(
               elevation: 8,
               borderRadius: BorderRadius.circular(8),
-              color: Colors.black.withValues(alpha: 0.82),
+              color: Theme.of(context)
+                  .colorScheme
+                  .inverseSurface
+                  .withValues(alpha: 0.9),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -1196,8 +1199,8 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 ),
                 child: Text(
                   msg,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onInverseSurface,
                     fontSize: 13,
                   ),
                   maxLines: 2,
@@ -1285,15 +1288,15 @@ void _saveProgressNow({bool fromPaginator = false}) {
             const SizedBox(height: 4),
             Text(
               path,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
-                color: Colors.grey,
+                color: Theme.of(c).colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               '删除后无法恢复。',
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(c).colorScheme.error),
             ),
           ],
         ),
@@ -1303,7 +1306,9 @@ void _saveProgressNow({bool fromPaginator = false}) {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -1367,7 +1372,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
     _menuOpen = true;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       barrierColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -1449,7 +1454,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: Theme.of(ctx).colorScheme.outlineVariant,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1590,7 +1595,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
                     child: menuButton(
                       icon: Icons.close,
                       label: '关闭文件',
-                      color: Colors.red,
+                      color: Theme.of(ctx).colorScheme.error,
                       onTap: () {
                         Navigator.pop(ctx);
                         _closeFile();
@@ -1611,7 +1616,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
   Future<void> _showEncodingPicker() async {
     final picked = await showModalBottomSheet<_EncodingChoice>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -3502,7 +3507,8 @@ final h = contentBox.globalToLocal(drag.handlePos);
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                  color: Colors.black.withValues(alpha: 0.10),
+                  color: Theme.of(context).colorScheme.outline
+                      .withValues(alpha: 0.3),
                   width: 0.5,
                 ),
               ),
@@ -3585,7 +3591,7 @@ top = top.clamp(4.0, size.height - approxH - 4);
         width: approxW,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
@@ -3690,7 +3696,7 @@ child: Container(
                 : null,
           )
         : null,
-    border: Border.all(color: Colors.black12),
+    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
     borderRadius: BorderRadius.circular(6),
   ),
   alignment: Alignment.center,
