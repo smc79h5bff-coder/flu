@@ -4673,6 +4673,9 @@ case 'favorites':
     final allSelected = selectable.isNotEmpty &&
         selectable.every((k) => _selectedPaths.contains(k));
     return AppBar(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
       leading: IconButton(
         icon: const Icon(Icons.close),
         onPressed: () => setState(_clearSelection),
@@ -5430,19 +5433,15 @@ Widget _settingsSortChip({
       duration: const Duration(milliseconds: 150),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: selected ? cs.primaryContainer : cs.surfaceContainerLow,
+        color: selected ? cs.secondaryContainer : cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: selected ? cs.primary : Colors.transparent,
-          width: 1.5,
-        ),
       ),
       child: Text(
         label,
         style: TextStyle(
           fontSize: 13,
           fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-          color: selected ? cs.onPrimaryContainer : cs.onSurface,
+          color: selected ? cs.onSecondaryContainer : cs.onSurface,
         ),
       ),
     ),
