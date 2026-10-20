@@ -10,7 +10,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../preprocessing/application/encoding_detector.dart';
 import '../../preprocessing/application/preprocessing_service.dart';
 import '../../preprocessing/domain/encoding_type.dart';
@@ -738,10 +737,9 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
                     itemBuilder: (ctx, i) {
                       final r = rules[i];
                       final c = colors[r.id];
-                      final bg = c?.bg ?? Colors.white;
-                      final fg = c?.fg ?? Colors.black;
-                      final border =
-                          c?.border ?? Colors.black.withOpacity(0.5);
+                      final bg = c?.bg ?? s.surface;
+                      final fg = c?.fg ?? s.onSurface;
+                      final border = c?.border ?? s.outline;
                       return Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 3,
@@ -1091,14 +1089,14 @@ final next = TranslationTable.instance.convert(joined);
                 _saving ? Icons.hourglass_top : Icons.save,
                 color: (_saving || _loading)
                     ? null
-                    : AppColors.accentPurple,
+                    : Theme.of(context).colorScheme.primary,
               ),
               label: Text(
                 '保存',
                 style: TextStyle(
                   color: (_saving || _loading)
                       ? null
-                      : AppColors.accentPurple,
+                      : Theme.of(context).colorScheme.primary,
                 ),
               ),
             ),
@@ -1259,7 +1257,7 @@ final next = TranslationTable.instance.convert(joined);
                   child: TextField(
                     controller: _findCtrl,
                     autofocus: true,
-                    cursorColor: AppColors.accentPurple,
+                    cursorColor: Theme.of(context).colorScheme.primary,
                     decoration: const InputDecoration(
                       hintText: '查找',
                       isDense: true,
@@ -1293,7 +1291,7 @@ final next = TranslationTable.instance.convert(joined);
                 Expanded(
                   child: TextField(
                     controller: _replaceCtrl,
-                    cursorColor: AppColors.accentPurple,
+                    cursorColor: Theme.of(context).colorScheme.primary,
                     decoration: const InputDecoration(
                       hintText: '替换为（留空 = 删掉）',
                       isDense: true,
@@ -1304,7 +1302,7 @@ final next = TranslationTable.instance.convert(joined);
                 TextButton(
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    foregroundColor: AppColors.accentPurple,
+                    foregroundColor: Theme.of(context).colorScheme.primary,
                   ),
                   onPressed: _replaceCurrent,
                   child: const Text('替换当前'),
@@ -1312,7 +1310,7 @@ final next = TranslationTable.instance.convert(joined);
                 TextButton(
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    foregroundColor: AppColors.accentPurple,
+                    foregroundColor: Theme.of(context).colorScheme.primary,
                   ),
                   onPressed: _processing ? null : _replaceAll,
                   child: const Text('全部替换'),
@@ -1342,7 +1340,7 @@ final next = TranslationTable.instance.convert(joined);
                 TextButton(
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    foregroundColor: AppColors.accentPurple,
+                    foregroundColor: Theme.of(context).colorScheme.primary,
                   ),
                   onPressed: () => setState(() => _recomputeHits()),
                   child: const Text('搜索'),
@@ -1370,7 +1368,7 @@ final next = TranslationTable.instance.convert(joined);
             fontSize: 12,
             fontWeight: value ? FontWeight.bold : FontWeight.normal,
             color: value
-                ? AppColors.accentPurple
+                ? Theme.of(context).colorScheme.primary
                 : Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
@@ -1723,21 +1721,21 @@ class _LineEditorColorDialogState
               context: context,
               label: '背景色',
               isSet: c.bg != null,
-              color: c.bg ?? Colors.white,
+              color: c.bg ?? Theme.of(context).colorScheme.surface,
               onPick: (v) => _setBg(v),
             ),
             _colorRow(
               context: context,
               label: '文字色',
               isSet: c.fg != null,
-              color: c.fg ?? Colors.black,
+              color: c.fg ?? Theme.of(context).colorScheme.onSurface,
               onPick: (v) => _setFg(v),
             ),
             _colorRow(
               context: context,
               label: '边框色',
               isSet: c.border != null,
-              color: c.border ?? Colors.black.withOpacity(0.5),
+              color: c.border ?? Theme.of(context).colorScheme.outline,
               onPick: (v) => _setBorder(v),
             ),
           ],
