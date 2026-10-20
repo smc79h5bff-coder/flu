@@ -472,14 +472,14 @@ fontSize: 12,          color: Colors.black,      fontWeight: isLast ? FontWeight
                       Expanded(
                         child: TextField(
                           controller: _jumpCtrl,
-                          cursorColor: AppColors.accentPurple,
+                          cursorColor: Theme.of(context).colorScheme.primary,
                           decoration: InputDecoration(
                             hintText: '粘贴路径跳转',
                             isDense: true,
                             border: const OutlineInputBorder(),
-                            focusedBorder: const OutlineInputBorder(
+                            focusedBorder: OutlineInputBorder(
                               borderSide: BorderSide(
-                                color: AppColors.accentPurple,
+                                color: Theme.of(context).colorScheme.primary,
                                 width: 2,
                               ),
                             ),
@@ -492,7 +492,7 @@ fontSize: 12,          color: Colors.black,      fontWeight: isLast ? FontWeight
                       const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.arrow_forward),
-                        color: AppColors.accentPurple,
+                        color: Theme.of(context).colorScheme.primary,
                         tooltip: '跳转',
                         onPressed: () => _jumpToPath(_jumpCtrl.text.trim()),
                       ),
@@ -505,7 +505,7 @@ fontSize: 12,          color: Colors.black,      fontWeight: isLast ? FontWeight
                     children: [
                       IconButton(
                         icon: const Icon(Icons.arrow_upward),
-                        color: AppColors.accentPurple,
+                        color: Theme.of(context).colorScheme.primary,
                         onPressed: _canGoUp ? _goUp : null,
                         tooltip: '上一级',
                         visualDensity: VisualDensity.compact,
@@ -590,7 +590,7 @@ Padding(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
           child: TextField(
             controller: _filterCtrl,
-            cursorColor: AppColors.accentPurple,
+            cursorColor: Theme.of(context).colorScheme.primary,
             cursorHeight: 14,
             decoration: InputDecoration(
               hintText: '过滤子目录',
@@ -601,9 +601,9 @@ Padding(
               ),
               isDense: true,
               border: const OutlineInputBorder(),
-              focusedBorder: const OutlineInputBorder(
+              focusedBorder: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: AppColors.accentPurple,
+                  color: Theme.of(context).colorScheme.primary,
                   width: 2,
                 ),
               ),
