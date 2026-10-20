@@ -1238,24 +1238,46 @@ class SearchBoxModeNotifier extends EnumPrefNotifier<SearchBoxMode> {
         );
 }
 
-// ==================== 过滤深度 ====================
+// ==================== 搜索栏显示方式（持久偏好） ====================
 
-/// 过滤深度：往下钻几层。0 = 只当前层。范围 0~9。
-final filterDepthProvider =
-    NotifierProvider<FilterDepthNotifier, int>(FilterDepthNotifier.new);
+/// 搜索栏显示方式。
+///
+/// - [SearchBarVisibility.collapsible]：可折叠。默认显示，点 AppBar 的 [🔍] 收起/展开。
+/// - [SearchBarVisibility.alwaysVisible]：始终显示。AppBar 不显示折叠按钮，搜索栏永远可见。
+///
+/// 与 [searchBarCollapsedProvider] 的关系：
+///   - visibility = alwaysVisible 时，collapsed 的值**保留但不生效**。
+///     用户从 alwaysVisible 切回 collapsible 时，恢复到之前折叠状态。
+///   - visibility = collapsible 时，collapsed 真实生效。
+enum SearchBarVisibility { collapsible, alwaysVisible }
 
-class FilterDepthNotifier extends PersistentNotifier<int> {
-  @override
-  String get key => PrefKeys.filterDepth;
+final searchBarVisibilityProvider =
+    NotifierProvider<SearchBarVisibilityNotifier, SearchBarVisibility>(
+  SearchBarVisibilityNotifier.new,
+);
 
-  @override
-  int get defaultValue => 1;
+class SearchBarVisibilityNotifier
+    extends EnumPrefNotifier<SearchBarVisibility> {
+  SearchBarVisibilityNotifier()
+      : super(
+          key: PrefKeys.searchBarVisibility,
+          values: SearchBarVisibility.values,
+          initial: SearchBarVisibility.collapsible,
+        );
+}
 
-  @override
-  int decode(String raw) => int.tryParse(raw) ?? 1;
+// ==================== 搜索栏当前是否折叠（临时开关） ====================
 
-  @override
-  String encode(int value) => value.toString();
+/// 搜索栏当前是否折叠。
+///
+/// 只在 [searchBarVisibilityProvider] == SearchBarVisibility.collapsible 时生效。
+/// 折叠动作会：清空搜索输入 + 退出搜索/过滤模式 + 收起键盘。
+final searchBarCollapsedProvider =
+    NotifierProvider<SearchBarCollapsedNotifier, bool>(
+  SearchBarCollapsedNotifier.new,
+);
 
-  void set(int v) => update(v.clamp(0, 9));
+class SearchBarCollapsedNotifier extends BoolPrefNotifier {
+  SearchBarCollapsedNotifier()
+      : super(key: PrefKeys.searchBarCollapsed, initial: false);
 }
