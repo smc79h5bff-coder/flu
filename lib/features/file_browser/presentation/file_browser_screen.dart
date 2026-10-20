@@ -6,11 +6,12 @@ import 'package:archive/archive.dart';
 import 'package:charset/charset.dart';
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import '../../viewer/presentation/viewer_widgets.dart' show pickColorDialog;
 
 import '../../../core/constants/app_colors.dart';
 import '../../import/presentation/providers/import_providers.dart';
@@ -844,6 +845,26 @@ OverlayEntry? _advancedOverlay;
 
   /// ★ 粘性头部已停用，此字段保留但始终为 null。
 String? _stickyZipKey;
+
+  // ==================== 标记（临时标记，进程结束清空） ====================
+
+  /// 已标记：路径 → 最终颜色（已含透明度）。
+  final Map<String, Color> _markColors = <String, Color>{};
+
+  /// 是否在标记模式。
+  bool _markerMode = false;
+
+  /// 跳转中的目标路径。加载完目录后消费一次。
+  String? _pendingJumpPath;
+
+  /// 正在闪烁高亮的目标路径。null = 没有。
+  String? _flashingPath;
+
+  /// 每次跳转递增，用来强制 TweenAnimationBuilder 重新开始动画。
+  int _flashSeq = 0;
+
+  /// 当前显示的顶部提示。null = 没有。
+  OverlayEntry? _toastEntry;
 static final Object _searchPanelTapGroup = Object();
 
 // ==================== 过滤状态 ====================
@@ -931,6 +952,8 @@ Future<void> _cleanTempDirOnce() async {
 void dispose() {
   fileBrowserRouteObserver.unsubscribe(this);
   _positionsListener.itemPositions.removeListener(_onPositionsChanged);
+  _toastEntry?.remove();
+  _toastEntry = null;
   _searchCtrl.dispose();
   _advancedOverlay?.remove();
   _advancedOverlay = null;
@@ -1209,6 +1232,7 @@ final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
         } else {
           _restoreDirScroll();
         }
+        _tryConsumePendingJump();
         return;
       }
     }
@@ -1228,6 +1252,7 @@ final cacheKey = '$_currentPath|${sortField.name}|$sortAsc';
       });
       DirCache.instance.put(cacheKey, entries);
       if (anchor.isNotEmpty) _restoreScrollAnchor(anchor);
+      _tryConsumePendingJump();
       return;
     }
 
@@ -1266,6 +1291,7 @@ try {
             _entries = list;
           });
           DirCache.instance.put(cacheKey, list);
+          _tryConsumePendingJump();
         },
       );
     } catch (e) {
@@ -1358,7 +1384,8 @@ try {
     });
   }
 
-  void _navigateTo(String path) {
+  void _navigateTo(String path, {bool preservePendingJump = false}) {
+    if (!preservePendingJump) _pendingJumpPath = null;
     while (path.length > 1 && path.endsWith('/')) {
       path = path.substring(0, path.length - 1);
     }
@@ -1455,6 +1482,13 @@ _expandedZipKeys.clear();
 
 bool get _hasActiveConditions =>
     _searchConditions.any((c) => c.text.trim().isNotEmpty);
+
+/// 只要以下任意一条成立，搜索框必须显示，且顶栏按钮不出现。
+bool get _forceShowSearchBar =>
+    _searchActive ||
+    _searchCtrl.text.trim().isNotEmpty ||
+    _hasActiveConditions ||
+    _advancedOpen;
 
 
 
@@ -2471,60 +2505,74 @@ Future<void> _scanFilterDepth(
 ) async {
   final out = <_SearchHit>[];
 
-  Future<void> walk(String dirPath, int remaining) async {
-    if (remaining < 0) return;
-    try {
-      await for (final e in Directory(dirPath).list(followLinks: false)) {
-        if (taskId != _filterTaskId) return;
-        if (out.length >= 500) return;
+  // 层序（广度优先）扫描：
+  //   level=1 → 当前目录的直接子项（由 _computeVisibleItems 的 matchedTop 处理，这里跳过）
+  //   level=2 → 第 1 层子目录里的内容
+  //   level=3 → 第 2 层子目录里的内容
+  //   ...
+  //   level=N+1 → 第 N 层子目录里的内容
+  // 所以 depth=5 时，能扫到第 5 层子目录里的直接子项。
+  var currentDirs = <String>[rootPath];
+  var level = 0;
 
-        final name = e.path.split('/').last;
-        if (name.startsWith('.')) continue;
+  while (currentDirs.isNotEmpty && level <= depth) {
+    level++;
+    final nextDirs = <String>[];
+    for (final dirPath in currentDirs) {
+      if (taskId != _filterTaskId) return;
+      if (out.length >= 500) break;
+      try {
+        await for (final e in Directory(dirPath).list(followLinks: false)) {
+          if (taskId != _filterTaskId) return;
+          if (out.length >= 500) break;
 
-        final lowerPath = e.path.toLowerCase();
-        if (lowerPath.contains('/android/data') ||
-            lowerPath.contains('/android/obb')) {
-          continue;
+          final name = e.path.split('/').last;
+          if (name.startsWith('.')) continue;
+
+          final lowerPath = e.path.toLowerCase();
+          if (lowerPath.contains('/android/data') ||
+              lowerPath.contains('/android/obb')) {
+            continue;
+          }
+
+          // level=1 是当前目录的直接子项，已经由 matchedTop 处理过；
+          // 这里只负责 level>=2 的深层项。
+          if (level >= 2 && _matchNameForSearch(name)) {
+            final isDir = e is Directory;
+            int? size;
+            DateTime? modified;
+            try {
+              final st = await e.stat();
+              if (!isDir) size = st.size;
+              modified = st.modified;
+            } catch (_) {}
+            out.add(_SearchHit(
+              path: e.path,
+              name: name,
+              isDir: isDir,
+              size: size,
+              modified: modified,
+            ));
+
+            // 渐进显示：每 100ms 刷一次，边扫边出现
+            final now = DateTime.now();
+            if (mounted &&
+                now.difference(_lastUiRefresh).inMilliseconds > 100) {
+              _lastUiRefresh = now;
+              setState(() => _filterDeepResults = List.from(out));
+            }
+          }
+
+          if (e is Directory) nextDirs.add(e.path);
         }
-
-        final slash = e.path.lastIndexOf('/');
-        final parentPath = slash >= 0 ? e.path.substring(0, slash) : '';
-        final isCurrentLayer = parentPath == _currentPath;
-
-
-
-		 if (!isCurrentLayer && _matchNameForSearch(name)) {
-  final isDir = e is Directory;
-  int? size;
-  DateTime? modified;
-  try {
-    final st = await e.stat();
-    if (!isDir) size = st.size;
-    modified = st.modified;
-  } catch (_) {}
-  out.add(_SearchHit(
-    path: e.path,
-    name: name,
-    isDir: isDir,
-    size: size,
-    modified: modified,
-  ));
-}
-
-
-		  
-
-        if (e is Directory && remaining > 0) {
-          await walk(e.path, remaining - 1);
-        }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
+    currentDirs = nextDirs;
+    if (out.length >= 500) break;
   }
 
-  await walk(rootPath, depth);
-
   if (!mounted || taskId != _filterTaskId) return;
-  setState(() => _filterDeepResults = out);
+  setState(() => _filterDeepResults = List.from(out));
 }
 
 List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
@@ -2574,9 +2622,24 @@ List<EntryInfo> _filterEntries(List<EntryInfo> entries) {
   if (_searchCtrl.text.trim().isEmpty && !_hasActiveConditions) {
     return entries;
   }
-  return entries
+  final matched = entries
       .where((e) => _matchNameForSearch(e.name))
       .toList();
+
+  // 网格模式下也把深层过滤结果并进来（原来只有列表模式会合并）
+  final deep = <EntryInfo>[];
+  for (final hit in _filterDeepResults) {
+    final isDir = hit.isDir;
+    final entity = isDir ? Directory(hit.path) : File(hit.path);
+    deep.add(EntryInfo(
+      entity: entity,
+      name: hit.name,
+      isDir: isDir,
+      size: hit.size,
+      modified: hit.modified,
+    ));
+  }
+  return [...matched, ...deep];
 }
 
 void _runFilterNow() {
@@ -3760,20 +3823,65 @@ Future<void> _showDirInfoDialog() async {
   void _toast(String msg) {
   if (!mounted) return;
   final ms = msg.length <= 10 ? 1500 : 2000;
-  final messenger = ScaffoldMessenger.of(context);
-  messenger.clearSnackBars();
-  messenger.showSnackBar(
-    SnackBar(
-      content: Text(
-        msg,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
+
+  // 连续调用时只留最新一条
+  _toastEntry?.remove();
+  _toastEntry = null;
+
+  final overlay = Overlay.of(context);
+  final topPadding = MediaQuery.of(context).padding.top;
+
+  final entry = OverlayEntry(
+    builder: (ctx) => Positioned(
+      top: topPadding + 8,
+      left: 16,
+      right: 16,
+      child: IgnorePointer(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                msg,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
-      duration: Duration(milliseconds: ms),
     ),
   );
+
+  _toastEntry = entry;
+  overlay.insert(entry);
+
+  Future<void>.delayed(Duration(milliseconds: ms), () {
+    if (!mounted) return;
+    if (_toastEntry == entry) {
+      _toastEntry?.remove();
+      _toastEntry = null;
+    }
+  });
 }
 
   Future<bool> _confirm(String title, String message) async {
@@ -3809,6 +3917,29 @@ Future<void> _showDirInfoDialog() async {
       out.add(p);
     }
     return out;
+  }
+
+  void _bookmarkSelected() {
+    final paths = _selectedDiskPaths();
+    if (paths.isEmpty) {
+      _toast('压缩包内的文件不支持收藏');
+      return;
+    }
+    final notifier = ref.read(fileBookmarksProvider.notifier);
+    final existing = ref.read(fileBookmarksProvider);
+
+    // 全部已收藏 → 取消；否则 → 收藏
+    final allMarked = paths.every((p) => existing.contains(p));
+    if (allMarked) {
+      for (final p in paths) {
+        notifier.remove(p);
+      }
+      _toast('已取消收藏 ${paths.length} 项');
+    } else {
+      notifier.addAll(paths);
+      _toast('已收藏 ${paths.length} 项');
+    }
+    setState(_clearSelection);
   }
 
   Future<void> _rename() async {
@@ -4500,12 +4631,15 @@ String _normalizePath(String path) {
       _visibleItems = _computeVisibleItems(_cachedDisplayItems!);
       return PopScope(
         canPop: _currentPath == _topPath &&
-            !_selectionMode &&
-            !_searchActive &&
-            _expandedZipKeys.isEmpty,
+    !_selectionMode &&
+    !_searchActive &&
+    !_markerMode &&
+    _expandedZipKeys.isEmpty,
                 onPopInvokedWithResult: (didPop, _) {
           if (didPop) return;
-          if (_selectionMode) {
+          if (_markerMode) {
+            setState(() => _markerMode = false);
+          } else if (_selectionMode) {
             setState(_clearSelection);
           } else if (_searchActive) {
             _clearSearch();
@@ -4529,16 +4663,64 @@ String _normalizePath(String path) {
   child: Column(
     children: [
       _buildBreadcrumbs(),
-            IgnorePointer(
-              ignoring: _selectionMode,
-              child: _buildSearchBar(),
-            ),
+            if (!ref.watch(browserSearchBarCollapsedProvider) ||
+                _forceShowSearchBar)
+              IgnorePointer(
+                ignoring: _selectionMode,
+                child: _buildSearchBar(),
+              ),
         if (_searchActive) _buildSearchStatusBar(),
 if (!_searchActive &&
     !_selectionMode &&
     _expandedZipKeys.isNotEmpty)
   _buildExpandedZipBar(),
-      Expanded(child: _buildBody()),
+if (_markerMode) _buildMarkerModeBar(),
+      Expanded(
+  child: Stack(
+    children: [
+      Positioned.fill(child: _buildBody()),
+      if (!_selectionMode)
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 10,
+          child: _BrowserScrollbar(
+            positionsListenable: _positionsListener.itemPositions,
+            itemScrollController: _itemScrollController,
+            totalRows: _currentTotalRows,
+          ),
+        ),
+      if (!_selectionMode)
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FloatingActionButton.small(
+                heroTag: 'fb_page_up',
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                elevation: 2,
+                onPressed: _pageUp,
+                child: const Icon(Icons.keyboard_arrow_up),
+              ),
+              const SizedBox(height: 8),
+              FloatingActionButton.small(
+                heroTag: 'fb_page_down',
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                elevation: 2,
+                onPressed: _pageDown,
+                child: const Icon(Icons.keyboard_arrow_down),
+              ),
+            ],
+          ),
+        ),
+    ],
+  ),
+),
     ],
   ),
 ),
@@ -4552,13 +4734,17 @@ if (!_searchActive &&
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
     return AppBar(
+      backgroundColor: _markerMode ? const Color(0xFFFFEB3B) : null,
+      foregroundColor: _markerMode ? Colors.black : null,
       title: GestureDetector(
-        onLongPress: _showJumpToPathDialog,
+        onLongPress: _markerMode ? null : _showJumpToPathDialog,
         child: Text(
-          (_searchActive &&
-                  ref.watch(searchScopeProvider) == SearchScope.custom)
-              ? '自定义的搜索范围'
-              : _title,
+          _markerMode
+              ? '标记模式 · 点击文件标记'
+              : ((_searchActive &&
+                      ref.watch(searchScopeProvider) == SearchScope.custom)
+                  ? '自定义的搜索范围'
+                  : _title),
           style: const TextStyle(fontSize: 14),
         ),
       ),
@@ -4575,14 +4761,37 @@ if (!_searchActive &&
                   ? _smallBackButton(onPressed: _goUp)
                   : null)),
       actions: [
-        IconButton(
-          icon: Icon(
-            isFav ? Icons.star : Icons.star_border,
-            color: isFav ? const Color(0xFFACF500) : null,
-  ),
-          
-          tooltip: isFav ? '取消收藏此目录' : '收藏此目录',
-          onPressed: _toggleFavorite,
+        // ========== 搜索框收起/显示 ==========
+        if (!_searchActive && !_forceShowSearchBar)
+          IconButton(
+            icon: CustomPaint(
+              size: const Size(24, 24),
+              painter: _SearchToggleIconPainter(
+                collapsed: ref.watch(browserSearchBarCollapsedProvider),
+                color: IconTheme.of(context).color ??
+                    Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            tooltip: ref.watch(browserSearchBarCollapsedProvider)
+                ? '显示搜索框'
+                : '收起搜索框',
+            onPressed: () {
+              final cur = ref.read(browserSearchBarCollapsedProvider);
+              ref
+                  .read(browserSearchBarCollapsedProvider.notifier)
+                  .update(!cur);
+            },
+          ),
+        // ========== 标记模式按钮（点击进入/退出，长按打开设置） ==========
+        GestureDetector(
+          onLongPress: _showMarkerSettings,
+          child: IconButton(
+            icon: Icon(
+              _markerMode ? Icons.brush : Icons.brush_outlined,
+            ),
+            tooltip: _markerMode ? '退出标记模式' : '标记模式（长按设置）',
+            onPressed: _toggleMarkerMode,
+          ),
         ),
         IconButton(
           icon: const Icon(Icons.tune),
@@ -4600,6 +4809,8 @@ if (!_searchActive &&
           
           onSelected: (v) async {
   switch (v) {
+    case 'toggleFavorite':
+      _toggleFavorite();
     case 'browserSettings':
       final beforeField = ref.read(sortFieldProvider);
       final beforeAsc = ref.read(sortAscProvider);
@@ -4628,6 +4839,8 @@ case 'dirInfo':
   _showDirInfoDialog();
 case 'favorites':
   _showFavorites();
+case 'fileBookmarks':
+  _showFileBookmarks();
     case 'newFolder':
       _newFolder();
   }
@@ -4689,6 +4902,19 @@ const PopupMenuItem<String>(
 ),
             const PopupMenuDivider(),
             PopupMenuItem<String>(
+              value: 'toggleFavorite',
+              child: Row(
+                children: [
+                  Icon(
+                    isFav ? Icons.star : Icons.star_border,
+                    color: isFav ? const Color(0xFFACF500) : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(isFav ? '取消收藏此目录' : '收藏此目录'),
+                ],
+              ),
+            ),
+            PopupMenuItem<String>(
               value: 'favorites',
               child: Row(
                 children: [
@@ -4700,19 +4926,260 @@ const PopupMenuItem<String>(
               ),
             ),
             const PopupMenuDivider(),
-            const PopupMenuItem<String>(
-              value: 'newFolder',
-              child: Row(
-                children: [
-                  Icon(Icons.create_new_folder),
-                  SizedBox(width: 10),
-                  Text('新建文件夹'),
-                ],
-              ),
+            PopupMenuItem<String>(
+            value: 'fileBookmarks',
+            child: Row(
+              children: [
+                const Icon(Icons.bookmark),
+                const SizedBox(width: 10),
+                Text(
+                    '文件收藏 (${ref.read(fileBookmarksProvider).length})'),
+              ],
             ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem<String>(
+            value: 'newFolder',
+            child: Row(
+              children: [
+                Icon(Icons.create_new_folder),
+                SizedBox(width: 10),
+                Text('新建文件夹'),
+              ],
+            ),
+          ),
           ],
         ),
       ],
+    );
+  }
+
+  // ==================== 标记 · 模式切换 / 设置 / 处理点击 ====================
+
+  void _toggleMarkerMode() {
+    if (_markerMode) {
+      setState(() => _markerMode = false);
+      return;
+    }
+    setState(() {
+      _markerMode = true;
+      if (_selectionMode) {
+        _selectionMode = false;
+        _selectedPaths.clear();
+        _anchorPath = null;
+      }
+    });
+  }
+
+  Future<void> _showMarkerSettings() async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => const _MarkerSettingsDialog(),
+    );
+  }
+
+  Future<void> _handleMarkerTap(String path) async {
+    // zip 内文件不支持标记（虚拟 key 不稳定）
+    if (_isZipInnerKey(path)) {
+      _toast('压缩包内的文件不支持标记');
+      return;
+    }
+
+    final alreadyMarked = _markColors.containsKey(path);
+    final showPicker = ref.read(browserMarkShowPickerProvider);
+
+    // 未标记 + 开关关闭：直接用默认色标记
+    if (!alreadyMarked && !showPicker) {
+      final base = ref.read(browserMarkDefaultColorProvider);
+      final alpha = ref.read(browserMarkDefaultOpacityProvider);
+      setState(() {
+        _markColors[path] = base.withValues(alpha: alpha);
+        _markerMode = false;
+      });
+      return;
+    }
+
+    // 弹色板（已标记的必弹；未标记的看开关）
+    final initial = alreadyMarked
+        ? _markColors[path]!
+        : ref.read(browserMarkDefaultColorProvider);
+    final initialBase =
+        alreadyMarked ? initial.withValues(alpha: 1.0) : initial;
+    final initialAlpha = alreadyMarked
+        ? ((initial.toARGB32() >> 24) & 0xFF) / 255.0
+        : ref.read(browserMarkDefaultOpacityProvider);
+
+    final result = await showDialog<({String action, Color color})>(
+      context: context,
+      builder: (_) => _MarkerPaletteDialog(
+        initialBaseColor: initialBase,
+        initialOpacity: initialAlpha,
+        isMarked: alreadyMarked,
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (result == null) {
+      // 用户取消：退出标记模式
+      setState(() => _markerMode = false);
+      return;
+    }
+
+    if (result.action == 'unmark') {
+      setState(() {
+        _markColors.remove(path);
+        _markerMode = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _markColors[path] = result.color;
+      _markerMode = false;
+    });
+  }
+
+  /// 加载完成后，如果还有待消费的跳转，等一帧（让 build 重算 _cachedDisplayItems）再滚。
+  void _tryConsumePendingJump() {
+    final p = _pendingJumpPath;
+    if (p == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // 期间被覆盖/清掉：放弃这次
+      if (_pendingJumpPath != p) return;
+      _pendingJumpPath = null;
+
+      final allItems = _cachedDisplayItems ?? const <_DisplayItem>[];
+      final index = allItems.indexWhere((it) => it.key == p);
+      if (index < 0) {
+        _toast('文件已不存在，已跳到所在目录');
+        return;
+      }
+      _scrollToPath(p);
+      _startFlash(p);
+    });
+  }
+
+  /// 跳转后让目标行渐隐高亮 900ms，方便一眼找到刚跳过来的行。
+  void _startFlash(String path) {
+    setState(() {
+      _flashingPath = path;
+      _flashSeq++;
+    });
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      if (mounted && _flashingPath == path) {
+        setState(() => _flashingPath = null);
+      }
+    });
+  }
+
+  /// 给目标行套一层渐隐高亮。非目标行原样返回，零开销。
+  Widget _wrapWithFlash(Widget child, String key) {
+    if (_flashingPath != key) return child;
+    return Stack(
+      children: [
+        child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: TweenAnimationBuilder<double>(
+              key: ValueKey('flash_$_flashSeq'),
+              tween: Tween(begin: 1.0, end: 0.0),
+              duration: const Duration(milliseconds: 900),
+              builder: (ctx, v, _) {
+                if (v <= 0.01) return const SizedBox.shrink();
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Colors.yellow.withValues(alpha: 0.35 * v),
+                    border: Border.all(
+                      color: Colors.orange.withValues(alpha: v),
+                      width: 3,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 跳转到某个收藏的文件（跨目录 / 同目录都走这里）。
+  void _jumpToBookmark(String path) {
+    if (_isZipInnerKey(path)) {
+      _toast('压缩包内的文件不支持跳转');
+      return;
+    }
+
+    // 父目录
+    final slash = path.lastIndexOf('/');
+    if (slash <= 0) return;
+    final parent = path.substring(0, slash);
+
+    // 同目录：直接滚，天然兜底
+    if (parent == _currentPath) {
+      final allItems = _cachedDisplayItems ?? const <_DisplayItem>[];
+      final index = allItems.indexWhere((it) => it.key == path);
+      if (index < 0) {
+        _toast('文件已不存在');
+        return;
+      }
+      _scrollToPath(path);
+      _startFlash(path);
+      return;
+    }
+
+    // 跨目录：设 pending + 跳目录
+    if (!Directory(parent).existsSync()) {
+      _toast('目录不存在：$parent');
+      return;
+    }
+    _pendingJumpPath = path;
+    _navigateTo(parent, preservePendingJump: true);
+  }
+
+  /// 收藏列表弹窗。
+  Future<void> _showFileBookmarks() async {
+    final bookmarks = ref.read(fileBookmarksProvider);
+    if (bookmarks.isEmpty) {
+      _toast('还没有收藏任何文件');
+      return;
+    }
+
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (c) => _FileBookmarksDialog(bookmarks: bookmarks),
+    );
+    if (picked != null && mounted) _jumpToBookmark(picked);
+  }
+
+  Widget _buildMarkerModeBar() {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFFFEB3B),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          const Icon(Icons.brush, size: 16, color: Colors.black87),
+          const SizedBox(width: 6),
+          const Expanded(
+            child: Text(
+              '标记模式：点击一个文件完成标记，标记后自动退出',
+              style: TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.black87,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            onPressed: () => setState(() => _markerMode = false),
+            child: const Text('退出'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -5710,6 +6177,20 @@ child: Row(
         ),
       ),
     ),
+    const SizedBox(width: 3),
+    SizedBox(
+      width: 68,
+      child: FilledButton(
+        style: outlineStyle,
+        onPressed: _bookmarkSelected,
+        child: const Text(
+          '收藏',
+          style: labelStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
   ],
 ),
               ),
@@ -5839,6 +6320,55 @@ child: Row(
       ? _buildGridBody(_filterEntries(entries))
       : _buildListBody();
 }
+
+/// 当前列表的总行数（网格两列 = 行数）。
+int _currentTotalRows() {
+  if (_searchActive) {
+    return _cachedDisplayItems?.length ?? 0;
+  }
+  if (ref.read(browserGridModeProvider)) {
+    final entries = _filterEntries(_entries ?? const <EntryInfo>[]);
+    return (entries.length + 1) ~/ 2;
+  }
+  return _visibleItems?.length ?? 0;
+}
+
+void _pageDown() {
+  if (!_itemScrollController.isAttached) return;
+  final positions = _positionsListener.itemPositions.value;
+  if (positions.isEmpty) return;
+  var minIdx = 1 << 30;
+  var maxIdx = -1;
+  for (final p in positions) {
+    if (p.index < minIdx) minIdx = p.index;
+    if (p.index > maxIdx) maxIdx = p.index;
+  }
+  final total = _currentTotalRows();
+  if (total <= 1) return;
+  final pageSize = maxIdx - minIdx + 1;
+  final target = (minIdx + pageSize).clamp(0, total - 1);
+  if (target <= minIdx) return;
+  _itemScrollController.jumpTo(index: target);
+}
+
+void _pageUp() {
+  if (!_itemScrollController.isAttached) return;
+  final positions = _positionsListener.itemPositions.value;
+  if (positions.isEmpty) return;
+  var minIdx = 1 << 30;
+  var maxIdx = -1;
+  for (final p in positions) {
+    if (p.index < minIdx) minIdx = p.index;
+    if (p.index > maxIdx) maxIdx = p.index;
+  }
+  final total = _currentTotalRows();
+  if (total <= 1) return;
+  final pageSize = maxIdx - minIdx + 1;
+  final target = (minIdx - pageSize).clamp(0, total - 1);
+  if (target >= minIdx) return;
+  _itemScrollController.jumpTo(index: target);
+}
+
   // ==================== 列表模式（无粘性头部） ====================
 
 Widget _buildListBody() {
@@ -5938,9 +6468,11 @@ if (item.isZip) {
     : Icons.folder_zip;
   final metaLine = _buildItemMetaLine(item);
 
-return Listener(
+return _wrapWithFlash(
+  Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
+  color: _markColors[item.key],
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
@@ -6007,6 +6539,10 @@ leading: SizedBox(
               overflow: TextOverflow.ellipsis,
             ),
       onTap: () {
+        if (_markerMode) {
+          _handleMarkerTap(item.key);
+          return;
+        }
         // ★ 左侧图标区点 = 选中/取消
         if (_lastTapX < iconZoneRight) {
           _toggleSelectionByKey(item.key);
@@ -6018,9 +6554,11 @@ leading: SizedBox(
         }
         _handleTapItem(item);
       },
-      onLongPress: () => _onLongPressItem(item),
+      onLongPress: _markerMode ? null : () => _onLongPressItem(item),
     ),
   ),
+  ),
+  item.key,
 );
 }
 
@@ -6058,9 +6596,11 @@ leading: SizedBox(
     final isZipInner = item.isZipInner;
     final metaLine = _buildItemMetaLine(item);
 
-return Listener(
+return _wrapWithFlash(
+  Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
+  color: _markColors[item.key],
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
@@ -6139,6 +6679,10 @@ return Listener(
                 overflow: TextOverflow.ellipsis,
               ),
         onTap: () {
+          if (_markerMode) {
+            _handleMarkerTap(item.key);
+            return;
+          }
           // ★ 左侧图标区点 = 选中/取消
           if (_lastTapX < iconZoneRight) {
             _toggleSelectionByKey(item.key);
@@ -6150,10 +6694,12 @@ return Listener(
           }
           _handleTapItem(item);
         },
-        onLongPress: () => _onLongPressItem(item),
+        onLongPress: _markerMode ? null : () => _onLongPressItem(item),
       ),
     ),
-  );
+  ),
+  item.key,
+);
   }
 
   String _buildItemMetaLine(_DisplayItem item) {
@@ -6248,8 +6794,22 @@ return Listener(
     }
     final metaLine = metaParts.join(' · ');
 
-    return GestureDetector(
+// 标记色：选中优先，其次标记色，最后默认（非文本灰底）
+final markColor = _markColors[e.path];
+final baseColor = info.isDir
+    ? null
+    : (_textExts.contains(_extOf(info.name))
+        ? null
+        : const Color(0xFFF0F0F0));
+final bgColor = selected ? _gridSelectedBg : (markColor ?? baseColor);
+
+return _wrapWithFlash(
+  GestureDetector(
       onTap: () {
+        if (_markerMode) {
+          _handleMarkerTap(e.path);
+          return;
+        }
         if (_selectionMode) {
           _toggleSelectionByKey(e.path);
           return;
@@ -6260,28 +6820,22 @@ return Listener(
           _openFile(e.path, info.name, info.size, allowExpand: false);
         }
       },
-      onLongPress: () {
-        final all = _cachedDisplayItems ?? const <_DisplayItem>[];
-        final it = all.firstWhere(
-          (x) => x.key == e.path,
-          orElse: () => _DisplayItem(
-            key: e.path,
-            displayName: info.name,
-            depth: 0,
-          ),
-        );
-        _onLongPressItem(it);
-      },
+      onLongPress: _markerMode
+          ? null
+          : () {
+              final all = _cachedDisplayItems ?? const <_DisplayItem>[];
+              final it = all.firstWhere(
+                (x) => x.key == e.path,
+                orElse: () => _DisplayItem(
+                  key: e.path,
+                  displayName: info.name,
+                  depth: 0,
+                ),
+              );
+              _onLongPressItem(it);
+            },
       child: Container(
-        decoration: BoxDecoration(
-          color: selected
-              ? _gridSelectedBg
-              : (info.isDir
-                  ? null
-                  : (_textExts.contains(_extOf(info.name))
-                      ? null
-                      : const Color(0xFFF0F0F0))),
-        ),
+        decoration: BoxDecoration(color: bgColor),
         foregroundDecoration: BoxDecoration(
           border: selected
               ? Border.all(
@@ -6319,8 +6873,10 @@ return Listener(
           ],
         ),
       ),
-    );
-  }
+    ),
+  ),
+  e.path,
+);
 
   Widget _buildGridName(EntryInfo info, double fontSize) {
     if (info.isDir) {
@@ -6528,6 +7084,10 @@ return Listener(
             ],
           ),
           onTap: () {
+            if (_markerMode) {
+              _handleMarkerTap(item.key);
+              return;
+            }
             // ★ 左侧图标区点 = 选中/取消
             if (_lastTapX < iconZoneRight) {
               _toggleSelectionByKey(item.key);
@@ -6539,7 +7099,7 @@ return Listener(
             }
             _handleTapItem(item);
           },
-          onLongPress: () => _onLongPressItem(item),
+          onLongPress: _markerMode ? null : () => _onLongPressItem(item),
         ),
       ),
     );
@@ -7160,6 +7720,11 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
   String? _md5;
   bool _md5Loading = false;
   String? _md5Error;
+  int? _fileCount;
+  int? _dirCount;
+  bool _countLoading = false;
+  bool _countTruncated = false;
+  String? _countError;
 
   Future<void> _computeMd5() async {
     if (widget.isDir) return;
@@ -7185,6 +7750,69 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
         _md5Loading = false;
       });
     }
+  }
+
+  Future<void> _countFolder() async {
+    if (!widget.isDir) return;
+    setState(() {
+      _countLoading = true;
+      _countError = null;
+      _fileCount = null;
+      _dirCount = null;
+      _countTruncated = false;
+    });
+    try {
+      final result = await compute(
+        _PropertiesDialogState._countFolderWorker,
+        widget.path,
+      );
+      if (!mounted) return;
+      setState(() {
+        _fileCount = result[0];
+        _dirCount = result[1];
+        _countTruncated = result[2] == 1;
+        _countLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _countError = e.toString();
+        _countLoading = false;
+      });
+    }
+  }
+
+  /// 在独立 isolate 里跑的目录统计。不 stat 文件，只遍历目录。
+  /// 返回 [文件数, 子目录数, 是否截断(1/0)]
+  static List<int> _countFolderWorker(String rootPath) {
+    var files = 0;
+    var dirs = 0;
+    const limit = 500000;
+    const timeLimitMs = 15000;
+    final startTime = DateTime.now();
+    final stack = <String>[rootPath];
+    while (stack.isNotEmpty) {
+      if (files + dirs > limit) return [files, dirs, 1];
+      if (DateTime.now().difference(startTime).inMilliseconds > timeLimitMs) {
+        return [files, dirs, 1];
+      }
+      final p = stack.removeLast();
+      List<FileSystemEntity> entries;
+      try {
+        entries = Directory(p).listSync(followLinks: false);
+      } catch (_) {
+        continue;
+      }
+      for (final e in entries) {
+        if (e is File) {
+          files++;
+        } else if (e is Directory) {
+          dirs++;
+          stack.add(e.path);
+        }
+      }
+    }
+    return [files, dirs, 0];
   }
 
   @override
@@ -7226,6 +7854,21 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
                         ? '—'
                         : _FileBrowserScreenState._formatSize(widget.size)),
               ),
+              if (widget.isDir)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '文件夹内容',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      _buildFolderCountArea(),
+                    ],
+                  ),
+                ),
               if (widget.modified != null)
                 row(
                   '修改时间',
@@ -7260,6 +7903,67 @@ class _PropertiesDialogState extends State<_PropertiesDialog> {
           child: const Text('关闭'),
         ),
       ],
+    );
+  }
+
+  Widget _buildFolderCountArea() {
+    if (!widget.isDir) return const SizedBox.shrink();
+
+    if (_countLoading) {
+      return const Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text('统计中…（文件多时需几秒）', style: TextStyle(fontSize: 13)),
+        ],
+      );
+    }
+
+    if (_countError != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '统计失败：$_countError',
+            style: const TextStyle(color: Colors.red, fontSize: 12),
+          ),
+          const SizedBox(height: 4),
+          OutlinedButton.icon(
+            onPressed: _countFolder,
+            icon: const Icon(Icons.folder_open, size: 16),
+            label: const Text('重试'),
+          ),
+        ],
+      );
+    }
+
+    if (_fileCount != null) {
+      final str = _countTruncated
+          ? '超过 50 万项或耗时超过 15 秒，未完全统计（已数到 ${_fileCount!} 个文件）'
+          : '${_fileCount!} 个文件 · ${_dirCount!} 个子文件夹';
+      return Row(
+        children: [
+          Expanded(
+            child: SelectableText(str, style: const TextStyle(fontSize: 13)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 18),
+            tooltip: '重新统计',
+            visualDensity: VisualDensity.compact,
+            onPressed: _countFolder,
+          ),
+        ],
+      );
+    }
+
+    return OutlinedButton.icon(
+      onPressed: _countFolder,
+      icon: const Icon(Icons.folder_open, size: 16),
+      label: const Text('点击统计文件数量'),
     );
   }
 
@@ -7399,6 +8103,584 @@ class _TrianglePainter extends CustomPainter {
     return oldDelegate.filled != filled ||
         oldDelegate.direction != direction ||
         oldDelegate.color != color;
+  }
+}
+
+// ==================== 标记 · 色板弹窗 ====================
+
+class _MarkerPaletteDialog extends ConsumerStatefulWidget {
+  const _MarkerPaletteDialog({
+    required this.initialBaseColor,
+    required this.initialOpacity,
+    required this.isMarked,
+  });
+
+  final Color initialBaseColor;
+  final double initialOpacity;
+  final bool isMarked;
+
+  @override
+  ConsumerState<_MarkerPaletteDialog> createState() =>
+      _MarkerPaletteDialogState();
+}
+
+class _MarkerPaletteDialogState
+    extends ConsumerState<_MarkerPaletteDialog> {
+  late Color _baseColor;
+  late double _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _baseColor = widget.initialBaseColor;
+    _opacity = widget.initialOpacity.clamp(0.01, 1.0);
+  }
+
+  Color get _finalColor => _baseColor.withValues(alpha: _opacity);
+
+  @override
+  Widget build(BuildContext context) {
+    final presets = ref.watch(browserMarkPresetColorsProvider);
+    final s = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: const Text('选择标记颜色'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('预设色（长按可改）',
+                  style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (var i = 0; i < presets.length; i++)
+                    _swatch(context, i, presets[i]),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text('当前颜色',
+                  style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(
+                    _markColorToHex(_baseColor),
+                    style: const TextStyle(
+                        fontFamily: 'monospace', fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _pickCustom,
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: _baseColor,
+                        border: Border.all(color: s.outline),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: _pickCustom,
+                    child: const Text('自定义'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '不透明度：${(_opacity * 100).round()}%',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+              Slider(
+                min: 0.01,
+                max: 1.0,
+                divisions: 99,
+                value: _opacity,
+                label: '${(_opacity * 100).round()}%',
+                onChanged: (v) => setState(() => _opacity = v),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        if (widget.isMarked)
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(
+                context, (action: 'unmark', color: _finalColor)),
+            child: const Text('取消标记'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () =>
+              Navigator.pop(context, (action: 'apply', color: _finalColor)),
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+
+  Widget _swatch(BuildContext context, int index, Color color) {
+    final selected = color.toARGB32() == _baseColor.toARGB32();
+    return GestureDetector(
+      onTap: () => setState(() => _baseColor = color),
+      onLongPress: () => _editPreset(index, color),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : Colors.black26,
+            width: selected ? 3 : 1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editPreset(int index, Color current) async {
+    final picked = await pickColorDialog(context, current);
+    if (picked == null || !mounted) return;
+    ref.read(browserMarkPresetColorsProvider.notifier).setAt(index, picked);
+  }
+
+  Future<void> _pickCustom() async {
+    final picked = await pickColorDialog(context, _baseColor);
+    if (picked == null || !mounted) return;
+    setState(() => _baseColor = picked);
+  }
+}
+
+String _markColorToHex(Color c) {
+  final v = c.toARGB32() & 0xFFFFFF;
+  return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+}
+
+// ==================== 标记 · 设置弹窗 ====================
+
+class _MarkerSettingsDialog extends ConsumerWidget {
+  const _MarkerSettingsDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final showPicker = ref.watch(browserMarkShowPickerProvider);
+    final defaultColor = ref.watch(browserMarkDefaultColorProvider);
+    final opacity = ref.watch(browserMarkDefaultOpacityProvider);
+    final presets = ref.watch(browserMarkPresetColorsProvider);
+    final s = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(8),
+      titlePadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      title: const Text('标记设置'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('点击文件时弹颜色面板'),
+                subtitle: const Text(
+                  '关闭后，未标记的文件点击直接用下面的默认色标记。\n'
+                  '已标记的文件始终弹面板，可改色或取消。',
+                  style: TextStyle(fontSize: 11),
+                ),
+                value: showPicker,
+                onChanged: (v) => ref
+                    .read(browserMarkShowPickerProvider.notifier)
+                    .update(v),
+              ),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Text('默认颜色',
+                  style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(
+                    _markColorToHex(defaultColor),
+                    style: const TextStyle(
+                        fontFamily: 'monospace', fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () async {
+                      final picked =
+                          await pickColorDialog(context, defaultColor);
+                      if (picked != null) {
+                        ref
+                            .read(browserMarkDefaultColorProvider.notifier)
+                            .set(picked);
+                      }
+                    },
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: defaultColor,
+                        border: Border.all(color: s.outline),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '默认不透明度：${(opacity * 100).round()}%',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+              Slider(
+                min: 0.01,
+                max: 1.0,
+                divisions: 99,
+                value: opacity.clamp(0.01, 1.0),
+                label: '${(opacity * 100).round()}%',
+                onChanged: (v) => ref
+                    .read(browserMarkDefaultOpacityProvider.notifier)
+                    .set(v),
+              ),
+              const Divider(height: 24),
+              Text('预设色（长按色块修改）',
+                  style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (var i = 0; i < presets.length; i++)
+                    GestureDetector(
+                      onLongPress: () async {
+                        final picked =
+                            await pickColorDialog(context, presets[i]);
+                        if (picked != null) {
+                          ref
+                              .read(browserMarkPresetColorsProvider.notifier)
+                              .setAt(i, picked);
+                        }
+                      },
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: presets[i],
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.black26),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== 文件收藏 · 列表弹窗 ====================
+
+class _FileBookmarksDialog extends ConsumerStatefulWidget {
+  const _FileBookmarksDialog({required this.bookmarks});
+
+  final List<String> bookmarks;
+
+  @override
+  ConsumerState<_FileBookmarksDialog> createState() =>
+      _FileBookmarksDialogState();
+}
+
+class _FileBookmarksDialogState
+    extends ConsumerState<_FileBookmarksDialog> {
+  @override
+  Widget build(BuildContext context) {
+    final bookmarks = ref.watch(fileBookmarksProvider);
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.all(4),
+      titlePadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      contentPadding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      actionsPadding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+      title: Text('文件收藏 (${bookmarks.length})'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: bookmarks.isEmpty
+            ? const Center(child: Text('还没有收藏'))
+            : ListView.builder(
+                itemCount: bookmarks.length,
+                itemBuilder: (ctx, i) {
+                  final p = bookmarks[i];
+                  final name = p.split('/').last;
+                  final exists =
+                      FileSystemEntity.typeSync(p) !=
+                          FileSystemEntityType.notFound;
+                  return ListTile(
+                    dense: true,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 8),
+                    leading: Icon(
+                      exists ? Icons.bookmark : Icons.bookmark_border,
+                      size: 20,
+                      color: exists ? null : Colors.grey,
+                    ),
+                    title: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: exists ? null : Colors.grey,
+                      ),
+                    ),
+                    subtitle: Text(
+                      p,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: '移除收藏',
+                      onPressed: () {
+                        ref
+                            .read(fileBookmarksProvider.notifier)
+                            .remove(p);
+                      },
+                    ),
+                    onTap: exists
+                        ? () => Navigator.pop(ctx, p)
+                        : () {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(
+                                content: Text('文件已不存在'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== 休眠式滚动条 ====================
+
+/// 休眠式滚动条：平时不监听任何东西，只在手指按下时醒一次，
+/// 拖完松手立刻睡回去。
+///
+/// 稳态滚动时：0 次监听、0 次重建、0 次重绘。
+/// 按下时：读一次 .value，显示滑块。
+/// 拖动时：靠手势位移自己算，jumpTo 节流 30ms。
+class _BrowserScrollbar extends StatefulWidget {
+  const _BrowserScrollbar({
+    required this.positionsListenable,
+    required this.itemScrollController,
+    required this.totalRows,
+  });
+
+  final ValueListenable<Iterable<ItemPosition>> positionsListenable;
+  final ItemScrollController itemScrollController;
+  final int Function() totalRows;
+
+  @override
+  State<_BrowserScrollbar> createState() => _BrowserScrollbarState();
+}
+
+class _BrowserScrollbarState extends State<_BrowserScrollbar> {
+  /// 拖动中的滑块位置（0~1）。null = 休眠。
+  double? _dragFraction;
+
+  double _dragStartY = 0;
+  double _dragStartFraction = 0;
+  double _dragVisibleRatio = 0.2;
+
+  DateTime _lastJumpTime = DateTime.fromMillisecondsSinceEpoch(0);
+  int _lastJumpedIndex = -1;
+
+  /// 只在下按时调用一次。读一次 .value，不订阅。
+  ({double fraction, double visibleRatio})? _readSnapshot(int total) {
+    if (total <= 1) return null;
+    final positions = widget.positionsListenable.value;
+    if (positions.isEmpty) return null;
+    var minIdx = 1 << 30;
+    var maxIdx = -1;
+    for (final p in positions) {
+      if (p.index < minIdx) minIdx = p.index;
+      if (p.index > maxIdx) maxIdx = p.index;
+    }
+    if (minIdx > maxIdx) return null;
+    return (
+      fraction: (minIdx / (total - 1)).clamp(0.0, 1.0),
+      visibleRatio: ((maxIdx - minIdx + 1) / total).clamp(0.05, 1.0),
+    );
+  }
+
+  void _onDragStart(DragStartDetails d, int total, double trackHeight) {
+    final snap = _readSnapshot(total);
+    if (snap == null) return;
+
+    final thumbH =
+        (trackHeight * snap.visibleRatio).clamp(24.0, trackHeight);
+    final usable = trackHeight - thumbH;
+    if (usable <= 0) return;
+
+    final localY = d.localPosition.dy;
+    final currentThumbTop = usable * snap.fraction;
+    final tolerance = thumbH * 0.5;
+    final onThumb = localY >= currentThumbTop - tolerance &&
+        localY <= currentThumbTop + thumbH + tolerance;
+
+    double startFraction;
+    if (onThumb) {
+      startFraction = snap.fraction;
+    } else {
+      startFraction =
+          ((localY - thumbH / 2) / usable).clamp(0.0, 1.0);
+    }
+
+    _dragStartY = localY;
+    _dragStartFraction = startFraction;
+    _dragVisibleRatio = snap.visibleRatio;
+    _lastJumpedIndex = -1;
+
+    setState(() => _dragFraction = startFraction);
+
+    if (!onThumb) {
+      _jumpToFraction(startFraction, total);
+    }
+  }
+
+  void _onDragUpdate(
+      DragUpdateDetails d, int total, double trackHeight) {
+    if (_dragFraction == null) return;
+    final thumbH =
+        (trackHeight * _dragVisibleRatio).clamp(24.0, trackHeight);
+    final usable = trackHeight - thumbH;
+    if (usable <= 0) return;
+
+    final dy = d.localPosition.dy - _dragStartY;
+    final next =
+        (_dragStartFraction + dy / usable).clamp(0.0, 1.0);
+    if ((next - _dragFraction!).abs() < 0.0005) return;
+    setState(() => _dragFraction = next);
+    _jumpToFraction(next, total);
+  }
+
+  void _onDragEnd(int total) {
+    if (_dragFraction == null) return;
+    final fraction = _dragFraction!;
+    setState(() => _dragFraction = null);
+    _jumpToFraction(fraction, total);
+  }
+
+  void _jumpToFraction(double fraction, int total) {
+    final now = DateTime.now();
+    if (now.difference(_lastJumpTime).inMilliseconds < 30) return;
+    _lastJumpTime = now;
+
+    final idx = (fraction * (total - 1)).round().clamp(0, total - 1);
+    if (idx == _lastJumpedIndex) return;
+    _lastJumpedIndex = idx;
+    if (widget.itemScrollController.isAttached) {
+      widget.itemScrollController.jumpTo(index: idx);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final total = widget.totalRows();
+    if (total <= 1) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final trackHeight = constraints.maxHeight;
+        if (trackHeight <= 0) return const SizedBox.shrink();
+
+        final dragging = _dragFraction != null;
+        final thumbH =
+            (trackHeight * _dragVisibleRatio).clamp(24.0, trackHeight);
+        final thumbTop = dragging
+            ? ((trackHeight - thumbH) * _dragFraction!)
+                .clamp(0.0, trackHeight - thumbH)
+            : 0.0;
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragStart: (d) => _onDragStart(d, total, trackHeight),
+          onVerticalDragUpdate: (d) =>
+              _onDragUpdate(d, total, trackHeight),
+          onVerticalDragEnd: (_) => _onDragEnd(total),
+          onVerticalDragCancel: () => _onDragEnd(total),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 2),
+                  decoration: BoxDecoration(
+                    color: s.onSurface.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                ),
+              ),
+              if (dragging)
+                Positioned(
+                  top: thumbTop,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: thumbH,
+                    decoration: BoxDecoration(
+                      color: s.onSurface.withValues(alpha: 0.32),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -7616,29 +8898,39 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
       title: Text('删除 $n 项？'),
       content: SizedBox(
         width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...lines,
-              const SizedBox(height: 8),
-              const Divider(height: 1),
-              const SizedBox(height: 8),
-              Text(
-                totalStr,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 各项统计：最多占 40% 屏幕高度，超出滚动
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: lines,
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                '选中的 $n 项将从磁盘删除，无法恢复。',
-                style: const TextStyle(fontSize: 13, color: Colors.red),
+            ),
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            // 底部统计：固定，永远可见
+            Text(
+              totalStr,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '选中的 $n 项将从磁盘删除，无法恢复。',
+              style: const TextStyle(fontSize: 13, color: Colors.red),
+            ),
+          ],
         ),
       ),
       actions: [
@@ -7653,4 +8945,74 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
       ],
     );
   }
+}
+
+/// 搜索框收起/显示的自定义图标（双层折叠放大镜 + 镜内箭头尖）。
+///
+/// [collapsed] = true：双层镜片叠在一起（大镜片 + 斜下方半透明小镜片），
+///   镜内箭头尖朝上 —— 表示搜索框收起来了，点击可展开。
+/// [collapsed] = false：标准放大镜轮廓，镜内箭头尖朝下 ——
+///   表示搜索框正展开着，点击可收起。
+class _SearchToggleIconPainter extends CustomPainter {
+  _SearchToggleIconPainter({required this.collapsed, required this.color});
+
+  final bool collapsed;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // 按 24×24 设计稿等比缩放
+    canvas.scale(size.width / 24);
+
+    if (collapsed) {
+      // ---- 收起态：两层镜片叠在一起 ----
+      // 上层大镜片
+      canvas.drawCircle(const Offset(9.5, 9.5), 5.0, paint);
+
+      // 下层小镜片：向右下偏移且半透明，形成「折叠的层级感」
+      final lower = Paint()
+        ..color = color.withValues(alpha: 0.4)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawCircle(const Offset(14.2, 14.2), 3.4, lower);
+
+      // 镜柄
+      canvas.drawLine(
+          const Offset(17.2, 17.2), const Offset(20.4, 20.4), paint);
+
+      // 镜内箭头尖：朝上（点击展开）
+      canvas.drawPath(
+        Path()
+          ..moveTo(8.2, 10.6)
+          ..lineTo(9.5, 8.8)
+          ..lineTo(10.8, 10.6),
+        paint,
+      );
+    } else {
+      // ---- 展开态：标准放大镜轮廓 + 镜内箭头尖朝下 ----
+      canvas.drawCircle(const Offset(10.5, 10.5), 6.0, paint);
+      canvas.drawLine(
+          const Offset(14.8, 14.8), const Offset(18.2, 18.2), paint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(8.0, 9.5)
+          ..lineTo(10.5, 12.0)
+          ..lineTo(13.0, 9.5),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SearchToggleIconPainter oldDelegate) =>
+      oldDelegate.collapsed != collapsed || oldDelegate.color != color;
 }
