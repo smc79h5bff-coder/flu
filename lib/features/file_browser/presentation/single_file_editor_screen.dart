@@ -498,10 +498,10 @@ class _SingleFileEditorScreenState
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: Theme.of(context).colorScheme.surface,
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: Colors.black.withOpacity(0.5),
+                                color: Theme.of(context).colorScheme.outline,
                               ),
                             ),
                             alignment: Alignment.center,
@@ -509,9 +509,9 @@ class _SingleFileEditorScreenState
                               r.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
   fontSize: 12,
-  color: Colors.black,
+  color: Theme.of(context).colorScheme.onSurface,
   fontWeight: FontWeight.w500,
 ),
                             ),
