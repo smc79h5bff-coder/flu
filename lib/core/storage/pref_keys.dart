@@ -80,6 +80,27 @@ static const String filterDepth = 'jianming.browser.filterDepth';
   static const String searchScope = '${_p}browser.searchScope';
   static const String fileOpenMode = '${_p}browser.fileOpenMode';
 static const String browserSettingsHelp = 'jianming.browser.settingsHelp';
+  // ==================== 文件浏览器 · 标记 ====================
+  /// 标记模式下点击文件时是否弹颜色面板。
+  static const String browserMarkShowPicker = '${_p}browser.markShowPicker';
+
+  /// 标记默认颜色（ARGB int 十进制字符串）。
+  static const String browserMarkDefaultColor = '${_p}browser.markDefaultColor';
+
+  /// 标记默认不透明度（0.01~1.0）。
+  static const String browserMarkDefaultOpacity = '${_p}browser.markDefaultOpacity';
+
+  /// 标记预设色（ARGB int 十进制字符串，逗号分隔）。
+  static const String browserMarkPresetColors = '${_p}browser.markPresetColors';
+
+  /// 收藏的文件（持久化）。
+  static const String fileBookmarks = '${_p}browser.fileBookmarks';
+
+  /// 搜索框是否收起。false = 展开（默认），true = 收起。
+  /// 记住用户上次的选择，重启后恢复。
+  static const String browserSearchBarCollapsed =
+      '${_p}browser.searchBarCollapsed';
+
   // ==================== 文件浏览器 · 视图 ====================
   /// 是否网格模式。false = 列表（默认），true = 网格。
   static const String browserGridMode = '${_p}browser.gridMode';
