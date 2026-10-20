@@ -46,11 +46,6 @@ int _loadSeq = 0; // ← 新增：加载序号，防止快速连点导致旧结�
   int _currentTab = 0; // 0=全部, 1=收藏, 2=最近
   late final PageController _pageCtrl;
 
-  // ========== Tab 颜色（改颜色改这里）==========
-  static const int _kTabSelectedText = 0xFF6F00C7;   // 亮紫字
-  static const int _kTabSelectedBg = 0xFFEDECFF;     // 浅紫底
-  static const int _kTabUnselectedText = 0xFF757575; // 未选中灰字
-
   @override
   void initState() {
     super.initState();
@@ -248,7 +243,9 @@ String _normalizePath(String path) {
             child: const Text('保留'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(c, 'remove'),
             child: const Text('移除'),
           ),
@@ -415,7 +412,7 @@ String _normalizePath(String path) {
         child: Text(
           c.label,
           style: TextStyle(
-fontSize: 12,          color: Colors.black,      fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+fontSize: 12,          color: Theme.of(context).colorScheme.onSurface,      fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
           ),
         ),
       ),
@@ -631,7 +628,7 @@ Padding(
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8),
                               leading: Icon(Icons.folder,
-                                color: Colors.black87,  // ← 改这里：原来 
+                                color: Theme.of(context).colorScheme.primary,
                                 ),
 
 
@@ -640,9 +637,9 @@ Padding(
                               title: Text(
   name,
   softWrap: true,
-  style: const TextStyle(
-    color: Colors.black,
-    fontWeight: FontWeight.bold,
+  style: TextStyle(
+    color: Theme.of(context).colorScheme.onSurface,
+    fontWeight: FontWeight.w500,
   ),
 ),
 
@@ -726,6 +723,7 @@ Padding(
 
   Widget _buildTabRow() {
     const labels = ['全部', '收藏', '最近'];
+    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       child: Row(
@@ -743,24 +741,22 @@ Padding(
                   );
                 },
                 child: Container(
-                  height: 26,
+                  height: 28,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: _currentTab == i
-                        ? const Color(_kTabSelectedBg)
-                        : null,
-                    borderRadius: BorderRadius.circular(6),
+                    color: _currentTab == i ? cs.primaryContainer : null,
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     labels[i],
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: _currentTab == i
-                          ? FontWeight.bold
+                          ? FontWeight.w600
                           : FontWeight.normal,
                       color: _currentTab == i
-                          ? const Color(_kTabSelectedText)
-                          : const Color(_kTabUnselectedText),
+                          ? cs.onPrimaryContainer
+                          : cs.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -800,10 +796,13 @@ Padding(
 
   Widget _buildFavoritesPage(List<String> favorites) {
     if (favorites.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           '还没有收藏',
-          style: TextStyle(fontSize: 12, color: Colors.grey),
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       );
     }
@@ -817,10 +816,13 @@ Padding(
 
   Widget _buildRecentsPage(List<String> recents) {
     if (recents.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           '还没有移动记录',
-          style: TextStyle(fontSize: 12, color: Colors.grey),
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       );
     }
@@ -1188,7 +1190,7 @@ class _PickedItemsSheetState extends State<_PickedItemsSheet> {
                                   : Icons.insert_drive_file_outlined,
                               size: 16,
                               color:
-                                  isDir ? Colors.black87 : s.onSurfaceVariant,
+                                  isDir ? s.primary : s.onSurfaceVariant,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
