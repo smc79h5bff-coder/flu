@@ -701,7 +701,7 @@ class DeleteRowBgNotifier extends ColorPrefNotifier {
   DeleteRowBgNotifier()
       : super(
           key: PrefKeys.colorDeleteRowBg,
-          initial: const Color(0xFFFFDDE0),
+          initial: const Color(0xFFFFF1F2),
         );
 }
 
@@ -723,7 +723,7 @@ class InsertRowBgNotifier extends ColorPrefNotifier {
   InsertRowBgNotifier()
       : super(
           key: PrefKeys.colorInsertRowBg,
-          initial: const Color(0xFFD0F5CE),
+          initial: const Color(0xFFEFFBEC),
         );
 }
 
