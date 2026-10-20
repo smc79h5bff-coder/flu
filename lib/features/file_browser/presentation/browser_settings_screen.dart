@@ -101,15 +101,27 @@ class BrowserSettingsScreen extends ConsumerWidget {
           title: '搜索栏',
           subtitle: '控制文件浏览器里搜索栏的显示方式。',
         ),
+        final isCollapsible = current == SearchBarVisibility.collapsible;
+        final isAlwaysVisible =
+            current == SearchBarVisibility.alwaysVisible;
+        final cs = Theme.of(context).colorScheme;
         RadioListTile<SearchBarVisibility>(
           value: SearchBarVisibility.collapsible,
           groupValue: current,
+          activeColor: cs.primary,
           onChanged: (v) {
             if (v != null) {
               ref.read(searchBarVisibilityProvider.notifier).update(v);
             }
           },
-          title: const Text('可折叠'),
+          title: Text(
+            '可折叠',
+            style: TextStyle(
+              color: isCollapsible ? cs.primary : cs.onSurface,
+              fontWeight:
+                  isCollapsible ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
           subtitle: const Text(
             '平时显示，点右上角图标可以收起，随时再展开。',
             style: TextStyle(fontSize: 12),
@@ -119,12 +131,20 @@ class BrowserSettingsScreen extends ConsumerWidget {
         RadioListTile<SearchBarVisibility>(
           value: SearchBarVisibility.alwaysVisible,
           groupValue: current,
+          activeColor: cs.primary,
           onChanged: (v) {
             if (v != null) {
               ref.read(searchBarVisibilityProvider.notifier).update(v);
             }
           },
-          title: const Text('始终显示'),
+          title: Text(
+            '始终显示',
+            style: TextStyle(
+              color: isAlwaysVisible ? cs.primary : cs.onSurface,
+              fontWeight:
+                  isAlwaysVisible ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
           subtitle: const Text(
             '搜索栏永远显示，右上角不出现收起按钮。',
             style: TextStyle(fontSize: 12),
@@ -150,7 +170,8 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             ChoiceChip(
               label: const Text('列表'),
               selected: !gridMode,
-              backgroundColor: Colors.white,
+              backgroundColor:
+                  Theme.of(context).colorScheme.surface,
               onSelected: (_) {
                 ref.read(browserGridModeProvider.notifier).update(false);
               },
@@ -159,7 +180,8 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             ChoiceChip(
               label: const Text('网格'),
               selected: gridMode,
-              backgroundColor: Colors.white,
+              backgroundColor:
+                  Theme.of(context).colorScheme.surface,
               onSelected: (_) {
                 ref.read(browserGridModeProvider.notifier).update(true);
               },
@@ -502,7 +524,9 @@ class _SkinDot extends StatelessWidget {
                 ),
               ),
               child: selected
-                  ? const Icon(Icons.check, color: Colors.white, size: 20)
+                  ? Icon(Icons.check,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                      size: 20)
                   : null,
             ),
             const SizedBox(height: 4),
@@ -955,7 +979,9 @@ class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -1191,7 +1217,6 @@ class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
     required String tooltip,
     required VoidCallback? onPressed,
   }) {
-    final enabled = onPressed != null;
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -1206,12 +1231,15 @@ class _SettingsHelpDialogState extends ConsumerState<_SettingsHelpDialog>
             height: 40,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.5),
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest
+                  .withValues(alpha: 0.5),
             ),
             child: Icon(
               icon,
               size: 20,
-              color: enabled ? Colors.black87 : Colors.black26,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ),
