@@ -46,8 +46,12 @@ class AppTheme {
     // ★ 弹窗类统一底色：浅色纯白、深色深灰。
     //   这个不跟 scheme.surface 走，就是为了防止某个色板调色时
     //   弹窗跟着泛蓝。
-    final popupBg = isDark ? AppColors.darkCard : Colors.white;
-    final pageBg = isDark ? AppColors.darkSurface : Colors.white;
+    final popupBg = isDark
+        ? AppColors.darkScheme.surfaceContainer
+        : AppColors.lightScheme.surface;
+    final pageBg = isDark
+        ? AppColors.darkScheme.surface
+        : AppColors.lightScheme.surface;
 
     return base.copyWith(
       colorScheme: scheme,
@@ -57,7 +61,9 @@ class AppTheme {
       canvasColor: pageBg,
 
       scaffoldBackgroundColor: pageBg,
-      cardColor: isDark ? AppColors.darkCard : Colors.white,
+      cardColor: isDark
+          ? AppColors.darkScheme.surfaceContainer
+          : AppColors.lightScheme.surface,
 
       dividerColor: scheme.outlineVariant,
       dividerTheme: DividerThemeData(
@@ -130,7 +136,9 @@ class AppTheme {
       // 卡片也顺便定白，否则部分列表会把 Card 默认色带蓝。
       cardTheme: CardThemeData(
         shape: shape,
-        color: isDark ? AppColors.darkCard : Colors.white,
+        color: isDark
+            ? AppColors.darkScheme.surfaceContainer
+            : AppColors.lightScheme.surface,
         surfaceTintColor: Colors.transparent,
       ),
       snackBarTheme: SnackBarThemeData(shape: shape),
