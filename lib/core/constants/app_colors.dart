@@ -5,12 +5,6 @@ import 'package:flutter/material.dart';
 class AppColors {
   const AppColors._();
 
-  /// 主题底色用（近白）
-  static const Color brandGreen = Color(0xFFFAFAFA);
-
-  /// 主色：低饱和灰紫。想换主色只改这一行的相关值。
-  static const Color accentPurple = Color(0xFF6B5A7E);
-
   // Diff highlights — light mode
   static const Color addedLight = Color(0xFF2ECC71);
   static const Color deletedLight = Color(0xFFE74C3C);
@@ -20,11 +14,6 @@ class AppColors {
   static const Color addedDark = Color(0xFF3DDC84);
   static const Color deletedDark = Color(0xFFFF6B6B);
   static const Color modifiedDark = Color(0xFFFFD60A);
-
-  // Surfaces
-  static const Color darkSurface = Color(0xFF121212);
-  static const Color darkCard = Color(0xFF1E1E1E);
-  static const Color darkText = Color(0xFFE0E0E0);
 
   static Color addedOf(BuildContext c) =>
       Theme.of(c).brightness == Brightness.dark ? addedDark : addedLight;
