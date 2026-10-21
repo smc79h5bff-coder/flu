@@ -7,7 +7,7 @@ import 'providers/grouped_color_providers.dart';
 import '../../file_browser/presentation/comparison_settings_screen.dart'
     show ruleSubtitle;
 import '../../preprocessing/domain/preprocessing_rule.dart';
-import 'providers/diff_viewer_providers.dart' hide ColorPrefNotifier;
+import 'providers/diff_viewer_providers.dart';
 import 'providers/toolbar_rules_provider.dart';
 
 // ==================== 四个视图统一的竖向滚动条 ====================
