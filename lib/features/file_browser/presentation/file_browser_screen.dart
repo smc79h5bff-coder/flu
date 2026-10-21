@@ -7215,14 +7215,14 @@ return _wrapWithFlash(
 
   Widget _buildSearchResultsList() {
     if (_searchResults.isEmpty) {
-  return Center(
-    child: Text(
-      _searchCtrl.text.trim().isEmpty
-          ? '请输入关键词后搜索'
-          : (_searching ? '正在扫描...' : '未找到匹配'),
-    ),
-  );
-}
+      return Center(
+        child: Text(
+          _searchCtrl.text.trim().isEmpty
+              ? '请输入关键词后搜索'
+              : (_searching ? '正在扫描...' : '未找到匹配'),
+        ),
+      );
+    }
     final colorScheme = Theme.of(context).colorScheme;
     final fontName = ref.watch(browserFontListNameProvider);
     final fontMeta = ref.watch(browserFontListMetaProvider);
@@ -8880,7 +8880,7 @@ class _FileBookmarksDialogState
             ),
           ] else ...[
             IconButton(
-              icon: const Icon(Icons.view_settings, size: 20),
+              icon: const Icon(Icons.schema, size: 20),
               tooltip: '路径显示模式',
               onPressed: () {
                 final current = ref.read(browserBookmarkDisplayModeProvider);
