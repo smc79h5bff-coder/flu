@@ -631,7 +631,7 @@ const String _helpGeneral = r'''
 ## 阅读器支持的编码（自动识别）
 
 `UTF-8` · `UTF-8 BOM` · `UTF-16 LE` · `UTF-16 BE` ·
-`GBK` · `GB18030` · `Big5` · `Shift-JIS` · `ASCII`
+`GBK` · `GB18030` · `Shift-JIS` · `ASCII`
 
 如果识别错了，可以在**阅读器菜单 →「编码」**里手动改。
 
