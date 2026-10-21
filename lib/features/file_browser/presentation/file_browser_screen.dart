@@ -3868,6 +3868,7 @@ Future<void> _showDirInfoDialog() async {
                   color: Colors.white,
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
+                  decoration: TextDecoration.none,
                 ),
               ),
             ),
@@ -4732,7 +4733,6 @@ String _normalizePath(String path) {
             !_selectionMode &&
             _expandedZipKeys.isNotEmpty)
           _buildExpandedZipBar(),
-        if (_markerMode != _MarkerMode.off) _buildMarkerModeBar(),
       Expanded(
   child: Stack(
     children: [
@@ -4742,40 +4742,55 @@ String _normalizePath(String path) {
           right: 0,
           top: 0,
           bottom: 0,
-          width: 10,
+          width: ref.watch(browserScrollbarWidthProvider),
           child: _BrowserScrollbar(
             positionsListenable: _positionsListener.itemPositions,
             itemScrollController: _itemScrollController,
             totalRows: _currentTotalRows,
           ),
         ),
-      if (!_selectionMode)
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FloatingActionButton.small(
-                heroTag: 'fb_page_up',
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black87,
-                elevation: 2,
-                onPressed: _pageUp,
-                child: const Icon(Icons.keyboard_arrow_up),
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.small(
-                heroTag: 'fb_page_down',
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black87,
-                elevation: 2,
-                onPressed: _pageDown,
-                child: const Icon(Icons.keyboard_arrow_down),
-              ),
-            ],
+      if (!_selectionMode) ...[
+        // 上翻页按钮
+        if (ref.watch(browserPageUpEnabledProvider))
+          Positioned(
+            left: MediaQuery.of(context).size.width *
+                    ref.watch(browserPageUpXProvider) /
+                    100 -
+                ref.watch(browserPageUpSizeProvider) / 2,
+            top: MediaQuery.of(context).size.height *
+                    ref.watch(browserPageUpYProvider) /
+                    100 -
+                ref.watch(browserPageUpSizeProvider) / 2,
+            child: _BrowserPageButton(
+              icon: Icons.keyboard_arrow_up,
+              size: ref.watch(browserPageUpSizeProvider),
+              color: ref.watch(browserPageUpColorProvider),
+              opacity: ref.watch(browserPageUpOpacityProvider),
+              isSquare: ref.watch(browserPageUpSquareProvider),
+              onPressed: _pageUp,
+            ),
           ),
-        ),
+        // 下翻页按钮
+        if (ref.watch(browserPageDownEnabledProvider))
+          Positioned(
+            left: MediaQuery.of(context).size.width *
+                    ref.watch(browserPageDownXProvider) /
+                    100 -
+                ref.watch(browserPageDownSizeProvider) / 2,
+            top: MediaQuery.of(context).size.height *
+                    ref.watch(browserPageDownYProvider) /
+                    100 -
+                ref.watch(browserPageDownSizeProvider) / 2,
+            child: _BrowserPageButton(
+              icon: Icons.keyboard_arrow_down,
+              size: ref.watch(browserPageDownSizeProvider),
+              color: ref.watch(browserPageDownColorProvider),
+              opacity: ref.watch(browserPageDownOpacityProvider),
+              isSquare: ref.watch(browserPageDownSquareProvider),
+              onPressed: _pageDown,
+            ),
+          ),
+      ],
     ],
   ),
 ),
@@ -4791,26 +4806,31 @@ String _normalizePath(String path) {
   PreferredSizeWidget _buildNormalAppBar() {
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
-    final inExitMode = _markerMode == _MarkerMode.exitAfterMark;
-    final inAlwaysMode = _markerMode == _MarkerMode.alwaysOn;
+    final inMarkerMode = _markerMode != _MarkerMode.off;
     return AppBar(
-      // 只有模式1(标后退出)顶栏变浅黄，模式2(常驻)不变色
-      backgroundColor: inExitMode ? const Color(0xFFFFF59D) : null,
-      foregroundColor: inExitMode ? Colors.black : null,
-      title: GestureDetector(
-        onLongPress: _markerMode != _MarkerMode.off ? null : _showJumpToPathDialog,
-        child: Text(
-          inExitMode
-              ? '标记模式 · 点击文件标记'
-              : inAlwaysMode
-                  ? '常驻标记 · 点左图标标记'
-                  : ((_searchActive &&
-                          ref.watch(searchScopeProvider) == SearchScope.custom)
-                      ? '自定义的搜索范围'
-                      : _title),
-          style: const TextStyle(fontSize: 14),
-        ),
-      ),
+      title: inMarkerMode
+          ? TextButton(
+              onPressed: () => setState(() => _markerMode = _MarkerMode.off),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text(
+                '退出标记',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            )
+          : GestureDetector(
+              onLongPress: _showJumpToPathDialog,
+              child: Text(
+                (_searchActive &&
+                        ref.watch(searchScopeProvider) == SearchScope.custom)
+                    ? '自定义的搜索范围'
+                    : _title,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
       leading: _searchActive
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
@@ -6254,6 +6274,20 @@ child: Row(
       width: 68,
       child: FilledButton(
         style: outlineStyle,
+        onPressed: _bookmarkSelected,
+        child: const Text(
+          '收藏',
+          style: labelStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+    const SizedBox(width: 3),
+    SizedBox(
+      width: 68,
+      child: FilledButton(
+        style: outlineStyle,
         onPressed: canMd5 ? _md5Compare : null,
         child: const Text(
           'MD5对比',
@@ -6272,20 +6306,6 @@ child: Row(
             canExportListing ? _exportFolderListing : null,
         child: const Text(
           '导出清单',
-          style: labelStyle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ),
-    const SizedBox(width: 3),
-    SizedBox(
-      width: 68,
-      child: FilledButton(
-        style: outlineStyle,
-        onPressed: _bookmarkSelected,
-        child: const Text(
-          '收藏',
           style: labelStyle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -6447,7 +6467,8 @@ void _pageDown() {
   final total = _currentTotalRows();
   if (total <= 1) return;
   final pageSize = maxIdx - minIdx + 1;
-  final target = (minIdx + pageSize).clamp(0, total - 1);
+  // 保留 1 个重叠文件，避免最后一个只显示一半的文件被跳过
+  final target = (minIdx + pageSize - 1).clamp(0, total - 1);
   if (target <= minIdx) return;
   _itemScrollController.jumpTo(index: target);
 }
@@ -6465,7 +6486,8 @@ void _pageUp() {
   final total = _currentTotalRows();
   if (total <= 1) return;
   final pageSize = maxIdx - minIdx + 1;
-  final target = (minIdx - pageSize).clamp(0, total - 1);
+  // 保留 1 个重叠文件，上一页最后一项在本页顶部也能看到
+  final target = (minIdx - pageSize + 1).clamp(0, total - 1);
   if (target >= minIdx) return;
   _itemScrollController.jumpTo(index: target);
 }
@@ -8434,7 +8456,7 @@ String _markColorToHex(Color c) {
 
 // ==================== 标记 · 设置弹窗 ====================
 
-class _MarkerSettingsDialog extends ConsumerWidget {
+class _MarkerSettingsDialog extends ConsumerStatefulWidget {
   const _MarkerSettingsDialog({
     required this.selectedMode,
     required this.onModeChanged,
@@ -8443,7 +8465,21 @@ class _MarkerSettingsDialog extends ConsumerWidget {
   final ValueChanged<_MarkerMode> onModeChanged;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_MarkerSettingsDialog> createState() =>
+      _MarkerSettingsDialogState();
+}
+
+class _MarkerSettingsDialogState extends ConsumerState<_MarkerSettingsDialog> {
+  late _MarkerMode _localMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _localMode = widget.selectedMode;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final showPicker = ref.watch(browserMarkShowPickerProvider);
     final defaultColor = ref.watch(browserMarkDefaultColorProvider);
     final opacity = ref.watch(browserMarkDefaultOpacityProvider);
@@ -8466,9 +8502,11 @@ class _MarkerSettingsDialog extends ConsumerWidget {
               Text('标记模式',
                   style: Theme.of(context).textTheme.labelSmall),
               RadioGroup<_MarkerMode>(
-                groupValue: selectedMode,
+                groupValue: _localMode,
                 onChanged: (v) {
-                  if (v != null) onModeChanged(v);
+                  if (v == null) return;
+                  setState(() => _localMode = v);
+                  widget.onModeChanged(v);
                 },
                 child: Column(
                   children: [
@@ -8760,7 +8798,7 @@ class _FileBookmarksDialogState
 /// 稳态滚动时：0 次监听、0 次重建、0 次重绘。
 /// 按下时：读一次 .value，显示滑块。
 /// 拖动时：靠手势位移自己算，jumpTo 节流 30ms。
-class _BrowserScrollbar extends StatefulWidget {
+class _BrowserScrollbar extends ConsumerStatefulWidget {
   const _BrowserScrollbar({
     required this.positionsListenable,
     required this.itemScrollController,
@@ -8772,10 +8810,11 @@ class _BrowserScrollbar extends StatefulWidget {
   final int Function() totalRows;
 
   @override
-  State<_BrowserScrollbar> createState() => _BrowserScrollbarState();
+  ConsumerState<_BrowserScrollbar> createState() =>
+      _BrowserScrollbarState();
 }
 
-class _BrowserScrollbarState extends State<_BrowserScrollbar> {
+class _BrowserScrollbarState extends ConsumerState<_BrowserScrollbar> {
   /// 拖动中的滑块位置（0~1）。null = 休眠。
   double? _dragFraction;
 
@@ -8877,7 +8916,10 @@ class _BrowserScrollbarState extends State<_BrowserScrollbar> {
 
   @override
   Widget build(BuildContext context) {
-    final s = Theme.of(context).colorScheme;
+    final trackColor = ref.watch(browserScrollbarTrackColorProvider);
+    final trackOpacity = ref.watch(browserScrollbarTrackOpacityProvider);
+    final thumbColor = ref.watch(browserScrollbarThumbColorProvider);
+    final thumbOpacity = ref.watch(browserScrollbarThumbOpacityProvider);
     final total = widget.totalRows();
     if (total <= 1) return const SizedBox.shrink();
 
@@ -8907,7 +8949,7 @@ class _BrowserScrollbarState extends State<_BrowserScrollbar> {
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 2),
                   decoration: BoxDecoration(
-                    color: s.onSurface.withValues(alpha: 0.06),
+                    color: trackColor.withValues(alpha: trackOpacity),
                     borderRadius: BorderRadius.circular(5),
                   ),
                 ),
@@ -8920,7 +8962,7 @@ class _BrowserScrollbarState extends State<_BrowserScrollbar> {
                   child: Container(
                     height: thumbH,
                     decoration: BoxDecoration(
-                      color: s.onSurface.withValues(alpha: 0.32),
+                      color: thumbColor.withValues(alpha: thumbOpacity),
                       borderRadius: BorderRadius.circular(5),
                     ),
                   ),
@@ -8929,6 +8971,58 @@ class _BrowserScrollbarState extends State<_BrowserScrollbar> {
           ),
         );
       },
+    );
+  }
+}
+
+// ==================== 文件浏览器翻页按钮 ====================
+
+class _BrowserPageButton extends StatelessWidget {
+  const _BrowserPageButton({
+    required this.icon,
+    required this.size,
+    required this.color,
+    required this.opacity,
+    required this.isSquare,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final double size;
+  final Color color;
+  final double opacity;
+  final bool isSquare;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveColor = color.withValues(alpha: opacity.clamp(0.0, 1.0));
+    return Opacity(
+      opacity: opacity.clamp(0.0, 1.0),
+      child: Material(
+        color: effectiveColor,
+        shape: isSquare
+            ? const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(8)))
+            : const CircleBorder(),
+        elevation: 2,
+        child: InkWell(
+          customBorder: isSquare
+              ? const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8)))
+              : const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(
+              icon,
+              color: Colors.black87,
+              size: size * 0.55,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -9293,9 +9387,9 @@ class _MarkerBrushIcon extends StatelessWidget {
     final color = IconTheme.of(context).color ??
         Theme.of(context).colorScheme.onSurface;
     final isActivated = mode != _MarkerMode.off;
-    final painter = mode == _MarkerMode.exitAfterMark
-        ? _FireworkPainter(color: color)
-        : _StardustPainter(color: color);
+    final painter = mode == _MarkerMode.off
+        ? null
+        : _FireworkPainter(color: color);
     final badge = mode == _MarkerMode.exitAfterMark
         ? const _MarkerBadge('1')
         : mode == _MarkerMode.alwaysOn
@@ -9313,14 +9407,15 @@ class _MarkerBrushIcon extends StatelessWidget {
               size: 21,
               color: color,
             ),
-            Positioned(
-              left: -2,
-              top: -1,
-              child: CustomPaint(
-                size: const Size(12, 12),
-                painter: painter,
+            if (painter != null)
+              Positioned(
+                left: -2,
+                top: -1,
+                child: CustomPaint(
+                  size: const Size(12, 12),
+                  painter: painter,
+                ),
               ),
-            ),
             if (badge != null)
               Positioned(
                 right: -4,
