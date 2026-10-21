@@ -224,6 +224,18 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                 children: [
                   const Text('宽度', style: TextStyle(fontSize: 13)),
                   const SizedBox(width: 12),
+                  IconButton(
+                    iconSize: 18,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: width > 2
+                        ? () => ref
+                            .read(browserScrollbarWidthProvider.notifier)
+                            .update((width - 1).clamp(2.0, 40.0))
+                        : null,
+                    icon: const Icon(Icons.remove),
+                  ),
                   Expanded(
                     child: Slider(
                       min: 2,
@@ -236,8 +248,20 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                           .update(v),
                     ),
                   ),
+                  IconButton(
+                    iconSize: 18,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: width < 40
+                        ? () => ref
+                            .read(browserScrollbarWidthProvider.notifier)
+                            .update((width + 1).clamp(2.0, 40.0))
+                        : null,
+                    icon: const Icon(Icons.add),
+                  ),
                   SizedBox(
-                    width: 40,
+                    width: 36,
                     child: Text(
                       '${width.round()}',
                       textAlign: TextAlign.right,
@@ -496,6 +520,18 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
               children: [
                 const Text('大小', style: TextStyle(fontSize: 12)),
                 const SizedBox(width: 8),
+                IconButton(
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: size > 24
+                      ? () => ref
+                          .read(sizeNotifier)
+                          .update((size - 1).clamp(24.0, 96.0))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
                 Expanded(
                   child: Slider(
                     min: 24,
@@ -506,8 +542,20 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                     onChanged: (v) => ref.read(sizeNotifier).update(v),
                   ),
                 ),
+                IconButton(
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: size < 96
+                      ? () => ref
+                          .read(sizeNotifier)
+                          .update((size + 1).clamp(24.0, 96.0))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
                 SizedBox(
-                  width: 32,
+                  width: 28,
                   child: Text('${size.round()}',
                       style: const TextStyle(fontSize: 12),
                       textAlign: TextAlign.right),
@@ -536,6 +584,16 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             Row(
               children: [
                 const SizedBox(width: 36, child: Text('X %', style: TextStyle(fontSize: 12))),
+                IconButton(
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: x > 0
+                      ? () => ref.read(xNotifier).update((x - 1).clamp(0.0, 100.0))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
                 Expanded(
                   child: Slider(
                     min: 0,
@@ -546,8 +604,18 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                     onChanged: (v) => ref.read(xNotifier).update(v),
                   ),
                 ),
+                IconButton(
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: x < 100
+                      ? () => ref.read(xNotifier).update((x + 1).clamp(0.0, 100.0))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
                 SizedBox(
-                  width: 40,
+                  width: 36,
                   child: Text('${x.round()}%',
                       style: const TextStyle(fontSize: 12),
                       textAlign: TextAlign.right),
@@ -557,6 +625,16 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             Row(
               children: [
                 const SizedBox(width: 36, child: Text('Y %', style: TextStyle(fontSize: 12))),
+                IconButton(
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: y > 0
+                      ? () => ref.read(yNotifier).update((y - 1).clamp(0.0, 100.0))
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
                 Expanded(
                   child: Slider(
                     min: 0,
@@ -567,8 +645,18 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                     onChanged: (v) => ref.read(yNotifier).update(v),
                   ),
                 ),
+                IconButton(
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: y < 100
+                      ? () => ref.read(yNotifier).update((y + 1).clamp(0.0, 100.0))
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
                 SizedBox(
-                  width: 40,
+                  width: 36,
                   child: Text('${y.round()}%',
                       style: const TextStyle(fontSize: 12),
                       textAlign: TextAlign.right),
@@ -781,6 +869,16 @@ Widget _colorRow({
         ),
       ),
       const SizedBox(width: 6),
+      IconButton(
+        iconSize: 18,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        visualDensity: VisualDensity.compact,
+        onPressed: opacity > 0
+            ? () => onOpacityChanged((opacity - 0.01).clamp(0.0, 1.0))
+            : null,
+        icon: const Icon(Icons.remove),
+      ),
       Expanded(
         child: Slider(
           min: 0,
@@ -791,8 +889,18 @@ Widget _colorRow({
           onChanged: onOpacityChanged,
         ),
       ),
+      IconButton(
+        iconSize: 18,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        visualDensity: VisualDensity.compact,
+        onPressed: opacity < 1
+            ? () => onOpacityChanged((opacity + 0.01).clamp(0.0, 1.0))
+            : null,
+        icon: const Icon(Icons.add),
+      ),
       SizedBox(
-        width: 36,
+        width: 32,
         child: Text(
           '${(opacity * 100).round()}%',
           textAlign: TextAlign.right,
