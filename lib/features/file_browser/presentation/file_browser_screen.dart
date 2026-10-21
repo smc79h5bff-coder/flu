@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:archive/archive.dart';
@@ -852,7 +853,11 @@ String? _stickyZipKey;
   final Map<String, Color> _markColors = <String, Color>{};
 
   /// 是否在标记模式。
-  bool _markerMode = false;
+  _MarkerMode _markerMode = _MarkerMode.off;
+
+  /// 用户在设置里选的默认激活模式（模式1 或 模式2）。
+  /// 画笔图标点一下时，从 off 激活到这个模式。
+  _MarkerMode _selectedMarkerMode = _MarkerMode.exitAfterMark;
 
   /// 跳转中的目标路径。加载完目录后消费一次。
   String? _pendingJumpPath;
@@ -4686,12 +4691,12 @@ String _normalizePath(String path) {
         canPop: _currentPath == _topPath &&
     !_selectionMode &&
     !_searchActive &&
-    !_markerMode &&
+    _markerMode == _MarkerMode.off &&
     _expandedZipKeys.isEmpty,
                 onPopInvokedWithResult: (didPop, _) {
           if (didPop) return;
-          if (_markerMode) {
-            setState(() => _markerMode = false);
+          if (_markerMode != _MarkerMode.off) {
+            setState(() => _markerMode = _MarkerMode.off);
           } else if (_selectionMode) {
             setState(_clearSelection);
           } else if (_searchActive) {
@@ -4723,11 +4728,11 @@ String _normalizePath(String path) {
                 child: _buildSearchBar(),
               ),
         if (_searchActive) _buildSearchStatusBar(),
-if (!_searchActive &&
-    !_selectionMode &&
-    _expandedZipKeys.isNotEmpty)
-  _buildExpandedZipBar(),
-if (_markerMode) _buildMarkerModeBar(),
+        if (!_searchActive &&
+            !_selectionMode &&
+            _expandedZipKeys.isNotEmpty)
+          _buildExpandedZipBar(),
+        if (_markerMode != _MarkerMode.off) _buildMarkerModeBar(),
       Expanded(
   child: Stack(
     children: [
@@ -4786,19 +4791,23 @@ if (_markerMode) _buildMarkerModeBar(),
   PreferredSizeWidget _buildNormalAppBar() {
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
+    final inExitMode = _markerMode == _MarkerMode.exitAfterMark;
+    final inAlwaysMode = _markerMode == _MarkerMode.alwaysOn;
     return AppBar(
-      // 标记模式顶栏：柔和浅黄（原 FFEB3B 太艳），黑字对比依然清晰
-      backgroundColor: _markerMode ? const Color(0xFFFFF59D) : null,
-      foregroundColor: _markerMode ? Colors.black : null,
+      // 只有模式1(标后退出)顶栏变浅黄，模式2(常驻)不变色
+      backgroundColor: inExitMode ? const Color(0xFFFFF59D) : null,
+      foregroundColor: inExitMode ? Colors.black : null,
       title: GestureDetector(
-        onLongPress: _markerMode ? null : _showJumpToPathDialog,
+        onLongPress: _markerMode != _MarkerMode.off ? null : _showJumpToPathDialog,
         child: Text(
-          _markerMode
+          inExitMode
               ? '标记模式 · 点击文件标记'
-              : ((_searchActive &&
-                      ref.watch(searchScopeProvider) == SearchScope.custom)
-                  ? '自定义的搜索范围'
-                  : _title),
+              : inAlwaysMode
+                  ? '常驻标记 · 点左图标标记'
+                  : ((_searchActive &&
+                          ref.watch(searchScopeProvider) == SearchScope.custom)
+                      ? '自定义的搜索范围'
+                      : _title),
           style: const TextStyle(fontSize: 14),
         ),
       ),
@@ -4846,7 +4855,7 @@ if (_markerMode) _buildMarkerModeBar(),
         GestureDetector(
           onLongPress: _showMarkerSettings,
           child: IconButton(
-            icon: _MarkerBrushIcon(active: _markerMode),
+            icon: _MarkerBrushIcon(mode: _markerMode),
             onPressed: _toggleMarkerMode,
           ),
         ),
@@ -5014,13 +5023,14 @@ const PopupMenuItem<String>(
   // ==================== 标记 · 模式切换 / 设置 / 处理点击 ====================
 
   void _toggleMarkerMode() {
-    if (_markerMode) {
-      setState(() => _markerMode = false);
+    if (_markerMode != _MarkerMode.off) {
+      setState(() => _markerMode = _MarkerMode.off);
       return;
     }
     setState(() {
-      _markerMode = true;
-      if (_selectionMode) {
+      _markerMode = _selectedMarkerMode;
+      // 模式1(标后退出)跟选择模式互斥，模式2(常驻)不互斥
+      if (_selectedMarkerMode == _MarkerMode.exitAfterMark && _selectionMode) {
         _selectionMode = false;
         _selectedPaths.clear();
         _anchorPath = null;
@@ -5031,7 +5041,17 @@ const PopupMenuItem<String>(
   Future<void> _showMarkerSettings() async {
     await showDialog<void>(
       context: context,
-      builder: (_) => const _MarkerSettingsDialog(),
+      builder: (_) => _MarkerSettingsDialog(
+        selectedMode: _selectedMarkerMode,
+        onModeChanged: (m) {
+          if (!mounted) return;
+          setState(() {
+            _selectedMarkerMode = m;
+            // 若当前正开着标记，实时切换到新选的模式
+            if (_markerMode != _MarkerMode.off) _markerMode = m;
+          });
+        },
+      ),
     );
   }
 
@@ -5044,6 +5064,7 @@ const PopupMenuItem<String>(
 
     final alreadyMarked = _markColors.containsKey(path);
     final showPicker = ref.read(browserMarkShowPickerProvider);
+    final autoExit = _markerMode == _MarkerMode.exitAfterMark;
 
     // 未标记 + 开关关闭：直接用默认色标记
     if (!alreadyMarked && !showPicker) {
@@ -5051,7 +5072,7 @@ const PopupMenuItem<String>(
       final alpha = ref.read(browserMarkDefaultOpacityProvider);
       setState(() {
         _markColors[path] = base.withValues(alpha: alpha);
-        _markerMode = false;
+        if (autoExit) _markerMode = _MarkerMode.off;
       });
       return;
     }
@@ -5078,22 +5099,42 @@ const PopupMenuItem<String>(
     if (!mounted) return;
 
     if (result == null) {
-      // 用户取消：退出标记模式
-      setState(() => _markerMode = false);
+      // 用户取消：只在模式1时退出，模式2保持
+      if (autoExit) setState(() => _markerMode = _MarkerMode.off);
       return;
     }
 
     if (result.action == 'unmark') {
       setState(() {
         _markColors.remove(path);
-        _markerMode = false;
+        if (autoExit) _markerMode = _MarkerMode.off;
       });
       return;
     }
 
     setState(() {
       _markColors[path] = result.color;
-      _markerMode = false;
+      if (autoExit) _markerMode = _MarkerMode.off;
+    });
+  }
+
+  /// 模式2(常驻)下左图标区单击：标记 toggle。
+  /// 未标记 → 用当前默认色标记；已标记 → 取消。
+  /// 不弹色板，快速标记/取消；长按左图标区才弹色板精调。
+  void _toggleMarkerQuick(String path) {
+    if (_isZipInnerKey(path)) {
+      _toast('压缩包内的文件不支持标记');
+      return;
+    }
+    if (_markColors.containsKey(path)) {
+      setState(() => _markColors.remove(path));
+      _toast('已取消标记');
+      return;
+    }
+    final base = ref.read(browserMarkDefaultColorProvider);
+    final alpha = ref.read(browserMarkDefaultOpacityProvider);
+    setState(() {
+      _markColors[path] = base.withValues(alpha: alpha);
     });
   }
 
@@ -5232,7 +5273,7 @@ const PopupMenuItem<String>(
               visualDensity: VisualDensity.compact,
               padding: const EdgeInsets.symmetric(horizontal: 8),
             ),
-            onPressed: () => setState(() => _markerMode = false),
+            onPressed: () => setState(() => _markerMode = _MarkerMode.off),
             child: const Text('退出'),
           ),
         ],
@@ -6599,8 +6640,16 @@ leading: SizedBox(
               overflow: TextOverflow.ellipsis,
             ),
       onTap: () {
-        if (_markerMode) {
+        // 模式1：整行点击都标记（原逻辑）
+        if (_markerMode == _MarkerMode.exitAfterMark) {
           _handleMarkerTap(item.key);
+          return;
+        }
+        // 模式2：左图标区点击 = 标记 toggle（只标不弹色板）
+        if (_markerMode == _MarkerMode.alwaysOn &&
+            _lastTapX < iconZoneRight &&
+            !_selectionMode) {
+          _toggleMarkerQuick(item.key);
           return;
         }
         // ★ 左侧图标区点 = 选中/取消
@@ -6614,7 +6663,18 @@ leading: SizedBox(
         }
         _handleTapItem(item);
       },
-      onLongPress: _markerMode ? null : () => _onLongPressItem(item),
+      onLongPress: _markerMode == _MarkerMode.exitAfterMark
+          ? null
+          : () {
+              // 模式2：长按左图标区 = 弹色板改色，其他区域 = 选择模式
+              if (_markerMode == _MarkerMode.alwaysOn &&
+                  _lastTapX < iconZoneRight &&
+                  !_selectionMode) {
+                _handleMarkerTap(item.key);
+                return;
+              }
+              _onLongPressItem(item);
+            },
     ),
   ),
   ),
@@ -6739,8 +6799,15 @@ return _wrapWithFlash(
                 overflow: TextOverflow.ellipsis,
               ),
         onTap: () {
-          if (_markerMode) {
+          if (_markerMode == _MarkerMode.exitAfterMark) {
             _handleMarkerTap(item.key);
+            return;
+          }
+          // 模式2：左图标区点击 = 标记 toggle
+          if (_markerMode == _MarkerMode.alwaysOn &&
+              _lastTapX < iconZoneRight &&
+              !_selectionMode) {
+            _toggleMarkerQuick(item.key);
             return;
           }
           // ★ 左侧图标区点 = 选中/取消
@@ -6754,8 +6821,19 @@ return _wrapWithFlash(
           }
           _handleTapItem(item);
         },
-        onLongPress: _markerMode ? null : () => _onLongPressItem(item),
-      ),
+        onLongPress: _markerMode == _MarkerMode.exitAfterMark
+            ? null
+            : () {
+                // 模式2：长按左图标区 = 弹色板改色，其他区域 = 选择模式
+                if (_markerMode == _MarkerMode.alwaysOn &&
+                    _lastTapX < iconZoneRight &&
+                    !_selectionMode) {
+                  _handleMarkerTap(item.key);
+                  return;
+                }
+                _onLongPressItem(item);
+              },
+    ),
     ),
   ),
   item.key,
@@ -6866,7 +6944,7 @@ final bgColor = selected ? _gridSelectedBg : (markColor ?? baseColor);
 return _wrapWithFlash(
   GestureDetector(
       onTap: () {
-        if (_markerMode) {
+        if (_markerMode == _MarkerMode.exitAfterMark) {
           _handleMarkerTap(e.path);
           return;
         }
@@ -6880,7 +6958,7 @@ return _wrapWithFlash(
           _openFile(e.path, info.name, info.size, allowExpand: false);
         }
       },
-      onLongPress: _markerMode
+      onLongPress: _markerMode == _MarkerMode.exitAfterMark
           ? null
           : () {
               final all = _cachedDisplayItems ?? const <_DisplayItem>[];
@@ -7144,8 +7222,15 @@ return _wrapWithFlash(
             ],
           ),
           onTap: () {
-            if (_markerMode) {
+            if (_markerMode == _MarkerMode.exitAfterMark) {
               _handleMarkerTap(item.key);
+              return;
+            }
+            // 模式2：左图标区点击 = 标记 toggle
+            if (_markerMode == _MarkerMode.alwaysOn &&
+                _lastTapX < iconZoneRight &&
+                !_selectionMode) {
+              _toggleMarkerQuick(item.key);
               return;
             }
             // ★ 左侧图标区点 = 选中/取消
@@ -7159,7 +7244,18 @@ return _wrapWithFlash(
             }
             _handleTapItem(item);
           },
-          onLongPress: _markerMode ? null : () => _onLongPressItem(item),
+          onLongPress: _markerMode == _MarkerMode.exitAfterMark
+              ? null
+              : () {
+                  // 模式2：长按左图标区 = 弹色板改色，其他区域 = 选择模式
+                  if (_markerMode == _MarkerMode.alwaysOn &&
+                      _lastTapX < iconZoneRight &&
+                      !_selectionMode) {
+                    _handleMarkerTap(item.key);
+                    return;
+                  }
+                  _onLongPressItem(item);
+                },
         ),
       ),
     );
@@ -8339,7 +8435,12 @@ String _markColorToHex(Color c) {
 // ==================== 标记 · 设置弹窗 ====================
 
 class _MarkerSettingsDialog extends ConsumerWidget {
-  const _MarkerSettingsDialog();
+  const _MarkerSettingsDialog({
+    required this.selectedMode,
+    required this.onModeChanged,
+  });
+  final _MarkerMode selectedMode;
+  final ValueChanged<_MarkerMode> onModeChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -8362,6 +8463,40 @@ class _MarkerSettingsDialog extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text('标记模式',
+                  style: Theme.of(context).textTheme.labelSmall),
+              RadioGroup<_MarkerMode>(
+                groupValue: selectedMode,
+                onChanged: (v) {
+                  if (v != null) onModeChanged(v);
+                },
+                child: Column(
+                  children: [
+                    RadioListTile<_MarkerMode>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      value: _MarkerMode.exitAfterMark,
+                      title: const Text('模式1 · 标后退出'),
+                      subtitle: const Text(
+                        '点文件标记一个，自动退出标记模式。',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                    RadioListTile<_MarkerMode>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      value: _MarkerMode.alwaysOn,
+                      title: const Text('模式2 · 常驻标记'),
+                      subtitle: const Text(
+                        '浏览时点行左侧图标即标记/取消，长按左图标改色；点文件仍正常打开。',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('点击文件时弹颜色面板'),
@@ -9131,112 +9266,170 @@ class _BookmarkGemPainter extends CustomPainter {
       oldDelegate.color != color;
 }
 
-/// 标记画笔图标（单态：空心画笔 + 星辰尾迹 / 实心画笔 + 迷你烟花）。
+/// 标记模式三态。
+enum _MarkerMode {
+  /// 未激活任何标记功能。
+  off,
+
+  /// 标后退出模式：点文件标记一个，自动退出。
+  /// 顶栏浅黄，画笔实心+烟花+❶。
+  exitAfterMark,
+
+  /// 常驻标记模式：左图标区点一下=标记/取消，长按=改色；浏览正常。
+  /// 顶栏不变色，画笔实心+星尘+❷。
+  alwaysOn,
+}
+
+/// 标记画笔图标。
 ///
-/// [active] = false：未激活标记模式。空心画笔 + 下方 1.5dp 细线 + 笔尖上方
-///   三颗渐小渐远的星辰尾迹。
-/// [active] = true：已激活标记模式。实心画笔 + 下方 3dp 粗线 + 笔尖上方
-///   迷你烟花（中心点 + 八向放射线），相对尾迹下移 1.5dp，避免跟尾迹重合。
+/// 三态共用同一支 Material 画笔（Icons.brush / brush_outlined），
+/// 通过装饰（烟花/星尘）和角标❶❷区分状态。
 class _MarkerBrushIcon extends StatelessWidget {
-  const _MarkerBrushIcon({required this.active});
-  final bool active;
+  const _MarkerBrushIcon({required this.mode});
+  final _MarkerMode mode;
 
   @override
   Widget build(BuildContext context) {
-    return IconTheme(
-      data: IconTheme.of(context),
-      child: CustomPaint(
-        size: const Size(24, 24),
-        painter: _MarkerBrushPainter(
-          active: active,
-          color: IconTheme.of(context).color ??
-              Theme.of(context).colorScheme.onSurface,
+    final color = IconTheme.of(context).color ??
+        Theme.of(context).colorScheme.onSurface;
+    final isActivated = mode != _MarkerMode.off;
+    final painter = mode == _MarkerMode.exitAfterMark
+        ? _FireworkPainter(color: color)
+        : _StardustPainter(color: color);
+    final badge = mode == _MarkerMode.exitAfterMark
+        ? const _MarkerBadge('1')
+        : mode == _MarkerMode.alwaysOn
+            ? const _MarkerBadge('2')
+            : null;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(
+              isActivated ? Icons.brush : Icons.brush_outlined,
+              size: 21,
+              color: color,
+            ),
+            Positioned(
+              left: -2,
+              top: -1,
+              child: CustomPaint(
+                size: const Size(12, 12),
+                painter: painter,
+              ),
+            ),
+            if (badge != null)
+              Positioned(
+                right: -4,
+                top: -2,
+                child: badge,
+              ),
+          ],
+        ),
+        const SizedBox(height: 1.5),
+        Container(
+          width: 20,
+          height: isActivated ? 3.0 : 1.5,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(1.5),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 角标：左下角的 ❶ 或 ❷。
+class _MarkerBadge extends StatelessWidget {
+  const _MarkerBadge(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = IconTheme.of(context).color ??
+        Theme.of(context).colorScheme.onSurface;
+    // 角标底色反色，保证在任何顶栏上都清晰
+    final bg = Theme.of(context).brightness == Brightness.dark
+        ? Colors.white
+        : Colors.black;
+    final fg = bg == Colors.white ? Colors.black : Colors.white;
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        color: bg,
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: 1),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 8.5,
+          fontWeight: FontWeight.w700,
+          color: fg,
+          height: 1.0,
         ),
       ),
     );
   }
 }
 
-class _MarkerBrushPainter extends CustomPainter {
-  _MarkerBrushPainter({required this.active, required this.color});
-  final bool active;
+/// 未激活 / 常驻模式用：三颗渐小圆点（星辰尾迹）。
+class _StardustPainter extends CustomPainter {
+  _StardustPainter({required this.color});
   final Color color;
-
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.scale(size.width / 24);
+    final paint = Paint()..color = color..style = PaintingStyle.fill;
+    // 按 12×12 画布，star 位置大致对应原坐标
+    final scale = size.width / 12;
+    canvas.save();
+    canvas.translate(0, 0);
+    canvas.scale(scale);
+    // 中心 + 右下两颗渐小
+    canvas.drawCircle(const Offset(6, 7), 1.0, paint);
+    canvas.drawCircle(const Offset(8.5, 4.5), 0.7, paint);
+    canvas.drawCircle(const Offset(4, 4.5), 0.5, paint);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_StardustPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+/// 模式1 激活用：中心点 + 八向放射线（迷你烟花）。
+class _FireworkPainter extends CustomPainter {
+  _FireworkPainter({required this.color});
+  final Color color;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fill = Paint()..color = color..style = PaintingStyle.fill;
     final stroke = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = active ? 3.0 : 1.6
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    final fill = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    // 画笔杆（手柄）
-    canvas.drawLine(
-      const Offset(4, 20),
-      const Offset(14.5, 9.5),
-      stroke,
-    );
-
-    // 金属箍
-    canvas.drawLine(
-      const Offset(13.5, 8.5),
-      const Offset(16.5, 11.5),
-      stroke,
-    );
-
-    // 笔头（三角）
-    final tip = Path()
-      ..moveTo(15.5, 12.5)
-      ..lineTo(20, 8.5)
-      ..lineTo(18, 6.5)
-      ..lineTo(13.5, 10.5)
-      ..close();
-    if (active) {
-      canvas.drawPath(tip, fill);
-    } else {
-      canvas.drawPath(tip, stroke);
-    }
-
-    // 笔尖下方的线（标记）
-    canvas.drawLine(
-      const Offset(3, 22),
-      const Offset(10, 22),
-      Paint()
-        ..color = color
-        ..strokeWidth = active ? 3.0 : 1.5
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // 笔尖上方装饰
-    if (active) {
-      // 迷你烟花：中心点 + 八向放射线（相对尾迹下移 1.5dp）
-      const cx = 17.0, cy = 3.5;
-      canvas.drawCircle(const Offset(cx, cy), 1.1, fill);
-      for (final a in [0, 45, 90, 135, 180, 225, 270, 315]) {
-        final rad = a * 3.14159265 / 180;
-        canvas.drawLine(
-          Offset(cx + 1.6 * rad.cos(), cy + 1.6 * rad.sin()),
-          Offset(cx + 3.2 * rad.cos(), cy + 3.2 * rad.sin()),
-          stroke,
-        );
-      }
-    } else {
-      // 星辰尾迹：三颗渐小渐远的圆点（在烟花位置上方 1.5dp）
-      const cy = 2.0;
-      canvas.drawCircle(const Offset(15.5, cy + 1.0), 0.8, fill);
-      canvas.drawCircle(const Offset(17.0, cy), 0.55, fill);
-      canvas.drawCircle(const Offset(18.5, cy + 1.0), 0.35, fill);
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    const cx = 6.0, cy = 6.0;
+    canvas.drawCircle(const Offset(cx, cy), 1.2, fill);
+    for (final a in [0, 45, 90, 135, 180, 225, 270, 315]) {
+      final rad = a * 3.14159265 / 180;
+      canvas.drawLine(
+        Offset(cx + 2.0 * math.cos(rad), cy + 2.0 * math.sin(rad)),
+        Offset(cx + 4.5 * math.cos(rad), cy + 4.5 * math.sin(rad)),
+        stroke,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(_MarkerBrushPainter oldDelegate) =>
-      oldDelegate.active != active || oldDelegate.color != color;
+  bool shouldRepaint(_FireworkPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 /// 搜索框收起/显示的自定义图标（双层折叠放大镜 + 镜内箭头尖）。
