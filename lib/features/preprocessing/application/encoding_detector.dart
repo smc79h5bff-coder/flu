@@ -129,6 +129,9 @@ class EncodingDetector {
         return _decodeGbkSafe(bytes);
       case EncodingType.shiftJis:
         return _decodeSjisSafe(bytes);
+      case EncodingType.big5:
+        // 仅为通过穷尽性检查；Big5 不真正支持，按 UTF-8 宽容解码。
+        return utf8.decode(bytes, allowMalformed: true);
       case EncodingType.binary:
       case EncodingType.unknown:
         return utf8.decode(bytes, allowMalformed: true);
@@ -152,6 +155,7 @@ class EncodingDetector {
       case EncodingType.utf16be:
       case EncodingType.binary:
       case EncodingType.unknown:
+      case EncodingType.big5:
         return decode(bytes, encoding);
 
       case EncodingType.gbk:
@@ -239,6 +243,8 @@ class EncodingDetector {
         return b >= 0x81 && b <= 0xFE;
       case EncodingType.shiftJis:
         return (b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xEF);
+      case EncodingType.big5:
+        return false;
       default:
         return false;
     }
@@ -251,6 +257,8 @@ class EncodingDetector {
         return b >= 0x40 && b <= 0xFE && b != 0x7F;
       case EncodingType.shiftJis:
         return (b >= 0x40 && b <= 0x7E) || (b >= 0x80 && b <= 0xFC);
+      case EncodingType.big5:
+        return false;
       default:
         return false;
     }
