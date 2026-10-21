@@ -6018,7 +6018,57 @@ RadioListTile<bool>(
                 ],
               ),
             ),
+            const Divider(height: 16),
+            // ---- 搜索结果显示 ----
+            Row(
+              children: [
+                const Text(
+                  '搜索结果显示',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            SwitchListTile.adaptive(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('显示大小 + 时间'),
+              value: ref.watch(browserSearchShowMetaProvider),
+              onChanged: (v) => ref
+                  .read(browserSearchShowMetaProvider.notifier)
+                  .update(v),
+            ),
+            SwitchListTile.adaptive(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('显示路径'),
+              value: ref.watch(browserSearchShowPathProvider),
+              onChanged: (v) => ref
+                  .read(browserSearchShowPathProvider.notifier)
+                  .update(v),
+            ),
+            _searchFontRow(
+              c,
+              '文件名字号',
+              ref.watch(browserSearchFontNameProvider),
+              (v) => ref
+                  .read(browserSearchFontNameProvider.notifier)
+                  .set(v),
+            ),
+            _searchFontRow(
+              c,
+              '详情字号',
+              ref.watch(browserSearchFontMetaProvider),
+              (v) => ref
+                  .read(browserSearchFontMetaProvider.notifier)
+                  .set(v),
+            ),
           ),
+        ),
+      ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(c),
@@ -6054,6 +6104,47 @@ _searchResults.sort((a, b) {
   });
   setState(() {});
 }
+
+/// 搜索设置弹窗里的一行字号控件（标签 + 滑条 + 数值）。
+Widget _searchFontRow(
+  BuildContext context,
+  String label,
+  double value,
+  ValueChanged<double> onChanged,
+) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 72,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 13),
+          ),
+        ),
+        Expanded(
+          child: Slider(
+            min: 1,
+            max: 38,
+            divisions: 37,
+            value: value.clamp(1, 38),
+            onChanged: onChanged,
+          ),
+        ),
+        SizedBox(
+          width: 32,
+          child: Text(
+            '${value.round()}',
+            style: const TextStyle(fontSize: 12),
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 /// 有压缩包展开时，在搜索栏下方固定显示一条提示条。
 Widget _buildExpandedZipBar() {
   final topLevelCount =
@@ -7152,6 +7243,12 @@ return _wrapWithFlash(
       return _buildDisplayItemTile(item, fontName, fontMeta, colorScheme);
     }
 
+    // 搜索结果页独立样式
+    final showMeta = ref.watch(browserSearchShowMetaProvider);
+    final showPath = ref.watch(browserSearchShowPathProvider);
+    final sFontName = ref.watch(browserSearchFontNameProvider);
+    final sFontMeta = ref.watch(browserSearchFontMetaProvider);
+
     final selected = _selectedPaths.contains(item.key);
     final isZipInner = item.isZipInner;
     final metaLine = _buildItemMetaLine(item);
@@ -7161,6 +7258,12 @@ return _wrapWithFlash(
 
     // 左侧图标区宽度（含缩进）。点这块 = 选中/取消。
     final iconZoneRight = 48.0 + item.depth * 18.0;
+
+    // 实际显示几行 subtitle
+    final hasMeta = showMeta && metaLine.isNotEmpty;
+    final hasPath = showPath;
+    final subLineCount = (hasMeta ? 1 : 0) + (hasPath ? 1 : 0);
+    final hasSubtitle = subLineCount > 0;
 
     return Listener(
       onPointerDown: (e) => _lastTapX = e.localPosition.dx,
@@ -7175,7 +7278,7 @@ return _wrapWithFlash(
             : null,
         child: ListTile(
           dense: true,
-          isThreeLine: true,
+          isThreeLine: hasSubtitle && subLineCount >= 2,
           minVerticalPadding: 0,
           visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
           contentPadding: EdgeInsets.only(
@@ -7213,36 +7316,39 @@ return _wrapWithFlash(
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: fontName,
+              fontSize: sFontName,
               fontWeight: FontWeight.bold,
               color: isZipInner
                   ? colorScheme.onSurface.withOpacity(0.85)
                   : null,
             ),
           ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (metaLine.isNotEmpty)
-                Text(
-                  metaLine,
-                  style: TextStyle(
-                    fontSize: fontMeta,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          subtitle: !hasSubtitle
+              ? null
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (hasMeta)
+                      Text(
+                        metaLine,
+                        style: TextStyle(
+                          fontSize: sFontMeta,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    if (hasPath)
+                      Text(
+                        pathLine,
+                        style: TextStyle(
+                          fontSize: sFontMeta,
+                          color: colorScheme.onSurface,
+                        ),
+                        softWrap: true,
+                      ),
+                  ],
                 ),
-              Text(
-                pathLine,
-                style: TextStyle(
-                  fontSize: fontMeta,
-                  color: colorScheme.onSurface,
-                ),
-                softWrap: true,
-              ),
-            ],
-          ),
           onTap: () {
             if (_markerMode == _MarkerMode.exitAfterMark) {
               _handleMarkerTap(item.key);
