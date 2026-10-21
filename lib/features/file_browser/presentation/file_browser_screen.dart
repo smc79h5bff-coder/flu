@@ -4845,26 +4845,70 @@ String _normalizePath(String path) {
   PreferredSizeWidget _buildNormalAppBar() {
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
-    final inMarkerMode = _markerMode != _MarkerMode.off;
+    // 模式1（标后自动退出）只显示状态提示，不可点击；模式2（常驻）显示
+    // 可点击的退出按钮。中途中止可再点一次画笔图标或按系统返回键。
+    final persistentMarker = _markerMode == _MarkerMode.alwaysOn;
+    final singleShotMarker = _markerMode == _MarkerMode.exitAfterMark;
     return AppBar(
-      title: inMarkerMode
+      title: persistentMarker
           ? GestureDetector(
               onTap: () => setState(() => _markerMode = _MarkerMode.off),
-              child: const Text(
-                '退出标记',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD9E6EE),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: const Text(
+                  '退出标记',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                  ),
+                ),
               ),
             )
-          : GestureDetector(
-              onLongPress: _showJumpToPathDialog,
-              child: Text(
-                (_searchActive &&
-                        ref.watch(searchScopeProvider) == SearchScope.custom)
-                    ? '自定义的搜索范围'
-                    : _title,
-                style: const TextStyle(fontSize: 14),
-              ),
-            ),
+          : singleShotMarker
+              ? GestureDetector(
+                  onTap: () => setState(() => _markerMode = _MarkerMode.off),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.black, width: 1),
+                    ),
+                    child: const Text(
+                      '单击即标记',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                )
+              : GestureDetector(
+                  onLongPress: _showJumpToPathDialog,
+                  child: Text(
+                    (_searchActive &&
+                            ref.watch(searchScopeProvider) ==
+                                SearchScope.custom)
+                        ? '自定义的搜索范围'
+                        : _title,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
       leading: _searchActive
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
@@ -8847,7 +8891,13 @@ class _FileBookmarksDialogState
     final bookmarks = ref.watch(fileBookmarksProvider);
     final mode = ref.watch(browserBookmarkDisplayModeProvider);
 
-    return AlertDialog(
+    return PopScope(
+      // 多选模式下按返回键只退出多选，不关闭整个收藏弹窗。
+      canPop: !_selectionMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _selectionMode) _exitSelectionMode();
+      },
+      child: AlertDialog(
       insetPadding: const EdgeInsets.all(4),
       titlePadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       contentPadding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
@@ -9021,6 +9071,7 @@ class _FileBookmarksDialogState
           child: Text(_selectionMode ? '取消' : '关闭'),
         ),
       ],
+      ),
     );
   }
 }
