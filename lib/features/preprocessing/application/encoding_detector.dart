@@ -88,12 +88,17 @@ class EncodingDetector {
     }
 
     // 4. GB-family heuristic
+    //    顺序：先判 GBK（宽松），再判 Big5/SJIS（严格）。
+    //    _looksLikeGbk 要求 50%+ 高位字节形成合法 lead+trail 双字节对，
+    //    纯 Latin-1/ANSI 西文文件的高位字节都是孤立单字节，不会过这个门槛。
+    //    因此只要 looksGbk=true 且 Big5/SJIS 也不像，就判 GB-family。
     final tGbk = DateTime.now();
     final looksGbk = _looksLikeGbk(sample);
-    final highMiss = looksGbk ? _isHighMissRate(sample) : false;
+    final looksBig5 = looksGbk ? _looksLikeBig5(sample) : false;
+    final looksSjis = (looksGbk && !looksBig5) ? _looksLikeShiftJis(sample) : false;
     log.info(
-        '[Enc] GBK 检查  耗时=${DateTime.now().difference(tGbk).inMilliseconds}ms  looksGbk=$looksGbk  highMiss=$highMiss');
-    if (looksGbk && highMiss) {
+        '[Enc] GBK 检查  耗时=${DateTime.now().difference(tGbk).inMilliseconds}ms  looksGbk=$looksGbk  looksBig5=$looksBig5  looksSjis=$looksSjis');
+    if (looksGbk && !looksBig5 && !looksSjis) {
       log.info(
           '[Enc] detect → gbk  总=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.gbk;
@@ -101,10 +106,10 @@ class EncodingDetector {
 
     // 5. Big5 heuristic
     final tBig5 = DateTime.now();
-    final looksBig5 = _looksLikeBig5(sample);
+    final hasBig5 = looksBig5 || _looksLikeBig5(sample);
     log.info(
-        '[Enc] Big5 检查  耗时=${DateTime.now().difference(tBig5).inMilliseconds}ms  结果=$looksBig5');
-    if (looksBig5) {
+        '[Enc] Big5 检查  耗时=${DateTime.now().difference(tBig5).inMilliseconds}ms  结果=$hasBig5');
+    if (hasBig5) {
       log.info(
           '[Enc] detect → big5  总=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.big5;
@@ -112,10 +117,10 @@ class EncodingDetector {
 
     // 6. Shift-JIS heuristic
     final tSjis = DateTime.now();
-    final looksSjis = _looksLikeShiftJis(sample);
+    final hasSjis = looksSjis || _looksLikeShiftJis(sample);
     log.info(
-        '[Enc] SJIS 检查  耗时=${DateTime.now().difference(tSjis).inMilliseconds}ms  结果=$looksSjis');
-    if (looksSjis) {
+        '[Enc] SJIS 检查  耗时=${DateTime.now().difference(tSjis).inMilliseconds}ms  结果=$hasSjis');
+    if (hasSjis) {
       log.info(
           '[Enc] detect → shiftJis  总=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.shiftJis;
