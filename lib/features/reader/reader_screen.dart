@@ -251,7 +251,6 @@ class _EncodingPickerSheet extends StatelessWidget {
     EncodingType.utf16be,
     EncodingType.gbk,
     EncodingType.gb18030,
-    EncodingType.big5,
     EncodingType.shiftJis,
   ];
 
