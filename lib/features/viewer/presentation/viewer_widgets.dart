@@ -331,6 +331,26 @@ class DisplaySettingsSheet extends ConsumerWidget {
                         defaultBorder: 2,
                       ),
 
+                    // ========== 工具栏 ==========
+                    const Divider(height: 32),
+                    Text(
+                      '工具栏',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('显示'),
+                      subtitle: const Text(
+                        '差异视图顶部的快捷操作按钮栏',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      value: ref.watch(toolbarVisibleProvider),
+                      onChanged: (v) => ref
+                          .read(toolbarVisibleProvider.notifier)
+                          .update(v),
+                    ),
+
                     // ========== 差异颜色 ==========
                     const Divider(height: 32),
                     Text(
@@ -1436,7 +1456,8 @@ class ViewerPaneHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF4F4F4);
+    final cs = Theme.of(context).colorScheme;
+    final bg = cs.surfaceContainerLow;
     final fg = isDark ? const Color(0xFFE0E0E0) : const Color(0xFF333333);
     final bar = isLeft
         ? (isDark ? const Color(0xFFE57373) : const Color(0xFFD9534F)) // 红
@@ -1447,7 +1468,15 @@ class ViewerPaneHeader extends ConsumerWidget {
       behavior: HitTestBehavior.opaque,
       child: Container(
         height: height,
-        color: bg,
+        decoration: BoxDecoration(
+          color: bg,
+          border: Border(
+            bottom: BorderSide(
+              color: cs.outlineVariant,
+              width: 0.5,
+            ),
+          ),
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
