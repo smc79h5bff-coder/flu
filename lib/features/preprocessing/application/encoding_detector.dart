@@ -148,6 +148,7 @@ class EncodingDetector {
       case EncodingType.utf16be:
         return _decodeUtf16(bytes, littleEndian: false);
       case EncodingType.gbk:
+      case EncodingType.gb2312:
       case EncodingType.gb18030:
         // dart:convert 无 GBK 解码器，使用第三方 gbk_codec 包。
         return gbk.decode(bytes);
@@ -193,6 +194,7 @@ class EncodingDetector {
             '[Enc] decodeChunked $encoding (一次性)  ${bytes.length}B → ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
         return result;
       case EncodingType.gbk:
+      case EncodingType.gb2312:
       case EncodingType.gb18030:
       case EncodingType.big5:
       case EncodingType.shiftJis:
@@ -274,6 +276,7 @@ class EncodingDetector {
   static bool _isDoubleByteLead(int b, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.gbk:
+      case EncodingType.gb2312:
       case EncodingType.gb18030:
       case EncodingType.big5:
         return b >= 0x81 && b <= 0xFE;
@@ -288,6 +291,7 @@ class EncodingDetector {
   static bool _isDoubleByteTrail(int b, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.gbk:
+      case EncodingType.gb2312:
       case EncodingType.gb18030:
         return b >= 0x40 && b <= 0xFE && b != 0x7F;
       case EncodingType.big5:
@@ -375,6 +379,7 @@ class EncodingDetector {
   static Encoding _multiByteCodec(EncodingType encoding) {
     switch (encoding) {
       case EncodingType.gbk:
+      case EncodingType.gb2312:
       case EncodingType.gb18030:
         return gbk; // charset 的真双字节 GBK 解码器
       case EncodingType.big5:
@@ -393,6 +398,7 @@ class EncodingDetector {
     try {
       switch (encoding) {
         case EncodingType.gbk:
+        case EncodingType.gb2312:
         case EncodingType.gb18030:
           return gbk.decode(bytes);
         case EncodingType.big5:
