@@ -90,10 +90,9 @@ class EncodingDetector {
     // 4. GB-family heuristic
     final tGbk = DateTime.now();
     final looksGbk = _looksLikeGbk(sample);
-    final highMiss = looksGbk ? _isHighMissRate(sample) : false;
     log.info(
-        '[Enc] GBK 检查  耗时=${DateTime.now().difference(tGbk).inMilliseconds}ms  looksGbk=$looksGbk  highMiss=$highMiss');
-    if (looksGbk && highMiss) {
+        '[Enc] GBK 检查  耗时=${DateTime.now().difference(tGbk).inMilliseconds}ms  looksGbk=$looksGbk');
+    if (looksGbk) {
       log.info(
           '[Enc] detect → gbk  总=${DateTime.now().difference(t0).inMilliseconds}ms');
       return EncodingType.gbk;
@@ -343,9 +342,9 @@ class EncodingDetector {
           return utf8.decode(bytes, allowMalformed: true);
       }
     } catch (_) {
-      // 任何第三方解码器对非法字节都可能抛 FormatException；这里逐字节
-      // 原样输出码点，保证绝不闪退（保留原始字节意图）。
-      return String.fromCharCodes(bytes);
+      // 任何第三方解码器对非法字节都可能抛 FormatException；回退到
+      // 容错 UTF-8，保留能解的字符、解不了的替换符输出，绝不闪退。
+      return utf8.decode(bytes, allowMalformed: true);
     }
   }
 
@@ -358,24 +357,6 @@ class EncodingDetector {
     } on FormatException {
       return false;
     }
-  }
-
-  /// 判断按 UTF-8 容错解码时替换符密度是否高。真 GBK 中文几乎每个字节都
-  /// 错解成 U+FFFD；稀疏 ANSI 西文/近似 UTF-8 则替换符占比低，据此拒绝将其
-  /// 误判为 GBK。
-  static bool _isHighMissRate(Uint8List bytes) {
-    if (bytes.isEmpty) return false;
-    final s = utf8.decode(bytes, allowMalformed: true);
-    var total = 0, miss = 0;
-    // 仅统计非 ASCII frame（含多字节），ASCII 不算比例分母，避免英文多时
-    // 稀释 miss 密度而拒绝真正的 GBK 中文。
-    for (final r in s.runes) {
-      if (r < 0x80) continue;
-      total += 1;
-      if (r == 0xFFFD) miss += 1;
-    }
-    if (total == 0) return false;
-    return miss / total >= 0.5;
   }
 
   /// Heuristic: at least 50% of high bytes form valid GBK lead/trail pairs
