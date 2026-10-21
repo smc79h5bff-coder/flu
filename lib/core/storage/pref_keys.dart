@@ -128,4 +128,60 @@ static const String browserSettingsHelp = 'jianming.browser.settingsHelp';
 
   /// 网格模式：大小/时间字号。
   static const String browserFontGridMeta = '${_p}browser.fontGridMeta';
+
+  // ---- 滚动条 ----
+
+  /// 文件浏览器右侧滚动条宽度（像素）。
+  static const String browserScrollbarWidth =
+      '${_p}browser.scrollbar.width';
+
+  /// 滚动条轨道颜色（ARGB int 十进制）。
+  static const String browserScrollbarTrackColor =
+      '${_p}browser.scrollbar.trackColor';
+
+  /// 滚动条轨道透明度（0~1，叠加在 trackColor 上）。
+  static const String browserScrollbarTrackOpacity =
+      '${_p}browser.scrollbar.trackOpacity';
+
+  /// 滚动条滑块颜色（ARGB int 十进制）。
+  static const String browserScrollbarThumbColor =
+      '${_p}browser.scrollbar.thumbColor';
+
+  /// 滚动条滑块透明度（0~1，叠加在 thumbColor 上）。
+  static const String browserScrollbarThumbOpacity =
+      '${_p}browser.scrollbar.thumbOpacity';
+
+  // ---- 上翻页按钮 ----
+
+  static const String browserPageUpEnabled =
+      '${_p}browser.pageUp.enabled';
+  static const String browserPageUpColor =
+      '${_p}browser.pageUp.color';
+  static const String browserPageUpOpacity =
+      '${_p}browser.pageUp.opacity';
+  static const String browserPageUpSize =
+      '${_p}browser.pageUp.size';
+  static const String browserPageUpSquare =
+      '${_p}browser.pageUp.square';
+  static const String browserPageUpX =
+      '${_p}browser.pageUp.x';
+  static const String browserPageUpY =
+      '${_p}browser.pageUp.y';
+
+  // ---- 下翻页按钮 ----
+
+  static const String browserPageDownEnabled =
+      '${_p}browser.pageDown.enabled';
+  static const String browserPageDownColor =
+      '${_p}browser.pageDown.color';
+  static const String browserPageDownOpacity =
+      '${_p}browser.pageDown.opacity';
+  static const String browserPageDownSize =
+      '${_p}browser.pageDown.size';
+  static const String browserPageDownSquare =
+      '${_p}browser.pageDown.square';
+  static const String browserPageDownX =
+      '${_p}browser.pageDown.x';
+  static const String browserPageDownY =
+      '${_p}browser.pageDown.y';
 }
