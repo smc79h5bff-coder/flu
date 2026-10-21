@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:charset/charset.dart' show gbk, shiftJis;
-
+import 'package:gbk_codec/gbk_codec.dart' show gbk as gbkCodecGbk;   // ← 新增
 import '../domain/encoding_type.dart';
 import '../../reader/reader_load_log.dart';
 
@@ -318,18 +318,42 @@ class EncodingDetector {
         return utf8;
     }
   }
+static String _decodeGbkSafe(Uint8List bytes) {
+  // 1. 先试 charset 的 gbk
+  try {
+    final r = gbk.decode(bytes);
+    if (r.isNotEmpty) return r;
+  } catch (_) {}
 
+  // 2. 回退 gbk_codec 的 gbk（对扩展字符可能更全）
+  try {
+    final r = gbkCodecGbk.decode(bytes);
+    if (r.isNotEmpty) return r;
+  } catch (_) {}
+
+  // 3. 最后 utf8 容错
+  return utf8.decode(bytes, allowMalformed: true);
+}
   static String _decodeLegacy({
     required Uint8List bytes,
     required EncodingType encoding,
+
+
+
+
+    
   }) {
     try {
       switch (encoding) {
         case EncodingType.gbk:
         case EncodingType.gb18030:
-          return gbk.decode(bytes);
+          
+  return _decodeGbkSafe(bytes);
         case EncodingType.shiftJis:
           return shiftJis.decode(bytes);
+
+
+          
         default:
           return utf8.decode(bytes, allowMalformed: true);
       }
@@ -341,13 +365,25 @@ class EncodingDetector {
   // ==================== 原有启发式（保持原样） ====================
 
   static bool _isStrictUtf8(Uint8List bytes) {
-    try {
-      utf8.decode(bytes);
-      return true;
-    } on FormatException {
-      return false;
+  try {
+    utf8.decode(bytes);
+    return true;
+  } on FormatException {
+    // 严格失败：再看宽容解码后"替换符占比"。
+    // 如果替换符 < 1%，认为是"基本是 UTF-8，只有极少数非法字节"，
+    // 仍然算 UTF-8（这就是其他 App 的做法）。
+    final s = utf8.decode(bytes, allowMalformed: true);
+    var total = 0;
+    var miss = 0;
+    for (final r in s.runes) {
+      if (r < 0x80) continue;
+      total++;
+      if (r == 0xFFFD) miss++;
     }
+    if (total == 0) return true; // 纯 ASCII / 空
+    return miss / total < 0.01;   // 替换符占比 < 1% 仍算 UTF-8
   }
+}
 
   /// 判断按 UTF-8 容错解码时替换符密度是否高。真 GBK 中文几乎每个字节都
   /// 错解成 U+FFFD；稀疏 ANSI 西文/近似 UTF-8 则替换符占比低，据此拒绝将其
