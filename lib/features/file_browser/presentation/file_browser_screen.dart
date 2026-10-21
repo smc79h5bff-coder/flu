@@ -3942,6 +3942,59 @@ Future<void> _showDirInfoDialog() async {
     setState(_clearSelection);
   }
 
+  /// 顶栏「收藏文件」：不用先选中，直接收藏屏幕上可见的第一个文件。
+  /// 从可见列表顶部往下找，跳过文件夹和占位行，遇到第一个文件就收藏。
+  /// 只收藏不取消——已收藏时再点也只弹提示，避免误触删掉收藏。
+  void _bookmarkFirstVisibleFile() {
+    for (final key in _snapshotVisiblePaths()) {
+      if (key.startsWith('__loading__') || key.startsWith('__error__')) {
+        continue;
+      }
+      if (_isZipInnerKey(key)) {
+        _toast('压缩包内的文件不支持收藏');
+        return;
+      }
+      _DisplayItem? it;
+      for (final c in (_cachedDisplayItems ?? const <_DisplayItem>[])) {
+        if (c.key == key) {
+          it = c;
+          break;
+        }
+      }
+      if (it == null) {
+        for (final c in (_visibleItems ?? const <_DisplayItem>[])) {
+          if (c.key == key) {
+            it = c;
+            break;
+          }
+        }
+      }
+      if (it == null) {
+        for (final h in _filterDeepResults) {
+          if (h.path == key) {
+            it = _DisplayItem(
+              key: h.path,
+              displayName: h.name,
+              depth: 0,
+              isDir: h.isDir,
+              size: h.size,
+              modified: h.modified,
+              searchHit: h,
+            );
+            break;
+          }
+        }
+      }
+      if (it == null || it.isDir) continue;
+      if (!ref.read(fileBookmarksProvider).contains(key)) {
+        ref.read(fileBookmarksProvider.notifier).addAll([key]);
+      }
+      _toast('已收藏 ${it.displayName}');
+      return;
+    }
+    _toast('屏幕上没有可见的文件');
+  }
+
   Future<void> _rename() async {
     if (_selectedPaths.length != 1) {
       _toast('重命名一次只能操作一个');
@@ -4734,7 +4787,8 @@ if (_markerMode) _buildMarkerModeBar(),
     final favorites = ref.watch(favoritesProvider);
     final isFav = favorites.contains(_currentPath);
     return AppBar(
-      backgroundColor: _markerMode ? const Color(0xFFFFEB3B) : null,
+      // 标记模式顶栏：柔和浅黄（原 FFEB3B 太艳），黑字对比依然清晰
+      backgroundColor: _markerMode ? const Color(0xFFFFF59D) : null,
       foregroundColor: _markerMode ? Colors.black : null,
       title: GestureDetector(
         onLongPress: _markerMode ? null : _showJumpToPathDialog,
@@ -4782,14 +4836,17 @@ if (_markerMode) _buildMarkerModeBar(),
                   .update(!cur);
             },
           ),
+        // ========== 收藏屏幕可见第一个文件 ==========
+        IconButton(
+          icon: const _BookmarkGemIcon(size: 24),
+          tooltip: '收藏屏幕上第一个可见文件',
+          onPressed: _bookmarkFirstVisibleFile,
+        ),
         // ========== 标记模式按钮（点击进入/退出，长按打开设置） ==========
         GestureDetector(
           onLongPress: _showMarkerSettings,
           child: IconButton(
-            icon: Icon(
-              _markerMode ? Icons.brush : Icons.brush_outlined,
-            ),
-            tooltip: _markerMode ? '退出标记模式' : '标记模式（长按设置）',
+            icon: _MarkerBrushIcon(active: _markerMode),
             onPressed: _toggleMarkerMode,
           ),
         ),
@@ -5214,6 +5271,9 @@ const PopupMenuItem<String>(
     final allSelected = selectable.isNotEmpty &&
         selectable.every((k) => _selectedPaths.contains(k));
     return AppBar(
+      // 选择模式顶栏：浅绿底（用户指定 D9FFC5 再调浅），呼应列表选中项的淡绿
+      backgroundColor: const Color(0xFFE2FFD3),
+      foregroundColor: Colors.black,
       leading: IconButton(
         icon: const Icon(Icons.close),
         onPressed: () => setState(_clearSelection),
@@ -8427,16 +8487,63 @@ class _FileBookmarksDialogState
   @override
   Widget build(BuildContext context) {
     final bookmarks = ref.watch(fileBookmarksProvider);
+    final mode = ref.watch(browserBookmarkDisplayModeProvider);
 
     return AlertDialog(
       insetPadding: const EdgeInsets.all(4),
       titlePadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       contentPadding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
       actionsPadding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-      title: Text('文件收藏 (${bookmarks.length})'),
+      title: Row(
+        children: [
+          Expanded(child: Text('文件收藏 (${bookmarks.length})')),
+          IconButton(
+            icon: const Icon(Icons.tune, size: 20),
+            tooltip: '路径显示模式',
+            onPressed: () {
+              final current = ref.read(browserBookmarkDisplayModeProvider);
+              String labelFor(BrowserBookmarkDisplayMode m) {
+                switch (m) {
+                  case BrowserBookmarkDisplayMode.filenameOnly:
+                    return '只显示文件名';
+                  case BrowserBookmarkDisplayMode.oneLinePath:
+                    return '单行路径（截断）';
+                  case BrowserBookmarkDisplayMode.fullPath:
+                    return '完整路径（换行）';
+                }
+              }
+
+              showDialog<void>(
+                context: context,
+                builder: (c) => SimpleDialog(
+                  title: const Text('路径显示模式'),
+                  children: BrowserBookmarkDisplayMode.values.map((m) {
+                    final sel = m == current;
+                    return SimpleDialogOption(
+                      onPressed: () {
+                        ref
+                            .read(browserBookmarkDisplayModeProvider.notifier)
+                            .update(m);
+                        Navigator.pop(c);
+                      },
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(labelFor(m))),
+                          if (sel)
+                            const Icon(Icons.check, size: 18),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       content: SizedBox(
         width: double.maxFinite,
-        height: MediaQuery.of(context).size.height * 0.7,
+        height: MediaQuery.of(context).size.height * 0.9,
         child: bookmarks.isEmpty
             ? const Center(child: Text('还没有收藏'))
             : ListView.builder(
@@ -8447,15 +8554,27 @@ class _FileBookmarksDialogState
                   final exists =
                       FileSystemEntity.typeSync(p) !=
                           FileSystemEntityType.notFound;
+                  Widget? subtitle;
+                  switch (mode) {
+                    case BrowserBookmarkDisplayMode.filenameOnly:
+                      subtitle = null;
+                    case BrowserBookmarkDisplayMode.oneLinePath:
+                      subtitle = Text(
+                        p,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11),
+                      );
+                    case BrowserBookmarkDisplayMode.fullPath:
+                      subtitle = Text(
+                        p,
+                        style: const TextStyle(fontSize: 11),
+                      );
+                  }
                   return ListTile(
                     dense: true,
                     contentPadding:
                         const EdgeInsets.symmetric(horizontal: 8),
-                    leading: Icon(
-                      exists ? Icons.bookmark : Icons.bookmark_border,
-                      size: 20,
-                      color: exists ? null : Colors.grey,
-                    ),
                     title: Text(
                       name,
                       maxLines: 1,
@@ -8464,12 +8583,7 @@ class _FileBookmarksDialogState
                         color: exists ? null : Colors.grey,
                       ),
                     ),
-                    subtitle: Text(
-                      p,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11),
-                    ),
+                    subtitle: subtitle,
                     trailing: IconButton(
                       icon: const Icon(Icons.close, size: 18),
                       tooltip: '移除收藏',
@@ -8945,6 +9059,184 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
       ],
     );
   }
+}
+
+/// 收藏按钮：空心纸 + 右上角三角护套 + 左上角实心钻石（单态不变）。
+class _BookmarkGemIcon extends StatelessWidget {
+  const _BookmarkGemIcon({this.size = 24});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconTheme(
+      data: IconTheme.of(context),
+      child: CustomPaint(
+        size: Size(size, size),
+        painter: _BookmarkGemPainter(
+          color: IconTheme.of(context).color ??
+              Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+}
+
+class _BookmarkGemPainter extends CustomPainter {
+  _BookmarkGemPainter({required this.color});
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.width / 24);
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final fillGem = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    // 空心纸（近似书签形状，顶部微斜）
+    final paper = Path()
+      ..moveTo(5.5, 4)
+      ..lineTo(17.5, 4)
+      ..lineTo(17.5, 20.5)
+      ..lineTo(11.5, 16)
+      ..lineTo(5.5, 20.5)
+      ..close();
+    canvas.drawPath(paper, stroke);
+
+    // 右上角三角护套（装饰）
+    final cap = Path()
+      ..moveTo(13.5, 4)
+      ..lineTo(17.5, 4)
+      ..lineTo(17.5, 9)
+      ..close();
+    canvas.drawPath(cap, stroke);
+
+    // 左上角实心钻石
+    final gem = Path()
+      ..moveTo(8.5, 5.5)
+      ..lineTo(10.5, 8.0)
+      ..lineTo(8.5, 10.5)
+      ..lineTo(6.5, 8.0)
+      ..close();
+    canvas.drawPath(gem, fillGem);
+  }
+
+  @override
+  bool shouldRepaint(_BookmarkGemPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+/// 标记画笔图标（单态：空心画笔 + 星辰尾迹 / 实心画笔 + 迷你烟花）。
+///
+/// [active] = false：未激活标记模式。空心画笔 + 下方 1.5dp 细线 + 笔尖上方
+///   三颗渐小渐远的星辰尾迹。
+/// [active] = true：已激活标记模式。实心画笔 + 下方 3dp 粗线 + 笔尖上方
+///   迷你烟花（中心点 + 八向放射线），相对尾迹下移 1.5dp，避免跟尾迹重合。
+class _MarkerBrushIcon extends StatelessWidget {
+  const _MarkerBrushIcon({required this.active});
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconTheme(
+      data: IconTheme.of(context),
+      child: CustomPaint(
+        size: const Size(24, 24),
+        painter: _MarkerBrushPainter(
+          active: active,
+          color: IconTheme.of(context).color ??
+              Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+}
+
+class _MarkerBrushPainter extends CustomPainter {
+  _MarkerBrushPainter({required this.active, required this.color});
+  final bool active;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.width / 24);
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = active ? 3.0 : 1.6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final fill = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    // 画笔杆（手柄）
+    canvas.drawLine(
+      const Offset(4, 20),
+      const Offset(14.5, 9.5),
+      stroke,
+    );
+
+    // 金属箍
+    canvas.drawLine(
+      const Offset(13.5, 8.5),
+      const Offset(16.5, 11.5),
+      stroke,
+    );
+
+    // 笔头（三角）
+    final tip = Path()
+      ..moveTo(15.5, 12.5)
+      ..lineTo(20, 8.5)
+      ..lineTo(18, 6.5)
+      ..lineTo(13.5, 10.5)
+      ..close();
+    if (active) {
+      canvas.drawPath(tip, fill);
+    } else {
+      canvas.drawPath(tip, stroke);
+    }
+
+    // 笔尖下方的线（标记）
+    canvas.drawLine(
+      const Offset(3, 22),
+      const Offset(10, 22),
+      Paint()
+        ..color = color
+        ..strokeWidth = active ? 3.0 : 1.5
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // 笔尖上方装饰
+    if (active) {
+      // 迷你烟花：中心点 + 八向放射线（相对尾迹下移 1.5dp）
+      const cx = 17.0, cy = 3.5;
+      canvas.drawCircle(const Offset(cx, cy), 1.1, fill);
+      for (final a in [0, 45, 90, 135, 180, 225, 270, 315]) {
+        final rad = a * 3.14159265 / 180;
+        canvas.drawLine(
+          Offset(cx + 1.6 * rad.cos(), cy + 1.6 * rad.sin()),
+          Offset(cx + 3.2 * rad.cos(), cy + 3.2 * rad.sin()),
+          stroke,
+        );
+      }
+    } else {
+      // 星辰尾迹：三颗渐小渐远的圆点（在烟花位置上方 1.5dp）
+      const cy = 2.0;
+      canvas.drawCircle(const Offset(15.5, cy + 1.0), 0.8, fill);
+      canvas.drawCircle(const Offset(17.0, cy), 0.55, fill);
+      canvas.drawCircle(const Offset(18.5, cy + 1.0), 0.35, fill);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MarkerBrushPainter oldDelegate) =>
+      oldDelegate.active != active || oldDelegate.color != color;
 }
 
 /// 搜索框收起/显示的自定义图标（双层折叠放大镜 + 镜内箭头尖）。
