@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../viewer/presentation/viewer_widgets.dart' show pickColorDialog;
 import 'providers/file_browser_providers.dart';
 
 /// 文件浏览器设置页。
@@ -45,7 +46,11 @@ class BrowserSettingsScreen extends ConsumerWidget {
 
           _buildFontSizeSection(context, ref),
           const Divider(height: 1),
+          _buildScrollbarSection(context, ref),
+          const Divider(height: 1),
           _buildSortSection(context, ref),
+          const Divider(height: 1),
+          _buildPageButtonSection(context, ref),
           const Divider(height: 1),
           _buildOpenModeSection(context, ref),
         ],
@@ -196,6 +201,80 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
     );
   }
 
+  // ==================== 滚动条 ====================
+
+  Widget _buildScrollbarSection(BuildContext context, WidgetRef ref) {
+    final width = ref.watch(browserScrollbarWidthProvider);
+    final trackColor = ref.watch(browserScrollbarTrackColorProvider);
+    final trackOpacity = ref.watch(browserScrollbarTrackOpacityProvider);
+    final thumbColor = ref.watch(browserScrollbarThumbColorProvider);
+    final thumbOpacity = ref.watch(browserScrollbarThumbOpacityProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(title: '滚动条'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 宽度
+              Row(
+                children: [
+                  const Text('宽度', style: TextStyle(fontSize: 13)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Slider(
+                      min: 2,
+                      max: 40,
+                      divisions: 38,
+                      value: width.clamp(2, 40),
+                      label: '${width.round()} px',
+                      onChanged: (v) => ref
+                          .read(browserScrollbarWidthProvider.notifier)
+                          .update(v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      '${width.round()}',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+              _colorRow(
+                label: '轨道颜色',
+                color: trackColor,
+                opacity: trackOpacity,
+                onColorChanged: (c) => ref
+                    .read(browserScrollbarTrackColorProvider.notifier)
+                    .update(c),
+                onOpacityChanged: (v) => ref
+                    .read(browserScrollbarTrackOpacityProvider.notifier)
+                    .update(v),
+              ),
+              _colorRow(
+                label: '滑块颜色',
+                color: thumbColor,
+                opacity: thumbOpacity,
+                onColorChanged: (c) => ref
+                    .read(browserScrollbarThumbColorProvider.notifier)
+                    .update(c),
+                onOpacityChanged: (v) => ref
+                    .read(browserScrollbarThumbOpacityProvider.notifier)
+                    .update(v),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   // ==================== 排序 ====================
 
   Widget _buildSortSection(BuildContext context, WidgetRef ref) {
@@ -293,6 +372,205 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
       case SortField.size:
         return '大小';
     }
+  }
+
+  // ==================== 翻页按钮 ====================
+
+  Widget _buildPageButtonSection(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(title: '翻页按钮', subtitle: '位置是屏幕百分比'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _pageButtonPanel(
+                ref: ref,
+                label: '上翻页',
+                icon: Icons.keyboard_arrow_up,
+                enabled: ref.watch(browserPageUpEnabledProvider),
+                color: ref.watch(browserPageUpColorProvider),
+                opacity: ref.watch(browserPageUpOpacityProvider),
+                size: ref.watch(browserPageUpSizeProvider),
+                isSquare: ref.watch(browserPageUpSquareProvider),
+                x: ref.watch(browserPageUpXProvider),
+                y: ref.watch(browserPageUpYProvider),
+                enabledNotifier: browserPageUpEnabledProvider.notifier,
+                colorNotifier: browserPageUpColorProvider.notifier,
+                opacityNotifier: browserPageUpOpacityProvider.notifier,
+                sizeNotifier: browserPageUpSizeProvider.notifier,
+                squareNotifier: browserPageUpSquareProvider.notifier,
+                xNotifier: browserPageUpXProvider.notifier,
+                yNotifier: browserPageUpYProvider.notifier,
+              ),
+              const SizedBox(height: 8),
+              _pageButtonPanel(
+                ref: ref,
+                label: '下翻页',
+                icon: Icons.keyboard_arrow_down,
+                enabled: ref.watch(browserPageDownEnabledProvider),
+                color: ref.watch(browserPageDownColorProvider),
+                opacity: ref.watch(browserPageDownOpacityProvider),
+                size: ref.watch(browserPageDownSizeProvider),
+                isSquare: ref.watch(browserPageDownSquareProvider),
+                x: ref.watch(browserPageDownXProvider),
+                y: ref.watch(browserPageDownYProvider),
+                enabledNotifier: browserPageDownEnabledProvider.notifier,
+                colorNotifier: browserPageDownColorProvider.notifier,
+                opacityNotifier: browserPageDownOpacityProvider.notifier,
+                sizeNotifier: browserPageDownSizeProvider.notifier,
+                squareNotifier: browserPageDownSquareProvider.notifier,
+                xNotifier: browserPageDownXProvider.notifier,
+                yNotifier: browserPageDownYProvider.notifier,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _pageButtonPanel({
+    required WidgetRef ref,
+    required String label,
+    required IconData icon,
+    required bool enabled,
+    required Color color,
+    required double opacity,
+    required double size,
+    required bool isSquare,
+    required double x,
+    required double y,
+    required dynamic enabledNotifier,
+    required dynamic colorNotifier,
+    required dynamic opacityNotifier,
+    required dynamic sizeNotifier,
+    required dynamic squareNotifier,
+    required dynamic xNotifier,
+    required dynamic yNotifier,
+  }) {
+    final s = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        border: Border.all(color: s.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: s.primary),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 13)),
+              const Spacer(),
+              Switch(
+                value: enabled,
+                onChanged: (v) => ref.read(enabledNotifier).update(v),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ],
+          ),
+          if (enabled) ...[
+            const SizedBox(height: 4),
+            _colorRow(
+              label: '颜色',
+              color: color,
+              opacity: opacity,
+              onColorChanged: (c) => ref.read(colorNotifier).update(c),
+              onOpacityChanged: (v) =>
+                  ref.read(opacityNotifier).update(v),
+            ),
+            Row(
+              children: [
+                const Text('大小', style: TextStyle(fontSize: 12)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Slider(
+                    min: 24,
+                    max: 96,
+                    divisions: 72,
+                    value: size.clamp(24, 96),
+                    label: '${size.round()}',
+                    onChanged: (v) => ref.read(sizeNotifier).update(v),
+                  ),
+                ),
+                Text('${size.round()}',
+                    style: const TextStyle(fontSize: 12),
+                    width: 32,
+                    textAlign: TextAlign.right),
+              ],
+            ),
+            Row(
+              children: [
+                const Text('形状', style: TextStyle(fontSize: 12)),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('圆形'),
+                  selected: !isSquare,
+                  onSelected: (_) =>
+                      ref.read(squareNotifier).update(false),
+                ),
+                const SizedBox(width: 6),
+                ChoiceChip(
+                  label: const Text('方形'),
+                  selected: isSquare,
+                  onSelected: (_) =>
+                      ref.read(squareNotifier).update(true),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 36, child: Text('X %', style: TextStyle(fontSize: 12))),
+                Expanded(
+                  child: Slider(
+                    min: 0,
+                    max: 100,
+                    divisions: 100,
+                    value: x.clamp(0, 100),
+                    label: '${x.round()}%',
+                    onChanged: (v) => ref.read(xNotifier).update(v),
+                  ),
+                ),
+                SizedBox(
+                  width: 40,
+                  child: Text('${x.round()}%',
+                      style: const TextStyle(fontSize: 12),
+                      textAlign: TextAlign.right),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 36, child: Text('Y %', style: TextStyle(fontSize: 12))),
+                Expanded(
+                  child: Slider(
+                    min: 0,
+                    max: 100,
+                    divisions: 100,
+                    value: y.clamp(0, 100),
+                    label: '${y.round()}%',
+                    onChanged: (v) => ref.read(yNotifier).update(v),
+                  ),
+                ),
+                SizedBox(
+                  width: 40,
+                  child: Text('${y.round()}%',
+                      style: const TextStyle(fontSize: 12),
+                      textAlign: TextAlign.right),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   // ==================== 打开方式 ====================
@@ -462,6 +740,62 @@ class _SwitchRow extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 一行颜色控件：标签 + 色块 + 透明度滑条
+Widget _colorRow({
+  required String label,
+  required Color color,
+  required double opacity,
+  required ValueChanged<Color> onColorChanged,
+  required ValueChanged<double> onOpacityChanged,
+}) {
+  return ConsumerStatefulBuilder(
+    builder: (context, ref, _) {
+      return Row(
+        children: [
+          SizedBox(
+            width: 60,
+            child: Text(label, style: const TextStyle(fontSize: 12)),
+          ),
+          GestureDetector(
+            onTap: () async {
+              final picked = await pickColorDialog(context, color);
+              if (picked != null) onColorChanged(picked);
+            },
+            child: Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: opacity),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.grey),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Slider(
+              min: 0,
+              max: 1,
+              divisions: 100,
+              value: opacity.clamp(0, 1),
+              label: '${(opacity * 100).round()}%',
+              onChanged: onOpacityChanged,
+            ),
+          ),
+          SizedBox(
+            width: 36,
+            child: Text(
+              '${(opacity * 100).round()}%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 11),
+            ),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 /// 一行字号控件：标签 + [-] [输入框] [+]
