@@ -1764,3 +1764,31 @@ class FileBookmarksNotifier extends StringListPrefNotifier {
     update(state.where((p) => p != path).toList());
   }
 }
+
+/// 收藏列表弹窗里路径显示模式。
+enum BrowserBookmarkDisplayMode {
+  /// 只显示文件名，不显示路径。
+  filenameOnly,
+
+  /// 显示一行路径（截断）。
+  oneLinePath,
+
+  /// 显示完整路径（自动换行）。
+  fullPath,
+}
+
+final browserBookmarkDisplayModeProvider =
+    NotifierProvider<BrowserBookmarkDisplayModeNotifier,
+        BrowserBookmarkDisplayMode>(
+  BrowserBookmarkDisplayModeNotifier.new,
+);
+
+class BrowserBookmarkDisplayModeNotifier
+    extends EnumPrefNotifier<BrowserBookmarkDisplayMode> {
+  BrowserBookmarkDisplayModeNotifier()
+      : super(
+          key: PrefKeys.browserBookmarkDisplayMode,
+          values: BrowserBookmarkDisplayMode.values,
+          initial: BrowserBookmarkDisplayMode.oneLinePath,
+        );
+}
