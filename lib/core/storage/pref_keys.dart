@@ -184,4 +184,22 @@ static const String browserSettingsHelp = 'jianming.browser.settingsHelp';
       '${_p}browser.pageDown.x';
   static const String browserPageDownY =
       '${_p}browser.pageDown.y';
+
+  // ---- 搜索结果列表 ----
+
+  /// 搜索结果页是否显示第二行（大小 + 时间）。
+  static const String browserSearchShowMeta =
+      '${_p}browser.search.showMeta';
+
+  /// 搜索结果页是否显示第三行（路径）。
+  static const String browserSearchShowPath =
+      '${_p}browser.search.showPath';
+
+  /// 搜索结果页文件名字号。
+  static const String browserSearchFontName =
+      '${_p}browser.search.fontName';
+
+  /// 搜索结果页 meta / path 字号。
+  static const String browserSearchFontMeta =
+      '${_p}browser.search.fontMeta';
 }
