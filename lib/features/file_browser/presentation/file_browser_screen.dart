@@ -6035,60 +6035,59 @@ for (final f in SortField.values)
     ],
   ),
                  const Divider(height: 1),
+              ],
+              const Divider(height: 16),
+              // ---- 搜索结果显示 ----
+              Row(
+                children: [
+                  const Text(
+                    '搜索结果显示',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              SwitchListTile.adaptive(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('显示大小 + 时间'),
+                value: ref.watch(browserSearchShowMetaProvider),
+                onChanged: (v) => ref
+                    .read(browserSearchShowMetaProvider.notifier)
+                    .update(v),
+              ),
+              SwitchListTile.adaptive(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('显示路径'),
+                value: ref.watch(browserSearchShowPathProvider),
+                onChanged: (v) => ref
+                    .read(browserSearchShowPathProvider.notifier)
+                    .update(v),
+              ),
+              _searchFontRow(
+                c,
+                '文件名字号',
+                ref.watch(browserSearchFontNameProvider),
+                (v) => ref
+                    .read(browserSearchFontNameProvider.notifier)
+                    .set(v),
+              ),
+              _searchFontRow(
+                c,
+                '详情字号',
+                ref.watch(browserSearchFontMetaProvider),
+                (v) => ref
+                    .read(browserSearchFontMetaProvider.notifier)
+                    .set(v),
+              ),
                 ],
               ),
             ),
-            const Divider(height: 16),
-            // ---- 搜索结果显示 ----
-            Row(
-              children: [
-                const Text(
-                  '搜索结果显示',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            SwitchListTile.adaptive(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('显示大小 + 时间'),
-              value: ref.watch(browserSearchShowMetaProvider),
-              onChanged: (v) => ref
-                  .read(browserSearchShowMetaProvider.notifier)
-                  .update(v),
-            ),
-            SwitchListTile.adaptive(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('显示路径'),
-              value: ref.watch(browserSearchShowPathProvider),
-              onChanged: (v) => ref
-                  .read(browserSearchShowPathProvider.notifier)
-                  .update(v),
-            ),
-            _searchFontRow(
-              c,
-              '文件名字号',
-              ref.watch(browserSearchFontNameProvider),
-              (v) => ref
-                  .read(browserSearchFontNameProvider.notifier)
-                  .set(v),
-            ),
-            _searchFontRow(
-              c,
-              '详情字号',
-              ref.watch(browserSearchFontMetaProvider),
-              (v) => ref
-                  .read(browserSearchFontMetaProvider.notifier)
-                  .set(v),
-            ),
           ),
-        ),
-      ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(c),
