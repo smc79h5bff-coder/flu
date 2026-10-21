@@ -263,6 +263,206 @@ class BrowserFontGridMetaNotifier extends DoublePrefNotifier {
   void set(double v) => update(v.clamp(1.0, 38.0));
 }
 
+// ==================== 滚动条样式（持久化） ====================
+
+final browserScrollbarWidthProvider =
+    NotifierProvider<BrowserScrollbarWidthNotifier, double>(
+  BrowserScrollbarWidthNotifier.new,
+);
+
+class BrowserScrollbarWidthNotifier extends DoublePrefNotifier {
+  BrowserScrollbarWidthNotifier()
+      : super(key: PrefKeys.browserScrollbarWidth, initial: 10.0);
+}
+
+final browserScrollbarTrackColorProvider =
+    NotifierProvider<BrowserScrollbarTrackColorNotifier, Color>(
+  BrowserScrollbarTrackColorNotifier.new,
+);
+
+class BrowserScrollbarTrackColorNotifier extends ColorPrefNotifier {
+  BrowserScrollbarTrackColorNotifier()
+      : super(key: PrefKeys.browserScrollbarTrackColor,
+            initial: const Color(0xFF888888));
+}
+
+final browserScrollbarTrackOpacityProvider =
+    NotifierProvider<BrowserScrollbarTrackOpacityNotifier, double>(
+  BrowserScrollbarTrackOpacityNotifier.new,
+);
+
+class BrowserScrollbarTrackOpacityNotifier extends DoublePrefNotifier {
+  BrowserScrollbarTrackOpacityNotifier()
+      : super(key: PrefKeys.browserScrollbarTrackOpacity, initial: 0.06);
+}
+
+final browserScrollbarThumbColorProvider =
+    NotifierProvider<BrowserScrollbarThumbColorNotifier, Color>(
+  BrowserScrollbarThumbColorNotifier.new,
+);
+
+class BrowserScrollbarThumbColorNotifier extends ColorPrefNotifier {
+  BrowserScrollbarThumbColorNotifier()
+      : super(key: PrefKeys.browserScrollbarThumbColor,
+            initial: const Color(0xFF333333));
+}
+
+final browserScrollbarThumbOpacityProvider =
+    NotifierProvider<BrowserScrollbarThumbOpacityNotifier, double>(
+  BrowserScrollbarThumbOpacityNotifier.new,
+);
+
+class BrowserScrollbarThumbOpacityNotifier extends DoublePrefNotifier {
+  BrowserScrollbarThumbOpacityNotifier()
+      : super(key: PrefKeys.browserScrollbarThumbOpacity, initial: 0.32);
+}
+
+// ==================== 翻页按钮（上 · 持久化） ====================
+
+final browserPageUpEnabledProvider =
+    NotifierProvider<BrowserPageUpEnabledNotifier, bool>(
+  BrowserPageUpEnabledNotifier.new,
+);
+
+class BrowserPageUpEnabledNotifier extends BoolPrefNotifier {
+  BrowserPageUpEnabledNotifier()
+      : super(key: PrefKeys.browserPageUpEnabled, initial: true);
+}
+
+final browserPageUpColorProvider =
+    NotifierProvider<BrowserPageUpColorNotifier, Color>(
+  BrowserPageUpColorNotifier.new,
+);
+
+class BrowserPageUpColorNotifier extends ColorPrefNotifier {
+  BrowserPageUpColorNotifier()
+      : super(key: PrefKeys.browserPageUpColor,
+            initial: const Color(0xFFFFFFFF));
+}
+
+final browserPageUpOpacityProvider =
+    NotifierProvider<BrowserPageUpOpacityNotifier, double>(
+  BrowserPageUpOpacityNotifier.new,
+);
+
+class BrowserPageUpOpacityNotifier extends DoublePrefNotifier {
+  BrowserPageUpOpacityNotifier()
+      : super(key: PrefKeys.browserPageUpOpacity, initial: 1.0);
+}
+
+final browserPageUpSizeProvider =
+    NotifierProvider<BrowserPageUpSizeNotifier, double>(
+  BrowserPageUpSizeNotifier.new,
+);
+
+class BrowserPageUpSizeNotifier extends DoublePrefNotifier {
+  BrowserPageUpSizeNotifier()
+      : super(key: PrefKeys.browserPageUpSize, initial: 40.0);
+}
+
+final browserPageUpSquareProvider =
+    NotifierProvider<BrowserPageUpSquareNotifier, bool>(
+  BrowserPageUpSquareNotifier.new,
+);
+
+class BrowserPageUpSquareNotifier extends BoolPrefNotifier {
+  BrowserPageUpSquareNotifier()
+      : super(key: PrefKeys.browserPageUpSquare, initial: false);
+}
+
+final browserPageUpXProvider =
+    NotifierProvider<BrowserPageUpXNotifier, double>(
+  BrowserPageUpXNotifier.new,
+);
+
+class BrowserPageUpXNotifier extends DoublePrefNotifier {
+  BrowserPageUpXNotifier()
+      : super(key: PrefKeys.browserPageUpX, initial: 86.0);
+}
+
+final browserPageUpYProvider =
+    NotifierProvider<BrowserPageUpYNotifier, double>(
+  BrowserPageUpYNotifier.new,
+);
+
+class BrowserPageUpYNotifier extends DoublePrefNotifier {
+  BrowserPageUpYNotifier()
+      : super(key: PrefKeys.browserPageUpY, initial: 78.0);
+}
+
+// ==================== 翻页按钮（下 · 持久化） ====================
+
+final browserPageDownEnabledProvider =
+    NotifierProvider<BrowserPageDownEnabledNotifier, bool>(
+  BrowserPageDownEnabledNotifier.new,
+);
+
+class BrowserPageDownEnabledNotifier extends BoolPrefNotifier {
+  BrowserPageDownEnabledNotifier()
+      : super(key: PrefKeys.browserPageDownEnabled, initial: true);
+}
+
+final browserPageDownColorProvider =
+    NotifierProvider<BrowserPageDownColorNotifier, Color>(
+  BrowserPageDownColorNotifier.new,
+);
+
+class BrowserPageDownColorNotifier extends ColorPrefNotifier {
+  BrowserPageDownColorNotifier()
+      : super(key: PrefKeys.browserPageDownColor,
+            initial: const Color(0xFFFFFFFF));
+}
+
+final browserPageDownOpacityProvider =
+    NotifierProvider<BrowserPageDownOpacityNotifier, double>(
+  BrowserPageDownOpacityNotifier.new,
+);
+
+class BrowserPageDownOpacityNotifier extends DoublePrefNotifier {
+  BrowserPageDownOpacityNotifier()
+      : super(key: PrefKeys.browserPageDownOpacity, initial: 1.0);
+}
+
+final browserPageDownSizeProvider =
+    NotifierProvider<BrowserPageDownSizeNotifier, double>(
+  BrowserPageDownSizeNotifier.new,
+);
+
+class BrowserPageDownSizeNotifier extends DoublePrefNotifier {
+  BrowserPageDownSizeNotifier()
+      : super(key: PrefKeys.browserPageDownSize, initial: 40.0);
+}
+
+final browserPageDownSquareProvider =
+    NotifierProvider<BrowserPageDownSquareNotifier, bool>(
+  BrowserPageDownSquareNotifier.new,
+);
+
+class BrowserPageDownSquareNotifier extends BoolPrefNotifier {
+  BrowserPageDownSquareNotifier()
+      : super(key: PrefKeys.browserPageDownSquare, initial: false);
+}
+
+final browserPageDownXProvider =
+    NotifierProvider<BrowserPageDownXNotifier, double>(
+  BrowserPageDownXNotifier.new,
+);
+
+class BrowserPageDownXNotifier extends DoublePrefNotifier {
+  BrowserPageDownXNotifier()
+      : super(key: PrefKeys.browserPageDownX, initial: 86.0);
+}
+
+final browserPageDownYProvider =
+    NotifierProvider<BrowserPageDownYNotifier, double>(
+  BrowserPageDownYNotifier.new,
+);
+
+class BrowserPageDownYNotifier extends DoublePrefNotifier {
+  BrowserPageDownYNotifier()
+      : super(key: PrefKeys.browserPageDownY, initial: 92.0);
+}
+
 // ==================== 搜索结果排序（独立于浏览排序） ====================
 //
 // 只管"搜索结果列表"的顺序，不动文件浏览器本身。
