@@ -463,6 +463,52 @@ class BrowserPageDownYNotifier extends DoublePrefNotifier {
       : super(key: PrefKeys.browserPageDownY, initial: 92.0);
 }
 
+// ==================== 搜索结果显示（持久化） ====================
+
+final browserSearchShowMetaProvider =
+    NotifierProvider<BrowserSearchShowMetaNotifier, bool>(
+  BrowserSearchShowMetaNotifier.new,
+);
+
+class BrowserSearchShowMetaNotifier extends BoolPrefNotifier {
+  BrowserSearchShowMetaNotifier()
+      : super(key: PrefKeys.browserSearchShowMeta, initial: true);
+}
+
+final browserSearchShowPathProvider =
+    NotifierProvider<BrowserSearchShowPathNotifier, bool>(
+  BrowserSearchShowPathNotifier.new,
+);
+
+class BrowserSearchShowPathNotifier extends BoolPrefNotifier {
+  BrowserSearchShowPathNotifier()
+      : super(key: PrefKeys.browserSearchShowPath, initial: true);
+}
+
+final browserSearchFontNameProvider =
+    NotifierProvider<BrowserSearchFontNameNotifier, double>(
+  BrowserSearchFontNameNotifier.new,
+);
+
+class BrowserSearchFontNameNotifier extends DoublePrefNotifier {
+  BrowserSearchFontNameNotifier()
+      : super(key: PrefKeys.browserSearchFontName, initial: 14.0);
+
+  void set(double v) => update(v.clamp(1.0, 38.0));
+}
+
+final browserSearchFontMetaProvider =
+    NotifierProvider<BrowserSearchFontMetaNotifier, double>(
+  BrowserSearchFontMetaNotifier.new,
+);
+
+class BrowserSearchFontMetaNotifier extends DoublePrefNotifier {
+  BrowserSearchFontMetaNotifier()
+      : super(key: PrefKeys.browserSearchFontMeta, initial: 12.0);
+
+  void set(double v) => update(v.clamp(1.0, 38.0));
+}
+
 // ==================== 搜索结果排序（独立于浏览排序） ====================
 //
 // 只管"搜索结果列表"的顺序，不动文件浏览器本身。
