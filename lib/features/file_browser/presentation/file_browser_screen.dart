@@ -1744,7 +1744,7 @@ Widget _buildAdvancedToggle() {
         all = _cachedDisplayItems ?? const <_DisplayItem>[];
       } else if (ref.read(searchBoxModeProvider) == SearchBoxMode.filter &&
           (_searchCtrl.text.trim().isNotEmpty || _hasActiveConditions)) {
-        all = _visibleItems;
+        all = _visibleItems ?? const <_DisplayItem>[];
       } else {
         all = (_cachedDisplayItems ?? const <_DisplayItem>[])
             .where((it) => it.depth == 0)
@@ -1781,7 +1781,7 @@ Widget _buildAdvancedToggle() {
     } else if (ref.read(searchBoxModeProvider) == SearchBoxMode.filter &&
         (_searchCtrl.text.trim().isNotEmpty || _hasActiveConditions)) {
       // 过滤模式：用当前可见条目（已合并深层过滤结果）
-      selectable = _visibleItems
+      selectable = (_visibleItems ?? const <_DisplayItem>[])
           .where((it) =>
               !it.key.startsWith('__loading__') &&
               !it.key.startsWith('__error__'))
