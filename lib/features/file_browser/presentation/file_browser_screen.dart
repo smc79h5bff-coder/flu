@@ -1294,7 +1294,9 @@ try {
   List<String> _snapshotVisiblePaths() {
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return const <String>[];
-    final allItems = _cachedDisplayItems;
+    // 列表实际渲染的是 _visibleItems（过滤模式下的子集），
+    // 用全量列表按下标取 key 会错位。
+    final allItems = _visibleItems ?? _cachedDisplayItems;
     if (allItems == null || allItems.isEmpty) return const <String>[];
 
     final sorted = positions.toList()
@@ -1318,7 +1320,7 @@ try {
 
   void _restoreScrollAnchor(List<String> anchorKeys) {
     if (anchorKeys.isEmpty) return;
-    final allItems = _cachedDisplayItems;
+    final allItems = _visibleItems ?? _cachedDisplayItems;
     if (allItems == null || allItems.isEmpty) return;
 
     var targetIdx = -1;
@@ -1662,7 +1664,9 @@ Widget _buildAdvancedToggle() {
       return;
     }
     if (_anchorPath != null) {
-      final all = _cachedDisplayItems ?? const <_DisplayItem>[];
+      // 用屏幕上实际显示的列表，避免过滤模式下把隐藏项一起选上。
+      final all =
+          _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
       final from = all.indexWhere((it) => it.key == _anchorPath);
       final to = all.indexWhere((it) => it.key == item.key);
       if (from >= 0 && to >= 0) {
@@ -1684,7 +1688,8 @@ Widget _buildAdvancedToggle() {
   }
 
   void _toggleSelectAll() {
-    final all = _cachedDisplayItems ?? const <_DisplayItem>[];
+    final all =
+        _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
     final selectable = all
         .where((it) => !it.key.startsWith('__loading__') &&
             !it.key.startsWith('__error__'))
@@ -2351,7 +2356,7 @@ void _jumpToTop() {
   _itemScrollController.jumpTo(index: 0);
 }
   void _scrollToPath(String path) {
-    final allItems = _cachedDisplayItems ?? const <_DisplayItem>[];
+    final allItems = _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
     final index = allItems.indexWhere((it) => it.key == path);
     if (index < 0) return;
 
@@ -2409,7 +2414,20 @@ void _jumpToTop() {
 
 void _onFilterTextChanged(String q) {
   _filterTaskId++;
-  setState(() {});
+  setState(() {
+    // 过滤条件变了，屏幕上看得见的项也跟着变了。
+    // 把已经不在可见列表里的选中项清掉，避免"看不见却选着"
+    // 导致数量对不上、删/移动/复制时误伤隐藏文件。
+    if (ref.read(searchBoxModeProvider) == SearchBoxMode.filter) {
+      final visible = _computeVisibleItems(_buildDisplayItems());
+      final visibleKeys = visible.map((it) => it.key).toSet();
+      _selectedPaths.removeWhere((k) => !visibleKeys.contains(k));
+      if (_selectedPaths.isEmpty) {
+        _selectionMode = false;
+        _anchorPath = null;
+      }
+    }
+  });
 }
 
 List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
@@ -3533,7 +3551,7 @@ Future<void> _showDirInfoDialog() async {
                                   contentPadding: EdgeInsets.zero,
                                   leading: Icon(
                                     Icons.folder,
-                                    color: cs.onSurfaceVariant,
+                                    color: cs.primary,
                                   ),
                                   title: Text(
                                     p,
@@ -4664,7 +4682,8 @@ case 'favorites':
   }
 
   PreferredSizeWidget _buildSelectionAppBar() {
-    final all = _cachedDisplayItems ?? const <_DisplayItem>[];
+    final all =
+        _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
     final selectable = all
         .where((it) => !it.key.startsWith('__loading__') &&
             !it.key.startsWith('__error__'))
@@ -6009,7 +6028,7 @@ return Listener(
     margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
     decoration: BoxDecoration(
       color: selected
-          ? colorScheme.primary.withValues(alpha: 0.08)
+          ? colorScheme.primary.withValues(alpha: 0.14)
           : null,
       borderRadius: BorderRadius.circular(10),
     ),
@@ -6116,7 +6135,7 @@ return Listener(
     margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
     decoration: BoxDecoration(
       color: selected
-          ? colorScheme.primary.withValues(alpha: 0.08)
+          ? colorScheme.primary.withValues(alpha: 0.14)
           : null,
       borderRadius: BorderRadius.circular(10),
     ),
@@ -6313,7 +6332,7 @@ return Listener(
           // 背景只保留选中态，和列表模式一致；
           // 文本/二进制靠图标颜色区分，灰底属于隐式规则。
           color: selected
-              ? colorScheme.primary.withValues(alpha: 0.08)
+              ? colorScheme.primary.withValues(alpha: 0.14)
               : null,
         ),
         foregroundDecoration: BoxDecoration(
@@ -6494,7 +6513,7 @@ return Listener(
         margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
           color: selected
-              ? colorScheme.primary.withValues(alpha: 0.08)
+              ? colorScheme.primary.withValues(alpha: 0.14)
               : null,
           borderRadius: BorderRadius.circular(10),
         ),
@@ -7060,10 +7079,12 @@ String _normalizePath(String path) {
                                       ),
                                       InkWell(
                                         onTap: () => _toggle(d.path),
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(4),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(4),
                                           child: Icon(Icons.folder,
-                                              color: Colors.amber),
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary),
                                         ),
                                       ),
                                     ],
