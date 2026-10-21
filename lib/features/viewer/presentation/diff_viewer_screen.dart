@@ -3323,88 +3323,114 @@ void _toast(String msg) {
           if (diffBlocks < 6) _buildFewDiffsBanner(diffBlocks),
           if (_showFind) _buildFindBar(),
 
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final order = ref.watch(viewModeOrderProvider);
-                final tabFlex = {
-                  ViewMode.diffOnly: 2.4,
-                  ViewMode.diffOnlyPlain: 2.4,
-                  ViewMode.grouped: 2.4,
-                  ViewMode.merged: 2,
-                  ViewMode.sideBySide: 2,
-                };
-                const totalFlex = 11.2;
+          Container(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final order = ref.watch(viewModeOrderProvider);
+                  final tabFlex = {
+                    ViewMode.diffOnly: 2.4,
+                    ViewMode.diffOnlyPlain: 2.4,
+                    ViewMode.grouped: 2.4,
+                    ViewMode.merged: 2,
+                    ViewMode.sideBySide: 2,
+                  };
+                  const totalFlex = 11.2;
 
-                const double unitMin = 52.0;
-                final unitW = (constraints.maxWidth / totalFlex)
-                    .clamp(unitMin, double.infinity);
-                final totalW = unitW * totalFlex;
-                final needsScroll = totalW > constraints.maxWidth + 0.5;
+                  const double unitMin = 52.0;
+                  final unitW = (constraints.maxWidth / totalFlex)
+                      .clamp(unitMin, double.infinity);
+                  final totalW = unitW * totalFlex;
+                  final needsScroll = totalW > constraints.maxWidth + 0.5;
+                  final toolbarVisible = ref.watch(toolbarVisibleProvider);
+                  final cs = Theme.of(context).colorScheme;
 
-                final tabsRow = SizedBox(
-                  width: totalW,
-                  height: 38,
-                  child: Row(
-                    children: [
-                      for (final m in order)
-                        SizedBox(
-                          key: _tabKeys[m], // 用于自动滚到高亮
-                          width: unitW * tabFlex[m]!,
-                          child: _viewChip(
-                            label: _tabLabel(m),
-                            value: m,
-                            current: viewMode,
-                            onLongPress: m == ViewMode.grouped
-                                ? _showGroupedContextMenu
-                                : null,
-                            trailingIcon: m == ViewMode.grouped
-                                ? Icons.settings_outlined
-                                : null,
-                            onTrailingTap: m == ViewMode.grouped
-                                ? _showGroupedContextMenu
-                                : null,
+                  final tabsRow = SizedBox(
+                    width: totalW,
+                    height: 38,
+                    child: Row(
+                      children: [
+                        for (final m in order)
+                          SizedBox(
+                            key: _tabKeys[m], // 用于自动滚到高亮
+                            width: unitW * tabFlex[m]!,
+                            child: _viewChip(
+                              label: _tabLabel(m),
+                              value: m,
+                              current: viewMode,
+                              onLongPress: m == ViewMode.grouped
+                                  ? _showGroupedContextMenu
+                                  : null,
+                              trailingIcon: m == ViewMode.grouped
+                                  ? Icons.settings_outlined
+                                  : null,
+                              onTrailingTap: m == ViewMode.grouped
+                                  ? _showGroupedContextMenu
+                                  : null,
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
-                );
-
-                if (!needsScroll) return tabsRow;
-
-                return Row(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: _tabScrollController,
-                        scrollDirection: Axis.horizontal,
-                        child: tabsRow,
-                      ),
+                      ],
                     ),
-                    if (!_tabAtEnd)
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _scrollTabsToEnd,
-                        child: Container(
-                          width: 24,
-                          height: 38,
-                          alignment: Alignment.center,
-                          color: Theme.of(context).colorScheme.surface,
-                          child: Icon(
-                            Icons.chevron_right,
-                            size: 20,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+                  );
+
+                  final expandBtn = TextButton(
+                    onPressed: () =>
+                        ref.read(toolbarVisibleProvider.notifier).update(true),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      '展开',
+                      style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                    ),
+                  );
+
+                  if (!needsScroll)
+                    return Row(
+                      children: [
+                        Expanded(child: tabsRow),
+                        if (!toolbarVisible) expandBtn,
+                      ],
+                    );
+
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          controller: _tabScrollController,
+                          scrollDirection: Axis.horizontal,
+                          child: tabsRow,
                         ),
                       ),
-                  ],
-                );
-              },
+                      if (!_tabAtEnd)
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _scrollTabsToEnd,
+                          child: Container(
+                            width: 24,
+                            height: 38,
+                            alignment: Alignment.center,
+                            color: cs.surfaceContainerLow,
+                            child: Icon(
+                              Icons.chevron_right,
+                              size: 20,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      if (!toolbarVisible) expandBtn,
+                    ],
+                  );
+                },
+              ),
             ),
           ),
 
-          _buildToolbar(),
+          if (ref.watch(toolbarVisibleProvider)) _buildToolbar(),
           if (_processing) _buildProcessingBanner(),
                    Expanded(
               child: showLoadingOverlay
@@ -3530,15 +3556,7 @@ void _onFloatingPageUpTap() {
 
     return Container(
       height: 42,
-      decoration: BoxDecoration(
-        color: s.surface,
-        border: Border(
-          bottom: BorderSide(
-            color: s.outlineVariant,
-            width: 0.5,
-          ),
-        ),
-      ),
+      color: s.surfaceContainerLow,
       child: Row(
         children: [
           Expanded(
@@ -3614,6 +3632,19 @@ void _onFloatingPageUpTap() {
               tooltip: '按钮排序、样式更改、删除',
               visualDensity: VisualDensity.compact,
               onPressed: _showToolbarOrderDialog,
+            ),
+          ),
+          TextButton(
+            onPressed: () =>
+                ref.read(toolbarVisibleProvider.notifier).update(false),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              '折叠',
+              style: TextStyle(fontSize: 11, color: s.onSurfaceVariant),
             ),
           ),
         ],
