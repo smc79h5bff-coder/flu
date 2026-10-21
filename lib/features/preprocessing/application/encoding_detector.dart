@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:charset/charset.dart';
+import 'package:charset/charset.dart' hide gbk;
 import 'package:enough_convert/enough_convert.dart' hide gbk;
-import 'package:gbk_codec/gbk_codec.dart';
+import 'package:gbk_codec/gbk_codec.dart' show gbk;
 
 import '../domain/encoding_type.dart';
 import '../../reader/reader_load_log.dart';
