@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:charset/charset.dart' show gbk, shiftJis;
-import 'package:gbk_codec/gbk_codec.dart' show gbk as gbkCodecGbk;   // ← 新增
+import 'package:gbk_codec/gbk_codec.dart' as gbkCodec;   // ← 新增
 import '../domain/encoding_type.dart';
 import '../../reader/reader_load_log.dart';
 
@@ -319,19 +319,19 @@ class EncodingDetector {
     }
   }
 static String _decodeGbkSafe(Uint8List bytes) {
-  // 1. 先试 charset 的 gbk
+  // 1. charset 的 gbk
   try {
     final r = gbk.decode(bytes);
     if (r.isNotEmpty) return r;
   } catch (_) {}
 
-  // 2. 回退 gbk_codec 的 gbk（对扩展字符可能更全）
+  // 2. gbk_codec 的 gbk（回退）
   try {
-    final r = gbkCodecGbk.decode(bytes);
+    final r = gbkCodec.gbk.decode(bytes);   // ← 改成 gbkCodec.gbk
     if (r.isNotEmpty) return r;
   } catch (_) {}
 
-  // 3. 最后 utf8 容错
+  // 3. utf8 容错
   return utf8.decode(bytes, allowMalformed: true);
 }
   static String _decodeLegacy({
