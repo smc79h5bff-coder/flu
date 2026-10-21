@@ -334,10 +334,8 @@ class EncodingDetector {
           return utf8.decode(bytes, allowMalformed: true);
       }
     } catch (_) {
-      // 任何第三方解码器对非法字节都可能抛 FormatException；这里逐字节
-      // 原样输出码点，保证绝不闪退（保留原始字节意图）。
-      return String.fromCharCodes(bytes);
-    }
+  return utf8.decode(bytes, allowMalformed: true);   // 产生 � 替换符
+}
   }
 
   // ==================== 原有启发式（保持原样） ====================
