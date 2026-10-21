@@ -247,6 +247,7 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                 ],
               ),
               _colorRow(
+                context: context,
                 label: '轨道颜色',
                 color: trackColor,
                 opacity: trackOpacity,
@@ -258,6 +259,7 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                     .update(v),
               ),
               _colorRow(
+                context: context,
                 label: '滑块颜色',
                 color: thumbColor,
                 opacity: thumbOpacity,
@@ -387,6 +389,7 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _pageButtonPanel(
+                context: context,
                 ref: ref,
                 label: '上翻页',
                 icon: Icons.keyboard_arrow_up,
@@ -407,6 +410,7 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
               ),
               const SizedBox(height: 8),
               _pageButtonPanel(
+                context: context,
                 ref: ref,
                 label: '下翻页',
                 icon: Icons.keyboard_arrow_down,
@@ -433,6 +437,7 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
   }
 
   Widget _pageButtonPanel({
+    required BuildContext context,
     required WidgetRef ref,
     required String label,
     required IconData icon,
@@ -479,6 +484,7 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
           if (enabled) ...[
             const SizedBox(height: 4),
             _colorRow(
+              context: context,
               label: '颜色',
               color: color,
               opacity: opacity,
@@ -500,10 +506,12 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
                     onChanged: (v) => ref.read(sizeNotifier).update(v),
                   ),
                 ),
-                Text('${size.round()}',
-                    style: const TextStyle(fontSize: 12),
-                    width: 32,
-                    textAlign: TextAlign.right),
+                SizedBox(
+                  width: 32,
+                  child: Text('${size.round()}',
+                      style: const TextStyle(fontSize: 12),
+                      textAlign: TextAlign.right),
+                ),
               ],
             ),
             Row(
@@ -744,57 +752,54 @@ class _SwitchRow extends StatelessWidget {
 
 /// 一行颜色控件：标签 + 色块 + 透明度滑条
 Widget _colorRow({
+  required BuildContext context,
   required String label,
   required Color color,
   required double opacity,
   required ValueChanged<Color> onColorChanged,
   required ValueChanged<double> onOpacityChanged,
 }) {
-  return ConsumerStatefulBuilder(
-    builder: (context, ref, _) {
-      return Row(
-        children: [
-          SizedBox(
-            width: 60,
-            child: Text(label, style: const TextStyle(fontSize: 12)),
+  return Row(
+    children: [
+      SizedBox(
+        width: 60,
+        child: Text(label, style: const TextStyle(fontSize: 12)),
+      ),
+      GestureDetector(
+        onTap: () async {
+          final picked = await pickColorDialog(context, color);
+          if (picked != null) onColorChanged(picked);
+        },
+        child: Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: opacity),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: Colors.grey),
           ),
-          GestureDetector(
-            onTap: () async {
-              final picked = await pickColorDialog(context, color);
-              if (picked != null) onColorChanged(picked);
-            },
-            child: Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: opacity),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.grey),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Slider(
-              min: 0,
-              max: 1,
-              divisions: 100,
-              value: opacity.clamp(0, 1),
-              label: '${(opacity * 100).round()}%',
-              onChanged: onOpacityChanged,
-            ),
-          ),
-          SizedBox(
-            width: 36,
-            child: Text(
-              '${(opacity * 100).round()}%',
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 11),
-            ),
-          ),
-        ],
-      );
-    },
+        ),
+      ),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Slider(
+          min: 0,
+          max: 1,
+          divisions: 100,
+          value: opacity.clamp(0, 1),
+          label: '${(opacity * 100).round()}%',
+          onChanged: onOpacityChanged,
+        ),
+      ),
+      SizedBox(
+        width: 36,
+        child: Text(
+          '${(opacity * 100).round()}%',
+          textAlign: TextAlign.right,
+          style: const TextStyle(fontSize: 11),
+        ),
+      ),
+    ],
   );
 }
 
