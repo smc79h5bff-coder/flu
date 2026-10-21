@@ -1316,7 +1316,8 @@ try {
   List<String> _snapshotVisiblePaths() {
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return const <String>[];
-    final allItems = _cachedDisplayItems;
+    // 用 _visibleItems：和 ScrollablePositionedList 的 itemBuilder 一致
+    final allItems = _visibleItems ?? _cachedDisplayItems;
     if (allItems == null || allItems.isEmpty) return const <String>[];
 
     final sorted = positions.toList()
@@ -1340,7 +1341,8 @@ try {
 
   void _restoreScrollAnchor(List<String> anchorKeys) {
     if (anchorKeys.isEmpty) return;
-    final allItems = _cachedDisplayItems;
+    // 用 _visibleItems：和 ScrollablePositionedList 的 itemBuilder 一致
+    final allItems = _visibleItems ?? _cachedDisplayItems;
     if (allItems == null || allItems.isEmpty) return;
 
     var targetIdx = -1;
@@ -1736,7 +1738,18 @@ Widget _buildAdvancedToggle() {
       return;
     }
     if (_anchorPath != null) {
-      final all = _cachedDisplayItems ?? const <_DisplayItem>[];
+      // 区间选择：必须基于当前可见列表，不能用完整目录缓存
+      final List<_DisplayItem> all;
+      if (_searchActive) {
+        all = _cachedDisplayItems ?? const <_DisplayItem>[];
+      } else if (ref.read(searchBoxModeProvider) == SearchBoxMode.filter &&
+          (_searchCtrl.text.trim().isNotEmpty || _hasActiveConditions)) {
+        all = _visibleItems;
+      } else {
+        all = (_cachedDisplayItems ?? const <_DisplayItem>[])
+            .where((it) => it.depth == 0)
+            .toList();
+      }
       final from = all.indexWhere((it) => it.key == _anchorPath);
       final to = all.indexWhere((it) => it.key == item.key);
       if (from >= 0 && to >= 0) {
@@ -1758,12 +1771,33 @@ Widget _buildAdvancedToggle() {
   }
 
   void _toggleSelectAll() {
-    final all = _cachedDisplayItems ?? const <_DisplayItem>[];
-    final selectable = all
-        .where((it) => !it.key.startsWith('__loading__') &&
-            !it.key.startsWith('__error__'))
-        .map((it) => it.key)
-        .toList();
+    // 必须基于当前可见条目列表，不能用完整目录缓存
+    final List<String> selectable;
+    if (_searchActive) {
+      // 搜索结果
+      selectable = _searchResults
+          .map((h) => h.path)
+          .toList();
+    } else if (ref.read(searchBoxModeProvider) == SearchBoxMode.filter &&
+        (_searchCtrl.text.trim().isNotEmpty || _hasActiveConditions)) {
+      // 过滤模式：用当前可见条目（已合并深层过滤结果）
+      selectable = _visibleItems
+          .where((it) =>
+              !it.key.startsWith('__loading__') &&
+              !it.key.startsWith('__error__'))
+          .map((it) => it.key)
+          .toList();
+    } else {
+      // 普通浏览：用顶层直接子项
+      selectable = (_cachedDisplayItems ?? const <_DisplayItem>[])
+          .where((it) =>
+              !it.key.startsWith('__loading__') &&
+              !it.key.startsWith('__error__') &&
+              it.depth == 0)
+          .map((it) => it.key)
+          .toList();
+    }
+
     final allSelected = selectable.isNotEmpty &&
         selectable.every((k) => _selectedPaths.contains(k));
     setState(() {
@@ -1773,7 +1807,9 @@ Widget _buildAdvancedToggle() {
         _anchorPath = null;
       } else {
         _selectionMode = true;
-        _selectedPaths.addAll(selectable);
+        _selectedPaths
+          ..clear()
+          ..addAll(selectable);
       }
     });
   }
@@ -2425,7 +2461,7 @@ void _jumpToTop() {
   _itemScrollController.jumpTo(index: 0);
 }
   void _scrollToPath(String path) {
-    final allItems = _cachedDisplayItems ?? const <_DisplayItem>[];
+    final allItems = _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
     final index = allItems.indexWhere((it) => it.key == path);
     if (index < 0) return;
 
@@ -2578,6 +2614,7 @@ Future<void> _scanFilterDepth(
 
   if (!mounted || taskId != _filterTaskId) return;
   setState(() => _filterDeepResults = List.from(out));
+  _toast('过滤完成 · ${out.length} 个结果', durationMs: 800);
 }
 
 List<_DisplayItem> _computeVisibleItems(List<_DisplayItem> all) {
@@ -2969,7 +3006,9 @@ Future<void> _startSearch() async {
   // ==================== 对比 / MD5 / 属性 / 复制路径 ====================
 
   List<_DisplayItem> _resolveSelectedItems() {
-    final items = _cachedDisplayItems ?? const <_DisplayItem>[];
+    // 必须基于当前可见列表，不能只看完整目录缓存——过滤模式下
+    // 深层扫描结果在 _visibleItems 里，不在 _cachedDisplayItems 里
+    final items = _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
     final out = <_DisplayItem>[];
     for (final key in _selectedPaths) {
       final it = items.firstWhere(
@@ -3825,9 +3864,9 @@ Future<void> _showDirInfoDialog() async {
 
   // ==================== 文件操作 ====================
 
-  void _toast(String msg) {
+  void _toast(String msg, {int? durationMs}) {
   if (!mounted) return;
-  final ms = msg.length <= 10 ? 1500 : 2000;
+  final ms = durationMs ?? (msg.length <= 10 ? 1500 : 2000);
 
   // 连续调用时只留最新一条
   _toastEntry?.remove();
@@ -5014,14 +5053,8 @@ const PopupMenuItem<String>(
             const PopupMenuDivider(),
             PopupMenuItem<String>(
             value: 'fileBookmarks',
-            child: Row(
-              children: [
-                const Icon(Icons.bookmark),
-                const SizedBox(width: 10),
-                Text(
-                    '文件收藏 (${ref.read(fileBookmarksProvider).length})'),
-              ],
-            ),
+            child: Text(
+                '已收藏的文件 (${ref.read(fileBookmarksProvider).length})'),
           ),
           const PopupMenuDivider(),
           const PopupMenuItem<String>(
@@ -5168,7 +5201,7 @@ const PopupMenuItem<String>(
       if (_pendingJumpPath != p) return;
       _pendingJumpPath = null;
 
-      final allItems = _cachedDisplayItems ?? const <_DisplayItem>[];
+      final allItems = _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
       final index = allItems.indexWhere((it) => it.key == p);
       if (index < 0) {
         _toast('文件已不存在，已跳到所在目录');
@@ -5237,7 +5270,7 @@ const PopupMenuItem<String>(
 
     // 同目录：直接滚，天然兜底
     if (parent == _currentPath) {
-      final allItems = _cachedDisplayItems ?? const <_DisplayItem>[];
+      final allItems = _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
       final index = allItems.indexWhere((it) => it.key == path);
       if (index < 0) {
         _toast('文件已不存在');
@@ -5323,12 +5356,27 @@ const PopupMenuItem<String>(
   }
 
   PreferredSizeWidget _buildSelectionAppBar() {
-    final all = _cachedDisplayItems ?? const <_DisplayItem>[];
-    final selectable = all
-        .where((it) => !it.key.startsWith('__loading__') &&
-            !it.key.startsWith('__error__'))
-        .map((it) => it.key)
-        .toList();
+    // 必须基于当前可见条目列表，不能用完整目录缓存
+    final List<String> selectable;
+    if (_searchActive) {
+      selectable = _searchResults.map((h) => h.path).toList();
+    } else if (ref.read(searchBoxModeProvider) == SearchBoxMode.filter &&
+        (_searchCtrl.text.trim().isNotEmpty || _hasActiveConditions)) {
+      selectable = (_visibleItems ?? const <_DisplayItem>[])
+          .where((it) =>
+              !it.key.startsWith('__loading__') &&
+              !it.key.startsWith('__error__'))
+          .map((it) => it.key)
+          .toList();
+    } else {
+      selectable = (_cachedDisplayItems ?? const <_DisplayItem>[])
+          .where((it) =>
+              !it.key.startsWith('__loading__') &&
+              !it.key.startsWith('__error__') &&
+              it.depth == 0)
+          .map((it) => it.key)
+          .toList();
+    }
     final allSelected = selectable.isNotEmpty &&
         selectable.every((k) => _selectedPaths.contains(k));
     return AppBar(
@@ -5935,86 +5983,58 @@ modeRow(
 
                 const _SearchSettingsSectionTitle('搜索结果排序'),
 for (final f in SortField.values)
-  RadioListTile<SortField>(
-    dense: true,
-    contentPadding: EdgeInsets.zero,
-	  title: Text(
-  _sortLabel(f),
-  style: TextStyle(
-    fontSize: searchSortField == f ? 15 : 14,
-    color: searchSortField == f
-        ? Colors.black
-        : Colors.grey,
-    fontWeight: searchSortField == f
-        ? FontWeight.bold
-        : FontWeight.normal,
-  ),
-),
-value: f,
-groupValue: searchSortField,
-activeColor: Colors.black,
-    onChanged: (v) {
-      if (v == null) return;
-      ref
-          .read(searchSortFieldProvider.notifier)
-          .update(v);
-      _resortSearchResults();
-    },
+  Row(
+    children: [
+      Expanded(
+        child: RadioListTile<SortField>(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text(
+            _sortLabel(f),
+            style: TextStyle(
+              fontSize: searchSortField == f ? 15 : 14,
+              color: searchSortField == f
+                  ? Colors.black
+                  : Colors.grey,
+              fontWeight: searchSortField == f
+                  ? FontWeight.bold
+                  : FontWeight.normal,
+            ),
+          ),
+          value: f,
+          groupValue: searchSortField,
+          activeColor: Colors.black,
+          onChanged: (v) {
+            if (v == null) return;
+            ref
+                .read(searchSortFieldProvider.notifier)
+                .update(v);
+            _resortSearchResults();
+          },
+        ),
+      ),
+      if (searchSortField == f) ...[
+        IconButton(
+          iconSize: 20,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          icon: Icon(
+            searchSortAsc ? Icons.arrow_upward : Icons.arrow_downward,
+            color: Colors.black,
+          ),
+          tooltip: searchSortAsc ? '升序' : '降序',
+          onPressed: () {
+            ref
+                .read(searchSortAscProvider.notifier)
+                .update(!searchSortAsc);
+            _resortSearchResults();
+          },
+        ),
+        const SizedBox(width: 4),
+      ],
+    ],
   ),
                  const Divider(height: 1),
-RadioListTile<bool>(
-  dense: true,
-  contentPadding: EdgeInsets.zero,
-  title: Text(
-    '升序',
-    style: TextStyle(
-      fontSize: searchSortAsc ? 15 : 14,
-      color: searchSortAsc
-          ? Colors.black
-          : Colors.grey,
-      fontWeight: searchSortAsc
-          ? FontWeight.bold
-          : FontWeight.normal,
-    ),
-  ),
-  value: true,
-  groupValue: searchSortAsc,
-  activeColor: Colors.black,
-  onChanged: (_) {
-    ref
-        .read(searchSortAscProvider.notifier)
-        .update(true);
-    _resortSearchResults();
-  },
-),
-RadioListTile<bool>(
-  dense: true,
-  contentPadding: EdgeInsets.zero,
-  title: Text(
-    '降序',
-    style: TextStyle(
-      fontSize: !searchSortAsc ? 15 : 14,
-      color: !searchSortAsc
-          ? Colors.black
-          : Colors.grey,
-      fontWeight: !searchSortAsc
-          ? FontWeight.bold
-          : FontWeight.normal,
-    ),
-  ),
-  value: false,
-  groupValue: searchSortAsc,
-  activeColor: Colors.black,
-  onChanged: (_) {
-    ref
-        .read(searchSortAscProvider.notifier)
-        .update(false);
-    _resortSearchResults();
-  },
-),
-                    
-                    
-                  ],
                 ],
               ),
             ),
@@ -7207,7 +7227,7 @@ return _wrapWithFlash(
     final fontName = ref.watch(browserFontListNameProvider);
     final fontMeta = ref.watch(browserFontListMetaProvider);
 
-    final items = _cachedDisplayItems ?? const <_DisplayItem>[];
+    final items = _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
 
     return ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
@@ -8763,6 +8783,66 @@ class _FileBookmarksDialog extends ConsumerStatefulWidget {
 
 class _FileBookmarksDialogState
     extends ConsumerState<_FileBookmarksDialog> {
+  bool _selectionMode = false;
+  final Set<String> _selected = <String>{};
+
+  void _toggleSelect(String path) {
+    setState(() {
+      if (_selected.contains(path)) {
+        _selected.remove(path);
+      } else {
+        _selected.add(path);
+      }
+    });
+  }
+
+  void _toggleSelectAll() {
+    final bookmarks = ref.read(fileBookmarksProvider);
+    setState(() {
+      if (_selected.length == bookmarks.length) {
+        _selected.clear();
+      } else {
+        _selected.addAll(bookmarks);
+      }
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selected.clear();
+    });
+  }
+
+  Future<void> _batchDelete() async {
+    if (_selected.isEmpty) return;
+    final doDelete = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定要从收藏里移除 ${_selected.length} 项吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (doDelete != true || !mounted) return;
+    for (final p in _selected) {
+      ref.read(fileBookmarksProvider.notifier).remove(p);
+    }
+    setState(() {
+      _selectionMode = false;
+      _selected.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final bookmarks = ref.watch(fileBookmarksProvider);
@@ -8775,49 +8855,78 @@ class _FileBookmarksDialogState
       actionsPadding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
       title: Row(
         children: [
-          Expanded(child: Text('文件收藏 (${bookmarks.length})')),
-          IconButton(
-            icon: const Icon(Icons.tune, size: 20),
-            tooltip: '路径显示模式',
-            onPressed: () {
-              final current = ref.read(browserBookmarkDisplayModeProvider);
-              String labelFor(BrowserBookmarkDisplayMode m) {
-                switch (m) {
-                  case BrowserBookmarkDisplayMode.filenameOnly:
-                    return '只显示文件名';
-                  case BrowserBookmarkDisplayMode.oneLinePath:
-                    return '单行路径（截断）';
-                  case BrowserBookmarkDisplayMode.fullPath:
-                    return '完整路径（换行）';
-                }
-              }
-
-              showDialog<void>(
-                context: context,
-                builder: (c) => SimpleDialog(
-                  title: const Text('路径显示模式'),
-                  children: BrowserBookmarkDisplayMode.values.map((m) {
-                    final sel = m == current;
-                    return SimpleDialogOption(
-                      onPressed: () {
-                        ref
-                            .read(browserBookmarkDisplayModeProvider.notifier)
-                            .update(m);
-                        Navigator.pop(c);
-                      },
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(labelFor(m))),
-                          if (sel)
-                            const Icon(Icons.check, size: 18),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
-              );
-            },
+          Expanded(
+            child: Text(
+              _selectionMode
+                  ? '已选中 ${_selected.length}/${bookmarks.length}'
+                  : '文件收藏 (${bookmarks.length})',
+            ),
           ),
+          if (_selectionMode) ...[
+            IconButton(
+              icon: const Icon(Icons.checklist),
+              tooltip: '全选/反全选',
+              onPressed: _toggleSelectAll,
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: '批量删除',
+              onPressed: _selected.isEmpty ? null : _batchDelete,
+            ),
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: '退出多选',
+              onPressed: _exitSelectionMode,
+            ),
+          ] else ...[
+            IconButton(
+              icon: const Icon(Icons.view_settings, size: 20),
+              tooltip: '路径显示模式',
+              onPressed: () {
+                final current = ref.read(browserBookmarkDisplayModeProvider);
+                String labelFor(BrowserBookmarkDisplayMode m) {
+                  switch (m) {
+                    case BrowserBookmarkDisplayMode.filenameOnly:
+                      return '只显示文件名';
+                    case BrowserBookmarkDisplayMode.oneLinePath:
+                      return '单行路径（截断）';
+                    case BrowserBookmarkDisplayMode.fullPath:
+                      return '完整路径（换行）';
+                  }
+                }
+
+                showDialog<void>(
+                  context: context,
+                  builder: (c) => SimpleDialog(
+                    title: const Text('路径显示模式'),
+                    children: BrowserBookmarkDisplayMode.values.map((m) {
+                      final sel = m == current;
+                      return SimpleDialogOption(
+                        onPressed: () {
+                          ref
+                              .read(browserBookmarkDisplayModeProvider.notifier)
+                              .update(m);
+                          Navigator.pop(c);
+                        },
+                        child: Row(
+                          children: [
+                            Expanded(child: Text(labelFor(m))),
+                            if (sel)
+                              const Icon(Icons.check, size: 18),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.check_box_outlined),
+              tooltip: '批量操作',
+              onPressed: () => setState(() => _selectionMode = true),
+            ),
+          ],
         ],
       ),
       content: SizedBox(
@@ -8850,46 +8959,67 @@ class _FileBookmarksDialogState
                         style: const TextStyle(fontSize: 11),
                       );
                   }
+                  final selected = _selected.contains(p);
                   return ListTile(
                     dense: true,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 8),
+                    minLeadingWidth: 0,
+                    minVerticalPadding: 2,
+                    contentPadding: EdgeInsets.zero,
+                    leading: _selectionMode
+                        ? Checkbox(
+                            value: selected,
+                            onChanged: (_) => _toggleSelect(p),
+                            visualDensity: VisualDensity.compact,
+                          )
+                        : null,
                     title: Text(
                       name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: exists ? null : Colors.grey,
                       ),
                     ),
                     subtitle: subtitle,
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      tooltip: '移除收藏',
-                      onPressed: () {
-                        ref
-                            .read(fileBookmarksProvider.notifier)
-                            .remove(p);
-                      },
-                    ),
-                    onTap: exists
-                        ? () => Navigator.pop(ctx, p)
-                        : () {
-                            ScaffoldMessenger.of(ctx).showSnackBar(
-                              const SnackBar(
-                                content: Text('文件已不存在'),
-                                duration: Duration(seconds: 1),
-                              ),
-                            );
-                          },
+                    selected: _selectionMode && selected,
+                    tileColor: _selectionMode && selected
+                        ? Colors.blue.shade50
+                        : null,
+                    trailing: _selectionMode
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close, size: 18),
+                            tooltip: '移除收藏',
+                            onPressed: () {
+                              ref
+                                  .read(fileBookmarksProvider.notifier)
+                                  .remove(p);
+                            },
+                          ),
+                    onTap: _selectionMode
+                        ? () => _toggleSelect(p)
+                        : exists
+                            ? () => Navigator.pop(ctx, p)
+                            : () {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('文件已不存在'),
+                                    duration: Duration(seconds: 1),
+                                  ),
+                                );
+                              },
                   );
                 },
               ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
+          onPressed: () {
+            if (_selectionMode) {
+              _exitSelectionMode();
+            } else {
+              Navigator.pop(context);
+            }
+          },
+          child: Text(_selectionMode ? '取消' : '关闭'),
         ),
       ],
     );
