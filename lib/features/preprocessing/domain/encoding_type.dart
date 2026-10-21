@@ -7,9 +7,11 @@ enum EncodingType {
   utf16be,   // ← 新增
   gbk,
   gb18030,
+  gb2312,
   shiftJis,
   ascii,
   binary,
+  big5,
   unknown,
 }
 
@@ -21,9 +23,11 @@ extension EncodingTypeX on EncodingType {
         EncodingType.utf16be => 'UTF-16 BE',   // ← 新增
         EncodingType.gbk => 'GBK',
         EncodingType.gb18030 => 'GB18030',
+      EncodingType.gb2312 => 'GB2312',     // ← 新增
         EncodingType.shiftJis => 'Shift-JIS',
         EncodingType.ascii => 'ASCII',
         EncodingType.binary => 'Binary',
+              EncodingType.big5 => 'Big5',
         EncodingType.unknown => 'Unknown',
       };
 
