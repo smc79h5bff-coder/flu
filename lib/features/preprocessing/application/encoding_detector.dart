@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:charset/charset.dart' hide gbk;
-import 'package:enough_convert/enough_convert.dart' hide gbk;
 import 'package:gbk_codec/gbk_codec.dart' show gbk;
 
 import '../domain/encoding_type.dart';
@@ -12,7 +11,8 @@ import '../../reader/reader_load_log.dart';
 ///
 /// 优先级：
 ///   UTF-8 BOM → UTF-16 BOM → UTF-16 无 BOM 启发式
-///   → UTF-8 严格 → GBK → Big5 → Shift-JIS → unknown
+///   → UTF-8 严格 → 多字节候选（GBK / Shift-JIS 按解码可读性择优）
+///   → unknown
 class EncodingDetector {
   const EncodingDetector._();
 
@@ -87,43 +87,38 @@ class EncodingDetector {
       return isAscii ? EncodingType.ascii : EncodingType.utf8;
     }
 
-    // 4. GB-family heuristic
-    //    顺序：先判 GBK（宽松），再判 Big5/SJIS（严格）。
-    //    _looksLikeGbk 要求 50%+ 高位字节形成合法 lead+trail 双字节对，
-    //    纯 Latin-1/ANSI 西文文件的高位字节都是孤立单字节，不会过这个门槛。
-    //    因此只要 looksGbk=true 且 Big5/SJIS 也不像，就判 GB-family。
-    final tGbk = DateTime.now();
+    // 4. 多字节编码候选：先按字节结构筛选，再按"解码可读性"打分择优。
+    //
+    //    注：已移除 Big5 支持。GB2312/GBK 的双字节序列 trail 是 0xA1–0xFE，
+    //    恰好全部落在 Big5 的合法范围内，导致 GBK 文本曾被误判为 Big5 并
+    //    显示为"错乱的中文"。本应用只面向简体中文，直接不做 Big5 判别。
+    final tMulti = DateTime.now();
     final looksGbk = _looksLikeGbk(sample);
-    final looksBig5 = looksGbk ? _looksLikeBig5(sample) : false;
-    final looksSjis = (looksGbk && !looksBig5) ? _looksLikeShiftJis(sample) : false;
+    final looksSjis = _looksLikeShiftJis(sample);
+    final candidates = <EncodingType>[
+      if (looksGbk) EncodingType.gbk,
+      if (looksSjis) EncodingType.shiftJis,
+    ];
     log.info(
-        '[Enc] GBK 检查  耗时=${DateTime.now().difference(tGbk).inMilliseconds}ms  looksGbk=$looksGbk  looksBig5=$looksBig5  looksSjis=$looksSjis');
-    if (looksGbk && !looksBig5 && !looksSjis) {
-      log.info(
-          '[Enc] detect → gbk  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-      return EncodingType.gbk;
-    }
+        '[Enc] 多字节候选  耗时=${DateTime.now().difference(tMulti).inMilliseconds}ms  '
+        'looksGbk=$looksGbk  looksSjis=$looksSjis');
 
-    // 5. Big5 heuristic
-    final tBig5 = DateTime.now();
-    final hasBig5 = looksBig5 || _looksLikeBig5(sample);
-    log.info(
-        '[Enc] Big5 检查  耗时=${DateTime.now().difference(tBig5).inMilliseconds}ms  结果=$hasBig5');
-    if (hasBig5) {
+    if (candidates.isNotEmpty) {
+      var best = candidates.first;
+      var bestScore = _plausibilityScore(sample, best);
+      log.info('[Enc] 候选 $best 得分=$bestScore');
+      for (var i = 1; i < candidates.length; i++) {
+        final score = _plausibilityScore(sample, candidates[i]);
+        log.info('[Enc] 候选 ${candidates[i]} 得分=$score');
+        // 严格大于：得分相同时保留靠前的候选（GBK 优先）。
+        if (score > bestScore) {
+          best = candidates[i];
+          bestScore = score;
+        }
+      }
       log.info(
-          '[Enc] detect → big5  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-      return EncodingType.big5;
-    }
-
-    // 6. Shift-JIS heuristic
-    final tSjis = DateTime.now();
-    final hasSjis = looksSjis || _looksLikeShiftJis(sample);
-    log.info(
-        '[Enc] SJIS 检查  耗时=${DateTime.now().difference(tSjis).inMilliseconds}ms  结果=$hasSjis');
-    if (hasSjis) {
-      log.info(
-          '[Enc] detect → shiftJis  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-      return EncodingType.shiftJis;
+          '[Enc] detect → $best  得分=$bestScore  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return best;
     }
 
     log.info(
@@ -149,9 +144,6 @@ class EncodingDetector {
       case EncodingType.gb18030:
         // dart:convert 无 GBK 解码器，使用第三方 gbk_codec 包。
         return gbk.decode(bytes);
-      case EncodingType.big5:
-        // dart:convert 无 Big5 解码器，使用第三方 enough_convert 包。
-        return big5.decode(bytes);
       case EncodingType.shiftJis:
         // dart:convert 无 Shift-JIS 解码器，使用第三方 charset 包。
         return shiftJis.decode(bytes);
@@ -168,7 +160,7 @@ class EncodingDetector {
   /// 分块窗口大小（字节）。用于大文本解码时避免一次性全量处理。
   static const int _decodeChunkSize = 64 * 1024;
 
-  /// 按完整字符边界对齐的分块解码：GBK/Big5/Shift-JIS 都是
+  /// 按完整字符边界对齐的分块解码：GBK/Shift-JIS 都是
   /// `<0x80` 单字节 or `lead(0x80+) + 1 trail` 双字节结构，块尾若切开某个
   /// 双字节字符则把该 lead 字节留到下一块，保证每块解码跨块不乱码。
   ///
@@ -192,7 +184,6 @@ class EncodingDetector {
         return result;
       case EncodingType.gbk:
       case EncodingType.gb18030:
-      case EncodingType.big5:
       case EncodingType.shiftJis:
         // 小文件直接一次性解码，无跨块状态问题（更快且不会闪退）。
         if (bytes.length <= _decodeChunkSize) {
@@ -322,8 +313,6 @@ class EncodingDetector {
       case EncodingType.gbk:
       case EncodingType.gb18030:
         return gbk; // charset 的真双字节 GBK 解码器
-      case EncodingType.big5:
-        return big5;
       case EncodingType.shiftJis:
         return shiftJis;
       default:
@@ -340,8 +329,6 @@ class EncodingDetector {
         case EncodingType.gbk:
         case EncodingType.gb18030:
           return gbk.decode(bytes);
-        case EncodingType.big5:
-          return big5.decode(bytes);
         case EncodingType.shiftJis:
           return shiftJis.decode(bytes);
         default:
@@ -412,35 +399,6 @@ class EncodingDetector {
     return pairs / total >= 0.5;
   }
 
-  /// Heuristic: at least 80% of high bytes form valid Big5 lead/trail pairs
-  /// (lead 0x81–0xFE, trail 0x40–0x7E or 0xA1–0xFE).
-  static bool _looksLikeBig5(Uint8List bytes) {
-    int pairs = 0;
-    int loneHigh = 0;
-    int i = 0;
-    while (i < bytes.length) {
-      final b = bytes[i];
-      if (b < 0x80) {
-        i += 1;
-        continue;
-      }
-      if (b >= 0x81 && b <= 0xFE && i + 1 < bytes.length) {
-        final t = bytes[i + 1];
-        final valid = (t >= 0x40 && t <= 0x7E) || (t >= 0xA1 && t <= 0xFE);
-        if (valid) {
-          pairs += 1;
-          i += 2;
-          continue;
-        }
-      }
-      loneHigh += 1;
-      i += 1;
-    }
-    final total = pairs + loneHigh;
-    if (total == 0) return false;
-    return pairs / total >= 0.8;
-  }
-
   /// Heuristic: at least 80% of high bytes form valid Shift-JIS lead/trail
   /// pairs (lead 0x81–0x9F / 0xE0–0xEF, trail 0x40–0x7E / 0x80–0xFC).
   static bool _looksLikeShiftJis(Uint8List bytes) {
@@ -470,4 +428,57 @@ class EncodingDetector {
     if (total == 0) return false;
     return pairs / total >= 0.8;
   }
+
+  /// 给候选编码的解码结果打"可读性"分。
+  ///
+  /// GBK 与 Shift-JIS 的字节结构可能重叠，必须看解码后的字符分布才能区分：
+  ///   · 常用汉字（简/繁）  +3   —— 正确解码的最强信号
+  ///   · 其他 CJK 汉字      +1   —— 生僻字不加不减
+  ///   · ASCII / 中英文标点  +1
+  ///   · 假名、注音、西里尔、小写变体等 -4
+  /// 错误解码会把常用字解成生僻字，并成片产生假名/变体符号，得分会明显
+  /// 低于正确解码。
+  static int _plausibilityScore(Uint8List bytes, EncodingType encoding) {
+    final String text;
+    try {
+      switch (encoding) {
+        case EncodingType.gbk:
+          text = gbk.decode(bytes);
+          break;
+        case EncodingType.shiftJis:
+          text = shiftJis.decode(bytes);
+          break;
+        default:
+          return -999999;
+      }
+    } catch (_) {
+      // 第三方解码器遇到非法序列可能抛异常，该候选直接淘汰。
+      return -999999;
+    }
+
+    var score = 0;
+    for (final r in text.runes) {
+      if (r < 0x80) {
+        score += 1;
+      } else if (_commonHan.contains(r)) {
+        score += 3;
+      } else if (r >= 0x4E00 && r <= 0x9FFF) {
+        score += 1;
+      } else if ((r >= 0x3000 && r <= 0x303F) ||
+          (r >= 0xFF01 && r <= 0xFF5E) ||
+          (r >= 0x2010 && r <= 0x2027)) {
+        score += 1;
+      } else {
+        score -= 4;
+      }
+    }
+    return score;
+  }
+
+  /// 高频汉字集合（简体 + 繁体），用于 [_plausibilityScore]。
+  static final Set<int> _commonHan =
+      '的一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经十三之进着等部度家电力里如水化高自二理起小物现实加量都两体制机当使点从业本去把性好应开它合还因由其些然前外天政四日那社义事平形相全表间样与关各重新线内数正心反你明看原又么利比或但质气第向道命此变条只没结解问意建月公无系军很情者最立代想已通并提直题党程展五果料象员革位入常文总次品式活设及管特件长求老头基资边流路级少图山统接知较将组见计别她手角期根论运农指几九区强放决西被干做必战先回则任取据处队南给色光门即保治北造百规热领七海口东导器压志世金增争济阶油思术极交受联什认六共权收证改清己美再采转更单风切打白教速花带安场身车例真务具万每目至达走积示议声报斗完类八离华名确才科张信马节话米整空元况今集温传土许步群广石记需段研界拉林律叫且究观越织装影算低持音众书布复容儿须际商非验连断深难近矿千周委素技备半办青省列习响约支般史感劳便团往酸历市克何除消构府称太准精值号率族维划选标写存候毛亲快效斯院查江型眼王按格养易置派层片始却专状育厂京识适属圆包火住调满县局照参红细引听该铁价严'
+      '這們個國為說時對學會來過發後裡經麼現當沒動進還樣開從實無與長機關點業將兩間問應戰頭體見產話內給門兒東聲員論處義幾認條氣題爾別變總電數報結務場計區隊決馬則聽達強難權設記類據邊張該規萬覺術領確傳師觀讓識帶導爭運飛風聯組濟車親極辦議證轉準單羅愛擊備連調質團價黨華級離亞請際約復線斷滿視須寫稱嗎輕農裝廣顯標談圖歷醫專費號盡較語僅隨選紅響雖勢參眾構節維劃敵陳態護興驗責營夠續講終緊黃絕項圍織鬥雙紀採舉殺蘇訴細願錢網熱屬臉職樂剛狀獨彈創錯蘭試腦預誰陽繼驚傷藥適衛險陸習勞財環納歡獲負雲遊龍樹層衝範異漢簡擔靜積餘檢靈協徵揮勝階審堅媽劉讀壓銀買養懷執亂幫歲優鐵稅藝陣腳惡塊頓島戶評寶釋顧貨歐換聞壞討麗監臨艦魚雜誤灣減編測敗夢溫劍漸貴槍樓縣畫遺謝魯慮銷鐘詩趕劇損舊錄葉鄉禮婦歸飯額順輸搖脫補謂療澤滅筆鮮詞聖擇尋廠煙諾倫奧賣載宮陰園謀榮孫頂鎮練爺館礎寧紙諸訓莊絲戲隱訪軟薩夥盤擴蓋億擁楊齊賽虛購揚綠貿畢輪庫跡競棄偉緩潛閃燈針絡純頁傑築鄭貝吳圓殘誠寬擺毀趙麥蔣讚紛違匯幣豐藍獻萊譯奪燒觸課牆襲罰俠廳側韓債慣猶掛獎紹縱訊徹烏瑪鏡煩簽傾鳥轟閉奮慶淚緣儀蟲駐橋嘆糧縮罷徑啟暫償橫憶鬧厲窮碼災膽辯曉勁貧輯賴潤遲輛廢淨兇礦診攝喪憑搶緒蕩綜壯掃礙詳凱顆罵賞貼憂戀嚇勵辭倆'
+          .runes
+          .toSet();
 }
