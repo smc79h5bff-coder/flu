@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:charset/charset.dart' show gbk;
+import 'package:charset/charset.dart' show gbk, shiftJis;
 
 import '../domain/encoding_type.dart';
 import '../../reader/reader_load_log.dart';
