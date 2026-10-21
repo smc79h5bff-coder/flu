@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/storage/pref_keys.dart';
 import '../../../../core/storage/persistent_notifier.dart';
+import '../../../viewer/presentation/providers/diff_viewer_providers.dart'
+    show ColorPrefNotifier;
 
 /// 文件浏览器排序字段。
 enum SortField { name, modified, size }
