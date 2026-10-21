@@ -96,6 +96,10 @@ static const String browserSettingsHelp = 'jianming.browser.settingsHelp';
   /// 收藏的文件（持久化）。
   static const String fileBookmarks = '${_p}browser.fileBookmarks';
 
+  /// 收藏列表弹窗里路径显示模式：filenameOnly / oneLinePath / fullPath。
+  static const String browserBookmarkDisplayMode =
+      '${_p}browser.bookmarkDisplayMode';
+
   /// 搜索框是否收起。false = 展开（默认），true = 收起。
   /// 记住用户上次的选择，重启后恢复。
   static const String browserSearchBarCollapsed =
