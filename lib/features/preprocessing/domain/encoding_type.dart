@@ -1,5 +1,5 @@
 /// Text encoding kind detected by [EncodingDetector].
-/// PRD §2 Module 3.1: UTF-8 / GBK / GB18030 / Big5 / Shift-JIS / UTF-16.
+/// PRD §2 Module 3.1: UTF-8 / GBK / GB18030 / Shift-JIS / UTF-16.
 enum EncodingType {
   utf8,
   utf8bom,
@@ -7,7 +7,6 @@ enum EncodingType {
   utf16be,   // ← 新增
   gbk,
   gb18030,
-  big5,
   shiftJis,
   ascii,
   binary,
@@ -22,7 +21,6 @@ extension EncodingTypeX on EncodingType {
         EncodingType.utf16be => 'UTF-16 BE',   // ← 新增
         EncodingType.gbk => 'GBK',
         EncodingType.gb18030 => 'GB18030',
-        EncodingType.big5 => 'Big5',
         EncodingType.shiftJis => 'Shift-JIS',
         EncodingType.ascii => 'ASCII',
         EncodingType.binary => 'Binary',
