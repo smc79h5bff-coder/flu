@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'shared_preferences_provider.dart';
@@ -166,4 +167,27 @@ class EnumPrefNotifier<T extends Enum> extends PersistentNotifier<T> {
 
   @override
   String encode(T value) => value.name;
+}
+
+/// 颜色（ARGB int 十进制字符串）。
+class ColorPrefNotifier extends PersistentNotifier<Color> {
+  ColorPrefNotifier({required this.key, required Color initial})
+      : _initial = initial;
+
+  @override
+  final String key;
+  final Color _initial;
+
+  @override
+  Color get defaultValue => _initial;
+
+  @override
+  Color decode(String raw) {
+    final v = int.tryParse(raw);
+    if (v == null) return _initial;
+    return Color(v);
+  }
+
+  @override
+  String encode(Color value) => value.toARGB32().toString();
 }
