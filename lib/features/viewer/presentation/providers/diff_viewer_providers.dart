@@ -1064,3 +1064,15 @@ class FloatingPageUpColorNotifier extends ColorPrefNotifier {
           initial: const Color(0xFFD4D4DC),
         );
 }
+
+// ==================== 工具栏显示开关（持久化） ====================
+
+final toolbarVisibleProvider =
+    NotifierProvider<ToolbarVisibleNotifier, bool>(
+  ToolbarVisibleNotifier.new,
+);
+
+class ToolbarVisibleNotifier extends BoolPrefNotifier {
+  ToolbarVisibleNotifier()
+      : super(key: 'jianming.viewer.toolbarVisible', initial: true);
+}
