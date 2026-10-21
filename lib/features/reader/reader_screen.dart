@@ -244,16 +244,21 @@ class _EncodingPickerSheet extends StatelessWidget {
   final EncodingType? currentManual;
   final EncodingType? currentDetected;
 
-  static const List<EncodingType> _pickable = [
-    EncodingType.utf8,
-    EncodingType.utf8bom,
-    EncodingType.utf16le,
-    EncodingType.utf16be,
-    EncodingType.gbk,
-    EncodingType.gb18030,
-    EncodingType.shiftJis,
-  ];
+  
+static const List<EncodingType> _pickable = [
+  EncodingType.utf8,
+  EncodingType.utf8bom,
+  EncodingType.utf16le,
+  EncodingType.utf16be,
+  EncodingType.gbk,
+  EncodingType.gb2312,     // ← 新增
+  EncodingType.gb18030,
+  EncodingType.big5,       // ← 如果枚举里有 big5 就保留，没有就删这行
+  EncodingType.shiftJis,
+];
 
+
+  
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
