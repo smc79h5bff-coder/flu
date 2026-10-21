@@ -4848,13 +4848,8 @@ String _normalizePath(String path) {
     final inMarkerMode = _markerMode != _MarkerMode.off;
     return AppBar(
       title: inMarkerMode
-          ? TextButton(
-              onPressed: () => setState(() => _markerMode = _MarkerMode.off),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-              ),
+          ? GestureDetector(
+              onTap: () => setState(() => _markerMode = _MarkerMode.off),
               child: const Text(
                 '退出标记',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
@@ -6036,8 +6031,9 @@ for (final f in SortField.values)
   ),
                  const Divider(height: 1),
               ],
+              if (!isFilter) ...[
               const Divider(height: 16),
-              // ---- 搜索结果显示 ----
+              // ---- 搜索结果显示（仅搜索模式，过滤模式不生效） ----
               Row(
                 children: [
                   const Text(
@@ -6084,6 +6080,7 @@ for (final f in SortField.values)
                     .read(browserSearchFontMetaProvider.notifier)
                     .set(v),
               ),
+              ],
                 ],
               ),
             ),
@@ -6131,6 +6128,9 @@ Widget _searchFontRow(
   double value,
   ValueChanged<double> onChanged,
 ) {
+  const min = 1.0;
+  const max = 38.0;
+  final clamped = value.clamp(min, max);
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 2),
     child: Row(
@@ -6142,17 +6142,37 @@ Widget _searchFontRow(
             style: const TextStyle(fontSize: 13),
           ),
         ),
+        IconButton(
+          iconSize: 18,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          visualDensity: VisualDensity.compact,
+          onPressed: clamped > min
+              ? () => onChanged((clamped - 1).clamp(min, max))
+              : null,
+          icon: const Icon(Icons.remove),
+        ),
         Expanded(
           child: Slider(
-            min: 1,
-            max: 38,
-            divisions: 37,
-            value: value.clamp(1, 38),
+            min: min,
+            max: max,
+            divisions: (max - min).toInt(),
+            value: clamped,
             onChanged: onChanged,
           ),
         ),
+        IconButton(
+          iconSize: 18,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          visualDensity: VisualDensity.compact,
+          onPressed: clamped < max
+              ? () => onChanged((clamped + 1).clamp(min, max))
+              : null,
+          icon: const Icon(Icons.add),
+        ),
         SizedBox(
-          width: 32,
+          width: 28,
           child: Text(
             '${value.round()}',
             style: const TextStyle(fontSize: 12),
@@ -6709,22 +6729,10 @@ return _wrapWithFlash(
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
-            top: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 1,
-            ),
-            bottom: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 1,
-            ),
-            left: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 2,
-            ),
-            right: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 2,
-            ),
+            top: BorderSide(color: colorScheme.primary, width: 1),
+            bottom: BorderSide(color: colorScheme.primary, width: 1),
+            left: BorderSide(color: colorScheme.primary, width: 3),
+            right: BorderSide(color: colorScheme.primary, width: 3),
           ),
         )
       : null,
@@ -6856,22 +6864,10 @@ return _wrapWithFlash(
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
-            top: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 1,
-            ),
-            bottom: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 1,
-            ),
-            left: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 2,
-            ),
-            right: BorderSide(
-              color: const Color(0xFFB000FF),
-              width: 2,
-            ),
+            top: BorderSide(color: colorScheme.primary, width: 1),
+            bottom: BorderSide(color: colorScheme.primary, width: 1),
+            left: BorderSide(color: colorScheme.primary, width: 3),
+            right: BorderSide(color: colorScheme.primary, width: 3),
           ),
         )
       : null,
@@ -7108,9 +7104,11 @@ return _wrapWithFlash(
         decoration: BoxDecoration(color: bgColor),
         foregroundDecoration: BoxDecoration(
           border: selected
-              ? Border.all(
-                  color: colorScheme.primary,
-                  width: 2,
+              ? Border(
+                  top: BorderSide(color: colorScheme.primary, width: 1),
+                  bottom: BorderSide(color: colorScheme.primary, width: 1),
+                  left: BorderSide(color: colorScheme.primary, width: 3),
+                  right: BorderSide(color: colorScheme.primary, width: 3),
                 )
               : Border(
                   bottom: BorderSide(
@@ -7289,9 +7287,11 @@ return _wrapWithFlash(
       child: Container(
         foregroundDecoration: selected
             ? BoxDecoration(
-                border: Border.all(
-                  color: const Color(0xFFFF00C3),
-                  width: 1,
+                border: Border(
+                  top: BorderSide(color: colorScheme.primary, width: 1),
+                  bottom: BorderSide(color: colorScheme.primary, width: 1),
+                  left: BorderSide(color: colorScheme.primary, width: 3),
+                  right: BorderSide(color: colorScheme.primary, width: 3),
                 ),
               )
             : null,
