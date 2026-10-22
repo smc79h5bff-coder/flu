@@ -1519,14 +1519,19 @@ class ViewerPaneHeader extends ConsumerWidget {
   Future<void> _showInfo(BuildContext context, WidgetRef ref) async {
     final path = ref.read(
         isLeft ? originalFilePathProvider : modifiedFilePathProvider);
+    final sharedTemp = ref.read(
+        isLeft ? originalSharedTempPathProvider : modifiedSharedTempPathProvider);
     final encoding = ref.read(
         isLeft ? originalEncodingProvider : modifiedEncodingProvider);
 
+    // 分享进来的文件没有真实路径（不能删除），但临时副本还在，可以 stat 出大小/时间。
+    final statPath = path ?? sharedTemp;
+
     String sizeStr = '—';
     String timeStr = '—';
-    if (path != null) {
+    if (statPath != null) {
       try {
-        final st = await File(path).stat();
+        final st = await File(statPath).stat();
         final s = st.size;
         if (s < 1024) {
           sizeStr = '$s B';
@@ -1572,7 +1577,13 @@ class ViewerPaneHeader extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              row('路径', path ?? '（没有路径，来自剪贴板或粘贴）'),
+              row(
+                '路径',
+                path ??
+                    (sharedTemp != null
+                        ? '（来自分享，临时文件）'
+                        : '（没有路径，来自剪贴板或粘贴）'),
+              ),
               row('大小', sizeStr),
               row('修改时间', timeStr),
               row('编码', encoding),
