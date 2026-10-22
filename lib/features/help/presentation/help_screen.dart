@@ -1,22 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../../core/storage/shared_preferences_provider.dart';
 
 /// 使用说明页（合并后的唯一入口）。
 ///
 /// 带 Tab，支持 `initialTabId` 指定打开哪个 Tab。
 /// 整页可编辑，编辑后保存到本地，重启后仍在。
-class HelpScreen extends StatefulWidget {
+class HelpScreen extends ConsumerStatefulWidget {
   const HelpScreen({super.key, this.initialTabId});
 
   /// 如果给出，打开后自动切换到 id 匹配的 Tab。
   final String? initialTabId;
 
   @override
-  State<HelpScreen> createState() => _HelpScreenState();
+  ConsumerState<HelpScreen> createState() => _HelpScreenState();
 }
 
-class _HelpScreenState extends State<HelpScreen>
+class _HelpScreenState extends ConsumerState<HelpScreen>
     with SingleTickerProviderStateMixin {
   static const String _prefKey = 'help_screen_tabs_v3';
 
@@ -37,6 +39,10 @@ class _HelpScreenState extends State<HelpScreen>
   //   改成 `late` 后，_loadContent 里可以正常 dispose 旧的、创建新的。
   late TabController _tabCtrl;
 
+  /// 每个 tab 的 widget 树缓存。首次显示某 tab 时构建一次，
+  /// 之后切 tab 直接复用，0ms。缓存 key 带 fontSize，因为用户捏合缩放会变字号。
+  final Map<String, Widget> _tabWidgetCache = {};
+
   final TextEditingController _titleCtrl = TextEditingController();
   final TextEditingController _contentCtrl = TextEditingController();
 
@@ -49,18 +55,6 @@ class _HelpScreenState extends State<HelpScreen>
   final Map<int, Offset> _touches = <int, Offset>{};
   double _pinchStartDistance = 0;
   double _pinchStartScale = 1.0;
-
-  // ==============================================================
-  // MarkdownStyleSheet 缓存
-  // ==============================================================
-  //
-  // flutter_markdown 的 MarkdownBody 内部有缓存，判断条件是：
-  //   if (oldWidget.styleSheet != widget.styleSheet || oldWidget.data != widget.data)
-  // MarkdownStyleSheet 没有重写 ==，所以 != 是引用比较。
-  // 每次 build 都 return 新对象 → 引用永远不同 → 每次都重新解析 markdown。
-  MarkdownStyleSheet? _cachedSheet;
-  double _cachedSheetFontSize = 0;
-  ColorScheme? _cachedSheetScheme;
 
   // ==============================================================
   // 默认 Tab 内容（精简重写，口语化，不写底层技术细节）
@@ -346,7 +340,8 @@ JS 比原生规则慢，大文本时尽量排在最后。
 
   Future<void> _loadContent() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      // ★ 从 provider 拿已加载的实例，避免二次 getInstance 读盘。
+      final prefs = ref.read(sharedPreferencesProvider);
       final defaults = _defaultTabs();
       final saved = prefs.getString(_prefKey);
 
@@ -393,7 +388,7 @@ JS 比原生规则慢，大文本时尽量排在最后。
   }
 
   Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = ref.read(sharedPreferencesProvider);
     await prefs.setString(_prefKey, _serializeTabs());
   }
 
@@ -658,8 +653,7 @@ JS 比原生规则慢，大文本时尽量排在最后。
     _titleCtrl.dispose();
     _contentCtrl.dispose();
     // 主动清缓存，让 GC 早回收。
-    _cachedSheet = null;
-    _cachedSheetScheme = null;
+    _tabWidgetCache.clear();
     super.dispose();
   }
 
@@ -787,6 +781,34 @@ JS 比原生规则慢，大文本时尽量排在最后。
 
     final pinching = _touches.length >= 2;
 
+    // ★ 首次访问该 tab 时构建 widget 树（只构建一次），之后直接复用。
+    //   缓存 key 里带 fontSize，因为用户捏合缩放会改变字号。
+    final cacheKey = '${tab.id}|${_baseFontSize * _fontScale}';
+    final cached = _tabWidgetCache[cacheKey];
+
+    Widget contentWidget;
+    if (cached != null) {
+      contentWidget = cached;
+    } else {
+      // 首次构建：轻量 markdown 解析 + 生成 widget 树，几十毫秒
+      final widgets = _MarkdownLite.build(
+        content: tab.content,
+        fontSize: _baseFontSize * _fontScale,
+        scheme: s,
+      );
+      contentWidget = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: widgets,
+      );
+      _tabWidgetCache[cacheKey] = contentWidget;
+
+      // 缓存太多时清一下（正常就 5 个 tab × 几种字号，10-20 个足够）
+      if (_tabWidgetCache.length > 40) {
+        _tabWidgetCache.remove(_tabWidgetCache.keys.first);
+      }
+    }
+
     return Listener(
       onPointerDown: _onPointerDown,
       onPointerMove: _onPointerMove,
@@ -798,68 +820,358 @@ JS 比原生规则慢，大文本时尽量排在最后。
           child: SingleChildScrollView(
             physics: pinching ? const NeverScrollableScrollPhysics() : null,
             padding: const EdgeInsets.all(16),
-            // ★ selectable: false —— 外层已经包了 SelectionArea。
-            //   Markdown(selectable: true) 内部会再包一层 SelectionArea，
-            //   Android 上双层需要构建两遍选区几何，几百个 widget 叠加起来
-            //   能慢到秒级。只保留外层，功能不变（整页仍可长按选中复制）。
-            child: Markdown(
-              data: tab.content,
-              selectable: false,
-              styleSheet: _buildMarkdownStyleSheet(s, _baseFontSize * _fontScale),
-            ),
+            child: contentWidget,
           ),
         ),
       ),
     );
   }
+}
 
-  MarkdownStyleSheet _buildMarkdownStyleSheet(ColorScheme s, double fontSize) {
-    if (_cachedSheet != null &&
-        _cachedSheetFontSize == fontSize &&
-        identical(s, _cachedSheetScheme)) {
-      return _cachedSheet!;
+// ==============================================================
+// 轻量 markdown 渲染器
+// ==============================================================
+//
+// 为什么不用 flutter_markdown：
+//   · 它每次 build 都重新解析字符串 + 重建几百个 widget，慢
+//   · 每个 MarkdownBody 里还嵌了一层 SelectionArea，几何计算翻倍
+//   · IntrinsicColumnWidth 表格两遍 layout
+//   5 个 tab 叠加起来，Android 上能到 10 秒。
+//
+// 这个渲染器：
+//   · 逐行扫描，一次性生成 List<Widget>
+//   · 支持：标题、列表、代码块、表格、引用、分隔线、粗体、行内代码
+//   · 不支持：链接、嵌套列表、复杂表格对齐（够用了，因为这是帮助页）
+//   · 结果被 _tabWidgetCache 缓存，切 tab 不重建
+class _MarkdownLite {
+  const _MarkdownLite._();
+
+  static List<Widget> build({
+    required String content,
+    required double fontSize,
+    required ColorScheme scheme,
+  }) {
+    final lines = content.split('\n');
+    final widgets = <Widget>[];
+    final baseStyle = TextStyle(fontSize: fontSize, height: 1.65);
+    final monoFamily = 'monospace';
+    var i = 0;
+    while (i < lines.length) {
+      final raw = lines[i];
+      final trimmed = raw.trim();
+
+      // 空行 → 垂直间隙
+      if (trimmed.isEmpty) {
+        widgets.add(const SizedBox(height: 6));
+        i++;
+        continue;
+      }
+
+      // 代码块 ```...```
+      if (trimmed.startsWith('```')) {
+        final codeBuf = StringBuffer();
+        i++;
+        while (i < lines.length && !lines[i].trim().startsWith('```')) {
+          if (codeBuf.isNotEmpty) codeBuf.write('\n');
+          codeBuf.write(lines[i]);
+          i++;
+        }
+        if (i < lines.length) i++;
+        widgets.add(Container(
+          width: double.infinity,
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: scheme.surfaceVariant.withValues(alpha: 0.45),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: SelectableText(
+            codeBuf.toString(),
+            style: TextStyle(
+              fontSize: fontSize * 0.94,
+              height: 1.5,
+              fontFamily: monoFamily,
+            ),
+          ),
+        ));
+        continue;
+      }
+
+      // 表格：当前行 |...|，下一行 ---|---
+      if (trimmed.startsWith('|') &&
+          i + 1 < lines.length &&
+          _isTableSeparator(lines[i + 1])) {
+        final rows = <List<String>>[];
+        final header = _splitTableRow(raw);
+        rows.add(header);
+        i += 2; // 跳过表头 + 分隔行
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+          rows.add(_splitTableRow(lines[i]));
+          i++;
+        }
+        widgets.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: _buildTable(rows, fontSize, scheme, baseStyle),
+        ));
+        continue;
+      }
+
+      // 标题
+      if (trimmed.startsWith('### ')) {
+        widgets.add(_heading(trimmed.substring(4), fontSize * 1.12,
+            baseStyle, scheme, monoFamily));
+        i++;
+        continue;
+      }
+      if (trimmed.startsWith('## ')) {
+        widgets.add(_heading(trimmed.substring(3), fontSize * 1.28,
+            baseStyle, scheme, monoFamily));
+        i++;
+        continue;
+      }
+      if (trimmed.startsWith('# ')) {
+        widgets.add(_heading(trimmed.substring(2), fontSize * 1.5,
+            baseStyle, scheme, monoFamily));
+        i++;
+        continue;
+      }
+
+      // 分隔线
+      if (trimmed == '---' || trimmed == '***' || trimmed == '___') {
+        widgets.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Divider(height: 1, color: scheme.outlineVariant),
+        ));
+        i++;
+        continue;
+      }
+
+      // 引用
+      if (trimmed.startsWith('> ')) {
+        final quotes = <String>[];
+        while (i < lines.length && lines[i].trim().startsWith('> ')) {
+          quotes.add(lines[i].trim().substring(2));
+          i++;
+        }
+        widgets.add(Container(
+          width: double.infinity,
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          decoration: BoxDecoration(
+            color: scheme.surfaceVariant.withValues(alpha: 0.35),
+            border: Border(left: BorderSide(color: scheme.primary, width: 3)),
+          ),
+          child: _richInline(quotes.join('\n'), baseStyle, monoFamily, scheme),
+        ));
+        continue;
+      }
+
+      // 无序列表
+      if (trimmed.startsWith('- ') ||
+          trimmed.startsWith('* ') ||
+          trimmed.startsWith('+ ')) {
+        final items = <String>[];
+        while (i < lines.length) {
+          final t = lines[i].trim();
+          if (t.startsWith('- ') || t.startsWith('* ') || t.startsWith('+ ')) {
+            items.add(t.substring(2));
+            i++;
+          } else if (t.isNotEmpty &&
+              items.isNotEmpty &&
+              !_isBlockStart(t)) {
+            items[items.length - 1] += '\n${lines[i]}';
+            i++;
+          } else {
+            break;
+          }
+        }
+        for (final item in items) {
+          widgets.add(_listItem(item, baseStyle, monoFamily, scheme, '• '));
+        }
+        continue;
+      }
+
+      // 有序列表
+      final ordered = RegExp(r'^(\d+)\.\s+(.*)$').firstMatch(trimmed);
+      if (ordered != null) {
+        final items = <String>[];
+        while (i < lines.length) {
+          final t = lines[i].trim();
+          final m = RegExp(r'^(\d+)\.\s+(.*)$').firstMatch(t);
+          if (m != null) {
+            items.add(m.group(2)!);
+            i++;
+          } else if (t.isNotEmpty &&
+              items.isNotEmpty &&
+              !_isBlockStart(t)) {
+            items[items.length - 1] += '\n${lines[i]}';
+            i++;
+          } else {
+            break;
+          }
+        }
+        for (var k = 0; k < items.length; k++) {
+          widgets.add(
+              _listItem(items[k], baseStyle, monoFamily, scheme, '${k + 1}. '));
+        }
+        continue;
+      }
+
+      // 普通段落：连续收集到空行或块起始
+      final para = <String>[];
+      while (i < lines.length &&
+          lines[i].trim().isNotEmpty &&
+          !_isBlockStart(lines[i].trim())) {
+        para.add(lines[i]);
+        i++;
+      }
+      if (para.isNotEmpty) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: _richInline(para.join('\n'), baseStyle, monoFamily, scheme),
+        ));
+      }
     }
-    final sheet = MarkdownStyleSheet(
-      h1: TextStyle(fontSize: fontSize * 1.48, fontWeight: FontWeight.bold, height: 1.5),
-      h2: TextStyle(fontSize: fontSize * 1.26, fontWeight: FontWeight.bold, height: 1.5),
-      h3: TextStyle(fontSize: fontSize * 1.11, fontWeight: FontWeight.w600, height: 1.5),
-      p: TextStyle(fontSize: fontSize, height: 1.65),
-      listBullet: TextStyle(fontSize: fontSize, height: 1.65),
-      listIndent: 20,
-      strong: const TextStyle(fontWeight: FontWeight.bold),
-      em: const TextStyle(fontStyle: FontStyle.italic),
-      code: TextStyle(
-        fontSize: fontSize * 0.96,
-        fontFamily: _fontFamilyMonospace,
-        backgroundColor: s.surfaceVariant.withValues(alpha: 0.4),
-      ),
-      codeblockDecoration: BoxDecoration(
-        color: s.surfaceVariant.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      codeblockPadding: const EdgeInsets.all(10),
-      blockquote: TextStyle(fontSize: fontSize * 0.96, color: s.onSurfaceVariant, height: 1.6),
-      blockquoteDecoration: BoxDecoration(
-        color: s.surfaceVariant.withValues(alpha: 0.35),
-        border: Border(left: BorderSide(color: s.primary, width: 3)),
-      ),
-      blockquotePadding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      tableBorder: TableBorder.all(color: s.outlineVariant, width: 0.5),
-      tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      tableHead: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
-      tableBody: TextStyle(fontSize: fontSize, height: 1.5),
-      // ★ 不设 tableColumnWidth，让 flutter_markdown 用默认的 FlexColumnWidth。
-      //   IntrinsicColumnWidth 需要两次 layout（intrinsic 预演 + 正常布局），
-      //   表格越多、单元格越多越慢。去掉后显示效果几乎一样，
-      //   只是列宽改成"平均分配"而不是"按内容自适应"。
-      horizontalRuleDecoration: BoxDecoration(
-        border: Border(top: BorderSide(color: s.outlineVariant, width: 0.5)),
+    return widgets;
+  }
+
+  static bool _isBlockStart(String t) {
+    return t.startsWith('#') ||
+        t.startsWith('> ') ||
+        t.startsWith('- ') ||
+        t.startsWith('* ') ||
+        t.startsWith('+ ') ||
+        t.startsWith('|') ||
+        t.startsWith('```') ||
+        t == '---' ||
+        t == '***' ||
+        t == '___' ||
+        RegExp(r'^\d+\.\s').hasMatch(t);
+  }
+
+  static bool _isTableSeparator(String line) {
+    final t = line.trim();
+    if (!t.startsWith('|') || !t.endsWith('|')) return false;
+    return RegExp(r'^\|[\s:\-\|]+\|$').hasMatch(t);
+  }
+
+  static List<String> _splitTableRow(String line) {
+    var t = line.trim();
+    if (t.startsWith('|')) t = t.substring(1);
+    if (t.endsWith('|')) t = t.substring(0, t.length - 1);
+    return t.split('|').map((s) => s.trim()).toList();
+  }
+
+  static Widget _buildTable(List<List<String>> rows, double fontSize,
+      ColorScheme scheme, TextStyle base) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    final colCount =
+        rows.map((r) => r.length).fold<int>(0, (a, b) => a > b ? a : b);
+    return Table(
+      border: TableBorder.all(color: scheme.outlineVariant, width: 0.5),
+      defaultColumnWidth: const FlexColumnWidth(),
+      children: [
+        for (var r = 0; r < rows.length; r++)
+          TableRow(
+            decoration: r == 0
+                ? BoxDecoration(
+                    color: scheme.surfaceVariant.withValues(alpha: 0.5))
+                : null,
+            children: [
+              for (var c = 0; c < colCount; c++)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  child: Text(
+                    c < rows[r].length ? rows[r][c] : '',
+                    style: base.copyWith(
+                      fontSize: fontSize * 0.95,
+                      fontWeight: r == 0 ? FontWeight.bold : null,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  static Widget _heading(String text, double size, TextStyle base,
+      ColorScheme scheme, String mono) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 6),
+      child: _richInline(
+        text,
+        base.copyWith(fontSize: size, fontWeight: FontWeight.bold),
+        mono,
+        scheme,
       ),
     );
-    _cachedSheet = sheet;
-    _cachedSheetFontSize = fontSize;
-    _cachedSheetScheme = s;
-    return sheet;
+  }
+
+  static Widget _listItem(String text, TextStyle base, String mono,
+      ColorScheme scheme, String bullet) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, top: 2, bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(bullet, style: base),
+          Expanded(child: _richInline(text, base, mono, scheme)),
+        ],
+      ),
+    );
+  }
+
+  /// 处理行内：**粗体** 和 `行内代码`。其它原样。
+  static Widget _richInline(
+      String text, TextStyle base, String mono, ColorScheme scheme) {
+    final spans = <InlineSpan>[];
+    final buf = StringBuffer();
+    void flush() {
+      if (buf.isNotEmpty) {
+        spans.add(TextSpan(text: buf.toString(), style: base));
+        buf.clear();
+      }
+    }
+
+    var i = 0;
+    while (i < text.length) {
+      // **粗体**
+      if (i + 1 < text.length && text[i] == '*' && text[i + 1] == '*') {
+        final end = text.indexOf('**', i + 2);
+        if (end > 0) {
+          flush();
+          spans.add(TextSpan(
+            text: text.substring(i + 2, end),
+            style: base.copyWith(fontWeight: FontWeight.bold),
+          ));
+          i = end + 2;
+          continue;
+        }
+      }
+      // `代码`
+      if (text[i] == '`') {
+        final end = text.indexOf('`', i + 1);
+        if (end > 0) {
+          flush();
+          spans.add(TextSpan(
+            text: text.substring(i + 1, end),
+            style: base.copyWith(
+              fontFamily: mono,
+              backgroundColor:
+                  scheme.surfaceVariant.withValues(alpha: 0.5),
+            ),
+          ));
+          i = end + 1;
+          continue;
+        }
+      }
+      buf.write(text[i]);
+      i++;
+    }
+    flush();
+    return SelectableText.rich(TextSpan(children: spans));
   }
 }
 
