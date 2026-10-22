@@ -3250,7 +3250,7 @@ class _HighlightCard extends StatelessWidget {
   maxLines: 3,
   overflow: TextOverflow.ellipsis,
   textAlign: TextAlign.center,
-  style: const TextStyle(
+  style: TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.bold,
     color: Theme.of(context).colorScheme.onSurface,
@@ -4246,7 +4246,7 @@ class _HighlightEditScreenState
               isDense: true,
             ),
             items: [
-              const DropdownMenuItem<String?>(
+              DropdownMenuItem<String?>(
                 value: null,
                 child: Text('未分组',
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
@@ -4910,7 +4910,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                 ),
                 child: RichText(
                   text: TextSpan(
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
                     children: [
                       const TextSpan(text: '这是 '),
@@ -4968,7 +4968,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   isDense: true,
                 ),
                 items: [
-                  const DropdownMenuItem<String?>(
+                  DropdownMenuItem<String?>(
                     value: null,
                     child: Text('未分组',
                         style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
