@@ -85,11 +85,21 @@ class EncodingDetector {
       return EncodingType.unknown;
     }
 
-    // 3. 严格 UTF-8
+    // 3. UTF-8：严格通过就直接用；不通过再按「合法率」放行。
+    //
+    //    真实文件里经常夹着几个坏字节（转换工具留下的 0xFF、截断的半个
+    //    汉字等），all-or-nothing 的严格校验会把整本 UTF-8 小说判成
+    //    GBK / Big5 / Shift-JIS，然后整篇变成乱码。
     if (_isStrictUtf8(sample)) {
       final isAscii = bytes.every((b) => b < 0x80);
       log.info('[Enc] detect → ${isAscii ? "ascii" : "utf8"}');
       return isAscii ? EncodingType.ascii : EncodingType.utf8;
+    }
+    final utf8Valid = _utf8ValidRatio(sample);
+    log.info('[Enc] UTF-8 合法率 = ${(utf8Valid * 100).toStringAsFixed(2)}%');
+    if (utf8Valid >= 0.90) {
+      log.info('[Enc] detect → utf8 (夹着少量坏字节)');
+      return EncodingType.utf8;
     }
 
     // 4. 多字节候选：结构启发式只用来打日志，最终靠「采样解码可读性打分」择优。
@@ -130,11 +140,11 @@ class EncodingDetector {
     return best;
   }
 
-  /// 候选评分：用 charset 系列解码后按文本可读性打分。
+  /// 候选评分：解码后按文本可读性打分。
   ///
-  /// 注意：这里只用于「探测阶段挑候选」，charset 的 GBK 实现对某些字节
-  /// 会静默错位（把字节原样映射成 U+0080-U+00FF），所以探测结果不可全信。
-  /// 真正的把关在 [decodeChunkedAsync] 里的可读性复核。
+  /// GBK 用 gbk_codec（charset 的 gbk 会静默错位，不能用来打分）；
+  /// Big5 / Shift-JIS 用足够好的解码器即可，这里只比较候选，
+  /// 最终把关仍在 [decodeChunkedAsync] 里的可读性复核。
   static int _plausibilityScore(Uint8List bytes, EncodingType encoding) {
     String text;
     try {
@@ -142,7 +152,10 @@ class EncodingDetector {
         case EncodingType.gbk:
         case EncodingType.gb2312:
         case EncodingType.gb18030:
-          text = gbk.decode(bytes);
+          // 必须用 gbk_codec：charset 的 gbk 遇到它不认识的字节会静默
+          // 错位（把字节原样映射成 Latin-1），真实 GBK 文件会被打成
+          // 每字 -28 分，GBK 候选永远赢不了探测。
+          text = gbkCodec.gbk.decode(bytes);
           break;
         case EncodingType.big5:
           text = ec.big5.decode(bytes);
@@ -219,7 +232,10 @@ class EncodingDetector {
         score -= 2;
       }
     }
-    if (total > 0) score -= (replacement * 30) ~/ total;
+    // 每个 U+FFFD 重罚：错编码会刷出成片的替换字符。
+    // （原来写成了 score -= (replacement * 30) ~/ total，实际只减了 25 分，
+    //   等于没罚，让「满屏 U+FFFD」的候选也能蒙混过关。）
+    if (replacement > 0) score -= replacement * 30;
     return score;
   }
 
@@ -349,7 +365,8 @@ class EncodingDetector {
     var best = encoding;
     var text = first;
     var readability = _readability(first);
-    log.info('[Enc] 可读性 $encoding = ${readability.toStringAsFixed(2)}/字');
+    log.info(
+        '[Enc] 可读性 $encoding = ${readability.toStringAsFixed(2)}/字  「${_preview(first)}」');
 
     // 复核：GBK / Big5 / Shift-JIS 的字节范围高度重叠，探测可能选错
     // （例如把 GBK 小说判成 Shift-JIS，整篇就是日文假名）。
@@ -358,17 +375,29 @@ class EncodingDetector {
     if (readability < _readableThreshold &&
         EncodingBridge.isSupported &&
         _needsCrossCheck(encoding)) {
+      var bestAlt = encoding;
+      var bestScore = readability;
+      var bestText = first;
       for (final alt in _retryCandidates(encoding)) {
         final candidate = await _decodeOnce(bytes, alt);
         final score = _readability(candidate);
-        log.info('[Enc]   复核 $alt = ${score.toStringAsFixed(2)}/字');
-        if (score > readability + _switchMargin) {
-          readability = score;
-          text = candidate;
-          best = alt;
+        log.info(
+            '[Enc]   复核 $alt = ${score.toStringAsFixed(2)}/字  「${_preview(candidate)}」');
+        if (score > bestScore) {
+          bestAlt = alt;
+          bestScore = score;
+          bestText = candidate;
         }
       }
-      if (best != encoding) {
+      // 正常情况：必须明显更好才换，避免在两种错编码之间来回跳。
+      // 但如果所有候选都很差（都低于阈值），「明显更好」就无从谈起，
+      // 此时直接取分数最高的那个，总比停在最差的一个上强。
+      final switchByMargin = bestScore > readability + _switchMargin;
+      final allBad = bestScore < _readableThreshold;
+      if (bestAlt != encoding && (switchByMargin || allBad)) {
+        readability = bestScore;
+        text = bestText;
+        best = bestAlt;
         log.info('[Enc] 探测结果 $encoding 可读性不足，改用 $best');
       }
     }
@@ -408,9 +437,14 @@ class EncodingDetector {
     }
   }
 
-  /// 复核时的候选顺序（不含当前编码）。简体中文小说优先 GBK。
+  /// 复核时的候选顺序（不含当前编码）。
+  ///
+  /// utf8 排第一：探测阶段若因几个坏字节把 UTF-8 判成 GBK/Big5/Shift-JIS，
+  /// 这里是最后的兜底。真正的 GBK 文件按 UTF-8 宽容解码会刷出成片 U+FFFD，
+  /// 可读性会被压到极低，不会误选。
   static List<EncodingType> _retryCandidates(EncodingType current) {
     return const <EncodingType>[
+      EncodingType.utf8,
       EncodingType.gbk,
       EncodingType.big5,
       EncodingType.shiftJis,
@@ -613,6 +647,66 @@ class EncodingDetector {
     } on FormatException {
       return false;
     }
+  }
+
+  /// UTF-8 合法率：所有高位字节（>=0x80）里，能组成合法 UTF-8 序列的比例。
+  /// 真正的 UTF-8 文本接近 100%，GBK / Big5 / Shift-JIS 文本接近 0%。
+  static double _utf8ValidRatio(Uint8List bytes) {
+    var totalHigh = 0;
+    var validHigh = 0;
+    var i = 0;
+    while (i < bytes.length) {
+      final b = bytes[i];
+      if (b < 0x80) {
+        i++;
+        continue;
+      }
+      totalHigh++;
+      var len = 0;
+      if (b >= 0xC2 && b <= 0xDF) {
+        len = 2;
+      } else if (b >= 0xE0 && b <= 0xEF) {
+        len = 3;
+      } else if (b >= 0xF0 && b <= 0xF4) {
+        len = 4;
+      }
+      if (len > 0 && i + len <= bytes.length) {
+        var ok = true;
+        for (var k = 1; k < len; k++) {
+          final c = bytes[i + k];
+          if (c < 0x80 || c > 0xBF) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) {
+          validHigh += len;
+          totalHigh += len - 1;
+          i += len;
+          continue;
+        }
+      }
+      i++;
+    }
+    if (totalHigh == 0) return 1;
+    return validHigh / totalHigh;
+  }
+
+  /// 日志预览：取前 40 个字符，换行略过，控制字符转义。
+  static String _preview(String text) {
+    if (text.isEmpty) return '';
+    final buf = StringBuffer();
+    var n = 0;
+    for (final r in text.runes) {
+      if (r == 0x0A || r == 0x0D) continue;
+      if (n++ >= 40) break;
+      if (r < 0x20 || r == 0x7F) {
+        buf.write('\\x${r.toRadixString(16).padLeft(2, '0')}');
+      } else {
+        buf.writeCharCode(r);
+      }
+    }
+    return buf.toString();
   }
 
   static bool _looksLikeGbk(Uint8List bytes) {
