@@ -272,9 +272,9 @@ class _DocSlot extends ConsumerWidget {
     );
     try {
       final bytes = await picked.readAsBytes();
-      final result = await compute(
-        _parseInWorker,
-        (fileName: picked.name, bytes: bytes),
+      final result = await DocumentParser.parse(
+        fileName: picked.name,
+        bytes: bytes,
       );
       _store(
         ref,
@@ -357,14 +357,6 @@ class _DocSlot extends ConsumerWidget {
       SnackBar(content: Text(msg)),
     );
   }
-}
-
-ParsedDocument _parseInWorker(
-    ({String fileName, Uint8List bytes}) input) {
-  return DocumentParser.parse(
-    fileName: input.fileName,
-    bytes: input.bytes,
-  );
 }
 
 class _IgnoreSettings extends ConsumerWidget {
