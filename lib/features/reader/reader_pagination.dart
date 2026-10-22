@@ -121,29 +121,27 @@ class ReaderPaginator extends ChangeNotifier {
     log.mark('paginator: 测量单行基准高');
     log.info('singleLineHeight = ${_singleLineHeight.toStringAsFixed(2)}');
 
-    // 立即给一个估算 result。
+    // ===== 同步精修所有行 =====
+    // 之前的策略是"先给估算→后台分帧精修"，优点秒开，
+    // 但估算会导致右边宽窄不一的多余空白（字体特征值和 TextPainter
+    // 真正测量值之间有系统偏差）。
+    //
+    // 现在改成一次性同步跑完 TextPainter 测量，再生成分页结果。
+    // 代价是冷启动略慢（取决于行数，5000 行大约 150~250ms），
+    // 但用户感知到的是"慢一点但页面绝对准"——没有任何估算误差。
+    final swPrecise = Stopwatch()..start();
+    _preciseAllLines();
+    log.mark('paginator: 同步精修全部行');
+    log.info(
+        '精修耗时=${swPrecise.elapsedMilliseconds}ms  lines=${_lines.length}');
+
+    // 用精修后的结果生成分页
     _result = _buildResult();
-    log.mark('paginator: 首次 _buildResult()');
+    log.mark('paginator: _buildResult()');
     log.info('pages = ${_result?.pageCount}  units = ${_result?.renderUnits.length}');
 
     notifyListeners();
     log.mark('paginator: notifyListeners');
-
-    _precisionCursor = 0;
-    
-
-// ⚠️ 精修（precision）已停用。停用原因：
-//   · 首次分页已经用估算值给出了结果
-//   · 精修只在屏幕有新帧时推进，静止看书几乎不跑
-//   · 每次翻页会偷偷跑 2ms，长期耗电
-//   · 对纯中文小说，估算和精确值差异 < 1 行
-//
-// 🔄 如需恢复：取消下面 _scheduleNextChunk() 的注释即可。
-//    历史上曾因"底部空白过多/行被裁切"等问题开启精修；
-//    恢复前先确认那些问题是否还会复现。
-//
-// _scheduleNextChunk();
-    
     log.mark('paginator.start() 结束');
   }
 
@@ -172,7 +170,35 @@ class ReaderPaginator extends ChangeNotifier {
     // no-op
   }
 
-  // ==================== 精修（分帧） ====================
+  // ==================== 同步精修 ====================
+
+  /// 一次性用 TextPainter 精确测量所有行高度。
+  ///
+  /// 和旧版分帧精修一样的测量逻辑，只是去掉了"每帧 2ms 预算"的调度——
+  /// 全部同步跑完再继续 `_buildResult()`。
+  void _preciseAllLines() {
+    if (_lines.isEmpty) return;
+    final usableWidth =
+        math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
+    final style = _readerStyle();
+    final tp = _precisionTP;
+
+    for (var i = 0; i < _lines.length; i++) {
+      if (_preciseHeights[i] != null) continue; // 已算过就跳过
+      final line = _lines[i];
+      if (line.isEmpty) {
+        _preciseHeights[i] = _singleLineHeight;
+      } else {
+        tp.text = TextSpan(text: line, style: style);
+        tp.layout(maxWidth: usableWidth);
+        final displayLines = tp.computeLineMetrics().length;
+        _preciseHeights[i] =
+            math.max(1, displayLines) * _singleLineHeight;
+      }
+    }
+  }
+
+  // ==================== 精修（分帧，保留给 pause/resume 兼容；不再主动调） ====================
 
   /// 每帧精修时间预算（毫秒）。
   /// 2ms 让 CPU 峰值从 50% 降到 12%，显著省电。
@@ -486,28 +512,51 @@ List<RenderUnit> _splitLongLineEstimated({
   final fontSize = singleLineHeight / kReaderLineHeightFactor;
 
   final units = <RenderUnit>[];
-  var lineStart = 0;
-  var x = 0.0;
-  var codeUnitIdx = 0;
+  var lineStart = 0;      // codeUnit index
+  var x = 0.0;            // 当前行已排宽度
+  var cuIdx = 0;          // codeUnit 游标
 
-  final runeIter = content.runes.iterator;
-  while (runeIter.moveNext()) {
-    final rune = runeIter.current;
-    final w = _estimateCharWidth(rune, fontSize);
+  // 按 codeUnit 顺序走，对 surrogate pair（两个 codeUnit 组成一个 rune）
+  // 宽度一次算两个，但 charEnd 必须落在第二个 codeUnit 之后。
+  while (cuIdx < content.length) {
+    final cu = content.codeUnitAt(cuIdx);
+    final isLead = cu >= 0xD800 && cu <= 0xDBFF;
 
-    // 加上这个字符会超出 → 换段（但本行至少已有 1 个字符）
-    if (x + w > usableWidth && codeUnitIdx > lineStart) {
+    final double w;
+    final int consume;
+    if (isLead && cuIdx + 1 < content.length) {
+      final trail = content.codeUnitAt(cuIdx + 1);
+      if (trail >= 0xDC00 && trail <= 0xDFFF) {
+        // surrogate pair：一个 rune，宽度按汉字算
+        w = fontSize; // 极罕见的 emoji 按整字宽估算即可
+        consume = 2;
+      } else {
+        // 孤立 lead，不应该出现，保险起见跳过
+        w = 0;
+        consume = 1;
+      }
+    } else if (cu >= 0xDC00 && cu <= 0xDFFF) {
+      // 孤立 trail，跳过
+      w = 0;
+      consume = 1;
+    } else {
+      w = _estimateCharWidth(cu, fontSize);
+      consume = 1;
+    }
+
+    // 加上这个 rune 会超出 → 换行（至少要有 1 个字符才允许换）
+    if (x + w > usableWidth && cuIdx > lineStart) {
       units.add(RenderUnit(
         lineIndex: lineIndex,
         charStart: lineStart,
-        charEnd: codeUnitIdx,
+        charEnd: cuIdx,           // 上一段到这里（含完整 rune）
         height: singleLineHeight,
       ));
-      lineStart = codeUnitIdx;
+      lineStart = cuIdx;
       x = 0.0;
     }
     x += w;
-    codeUnitIdx += rune < 0x10000 ? 1 : 2;
+    cuIdx += consume;
   }
 
   if (lineStart < content.length) {
@@ -521,12 +570,14 @@ List<RenderUnit> _splitLongLineEstimated({
   return units;
 }
 
-double _estimateCharWidth(int rune, double fontSize) {
-  if (rune < 0x80) {
-    if (rune == 0x20) return fontSize * 0.30;
-    if ((rune >= 0x30 && rune <= 0x39) ||
-        (rune >= 0x41 && rune <= 0x5A) ||
-        (rune >= 0x61 && rune <= 0x7A)) {
+double _estimateCharWidth(int codeUnit, double fontSize) {
+  // ASCII 用 3:4 的字体特征值，中文字按整字宽。
+  // 和 _estimateLineWidth 保持一致，避免同一字符两个估算器冲突。
+  if (codeUnit < 0x80) {
+    if (codeUnit == 0x20) return fontSize * 0.30;
+    if ((codeUnit >= 0x30 && codeUnit <= 0x39) ||
+        (codeUnit >= 0x41 && codeUnit <= 0x5A) ||
+        (codeUnit >= 0x61 && codeUnit <= 0x7A)) {
       return fontSize * 0.55;
     }
     return fontSize * 0.40;
