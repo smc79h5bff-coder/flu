@@ -2822,9 +2822,9 @@ Future<void> _startSearch() async {
 
       final leftBytes = await _readBytesOfItem(items[0]);
       if (leftBytes == null) throw Exception('读取左侧文件失败');
-      final leftParsed = await compute(
-        _parseInWorker,
-        (fileName: items[0].displayName, bytes: leftBytes),
+      final leftParsed = await DocumentParser.parse(
+        fileName: items[0].displayName,
+        bytes: leftBytes,
       );
       leftText = leftParsed.plainText;
       leftName = leftParsed.fileName;
@@ -2832,9 +2832,9 @@ Future<void> _startSearch() async {
 
       final rightBytes = await _readBytesOfItem(items[1]);
       if (rightBytes == null) throw Exception('读取右侧文件失败');
-      final rightParsed = await compute(
-        _parseInWorker,
-        (fileName: items[1].displayName, bytes: rightBytes),
+      final rightParsed = await DocumentParser.parse(
+        fileName: items[1].displayName,
+        bytes: rightBytes,
       );
       rightText = rightParsed.plainText;
       rightName = rightParsed.fileName;
@@ -2885,20 +2885,6 @@ Future<void> _startSearch() async {
     } catch (_) {
       return null;
     }
-  }
-
-  static Future<ParsedDocumentResult> _parseInWorker(
-    ({String fileName, Uint8List bytes}) input,
-  ) async {
-    final parsed = DocumentParser.parse(
-      fileName: input.fileName,
-      bytes: input.bytes,
-    );
-    return ParsedDocumentResult(
-      fileName: parsed.fileName,
-      plainText: parsed.plainText,
-      encodingLabel: parsed.encoding.label,
-    );
   }
 
   static String _md5Worker(Uint8List bytes) {
@@ -7216,18 +7202,6 @@ String _normalizePath(String path) {
       ],
     );
   }
-}
-
-class ParsedDocumentResult {
-  const ParsedDocumentResult({
-    required this.fileName,
-    required this.plainText,
-    required this.encodingLabel,
-  });
-
-  final String fileName;
-  final String plainText;
-  final String encodingLabel;
 }
 
 // ==================== 属性弹窗（含手动计算 MD5） ====================
