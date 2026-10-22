@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:charset/charset.dart' show gbk, shiftJis;
 import 'package:enough_convert/enough_convert.dart' as ec;
+import 'package:gbk_codec/gbk_codec.dart' as gbkCodec;
 
 import 'encoding_bridge.dart';
 import '../domain/encoding_type.dart';
@@ -12,13 +13,11 @@ import '../../reader/reader_load_log.dart';
 ///
 /// 关键决策：
 ///   - GBK / GB2312 / GB18030 / Big5 / Shift-JIS 解码：
-///     Android 上 [decodeChunkedAsync] 走系统 ICU（[EncodingBridge]），
-///     零错位全码表。其他平台回落 [decodeChunked] 的 Dart 包（charset
-///     / enough_convert）。charset 的 GBK 解码器对某些字节序列会静默错位
-///     （从某处开始连续解出错误汉字，遇到 ASCII 才恢复对齐），但这只影响
-///     非 Android 平台的 fallback，可接受。
-///   - 探测阶段 _plausibilityScore 用 charset（快），打分不需要绝对正确，
-///     只需要区分 GBK / Big5 / Shift-JIS。
+///     [decodeChunkedAsync] 在 Android 上优先走 [EncodingBridge]（系统 ICU，
+///     零错位全码表）。bridge 失败或非 Android 平台时，回落 [decodeChunked]：
+///     gbk_codec 优先（不会静默错位），charset 兜底，最后逐字节宽容。
+///   - charset 只用于 _plausibilityScore 的快速打分（只是比较候选，
+///     不需要绝对正确，只需要区分 GBK / Big5 / Shift-JIS）。
 ///   - 所有路径都保留 _decodeLenient 兜底：坏一个字符写 U+FFFD，
 ///     绝不 String.fromCharCodes（那会把整段字节当 Latin-1，产生
 ///     ìÎÒÓÖ 这种整段乱码）。
@@ -264,15 +263,21 @@ class EncodingDetector {
     Uint8List bytes,
     EncodingType encoding,
   ) async {
-    if (EncodingBridge.isSupported) {
-      final charset = _androidCharsetName(encoding);
-      if (charset != null) {
-        final r = await EncodingBridge.decode(bytes, charset);
-        if (r != null) return r;
-        // 原生失败：继续走下面的 Dart 降级
+    final log = ReaderLoadLog.instance;
+    final charset = _androidCharsetName(encoding);
+    log.info('[Enc] decodeChunkedAsync enc=$encoding bridge=${EncodingBridge.isSupported ? "on" : "off"} androidCharset=$charset bytes=${bytes.length}');
+    if (EncodingBridge.isSupported && charset != null) {
+      final r = await EncodingBridge.decode(bytes, charset);
+      if (r != null) {
+        log.info('[Enc] decodeChunkedAsync → bridge chars=${r.length}');
+        return r;
       }
+      log.info('[Enc] decodeChunkedAsync bridge failed, fallback to Dart');
     }
-    return decodeChunked(bytes, encoding);
+    final t0 = DateTime.now();
+    final r = decodeChunked(bytes, encoding);
+    log.info('[Enc] decodeChunkedAsync → Dart bytes=${bytes.length}→${r.length}chars  ${DateTime.now().difference(t0).inMilliseconds}ms');
+    return r;
   }
 
   /// 需要走 Android ICU 的编码 → Android charset 名字。其余返回 null。
@@ -297,8 +302,9 @@ class EncodingDetector {
   /// 宽容解码：多级降级，保证不整段乱码。
   ///
   /// GBK 系列：
-  ///   1. charset 整体解码（快，非 Android fallback 路径）
-  ///   2. 逐字节宽容（坏一个字符，不坏整段）
+  ///   1. gbk_codec 整体解码（正确，不会静默错位）
+  ///   2. charset 整体解码（快，但可能静默错位）——只在 gbk_codec 抛异常时
+  ///   3. 逐字节宽容（坏一个字符，不坏整段）
   ///
   /// Big5 / Shift-JIS：
   ///   enough_convert / charset → 逐字节宽容
@@ -309,6 +315,10 @@ class EncodingDetector {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
+        try {
+          final r = gbkCodec.gbk.decode(bytes);
+          if (r.isNotEmpty) return r;
+        } catch (_) {}
         try {
           final r = gbk.decode(bytes);
           if (r.isNotEmpty) return r;
@@ -379,7 +389,7 @@ class EncodingDetector {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
-        return gbk.decode(pair);
+        return gbkCodec.gbk.decode(pair);
       case EncodingType.big5:
         return ec.big5.decode(pair);
       case EncodingType.shiftJis:
