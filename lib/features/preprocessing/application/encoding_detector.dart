@@ -253,6 +253,14 @@ class EncodingDetector {
     return result;
   }
 
+  /// `decodeChunked` 的异步包装。
+  /// 调用方（reader_screen、line_editor、single_file_editor、txt_parser）
+  /// 统一 `await EncodingDetector.decodeChunkedAsync(bytes, encoding)`。
+  static Future<String> decodeChunkedAsync(
+      Uint8List bytes, EncodingType encoding) async {
+    return decodeChunked(bytes, encoding);
+  }
+
   // ==================== 宽容解码（核心） ====================
 
   /// 宽容解码：多级降级，保证不整段乱码、不闪退。
