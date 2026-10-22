@@ -1,140 +1,283 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:charset/charset.dart';
-import 'package:enough_convert/enough_convert.dart' hide gbk;
-import 'package:gbk_codec/gbk_codec.dart' hide gbk;
+import 'package:charset/charset.dart' show gbk, shiftJis;
+import 'package:enough_convert/enough_convert.dart' as ec;
+import 'package:gbk_codec/gbk_codec.dart' as gbkCodec;
 
+import 'encoding_bridge.dart';
 import '../domain/encoding_type.dart';
 import '../../reader/reader_load_log.dart';
 
-/// Sniff text encoding from raw bytes.
+/// 编码探测与解码。**正确优先，速度其次。**
 ///
-/// 优先级：
-///   UTF-8 BOM → UTF-16 BOM → UTF-16 无 BOM 启发式
-///   → UTF-8 严格 → GBK → Big5 → Shift-JIS → unknown
-///
-/// 与旧版差异（只两处）：
-///   1. decodeChunked 两个切块循环都做双字节边界对齐，块尾不劈开
-///      lead/trail 对。charset 的表驱动解码器不再因不完整字节抛异常。
-///   2. _decodeLegacy 的 catch 不再 String.fromCharCodes（那会把整块字节
-///      当 Latin-1 码点，得到 ìÎÒÓÖ 这种乱码），改走逐字宽容：坏一个
-///      字符写 U+FFFD，不坏整段。
+/// 关键决策：
+///   - GBK / GB2312 / GB18030 / Big5 / Shift-JIS 解码：
+///     [decodeChunkedAsync] 在 Android 上优先走 [EncodingBridge]（系统 ICU，
+///     零错位全码表）。bridge 失败或非 Android 平台时，回落 [decodeChunked]：
+///     gbk_codec 优先（不会静默错位），charset 兜底，最后逐字节宽容。
+///   - charset 只用于 _plausibilityScore 的快速打分（只是比较候选，
+///     不需要绝对正确，只需要区分 GBK / Big5 / Shift-JIS）。
+///   - 所有路径都保留 _decodeLenient 兜底：坏一个字符写 U+FFFD，
+///     绝不 String.fromCharCodes（那会把整段字节当 Latin-1，产生
+///     ìÎÒÓÖ 这种整段乱码）。
 class EncodingDetector {
   const EncodingDetector._();
 
-  /// 编码探针采样窗（字节）。启发式判断只需看前缀，无需全文件扫描。
   static const int _sampleSize = 64 * 1024;
+  static const int _decodeChunkSize = 64 * 1024;
+
+  /// 复核可读性时只看前这么多字符，避免大文件重复遍历。
+  static const int _readabilitySample = 20000;
+
+  /// 复核时每个候选只解文件开头这么多字节。
+  /// 可读性只看前 2 万字，没必要为每个候选把整本小说都解一遍。
+  static const int _crossCheckSample = 128 * 1024;
+
+  /// 低于这个「每字可读性」就认为探测结果不可信，换编码重解。
+  static const double _readableThreshold = 1.5;
+
+  /// 换编码时，必须明显更好才采纳，避免在两种错编码之间来回跳。
+  static const double _switchMargin = 0.3;
+
+  // ==================== 探测 ====================
 
   static EncodingType detect(Uint8List bytes) {
     final log = ReaderLoadLog.instance;
     final t0 = DateTime.now();
 
-    if (bytes.isEmpty) {
-      log.info('[Enc] detect 空 bytes → ascii');
-      return EncodingType.ascii;
-    }
+    if (bytes.isEmpty) return EncodingType.ascii;
 
-    // 1. BOM checks（必须用原文，BOM 只在文件头）
-    // 顺序重要：先 UTF-8 BOM，再 UTF-16，再排除 UTF-32。
+    // 1. BOM
     if (bytes.length >= 3 &&
         bytes[0] == 0xEF &&
         bytes[1] == 0xBB &&
         bytes[2] == 0xBF) {
-      log.info(
-          '[Enc] detect → utf8bom  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+      log.info('[Enc] detect → utf8bom');
       return EncodingType.utf8bom;
     }
-
     if (bytes.length >= 2) {
-      // UTF-16 LE BOM: FF FE，但要排除 UTF-32 LE (FF FE 00 00)
       if (bytes[0] == 0xFF && bytes[1] == 0xFE) {
         if (bytes.length >= 4 && bytes[2] == 0x00 && bytes[3] == 0x00) {
-          log.info('[Enc] detect → unknown (UTF-32 LE 不支持)');
+          log.info('[Enc] detect → unknown (UTF-32 LE)');
           return EncodingType.unknown;
         }
-        log.info(
-            '[Enc] detect → utf16le  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        log.info('[Enc] detect → utf16le');
         return EncodingType.utf16le;
       }
-      // UTF-16 BE BOM: FE FF（UTF-32 BE 是 00 00 FE FF，不冲突）
       if (bytes[0] == 0xFE && bytes[1] == 0xFF) {
-        log.info(
-            '[Enc] detect → utf16be  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        log.info('[Enc] detect → utf16be');
         return EncodingType.utf16be;
       }
     }
 
-    // 2. UTF-16 无 BOM 启发式（必须在 UTF-8 之前！
-    //    因为 UTF-16 里的 NUL 字节在 UTF-8 里是合法字符，
-    //    会被 _isStrictUtf8 误判为 UTF-8）
-    final tUtf16 = DateTime.now();
+    // 2. UTF-16 无 BOM
     final utf16Guess = _guessUtf16WithoutBom(bytes);
     if (utf16Guess != null) {
-      log.info(
-          '[Enc] detect → $utf16Guess (无 BOM 启发式)  启发耗时=${DateTime.now().difference(tUtf16).inMilliseconds}ms  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      log.info('[Enc] detect → $utf16Guess (无 BOM)');
       return utf16Guess;
     }
 
-    // 采样前缀用于启发式判断（编码对全文一致，取前 64KB 判断足够，
-    // 避免对大 TXT 全文反复 O(n) 扫描导致导入卡顿）。
     final sample = bytes.length <= _sampleSize
         ? bytes
         : Uint8List.sublistView(bytes, 0, _sampleSize);
 
-    // 3. Strict UTF-8 trial
-    final tUtf8 = DateTime.now();
-    final isUtf8 = _isStrictUtf8(sample);
-    log.info(
-        '[Enc] _isStrictUtf8 耗时=${DateTime.now().difference(tUtf8).inMilliseconds}ms  结果=$isUtf8  sample=${sample.length}B');
-    if (isUtf8) {
+    // 2.5 二进制守卫：控制字节占比过高时直接判 unknown，
+    // 避免把压缩包 / 图片当成 UTF-16 解出满屏乱码。
+    if (_looksBinary(sample)) {
+      log.info('[Enc] detect → unknown (控制字节过多)');
+      return EncodingType.unknown;
+    }
+
+    // 3. UTF-8：严格通过就直接用；不通过再按「合法率」放行。
+    //
+    //    真实文件里经常夹着几个坏字节（转换工具留下的 0xFF、截断的半个
+    //    汉字等），all-or-nothing 的严格校验会把整本 UTF-8 小说判成
+    //    GBK / Big5 / Shift-JIS，然后整篇变成乱码。
+    if (_isStrictUtf8(sample)) {
       final isAscii = bytes.every((b) => b < 0x80);
-      log.info(
-          '[Enc] detect → ${isAscii ? "ascii" : "utf8"}  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      log.info('[Enc] detect → ${isAscii ? "ascii" : "utf8"}');
       return isAscii ? EncodingType.ascii : EncodingType.utf8;
     }
+    final utf8Valid = _utf8ValidRatio(sample);
+    log.info('[Enc] UTF-8 合法率 = ${(utf8Valid * 100).toStringAsFixed(2)}%');
+    if (utf8Valid >= 0.90) {
+      log.info('[Enc] detect → utf8 (夹着少量坏字节)');
+      return EncodingType.utf8;
+    }
 
-    // 4. GB-family heuristic
-    final tGbk = DateTime.now();
+    // 3.5 Android 短路：不再自己盲猜。
+    //
+    //     多字节解码器在 Dart 侧要么不可靠（gbk_codec 对部分 GBK 文件
+    //     打分 -191 万），要么很慢（5 次试解码约 240ms），而结论最终还要
+    //     靠系统 ICU 复核推翻。直接给 unknown，让 decodeChunkedAsync 用
+    //     ICU 按可读性逐编码择优，那几个格式判断也一并省掉。
+    if (EncodingBridge.isSupported) {
+      log.info(
+          '[Enc] detect → unknown (交给 ICU 复核)  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return EncodingType.unknown;
+    }
+
+    // 4. 多字节候选：结构启发式只用来打日志，最终靠「采样解码可读性打分」择优。
+    //
+    //    不能只用结构做硬门槛：GBK / Big5 / Shift-JIS / UTF-16 的字节范围
+    //    高度重叠。纯中文且没有 BOM 的 UTF-16 里没有零字节，会被结构判定
+    //    漏掉，退化成 GBK 后整篇解成 U+0080-U+00FF 的假字符（一字节一字符）。
     final looksGbk = _looksLikeGbk(sample);
-    final highMiss = looksGbk ? _isHighMissRate(sample) : false;
-    log.info(
-        '[Enc] GBK 检查  耗时=${DateTime.now().difference(tGbk).inMilliseconds}ms  looksGbk=$looksGbk  highMiss=$highMiss');
-    if (looksGbk && highMiss) {
-      log.info(
-          '[Enc] detect → gbk  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-      return EncodingType.gbk;
-    }
-
-    // 5. Big5 heuristic
-    final tBig5 = DateTime.now();
     final looksBig5 = _looksLikeBig5(sample);
-    log.info(
-        '[Enc] Big5 检查  耗时=${DateTime.now().difference(tBig5).inMilliseconds}ms  结果=$looksBig5');
-    if (looksBig5) {
-      log.info(
-          '[Enc] detect → big5  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-      return EncodingType.big5;
-    }
-
-    // 6. Shift-JIS heuristic
-    final tSjis = DateTime.now();
     final looksSjis = _looksLikeShiftJis(sample);
     log.info(
-        '[Enc] SJIS 检查  耗时=${DateTime.now().difference(tSjis).inMilliseconds}ms  结果=$looksSjis');
-    if (looksSjis) {
-      log.info(
-          '[Enc] detect → shiftJis  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-      return EncodingType.shiftJis;
+        '[Enc] 多字节候选  looksGbk=$looksGbk  looksBig5=$looksBig5  looksSjis=$looksSjis');
+
+    var best = EncodingType.unknown;
+    var bestScore = -999999;
+    for (final candidate in const <EncodingType>[
+      EncodingType.gbk,
+      EncodingType.big5,
+      EncodingType.shiftJis,
+      EncodingType.utf16le,
+      EncodingType.utf16be,
+    ]) {
+      final score = _plausibilityScore(sample, candidate);
+      log.info('[Enc]   候选 $candidate 得分=$score');
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
     }
 
+    if (bestScore <= 0) {
+      log.info(
+          '[Enc] detect → unknown (最高分 $bestScore)  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return EncodingType.unknown;
+    }
     log.info(
-        '[Enc] detect → unknown  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-    return EncodingType.unknown;
+        '[Enc] detect → $best  得分=$bestScore  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+    return best;
   }
 
-  /// Decode bytes using the detected encoding. Falls back to lossy UTF-8
-  /// on illegal sequences.
+  /// 候选评分：解码后按文本可读性打分。
+  ///
+  /// GBK 用 gbk_codec（charset 的 gbk 会静默错位，不能用来打分）；
+  /// Big5 / Shift-JIS 用足够好的解码器即可，这里只比较候选，
+  /// 最终把关仍在 [decodeChunkedAsync] 里的可读性复核。
+  static int _plausibilityScore(Uint8List bytes, EncodingType encoding) {
+    String text;
+    try {
+      switch (encoding) {
+        case EncodingType.gbk:
+        case EncodingType.gb2312:
+        case EncodingType.gb18030:
+          // 必须用 gbk_codec：charset 的 gbk 遇到它不认识的字节会静默
+          // 错位（把字节原样映射成 Latin-1），真实 GBK 文件会被打成
+          // 每字 -28 分，GBK 候选永远赢不了探测。
+          text = gbkCodec.gbk.decode(bytes);
+          break;
+        case EncodingType.big5:
+          text = ec.big5.decode(bytes);
+          break;
+        case EncodingType.shiftJis:
+          text = shiftJis.decode(bytes);
+          break;
+        case EncodingType.utf16le:
+          text = _decodeUtf16(bytes, littleEndian: true);
+          break;
+        case EncodingType.utf16be:
+          text = _decodeUtf16(bytes, littleEndian: false);
+          break;
+        default:
+          return -999999;
+      }
+    } catch (_) {
+      // charset 抛异常时，用逐字节宽容结果打分，不直接淘汰候选。
+      try {
+        text = _decodeLenient(bytes, encoding);
+      } catch (_) {
+        return -999999;
+      }
+    }
+    if (text.isEmpty) return -999999;
+    return _scoreText(text);
+  }
+
+  /// 文本打分（绝对值，比较时需除以字数）。
+  ///
+  /// 正确解码的中文文本里「常用汉字」占比高；解错编码时会出现大量
+  /// Latin-1 字符、控制字符、私用区字符，这些都给重罚。
+  static int _scoreText(String text) {
+    var score = 0;
+    var total = 0;
+    var replacement = 0;
+    for (final r in text.runes) {
+      total++;
+      if (r == 0xFFFD) {
+        replacement++;
+        continue;
+      }
+      if (r == 0x09 || r == 0x0A || r == 0x0D) {
+        score += 1;
+        continue;
+      }
+      // 控制字符：解错编码时大量出现（UTF-16 当单字节解、错块边界等）。
+      if (r < 0x20 || r == 0x7F) {
+        score -= 20;
+        continue;
+      }
+      if (r < 0x80) {
+        score += 1;
+      } else if (_commonHan.contains(r)) {
+        score += 3;
+      } else if (r >= 0x4E00 && r <= 0x9FFF) {
+        score += 1;
+      } else if ((r >= 0x3000 && r <= 0x303F) ||
+          (r >= 0xFF01 && r <= 0xFF5E) ||
+          (r >= 0x2010 && r <= 0x2027)) {
+        score += 1;
+      } else if (r >= 0x80 && r <= 0xFF) {
+        // Latin-1 区：真实中文文本里几乎不会出现，
+        // 出现就说明「把每个字节当成一个字符」，是错编码的强信号。
+        score -= 30;
+      } else if (r >= 0xE000 && r <= 0xF8FF) {
+        // 私用区：错编码的另一个强信号。
+        score -= 10;
+      } else if (r >= 0x3400 && r <= 0x4DBF) {
+        // CJK 扩展 A：生僻字，正确解码里比例很低。
+        score -= 1;
+      } else {
+        // 日文假名 / 韩文 / 其它文字：中文小说里不该大量出现。
+        score -= 2;
+      }
+    }
+    // 每个 U+FFFD 重罚：错编码会刷出成片的替换字符。
+    // （原来写成了 score -= (replacement * 30) ~/ total，实际只减了 25 分，
+    //   等于没罚，让「满屏 U+FFFD」的候选也能蒙混过关。）
+    if (replacement > 0) score -= replacement * 30;
+    return score;
+  }
+
+  /// 每字平均可读性。中文小说正确解码一般 1.5~2.5；
+  /// 错编码（拉丁一字节、日文假名、乱码繁体）基本在 1.2 以下。
+  static double _readability(String text) {
+    if (text.isEmpty) return -999;
+    final sample =
+        text.length > _readabilitySample ? text.substring(0, _readabilitySample) : text;
+    final total = sample.runes.length;
+    if (total == 0) return -999;
+    return _scoreText(sample) / total;
+  }
+
+  /// 二进制判定：可打印文本里不该出现大量控制字节。
+  static bool _looksBinary(Uint8List bytes) {
+    if (bytes.isEmpty) return false;
+    var control = 0;
+    for (final b in bytes) {
+      if (b < 0x09 || (b > 0x0D && b < 0x20)) control++;
+    }
+    return control / bytes.length > 0.20;
+  }
+
+  // ==================== 解码入口 ====================
+
   static String decode(Uint8List bytes, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.ascii:
@@ -150,33 +293,15 @@ class EncodingDetector {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
-        // dart:convert 无 GBK 解码器，使用第三方 gbk_codec 包。
-        return gbk.decode(bytes);
       case EncodingType.big5:
-        // dart:convert 无 Big5 解码器，使用第三方 enough_convert 包。
-        return big5.decode(bytes);
       case EncodingType.shiftJis:
-        // dart:convert 无 Shift-JIS 解码器，使用第三方 charset 包。
-        return shiftJis.decode(bytes);
+        return _decodeSafe(bytes, encoding);
       case EncodingType.binary:
-        return utf8.decode(bytes, allowMalformed: true);
       case EncodingType.unknown:
-        // 未识别编码时按 UTF-8 容错解（byte 意图原样输出）。不强制回退 GBK，
-        // 因为 ANSI 西文(Latin-1) 的高位字节若强当 GBK 会错解成中文乱码；
-        // 中文 ANSI 实为 GBK，已被 detect 识别，无需在此兜底。
         return utf8.decode(bytes, allowMalformed: true);
     }
   }
 
-  /// 分块窗口大小（字节）。用于大文本解码时避免一次性全量处理。
-  static const int _decodeChunkSize = 64 * 1024;
-
-  /// 按完整字符边界对齐的分块解码：GBK/Big5/Shift-JIS 都是
-  /// `<0x80` 单字节 or `lead(0x80+) + 1 trail` 双字节结构，块尾若切开某个
-  /// 双字节字符则把该 lead 字节留到下一块，保证每块解码跨块不乱码。
-  ///
-  /// UTF-16 也走一次性解码（有 BOM 处理，且字节长度必须偶数）；
-  /// UTF-8 / ascii 也走一次性解码（内置快路径）。
   static String decodeChunked(Uint8List bytes, EncodingType encoding) {
     final log = ReaderLoadLog.instance;
     final t0 = DateTime.now();
@@ -189,90 +314,289 @@ class EncodingDetector {
       case EncodingType.utf16be:
       case EncodingType.binary:
       case EncodingType.unknown:
-        final result = decode(bytes, encoding);
+        final r = decode(bytes, encoding);
         log.info(
-            '[Enc] decodeChunked $encoding (一次性)  ${bytes.length}B → ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-        return result;
+            '[Enc] decodeChunked $encoding (一次性)  ${bytes.length}B → ${r.length} chars  '
+            '耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        return r;
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
       case EncodingType.big5:
       case EncodingType.shiftJis:
-        // 小文件直接一次性解码，无跨块状态问题（更快且不会闪退）。
-        if (bytes.length <= _decodeChunkSize) {
-          final result = _decodeLegacy(bytes: bytes, encoding: encoding);
-          log.info(
-              '[Enc] decodeChunked $encoding (小文件)  ${bytes.length}B → ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-          return result;
-        }
-        // 大文件：用 stateful 流式解码器分块，解码器自身缓存跨块半个字符。
-        // 任何异常都整体回退到逐块独立 decode（每块自洽，状态不会错乱），
-        // 绝不继续向已污染的 sink 写入，避免异常传播导致闪退。
+        break;
+    }
+
+    if (bytes.length <= _decodeChunkSize) {
+      final r = _decodeSafe(bytes, encoding);
+      log.info(
+          '[Enc] decodeChunked $encoding (单块)  ${bytes.length}B → ${r.length} chars  '
+          '耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return r;
+    }
+
+    // 分块：逐块独立解码，每块对双字节边界对齐。
+    // 不用 startChunkedConversion —— 那个 API 返回 Sink<List<int>>，
+    // 强转 ByteConversionSink 在 charset 实现里会抛 TypeError。
+    final buf = StringBuffer();
+    var chunkCount = 0;
+    var start = 0;
+    while (start < bytes.length) {
+      var end = (start + _decodeChunkSize) > bytes.length
+          ? bytes.length
+          : start + _decodeChunkSize;
+      // 块尾对齐：end-1 是 lead、end 是 trail 时，这个双字节字符正好被
+      // 劈开。把 trail 划到下一块。
+      if (end < bytes.length &&
+          end > start &&
+          _isDoubleByteLead(bytes[end - 1], encoding) &&
+          _isDoubleByteTrail(bytes[end], encoding)) {
+        end += 1;
+      }
+      buf.write(_decodeSafe(Uint8List.sublistView(bytes, start, end), encoding));
+      chunkCount++;
+      start = end;
+    }
+    final result = buf.toString();
+    log.info(
+        '[Enc] decodeChunked $encoding (分块)  块数=$chunkCount  ${result.length} chars  '
+        '耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+    return result;
+  }
+
+  /// 异步版本：Android 走系统 ICU，其他平台回落 [decodeChunked] 的 Dart 包。
+  ///
+  /// 只对需要 ICU 全码表的编码走原生：GBK / GB2312 / GB18030 / Big5 /
+  /// Shift-JIS。UTF-8 / UTF-16 / ASCII 的 Dart 原生实现已经正确，不走原生。
+  ///
+  /// 返回的 [DecodedText.encoding] 是复核后真正用上的编码，可能和传入的
+  /// [encoding] 不同（Android 上探测只给初猜，unknown 时由 ICU 择优）。
+  static Future<DecodedText> decodeChunkedAsync(
+    Uint8List bytes,
+    EncodingType encoding,
+  ) async {
+    final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
+    log.info(
+        '[Enc] decodeChunkedAsync enc=$encoding bridge=${EncodingBridge.isSupported ? "on" : "off"} androidCharset=${_androidCharsetName(encoding)} bytes=${bytes.length}');
+
+    final first = await _decodeOnce(bytes, encoding);
+    var best = encoding;
+    var text = first;
+    final readability = _readability(first);
+    log.info(
+        '[Enc] 可读性 $encoding = ${readability.toStringAsFixed(2)}/字  「${_preview(first)}」');
+
+    // 复核：GBK / Big5 / Shift-JIS 的字节范围高度重叠，探测可能选错
+    // （例如把 GBK 小说判成 Shift-JIS，整篇就是日文假名）。
+    // 可读性不足时用系统 ICU 换编码重解，选可读性最高的那个。
+    // 非 Android 没有 ICU，Dart 全量重解太慢，不做复核。
+    if (readability < _readableThreshold &&
+        EncodingBridge.isSupported &&
+        _needsCrossCheck(encoding)) {
+      var bestAlt = encoding;
+      var bestScore = readability;
+
+      // 每个候选只解开头一段用来打分：可读性本身也只取前 2 万字，
+      // 没必要为候选把整本小说解一遍（那才是几百毫秒的来源）。
+      final checkBytes = bytes.length <= _crossCheckSample
+          ? bytes
+          : Uint8List.sublistView(bytes, 0, _crossCheckSample);
+      for (final alt in _retryCandidates(encoding)) {
+        final candidate = await _decodeOnce(checkBytes, alt);
+        final score = _readability(candidate);
         log.info(
-            '[Enc] decodeChunked $encoding (分块)  ${bytes.length}B  块大小=$_decodeChunkSize');
-        final codec = _multiByteCodec(encoding);
-        try {
-          final buf = StringBuffer();
-          final sink = codec.decoder.startChunkedConversion(
-            StringConversionSink.fromStringSink(buf),
-          ) as ByteConversionSink;
-          var chunkCount = 0;
-          for (var start = 0; start < bytes.length;) {
-            var end = (start + _decodeChunkSize) > bytes.length
-                ? bytes.length
-                : start + _decodeChunkSize;
-            // 块尾对齐：bytes[end-1] 是 lead、bytes[end] 是 trail 时，
-            // 这个双字节字符正好被劈开。把 trail 划到下一块，两块各自
-            // 解码都不会遇到不完整字节。
-            if (end < bytes.length &&
-                end > start &&
-                _isDoubleByteLead(bytes[end - 1], encoding) &&
-                _isDoubleByteTrail(bytes[end], encoding)) {
-              end += 1;
-            }
-            sink.add(Uint8List.sublistView(bytes, start, end));
-            start = end;
-            chunkCount++;
-          }
-          sink.close();
-          final result = buf.toString();
-          log.info(
-              '[Enc] decodeChunked $encoding 流式完成  块数=$chunkCount  ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-          return result;
-        } catch (e) {
-          // 整体回退：逐块独立解码并拼接，每个 chunk 是一个完整解码单元。
-          log.info('[Enc] decodeChunked 流式失败 → 回退逐块  $e');
-          final buf = StringBuffer();
-          var chunkCount = 0;
-          for (var start = 0; start < bytes.length;) {
-            var end = (start + _decodeChunkSize) > bytes.length
-                ? bytes.length
-                : start + _decodeChunkSize;
-            // 同样的块尾对齐，回退路径也要保证不劈开双字节。
-            if (end < bytes.length &&
-                end > start &&
-                _isDoubleByteLead(bytes[end - 1], encoding) &&
-                _isDoubleByteTrail(bytes[end], encoding)) {
-              end += 1;
-            }
-            buf.write(_decodeLegacy(
-              bytes: Uint8List.sublistView(bytes, start, end),
-              encoding: encoding,
-            ));
-            start = end;
-            chunkCount++;
-          }
-          final result = buf.toString();
-          log.info(
-              '[Enc] decodeChunked $encoding 回退完成  块数=$chunkCount  ${result.length} chars  耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-          return result;
+            '[Enc]   复核 $alt = ${score.toStringAsFixed(2)}/字  「${_preview(candidate)}」');
+        if (score > bestScore) {
+          bestAlt = alt;
+          bestScore = score;
         }
+      }
+      // 正常情况：必须明显更好才换，避免在两种错编码之间来回跳。
+      // 但如果所有候选都很差（都低于阈值），「明显更好」就无从谈起，
+      // 此时直接取分数最高的那个，总比停在最差的一个上强。
+      final switchByMargin = bestScore > readability + _switchMargin;
+      final allBad = bestScore < _readableThreshold;
+      if (bestAlt != encoding && (switchByMargin || allBad)) {
+        best = bestAlt;
+        // 上面只解了一小段用来比较，选中的编码还要整本解一遍。
+        text = await _decodeOnce(bytes, best);
+        log.info('[Enc] 探测结果 $encoding 可读性不足，改用 $best');
+      }
+    }
+
+    log.info(
+        '[Enc] decodeChunkedAsync → $best chars=${text.length}  ${DateTime.now().difference(t0).inMilliseconds}ms');
+    return DecodedText(text, best);
+  }
+
+  /// 单次解码：Android 上走系统 ICU，失败或非 Android 回落 Dart。
+  static Future<String> _decodeOnce(
+      Uint8List bytes, EncodingType encoding) async {
+    final charset = _androidCharsetName(encoding);
+    if (EncodingBridge.isSupported && charset != null) {
+      final r = await EncodingBridge.decode(bytes, charset);
+      if (r != null) return r;
+    }
+    return decodeChunked(bytes, encoding);
+  }
+
+  /// 只有编码本身有歧义的这几种才需要复核；
+  /// UTF-8 / UTF-16 / ASCII 的 Dart 实现是可靠的，不做无谓重解。
+  /// unknown / binary 走的是 utf8 宽容解码（每字节一个 U+FFFD），
+  /// 也要参与复核，否则没有候选能救回来。
+  static bool _needsCrossCheck(EncodingType encoding) {
+    switch (encoding) {
+      case EncodingType.gbk:
+      case EncodingType.gb2312:
+      case EncodingType.gb18030:
+      case EncodingType.big5:
+      case EncodingType.shiftJis:
+      case EncodingType.unknown:
+      case EncodingType.binary:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /// 复核时的候选顺序（不含当前编码）。
+  ///
+  /// utf8 排第一：探测阶段若因几个坏字节把 UTF-8 判成 GBK/Big5/Shift-JIS，
+  /// 这里是最后的兜底。真正的 GBK 文件按 UTF-8 宽容解码会刷出成片 U+FFFD，
+  /// 可读性会被压到极低，不会误选。
+  static List<EncodingType> _retryCandidates(EncodingType current) {
+    return const <EncodingType>[
+      EncodingType.utf8,
+      EncodingType.gbk,
+      EncodingType.big5,
+      EncodingType.shiftJis,
+      EncodingType.utf16le,
+      EncodingType.utf16be,
+    ].where((e) => e != current).toList(growable: false);
+  }
+
+  /// 需要走 Android ICU 的编码 → Android charset 名字。其余返回 null。
+  static String? _androidCharsetName(EncodingType encoding) {
+    switch (encoding) {
+      case EncodingType.gbk:
+      case EncodingType.gb2312:
+        return 'GBK';
+      case EncodingType.gb18030:
+        return 'GB18030';
+      case EncodingType.big5:
+        return 'Big5';
+      case EncodingType.shiftJis:
+        return 'Shift-JIS';
+      default:
+        return null;
+    }
+  }
+
+  // ==================== 宽容解码（核心） ====================
+
+  /// 宽容解码：多级降级，保证不整段乱码。
+  ///
+  /// GBK 系列：
+  ///   1. gbk_codec 整体解码（正确，不会静默错位）
+  ///   2. charset 整体解码（快，但可能静默错位）——只在 gbk_codec 抛异常时
+  ///   3. 逐字节宽容（坏一个字符，不坏整段）
+  ///
+  /// Big5 / Shift-JIS：
+  ///   enough_convert / charset → 逐字节宽容
+  static String _decodeSafe(Uint8List bytes, EncodingType encoding) {
+    if (bytes.isEmpty) return '';
+
+    switch (encoding) {
+      case EncodingType.gbk:
+      case EncodingType.gb2312:
+      case EncodingType.gb18030:
+        try {
+          final r = gbkCodec.gbk.decode(bytes);
+          if (r.isNotEmpty) return r;
+        } catch (_) {}
+        try {
+          final r = gbk.decode(bytes);
+          if (r.isNotEmpty) return r;
+        } catch (_) {}
+        return _decodeLenient(bytes, encoding);
+
+      case EncodingType.big5:
+        try {
+          final r = ec.big5.decode(bytes);
+          if (r.isNotEmpty) return r;
+        } catch (_) {}
+        return _decodeLenient(bytes, encoding);
+
+      case EncodingType.shiftJis:
+        try {
+          final r = shiftJis.decode(bytes);
+          if (r.isNotEmpty) return r;
+        } catch (_) {}
+        return _decodeLenient(bytes, encoding);
+
+      default:
+        return utf8.decode(bytes, allowMalformed: true);
+    }
+  }
+
+  /// 逐字节宽容解码。
+  ///
+  /// - ASCII 直接输出
+  /// - 合法双字节对 → 用 charset / enough_convert 尝试解码
+  /// - 解不出的双字节也跳 2 字节，保证后续字节对齐不错位
+  /// - 非法字节 → 写 U+FFFD
+  static String _decodeLenient(Uint8List bytes, EncodingType encoding) {
+    final buf = StringBuffer();
+    var i = 0;
+    while (i < bytes.length) {
+      final b = bytes[i];
+      if (b < 0x80) {
+        buf.writeCharCode(b);
+        i++;
+        continue;
+      }
+      if (i + 1 < bytes.length &&
+          _isDoubleByteLead(b, encoding) &&
+          _isDoubleByteTrail(bytes[i + 1], encoding)) {
+        final b2 = bytes[i + 1];
+        try {
+          final pair = Uint8List.fromList([b, b2]);
+          final r = _decodeSinglePair(pair, encoding);
+          if (r.isNotEmpty && r.codeUnitAt(0) != 0xFFFD) {
+            buf.write(r);
+          } else {
+            buf.writeCharCode(0xFFFD);
+          }
+        } catch (_) {
+          buf.writeCharCode(0xFFFD);
+        }
+        i += 2;
+        continue;
+      }
+      buf.writeCharCode(0xFFFD);
+      i++;
+    }
+    return buf.toString();
+  }
+
+  static String _decodeSinglePair(Uint8List pair, EncodingType encoding) {
+    switch (encoding) {
+      case EncodingType.gbk:
+      case EncodingType.gb2312:
+      case EncodingType.gb18030:
+        return gbkCodec.gbk.decode(pair);
+      case EncodingType.big5:
+        return ec.big5.decode(pair);
+      case EncodingType.shiftJis:
+        return shiftJis.decode(pair);
+      default:
+        return utf8.decode(pair, allowMalformed: true);
     }
   }
 
   // ==================== 双字节边界判定 ====================
 
-  /// lead byte 判定（双字节编码的引导字节）。
   static bool _isDoubleByteLead(int b, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.gbk:
@@ -287,7 +611,6 @@ class EncodingDetector {
     }
   }
 
-  /// trail byte 判定（双字节编码的尾随字节）。
   static bool _isDoubleByteTrail(int b, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.gbk:
@@ -303,156 +626,42 @@ class EncodingDetector {
     }
   }
 
-  /// 一对字节是否构成合法双字节字符。
-  static bool _isDoubleByte(int lead, int trail, EncodingType encoding) {
-    return _isDoubleByteLead(lead, encoding) &&
-        _isDoubleByteTrail(trail, encoding);
-  }
+  // ==================== UTF-16 ====================
 
-  // ==================== UTF-16 解码 ====================
-
-  /// UTF-16 解码。自动处理 BOM（如果开头有的话），
-  /// 剩下的按 2 字节一组组成 UTF-16 码元。
-  /// `String.fromCharCodes` 接受含代理对的码元序列，
-  /// 所以 BMP 和补充平面（emoji 等）都能正确解码。
   static String _decodeUtf16(Uint8List bytes, {required bool littleEndian}) {
     var start = 0;
     if (bytes.length >= 2) {
-      // 跳过 BOM（如果存在）
-      if (littleEndian && bytes[0] == 0xFF && bytes[1] == 0xFE) {
-        start = 2;
-      } else if (!littleEndian && bytes[0] == 0xFE && bytes[1] == 0xFF) {
-        start = 2;
-      }
+      if (littleEndian && bytes[0] == 0xFF && bytes[1] == 0xFE) start = 2;
+      else if (!littleEndian && bytes[0] == 0xFE && bytes[1] == 0xFF) start = 2;
     }
-
     final codeUnits = <int>[];
     for (var i = start; i + 1 < bytes.length; i += 2) {
-      final int cu;
-      if (littleEndian) {
-        cu = bytes[i] | (bytes[i + 1] << 8);
-      } else {
-        cu = (bytes[i] << 8) | bytes[i + 1];
-      }
+      final int cu = littleEndian
+          ? (bytes[i] | (bytes[i + 1] << 8))
+          : ((bytes[i] << 8) | bytes[i + 1]);
       codeUnits.add(cu);
     }
     return String.fromCharCodes(codeUnits);
   }
 
-  /// 无 BOM 的 UTF-16 启发式检测。
-  ///
-  /// 原理：ASCII 字符在 UTF-16 里高位字节是 0x00。
-  ///   LE: 'a' = 61 00  → 奇数位是 0x00
-  ///   BE: 'a' = 00 61  → 偶数位是 0x00
-  /// 所以统计偶数位和奇数位的 0x00 占比即可。
-  ///
-  /// 触发条件：偶数位（或奇数位）中 0x00 占比 > 60%，
-  /// 而另一侧 < 20%。这是保守阈值，不会误伤普通文本。
   static EncodingType? _guessUtf16WithoutBom(Uint8List bytes) {
     if (bytes.length < 8) return null;
     final n = bytes.length > 512 ? 512 : bytes.length;
-    var evenZero = 0;
-    var oddZero = 0;
+    var evenZero = 0, oddZero = 0;
     final pairs = n ~/ 2;
     for (var i = 0; i + 1 < n; i += 2) {
       if (bytes[i] == 0) evenZero++;
       if (bytes[i + 1] == 0) oddZero++;
     }
     if (pairs < 4) return null;
-
     final evenRatio = evenZero / pairs;
     final oddRatio = oddZero / pairs;
-
-    // 偶数位大量 0x00 → BE
-    if (evenRatio > 0.6 && oddRatio < 0.2) {
-      return EncodingType.utf16be;
-    }
-    // 奇数位大量 0x00 → LE
-    if (oddRatio > 0.6 && evenRatio < 0.2) {
-      return EncodingType.utf16le;
-    }
+    if (evenRatio > 0.6 && oddRatio < 0.2) return EncodingType.utf16be;
+    if (oddRatio > 0.6 && evenRatio < 0.2) return EncodingType.utf16le;
     return null;
   }
 
-  // ==================== 第三方 codec 辅助 ====================
-
-  static Encoding _multiByteCodec(EncodingType encoding) {
-    switch (encoding) {
-      case EncodingType.gbk:
-      case EncodingType.gb2312:
-      case EncodingType.gb18030:
-        return gbk; // charset 的真双字节 GBK 解码器
-      case EncodingType.big5:
-        return big5;
-      case EncodingType.shiftJis:
-        return shiftJis;
-      default:
-        return utf8;
-    }
-  }
-
-  static String _decodeLegacy({
-    required Uint8List bytes,
-    required EncodingType encoding,
-  }) {
-    try {
-      switch (encoding) {
-        case EncodingType.gbk:
-        case EncodingType.gb2312:
-        case EncodingType.gb18030:
-          return gbk.decode(bytes);
-        case EncodingType.big5:
-          return big5.decode(bytes);
-        case EncodingType.shiftJis:
-          return shiftJis.decode(bytes);
-        default:
-          return utf8.decode(bytes, allowMalformed: true);
-      }
-    } catch (_) {
-      // 第三方解码器对非法字节会抛异常。不要 String.fromCharCodes——那会把
-      // 整块字节当 Latin-1 码点（CE D2 → Î Ò），得到整段乱码。改走逐字
-      // 宽容：坏一个字符写 U+FFFD，后续字节不错位。
-      return _decodeLenient(bytes, encoding);
-    }
-  }
-
-  /// 逐字节宽容解码：ASCII 原样输出，合法双字节尝试解，解不出的双字节
-  /// 写 U+FFFD 并跳 2 字节。坏一个字符，不坏整段。
-  static String _decodeLenient(Uint8List bytes, EncodingType encoding) {
-    final buf = StringBuffer();
-    var i = 0;
-    while (i < bytes.length) {
-      final b = bytes[i];
-      if (b < 0x80) {
-        buf.writeCharCode(b);
-        i++;
-        continue;
-      }
-      if (i + 1 < bytes.length) {
-        final b2 = bytes[i + 1];
-        if (_isDoubleByte(b, b2, encoding)) {
-          try {
-            final codec = _multiByteCodec(encoding);
-            final r = codec.decoder.convert(Uint8List.fromList([b, b2]));
-            if (r.isNotEmpty) {
-              buf.write(r);
-            } else {
-              buf.writeCharCode(0xFFFD);
-            }
-          } catch (_) {
-            buf.writeCharCode(0xFFFD);
-          }
-          i += 2;
-          continue;
-        }
-      }
-      buf.writeCharCode(0xFFFD);
-      i++;
-    }
-    return buf.toString();
-  }
-
-  // ==================== 原有启发式（保持原样） ====================
+  // ==================== 检测启发式 ====================
 
   static bool _isStrictUtf8(Uint8List bytes) {
     try {
@@ -463,31 +672,68 @@ class EncodingDetector {
     }
   }
 
-  /// 判断按 UTF-8 容错解码时替换符密度是否高。真 GBK 中文几乎每个字节都
-  /// 错解成 U+FFFD；稀疏 ANSI 西文/近似 UTF-8 则替换符占比低，据此拒绝将其
-  /// 误判为 GBK。
-  static bool _isHighMissRate(Uint8List bytes) {
-    if (bytes.isEmpty) return false;
-    final s = utf8.decode(bytes, allowMalformed: true);
-    var total = 0, miss = 0;
-    // 仅统计非 ASCII frame（含多字节），ASCII 不算比例分母，避免英文多时
-    // 稀释 miss 密度而拒绝真正的 GBK 中文。
-    for (final r in s.runes) {
-      if (r < 0x80) continue;
-      total += 1;
-      if (r == 0xFFFD) miss += 1;
+  /// UTF-8 合法率：所有高位字节（>=0x80）里，能组成合法 UTF-8 序列的比例。
+  /// 真正的 UTF-8 文本接近 100%，GBK / Big5 / Shift-JIS 文本接近 0%。
+  static double _utf8ValidRatio(Uint8List bytes) {
+    var totalHigh = 0;
+    var validHigh = 0;
+    var i = 0;
+    while (i < bytes.length) {
+      final b = bytes[i];
+      if (b < 0x80) {
+        i++;
+        continue;
+      }
+      totalHigh++;
+      var len = 0;
+      if (b >= 0xC2 && b <= 0xDF) {
+        len = 2;
+      } else if (b >= 0xE0 && b <= 0xEF) {
+        len = 3;
+      } else if (b >= 0xF0 && b <= 0xF4) {
+        len = 4;
+      }
+      if (len > 0 && i + len <= bytes.length) {
+        var ok = true;
+        for (var k = 1; k < len; k++) {
+          final c = bytes[i + k];
+          if (c < 0x80 || c > 0xBF) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) {
+          validHigh += len;
+          totalHigh += len - 1;
+          i += len;
+          continue;
+        }
+      }
+      i++;
     }
-    if (total == 0) return false;
-    return miss / total >= 0.5;
+    if (totalHigh == 0) return 1;
+    return validHigh / totalHigh;
   }
 
-  /// Heuristic: at least 50% of high bytes form valid GBK lead/trail pairs
-  /// (lead 0x81–0xFE, trail 0x40–0xFE excluding 0x7F). 宽松阈值以覆盖混在
-  /// 大量 ASCII（英文/数字/标点）中的 GBK 中文，过高阈值会漏判成 unknown。
+  /// 日志预览：取前 40 个字符，换行略过，控制字符转义。
+  static String _preview(String text) {
+    if (text.isEmpty) return '';
+    final buf = StringBuffer();
+    var n = 0;
+    for (final r in text.runes) {
+      if (r == 0x0A || r == 0x0D) continue;
+      if (n++ >= 40) break;
+      if (r < 0x20 || r == 0x7F) {
+        buf.write('\\x${r.toRadixString(16).padLeft(2, '0')}');
+      } else {
+        buf.writeCharCode(r);
+      }
+    }
+    return buf.toString();
+  }
+
   static bool _looksLikeGbk(Uint8List bytes) {
-    int pairs = 0;
-    int loneHigh = 0;
-    int i = 0;
+    int pairs = 0, loneHigh = 0, i = 0;
     while (i < bytes.length) {
       final b = bytes[i];
       if (b < 0x80) {
@@ -510,12 +756,8 @@ class EncodingDetector {
     return pairs / total >= 0.5;
   }
 
-  /// Heuristic: at least 80% of high bytes form valid Big5 lead/trail pairs
-  /// (lead 0x81–0xFE, trail 0x40–0x7E or 0xA1–0xFE).
   static bool _looksLikeBig5(Uint8List bytes) {
-    int pairs = 0;
-    int loneHigh = 0;
-    int i = 0;
+    int pairs = 0, loneHigh = 0, i = 0;
     while (i < bytes.length) {
       final b = bytes[i];
       if (b < 0x80) {
@@ -539,12 +781,8 @@ class EncodingDetector {
     return pairs / total >= 0.8;
   }
 
-  /// Heuristic: at least 80% of high bytes form valid Shift-JIS lead/trail
-  /// pairs (lead 0x81–0x9F / 0xE0–0xEF, trail 0x40–0x7E / 0x80–0xFC).
   static bool _looksLikeShiftJis(Uint8List bytes) {
-    int pairs = 0;
-    int loneHigh = 0;
-    int i = 0;
+    int pairs = 0, loneHigh = 0, i = 0;
     while (i < bytes.length) {
       final b = bytes[i];
       if (b < 0x80) {
@@ -568,4 +806,21 @@ class EncodingDetector {
     if (total == 0) return false;
     return pairs / total >= 0.8;
   }
+
+  static final Set<int> _commonHan =
+      '的一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经十三之进着等部度家电力里如水化高自二理起小物现实加量都两体制机当使点从业本去把性好应开它合还因由其些然前外天政四日那社义事平形相全表间样与关各重新线内数正心反你明看原又么利比或但质气第向道命此变条只没结解问意建月公无系军很情者最立代想已通并提直题党程展五果料象员革位入常文总次品式活设及管特件长求老头基资边流路级少图山统接知较将组见计别她手角期根论运农指几九区强放决西被干做必战先回则任取据处队南给色光门即保治北造百规热领七海口东导器压志世金增争济阶油思术极交受联什认六共权收证改清己美再采转更单风切打白教速花带安场身车例真务具万每目至达走积示议声报斗完类八离华名确才科张信马节话米整空元况今集温传土许步群广石记需段研界拉林律叫且究观越织装影算低持音众书布复容儿须际商非验连断深难近矿千周委素技备半办青省列习响约支般史感劳便团往酸历市克何除消构府称太准精值号率族维划选标写存候毛亲快效斯院查江型眼王按格养易置派层片始却专状育厂京识适属圆包火住调满县局照参红细引听该铁价严'
+          .runes
+          .toSet();
+}
+
+/// [EncodingDetector.decodeChunkedAsync] 的结果。
+///
+/// [encoding] 是复核后真正用上的编码，可能和传进去的不同（Android 上
+/// 探测只给初猜，unknown 时由系统 ICU 按可读性择优）。调用方要用它来
+/// 显示编码、决定保存编码，否则 GBK 文件会显示成「Unknown」并按 UTF-8 存回去。
+class DecodedText {
+  const DecodedText(this.text, this.encoding);
+
+  final String text;
+  final EncodingType encoding;
 }
