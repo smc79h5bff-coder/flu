@@ -2970,7 +2970,7 @@ void _toast(String msg) {
   },
   child: Scaffold(
   appBar: AppBar(
-  backgroundColor: Theme.of(context).colorScheme.surface,
+  backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
   surfaceTintColor: Colors.transparent,
   elevation: 0,
   toolbarHeight: 48,
@@ -3137,6 +3137,7 @@ void _toast(String msg) {
             child: Center(child: Icon(Icons.more_vert)),
           ),
           onSelected: (v) {
+              final toolbarVisible = ref.read(toolbarVisibleProvider);
               if (v == 'edit') {
                 _openEdit();
               } else if (v == 'exportDiff') {
@@ -3153,10 +3154,13 @@ void _toast(String msg) {
                 if (_hScrollController.hasClients) {
                   _hScrollController.jumpTo(0);
                 }
-                } else if (v == 'listLeftDiff') {
-  _openLineListFromDiff(isLeft: true);
-} else if (v == 'listRightDiff') {
-  _openLineListFromDiff(isLeft: false);
+              } else if (v == 'toggleToolbar') {
+                ref.read(toolbarVisibleProvider.notifier).state =
+                    !toolbarVisible;
+              } else if (v == 'listLeftDiff') {
+                _openLineListFromDiff(isLeft: true);
+              } else if (v == 'listRightDiff') {
+                _openLineListFromDiff(isLeft: false);
               } else if (v == 'displaySettings') {
                 _openDisplaySettings();
               } else if (v == 'comparisonSettings') {
@@ -3172,6 +3176,7 @@ void _toast(String msg) {
                   ref.read(originalFilePathProvider) != null;
               final canDeleteModified = !_modifiedDeleted &&
                   ref.read(modifiedFilePathProvider) != null;
+              final toolbarVisible = ref.read(toolbarVisibleProvider);
               return [
               const PopupMenuItem<String>(
                 value: 'exportDiff',
@@ -3251,6 +3256,20 @@ void _toast(String msg) {
                 ),
               ),
               PopupMenuItem<String>(
+                value: 'toggleToolbar',
+                child: Row(
+                  children: [
+                    Icon(
+                      toolbarVisible
+                          ? Icons.dashboard_customize
+                          : Icons.dashboard_customize_outlined,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(toolbarVisible ? '隐藏工具栏' : '显示工具栏'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
                 value: 'noWrap',
                 enabled: viewMode != ViewMode.grouped,
                 child: Row(
@@ -3269,7 +3288,7 @@ void _toast(String msg) {
                   ],
                 ),
               ),
- const PopupMenuItem<String>(
+              const PopupMenuItem<String>(
                 value: 'defaultView',
                 child: Row(
                   children: [
@@ -3324,7 +3343,15 @@ void _toast(String msg) {
           if (_showFind) _buildFindBar(),
 
           Container(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  width: 0.5,
+                ),
+              ),
+            ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: LayoutBuilder(
@@ -3344,12 +3371,11 @@ void _toast(String msg) {
                       .clamp(unitMin, double.infinity);
                   final totalW = unitW * totalFlex;
                   final needsScroll = totalW > constraints.maxWidth + 0.5;
-                  final toolbarVisible = ref.watch(toolbarVisibleProvider);
                   final cs = Theme.of(context).colorScheme;
 
                   final tabsRow = SizedBox(
                     width: totalW,
-                    height: 38,
+                    height: 40,
                     child: Row(
                       children: [
                         for (final m in order)
@@ -3375,35 +3401,18 @@ void _toast(String msg) {
                     ),
                   );
 
-                  final expandBtn = TextButton(
-                    onPressed: () =>
-                        ref.read(toolbarVisibleProvider.notifier).update(true),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(
-                      '展开',
-                      style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-                    ),
-                  );
-
-                  if (!needsScroll)
-                    return Row(
-                      children: [
-                        Expanded(child: tabsRow),
-                        if (!toolbarVisible) expandBtn,
-                      ],
-                    );
+                  if (!needsScroll) return SizedBox(height: 40, child: tabsRow);
 
                   return Row(
                     children: [
                       Expanded(
-                        child: SingleChildScrollView(
-                          controller: _tabScrollController,
-                          scrollDirection: Axis.horizontal,
-                          child: tabsRow,
+                        child: SizedBox(
+                          height: 40,
+                          child: SingleChildScrollView(
+                            controller: _tabScrollController,
+                            scrollDirection: Axis.horizontal,
+                            child: tabsRow,
+                          ),
                         ),
                       ),
                       if (!_tabAtEnd)
@@ -3412,7 +3421,7 @@ void _toast(String msg) {
                           onTap: _scrollTabsToEnd,
                           child: Container(
                             width: 24,
-                            height: 38,
+                            height: 40,
                             alignment: Alignment.center,
                             color: cs.surfaceContainerLow,
                             child: Icon(
@@ -3422,7 +3431,6 @@ void _toast(String msg) {
                             ),
                           ),
                         ),
-                      if (!toolbarVisible) expandBtn,
                     ],
                   );
                 },
@@ -3556,7 +3564,15 @@ void _onFloatingPageUpTap() {
 
     return Container(
       height: 42,
-      color: s.surfaceContainerLow,
+      decoration: BoxDecoration(
+        color: s.surfaceContainerLow,
+        border: Border(
+          bottom: BorderSide(
+            color: s.outlineVariant,
+            width: 0.5,
+          ),
+        ),
+      ),
       child: Row(
         children: [
           Expanded(
