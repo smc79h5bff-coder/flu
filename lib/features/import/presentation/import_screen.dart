@@ -325,11 +325,13 @@ class _DocSlot extends ConsumerWidget {
       ref.read(originalEncodingProvider.notifier).state = encoding;
       ref.read(originalFileNameProvider.notifier).state = fileName;
       ref.read(originalFilePathProvider.notifier).state = filePath;
+      ref.read(originalSharedTempPathProvider.notifier).state = null;
     } else {
       ref.read(modifiedRawTextProvider.notifier).state = text;
       ref.read(modifiedEncodingProvider.notifier).state = encoding;
       ref.read(modifiedFileNameProvider.notifier).state = fileName;
       ref.read(modifiedFilePathProvider.notifier).state = filePath;
+      ref.read(modifiedSharedTempPathProvider.notifier).state = null;
     }
     ref.read(importRevisionProvider.notifier).state++;
   }
@@ -340,11 +342,13 @@ class _DocSlot extends ConsumerWidget {
       ref.read(originalEncodingProvider.notifier).state = 'UTF-8';
       ref.read(originalFileNameProvider.notifier).state = null;
       ref.read(originalFilePathProvider.notifier).state = null;
+      ref.read(originalSharedTempPathProvider.notifier).state = null;
     } else {
       ref.read(modifiedRawTextProvider.notifier).state = null;
       ref.read(modifiedEncodingProvider.notifier).state = 'UTF-8';
       ref.read(modifiedFileNameProvider.notifier).state = null;
       ref.read(modifiedFilePathProvider.notifier).state = null;
+      ref.read(modifiedSharedTempPathProvider.notifier).state = null;
     }
   }
 
