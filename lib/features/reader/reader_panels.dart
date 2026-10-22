@@ -1409,7 +1409,7 @@ class _ReaderFindSheetState extends ConsumerState<_ReaderFindSheet> {
               ),
               const SizedBox(height: 12),
               const Divider(),
-              const Text('历史（收藏优先）',
+              Text('历史（收藏优先）',
                   style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               const SizedBox(height: 4),
               Expanded(
@@ -1674,7 +1674,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           const Text('默认分组',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             '用这个色块加的高亮，默认归到这个分组。',
             style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
@@ -1694,7 +1694,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
               isDense: true,
             ),
             items: [
-              const DropdownMenuItem<String?>(
+              DropdownMenuItem<String?>(
                 value: null,
                 child: Text('未分组',
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
@@ -1753,7 +1753,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             '⚠️ 修改只影响以后新加的高亮，已有的保持原样。\n'
             '     如需修改已有高亮，去管理页。',
             style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -2412,7 +2412,7 @@ class _BookmarkHighlightManagerState
                   tooltip: '取消选择',
                   onPressed: _exitSelection,
                 )
-              : const AutoLeadingButton(),
+              : AutoLeadingButton(),
           titleSpacing: 0,
           title: TabBar(
             controller: _tab,
@@ -3226,7 +3226,7 @@ class _HighlightCard extends StatelessWidget {
                     InkWell(
                       onTap: onDelete,
                       borderRadius: BorderRadius.circular(11),
-                      child: const SizedBox(
+                      child: SizedBox(
                         width: 22,
                         height: 22,
                         child: Icon(
