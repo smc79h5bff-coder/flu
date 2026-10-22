@@ -1897,12 +1897,13 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
               Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Text(
-          '下面是「用代码处理文本」的入口。脚本里有一个变量 text，就是整篇文本。\n'
-        
-          ,
-          style: TextStyle(
-            fontSize: 12,
+       child: Text(
+  '下面是「用代码处理文本」的入口。脚本里有一个变量 text，就是整篇文本。\n'
+  '\n'
+  '⚠️ 兼容性提示：\n'
+  '本 App 内置的 JS 引擎支持 ES2019 及更早的语法。如果你从网上复制了最新写法的代码（如 ?. 可选链、?? 空值合并、replaceAll 等），可能会报错或无效。建议使用传统的 ES5 写法。',
+  style: TextStyle(
+    fontSize: 12,
             height: 1.5,
             color: Colors.black,
           ),
