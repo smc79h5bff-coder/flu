@@ -1898,10 +1898,8 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(
-          '这是「用代码处理文本」的入口。\n'
-          '\n'
-          '脚本里有一个变量 text，就是整篇文本。\n'
-          '\n'
+          '下面是「用代码处理文本」的入口。脚本里有一个变量 text，就是整篇文本。\n'
+        
           ,
           style: TextStyle(
             fontSize: 12,
