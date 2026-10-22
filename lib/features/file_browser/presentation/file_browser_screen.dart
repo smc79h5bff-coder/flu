@@ -2851,6 +2851,8 @@ Future<void> _startSearch() async {
       ref.read(modifiedEncodingProvider.notifier).state = 'UTF-8';
       ref.read(originalFilePathProvider.notifier).state = leftPath;
       ref.read(modifiedFilePathProvider.notifier).state = rightPath;
+      ref.read(originalSharedTempPathProvider.notifier).state = null;
+      ref.read(modifiedSharedTempPathProvider.notifier).state = null;
       ref.read(importRevisionProvider.notifier).state++;
       ref.read(editedOriginalProvider.notifier).state = null;
       ref.read(editedModifiedProvider.notifier).state = null;
