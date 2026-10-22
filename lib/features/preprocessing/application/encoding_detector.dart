@@ -3,29 +3,28 @@ import 'dart:typed_data';
 
 import 'package:charset/charset.dart' show gbk, shiftJis;
 import 'package:enough_convert/enough_convert.dart' as ec;
-import 'package:gbk_codec/gbk_codec.dart' as gbkCodec;
 
-import 'encoding_bridge.dart';
 import '../domain/encoding_type.dart';
 import '../../reader/reader_load_log.dart';
 
 /// 编码探测与解码。**正确优先，速度其次。**
 ///
-/// 关键决策：
-///   - GBK / GB2312 / GB18030 / Big5 / Shift-JIS 解码：
-///     [decodeChunkedAsync] 在 Android 上优先走 [EncodingBridge]（系统 ICU，
-///     零错位全码表）。bridge 失败或非 Android 平台时，回落 [decodeChunked]：
-///     gbk_codec 优先（不会静默错位），charset 兜底，最后逐字节宽容。
-///   - charset 只用于 _plausibilityScore 的快速打分（只是比较候选，
-///     不需要绝对正确，只需要区分 GBK / Big5 / Shift-JIS）。
-///   - 所有路径都保留 _decodeLenient 兜底：坏一个字符写 U+FFFD，
-///     绝不 String.fromCharCodes（那会把整段字节当 Latin-1，产生
-///     ìÎÒÓÖ 这种整段乱码）。
+/// 核心原则：
+///   1. 任何解码失败都降级到下一级宽容策略，绝不 String.fromCharCodes
+///      把整段字节当 Latin-1 输出（那会产生 ìÎÒÓÖ 这种整段乱码）。
+///   2. 分块时对齐双字节边界，块尾不劈开 lead/trail。
+///   3. 宽容解码只坏单个字符（写 U+FFFD），不坏后续字节对齐。
+///   4. 检测层：严格 UTF-8 → GBK → Big5 → Shift-JIS 打分择优，
+///      不再因单个编码抛异常就淘汰候选。
 class EncodingDetector {
   const EncodingDetector._();
 
   static const int _sampleSize = 64 * 1024;
-  static const int _decodeChunkSize = 64 * 1024;
+  // ★ 先用 64MB 上限走一次性解码，排除分块逻辑的干扰。
+  // 如果 charset 的 gbk.decode 本身没问题，一次性解应该正确（chars ≈ bytes/2）。
+  // 如果一次性解也有 chars=bytes 的问题，说明 charset 包的 gbk 有 bug，
+  // 需要换方案。
+  static const int _decodeChunkSize = 64 * 1024 * 1024;
 
   // ==================== 探测 ====================
 
@@ -35,7 +34,7 @@ class EncodingDetector {
 
     if (bytes.isEmpty) return EncodingType.ascii;
 
-    // 1. BOM
+    // 1. BOM（必须用原文）
     if (bytes.length >= 3 &&
         bytes[0] == 0xEF &&
         bytes[1] == 0xBB &&
@@ -45,6 +44,7 @@ class EncodingDetector {
     }
     if (bytes.length >= 2) {
       if (bytes[0] == 0xFF && bytes[1] == 0xFE) {
+        // 排除 UTF-32 LE
         if (bytes.length >= 4 && bytes[2] == 0x00 && bytes[3] == 0x00) {
           log.info('[Enc] detect → unknown (UTF-32 LE)');
           return EncodingType.unknown;
@@ -58,7 +58,8 @@ class EncodingDetector {
       }
     }
 
-    // 2. UTF-16 无 BOM
+    // 2. UTF-16 无 BOM 启发式（必须在 UTF-8 之前：UTF-16 的 NUL 字节
+    //    在 UTF-8 里是合法字符，会骗过 _isStrictUtf8）
     final utf16Guess = _guessUtf16WithoutBom(bytes);
     if (utf16Guess != null) {
       log.info('[Enc] detect → $utf16Guess (无 BOM)');
@@ -69,14 +70,16 @@ class EncodingDetector {
         ? bytes
         : Uint8List.sublistView(bytes, 0, _sampleSize);
 
-    // 3. 严格 UTF-8
+    // 3. 严格 UTF-8（字节级判断，不会被 sample 截断误判）
     if (_isStrictUtf8(sample)) {
-      final isAscii = bytes.every((b) => b < 0x80);
+      final isAscii = sample.every((b) => b < 0x80);
       log.info('[Enc] detect → ${isAscii ? "ascii" : "utf8"}');
       return isAscii ? EncodingType.ascii : EncodingType.utf8;
     }
 
-    // 4. 多字节候选：按字节结构筛，再按解码可读性打分择优。
+    // 4. 多字节候选：先按字节结构筛，再按解码可读性打分择优。
+    //    纯 GBK 文件不应因某个候选抛异常就被淘汰，所以这里用
+    //    "宽容解码 + 打分" 而不是 "解码失败直接 -inf"。
     final looksGbk = _looksLikeGbk(sample);
     final looksBig5 = _looksLikeBig5(sample);
     final looksSjis = _looksLikeShiftJis(sample);
@@ -107,35 +110,13 @@ class EncodingDetector {
     return EncodingType.unknown;
   }
 
-  /// 候选评分。这里用 **charset**（快）：
-  /// 打分只需要比较候选，不需要绝对正确，charset 的静默错位不影响
-  /// 「GBK 出常用字 vs SJIS 出假名」这种粗粒度区分。
+  /// 候选编码的「可读性」打分：用宽容解码，统计字符分布。
+  ///
+  /// 关键：不用严格 decode。charset/enough_convert 对个别字节会抛异常，
+  /// 严格 decode 一抛就把整个候选淘汰，纯 GBK 文件会被误判成 Shift-JIS
+  /// 或 Big5。宽容解码让「一个坏字」不拖垮「整段判断」。
   static int _plausibilityScore(Uint8List bytes, EncodingType encoding) {
-    String text;
-    try {
-      switch (encoding) {
-        case EncodingType.gbk:
-        case EncodingType.gb2312:
-        case EncodingType.gb18030:
-          text = gbk.decode(bytes);
-          break;
-        case EncodingType.big5:
-          text = ec.big5.decode(bytes);
-          break;
-        case EncodingType.shiftJis:
-          text = shiftJis.decode(bytes);
-          break;
-        default:
-          return -999999;
-      }
-    } catch (_) {
-      // charset 抛异常时，用逐字节宽容结果打分，不直接淘汰候选。
-      try {
-        text = _decodeLenient(bytes, encoding);
-      } catch (_) {
-        return -999999;
-      }
-    }
+    final text = _decodeSafe(bytes, encoding);
     if (text.isEmpty) return -999999;
 
     var score = 0;
@@ -158,11 +139,13 @@ class EncodingDetector {
           (r >= 0x2010 && r <= 0x2027)) {
         score += 1;
       } else if (r >= 0x80 && r <= 0xFF) {
+        // Latin-1 补充区：正常中文文本几乎不出现，是错误解码的强信号
         score -= 8;
       } else {
         score -= 2;
       }
     }
+    // 替换符密度惩罚
     if (total > 0) score -= (replacement * 10) ~/ total;
     return score;
   }
@@ -184,9 +167,11 @@ class EncodingDetector {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
+        return _decodeSafe(bytes, EncodingType.gbk);
       case EncodingType.big5:
+        return _decodeSafe(bytes, EncodingType.big5);
       case EncodingType.shiftJis:
-        return _decodeSafe(bytes, encoding);
+        return _decodeSafe(bytes, EncodingType.shiftJis);
       case EncodingType.binary:
       case EncodingType.unknown:
         return utf8.decode(bytes, allowMalformed: true);
@@ -197,6 +182,7 @@ class EncodingDetector {
     final log = ReaderLoadLog.instance;
     final t0 = DateTime.now();
 
+    // 单字节编码 / UTF-16 / 未知，一次性解，无跨块问题。
     switch (encoding) {
       case EncodingType.ascii:
       case EncodingType.utf8:
@@ -215,7 +201,7 @@ class EncodingDetector {
       case EncodingType.gb18030:
       case EncodingType.big5:
       case EncodingType.shiftJis:
-        break;
+        break; // 走下面的分块逻辑
     }
 
     if (bytes.length <= _decodeChunkSize) {
@@ -226,9 +212,9 @@ class EncodingDetector {
       return r;
     }
 
-    // 分块：逐块独立解码，每块对双字节边界对齐。
+    // 分块：逐块独立解码，每块都对双字节边界对齐。
     // 不用 startChunkedConversion —— 那个 API 返回 Sink<List<int>>，
-    // 强转 ByteConversionSink 在 charset 实现里会抛 TypeError。
+    // 强转 ByteConversionSink 在部分 charset 实现里会抛 TypeError。
     final buf = StringBuffer();
     var chunkCount = 0;
     var start = 0;
@@ -236,15 +222,27 @@ class EncodingDetector {
       var end = (start + _decodeChunkSize) > bytes.length
           ? bytes.length
           : start + _decodeChunkSize;
-      // 块尾对齐：end-1 是 lead、end 是 trail 时，这个双字节字符正好被
-      // 劈开。把 trail 划到下一块。
+      // 块尾对齐：如果 end-1 是 lead、end 是 trail，说明劈开了双字节字符，
+      // 把 trail 划到下一块。
       if (end < bytes.length &&
           end > start &&
           _isDoubleByteLead(bytes[end - 1], encoding) &&
           _isDoubleByteTrail(bytes[end], encoding)) {
         end += 1;
       }
-      buf.write(_decodeSafe(Uint8List.sublistView(bytes, start, end), encoding));
+      // 块首对齐：如果 start 处是 trail（上一块末尾是 lead 但被切掉了），
+      // 说明当前块开头不完整，跳过一个字节。
+      if (start > 0 &&
+          _isDoubleByteTrail(bytes[start], encoding) &&
+          _isDoubleByteLead(bytes[start - 1], encoding)) {
+        // 上一块的 lead 已随上一块解过，这里跳过孤 trail
+        start += 1;
+        if (start >= end) continue;
+      }
+      buf.write(_decodeSafe(
+        Uint8List.sublistView(bytes, start, end),
+        encoding,
+      ));
       chunkCount++;
       start = end;
     }
@@ -255,147 +253,114 @@ class EncodingDetector {
     return result;
   }
 
-  /// 异步版本：Android 走系统 ICU，其他平台回落 [decodeChunked] 的 Dart 包。
-  ///
-  /// 只对需要 ICU 全码表的编码走原生：GBK / GB2312 / GB18030 / Big5 /
-  /// Shift-JIS。UTF-8 / UTF-16 / ASCII 的 Dart 原生实现已经正确，不走原生。
-  static Future<String> decodeChunkedAsync(
-    Uint8List bytes,
-    EncodingType encoding,
-  ) async {
-    final log = ReaderLoadLog.instance;
-    final charset = _androidCharsetName(encoding);
-    log.info('[Enc] decodeChunkedAsync enc=$encoding bridge=${EncodingBridge.isSupported ? "on" : "off"} androidCharset=$charset bytes=${bytes.length}');
-    if (EncodingBridge.isSupported && charset != null) {
-      final r = await EncodingBridge.decode(bytes, charset);
-      if (r != null) {
-        log.info('[Enc] decodeChunkedAsync → bridge chars=${r.length}');
-        return r;
-      }
-      log.info('[Enc] decodeChunkedAsync bridge failed, fallback to Dart');
-    }
-    final t0 = DateTime.now();
-    final r = decodeChunked(bytes, encoding);
-    log.info('[Enc] decodeChunkedAsync → Dart bytes=${bytes.length}→${r.length}chars  ${DateTime.now().difference(t0).inMilliseconds}ms');
-    return r;
-  }
-
-  /// 需要走 Android ICU 的编码 → Android charset 名字。其余返回 null。
-  static String? _androidCharsetName(EncodingType encoding) {
-    switch (encoding) {
-      case EncodingType.gbk:
-      case EncodingType.gb2312:
-        return 'GBK';
-      case EncodingType.gb18030:
-        return 'GB18030';
-      case EncodingType.big5:
-        return 'Big5';
-      case EncodingType.shiftJis:
-        return 'Shift-JIS';
-      default:
-        return null;
-    }
-  }
-
   // ==================== 宽容解码（核心） ====================
 
-  /// 宽容解码：多级降级，保证不整段乱码。
+  /// 宽容解码：多级降级，保证不整段乱码、不闪退。
   ///
-  /// GBK 系列：
-  ///   1. gbk_codec 整体解码（正确，不会静默错位）
-  ///   2. charset 整体解码（快，但可能静默错位）——只在 gbk_codec 抛异常时
-  ///   3. 逐字节宽容（坏一个字符，不坏整段）
-  ///
-  /// Big5 / Shift-JIS：
-  ///   enough_convert / charset → 逐字节宽容
+  /// 顺序：
+  ///   1. 对应编码的严格 decode（最快）
+  ///   2. 对应编码的逐字节宽容 decode（坏一个字符，不坏整段）
+  ///   3. UTF-8 容错（最后兜底，至少不会把字节当 Latin-1 输出）
   static String _decodeSafe(Uint8List bytes, EncodingType encoding) {
     if (bytes.isEmpty) return '';
 
-    switch (encoding) {
-      case EncodingType.gbk:
-      case EncodingType.gb2312:
-      case EncodingType.gb18030:
-        try {
-          final r = gbkCodec.gbk.decode(bytes);
-          if (r.isNotEmpty) return r;
-        } catch (_) {}
-        try {
-          final r = gbk.decode(bytes);
-          if (r.isNotEmpty) return r;
-        } catch (_) {}
-        return _decodeLenient(bytes, encoding);
+    final log = ReaderLoadLog.instance;
 
-      case EncodingType.big5:
-        try {
-          final r = ec.big5.decode(bytes);
-          if (r.isNotEmpty) return r;
-        } catch (_) {}
-        return _decodeLenient(bytes, encoding);
-
-      case EncodingType.shiftJis:
-        try {
-          final r = shiftJis.decode(bytes);
-          if (r.isNotEmpty) return r;
-        } catch (_) {}
-        return _decodeLenient(bytes, encoding);
-
-      default:
-        return utf8.decode(bytes, allowMalformed: true);
+    // 1. 严格 decode
+    try {
+      String result;
+      switch (encoding) {
+        case EncodingType.gbk:
+        case EncodingType.gb2312:
+        case EncodingType.gb18030:
+          result = gbk.decode(bytes);
+          break;
+        case EncodingType.big5:
+          result = ec.big5.decode(bytes);
+          break;
+        case EncodingType.shiftJis:
+          result = shiftJis.decode(bytes);
+          break;
+        default:
+          result = utf8.decode(bytes);
+      }
+      // ★ 诊断日志：一次性 GBK 解码后 chars 数 vs bytes 数。
+      // 正常 GBK 中文应该是 chars ≈ bytes/2（每汉字 2 字节）。
+      // 如果 chars ≈ bytes，说明 charset 的 gbk.decode 有 bug（1:1 是 Latin-1 透传）。
+      if (encoding == EncodingType.gbk ||
+          encoding == EncodingType.gb2312 ||
+          encoding == EncodingType.gb18030) {
+        log.info(
+          '[Enc-Diag] ${encoding.name}: input=${bytes.length}B → chars=${result.length} '
+          'ratio=${(result.length / bytes.length).toStringAsFixed(3)} '
+          '(${result.length < bytes.length * 0.75 ? "✓ 正常" : "⚠️ 异常 1:1 透传"})'
+        );
+      }
+      return result;
+    } catch (_) {
+      // 继续降级
     }
+
+    // 2. 逐字节宽容
+    return _decodeLenient(bytes, encoding);
   }
 
-  /// 逐字节宽容解码。
+  /// 逐字节宽容解码（分段版）。
   ///
-  /// - ASCII 直接输出
-  /// - 合法双字节对 → 用 charset / enough_convert 尝试解码
-  /// - 解不出的双字节也跳 2 字节，保证后续字节对齐不错位
-  /// - 非法字节 → 写 U+FFFD
+  /// 不逐 pair decode（每对一次 decoder init，极慢）。
+  /// 改成"连续合法区段整段 decode + 跳过非法字节"。
   static String _decodeLenient(Uint8List bytes, EncodingType encoding) {
     final buf = StringBuffer();
     var i = 0;
+    var segStart = 0;
+
+    void flush(int end) {
+      if (end <= segStart) return;
+      final sub = Uint8List.sublistView(bytes, segStart, end);
+      try {
+        buf.write(_decodeStrict(sub, encoding));
+      } catch (_) {
+        for (var k = segStart; k < end; k++) {
+          buf.writeCharCode(0xFFFD);
+        }
+      }
+    }
+
     while (i < bytes.length) {
       final b = bytes[i];
       if (b < 0x80) {
-        buf.writeCharCode(b);
         i++;
         continue;
       }
       if (i + 1 < bytes.length &&
           _isDoubleByteLead(b, encoding) &&
           _isDoubleByteTrail(bytes[i + 1], encoding)) {
-        final b2 = bytes[i + 1];
-        try {
-          final pair = Uint8List.fromList([b, b2]);
-          final r = _decodeSinglePair(pair, encoding);
-          if (r.isNotEmpty && r.codeUnitAt(0) != 0xFFFD) {
-            buf.write(r);
-          } else {
-            buf.writeCharCode(0xFFFD);
-          }
-        } catch (_) {
-          buf.writeCharCode(0xFFFD);
-        }
         i += 2;
         continue;
       }
+      // 遇到非法字节：把 [segStart, i) 一次性 decode，跳过坏字节
+      flush(i);
       buf.writeCharCode(0xFFFD);
       i++;
+      segStart = i;
     }
+    flush(bytes.length);
     return buf.toString();
   }
 
-  static String _decodeSinglePair(Uint8List pair, EncodingType encoding) {
+  /// 严格 decode（对应编码）。用于 _decodeLenient 里的区段 decode。
+  static String _decodeStrict(Uint8List bytes, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
-        return gbkCodec.gbk.decode(pair);
+        return gbk.decode(bytes);
       case EncodingType.big5:
-        return ec.big5.decode(pair);
+        return ec.big5.decode(bytes);
       case EncodingType.shiftJis:
-        return shiftJis.decode(pair);
+        return shiftJis.decode(bytes);
       default:
-        return utf8.decode(pair, allowMalformed: true);
+        return utf8.decode(bytes);
     }
   }
 
@@ -468,22 +433,38 @@ class EncodingDetector {
   // ==================== 检测启发式 ====================
 
   static bool _isStrictUtf8(Uint8List bytes) {
-    try {
-      utf8.decode(bytes);
-      return true;
-    } on FormatException {
-      return false;
+    var i = 0;
+    final n = bytes.length;
+    while (i < n) {
+      final b = bytes[i];
+      if (b < 0x80) {
+        i++;
+        continue;
+      }
+      final int len;
+      if ((b & 0xE0) == 0xC0) {
+        len = 2;
+      } else if ((b & 0xF0) == 0xE0) {
+        len = 3;
+      } else if ((b & 0xF8) == 0xF0) {
+        len = 4;
+      } else {
+        return false; // 首字节非法
+      }
+      if (i + len > n) return true; // 尾部被 sample 截断，视为合法
+      for (var k = 1; k < len; k++) {
+        if ((bytes[i + k] & 0xC0) != 0x80) return false;
+      }
+      i += len;
     }
+    return true;
   }
 
   static bool _looksLikeGbk(Uint8List bytes) {
     int pairs = 0, loneHigh = 0, i = 0;
     while (i < bytes.length) {
       final b = bytes[i];
-      if (b < 0x80) {
-        i += 1;
-        continue;
-      }
+      if (b < 0x80) { i += 1; continue; }
       if (b >= 0x81 && b <= 0xFE && i + 1 < bytes.length) {
         final t = bytes[i + 1];
         if (t >= 0x40 && t <= 0xFE && t != 0x7F) {
@@ -504,10 +485,7 @@ class EncodingDetector {
     int pairs = 0, loneHigh = 0, i = 0;
     while (i < bytes.length) {
       final b = bytes[i];
-      if (b < 0x80) {
-        i += 1;
-        continue;
-      }
+      if (b < 0x80) { i += 1; continue; }
       if (b >= 0x81 && b <= 0xFE && i + 1 < bytes.length) {
         final t = bytes[i + 1];
         final valid = (t >= 0x40 && t <= 0x7E) || (t >= 0xA1 && t <= 0xFE);
@@ -529,10 +507,7 @@ class EncodingDetector {
     int pairs = 0, loneHigh = 0, i = 0;
     while (i < bytes.length) {
       final b = bytes[i];
-      if (b < 0x80) {
-        i += 1;
-        continue;
-      }
+      if (b < 0x80) { i += 1; continue; }
       final isLead = (b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xEF);
       if (isLead && i + 1 < bytes.length) {
         final t = bytes[i + 1];
@@ -551,6 +526,7 @@ class EncodingDetector {
     return pairs / total >= 0.8;
   }
 
+  /// 高频汉字集合（简体 + 繁体），用于 [_plausibilityScore]。
   static final Set<int> _commonHan =
       '的一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经十三之进着等部度家电力里如水化高自二理起小物现实加量都两体制机当使点从业本去把性好应开它合还因由其些然前外天政四日那社义事平形相全表间样与关各重新线内数正心反你明看原又么利比或但质气第向道命此变条只没结解问意建月公无系军很情者最立代想已通并提直题党程展五果料象员革位入常文总次品式活设及管特件长求老头基资边流路级少图山统接知较将组见计别她手角期根论运农指几九区强放决西被干做必战先回则任取据处队南给色光门即保治北造百规热领七海口东导器压志世金增争济阶油思术极交受联什认六共权收证改清己美再采转更单风切打白教速花带安场身车例真务具万每目至达走积示议声报斗完类八离华名确才科张信马节话米整空元况今集温传土许步群广石记需段研界拉林律叫且究观越织装影算低持音众书布复容儿须际商非验连断深难近矿千周委素技备半办青省列习响约支般史感劳便团往酸历市克何除消构府称太准精值号率族维划选标写存候毛亲快效斯院查江型眼王按格养易置派层片始却专状育厂京识适属圆包火住调满县局照参红细引听该铁价严'
           .runes
