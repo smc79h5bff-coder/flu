@@ -331,26 +331,6 @@ class DisplaySettingsSheet extends ConsumerWidget {
                         defaultBorder: 2,
                       ),
 
-                    // ========== 工具栏 ==========
-                    const Divider(height: 32),
-                    Text(
-                      '工具栏',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('显示'),
-                      subtitle: const Text(
-                        '差异视图顶部的快捷操作按钮栏',
-                        style: TextStyle(fontSize: 11),
-                      ),
-                      value: ref.watch(toolbarVisibleProvider),
-                      onChanged: (v) => ref
-                          .read(toolbarVisibleProvider.notifier)
-                          .update(v),
-                    ),
-
                     // ========== 差异颜色 ==========
                     const Divider(height: 32),
                     Text(
