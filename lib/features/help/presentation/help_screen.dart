@@ -319,39 +319,52 @@ JS 比原生规则慢，大文本时尽量排在最后。
   }
 
   Future<void> _loadContent() async {
-    final prefs = await SharedPreferences.getInstance();
-    final defaults = _defaultTabs();
-    final saved = prefs.getString(_prefKey);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final defaults = _defaultTabs();
+      final saved = prefs.getString(_prefKey);
 
-    List<_HelpTab> tabs;
-    if (saved != null && saved.isNotEmpty) {
-      tabs = _loadPersisted(defaults, saved);
-      if (tabs.isEmpty) tabs = defaults;
-    } else {
-      tabs = defaults;
+      List<_HelpTab> tabs;
+      if (saved != null && saved.isNotEmpty) {
+        tabs = _loadPersisted(defaults, saved);
+        if (tabs.isEmpty) tabs = defaults;
+      } else {
+        tabs = defaults;
+      }
+
+      // 首次启动时清空旧版 v1 / v2，不保留用户手写内容
+      await prefs.remove('help_screen_content_v1');
+      await prefs.remove('help_screen_tabs_v2');
+
+      int initialIdx = 0;
+      final target = widget.initialTabId;
+      if (target != null) {
+        final idx = tabs.indexWhere((t) => t.id == target);
+        if (idx >= 0) initialIdx = idx;
+      }
+
+      if (!mounted) return;
+      _tabs = tabs;
+      _tabCtrl.dispose();
+      _tabCtrl = TabController(
+        length: tabs.length,
+        vsync: this,
+        initialIndex: initialIdx.clamp(0, tabs.length - 1),
+      );
+
+      setState(() => _loaded = true);
+    } catch (_) {
+      // 任何异常（SharedPreferences 卡、TabController dispose 抛、Markdown 渲染前置问题）
+      // 都兜底显示默认 Tab，绝不让 UI 永远卡在 loading。
+      if (!mounted) return;
+      _tabs = _defaultTabs();
+      // 直接覆盖，不调 dispose——try 块里可能已经 dispose 过了，二次 dispose 会再抛。
+      _tabCtrl = TabController(
+        length: _tabs.length,
+        vsync: this,
+      );
+      setState(() => _loaded = true);
     }
-
-    // 首次启动时清空旧版 v1 / v2，不保留用户手写内容
-    await prefs.remove('help_screen_content_v1');
-    await prefs.remove('help_screen_tabs_v2');
-
-    int initialIdx = 0;
-    final target = widget.initialTabId;
-    if (target != null) {
-      final idx = tabs.indexWhere((t) => t.id == target);
-      if (idx >= 0) initialIdx = idx;
-    }
-
-    if (!mounted) return;
-    _tabs = tabs;
-    _tabCtrl.dispose();
-    _tabCtrl = TabController(
-      length: tabs.length,
-      vsync: this,
-      initialIndex: initialIdx.clamp(0, tabs.length - 1),
-    );
-
-    setState(() => _loaded = true);
   }
 
   Future<void> _persist() async {
