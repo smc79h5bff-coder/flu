@@ -675,7 +675,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       log.mark('EncodingDetector.detect');
       log.info('encoding = ${encoding.label}');
 
-      final rawText = EncodingDetector.decodeChunked(bytes, encoding);
+      final rawText = await EncodingDetector.decodeChunkedAsync(bytes, encoding);
       log.mark('decodeChunked');
       log.info('rawText chars = ${rawText.length}');
 
