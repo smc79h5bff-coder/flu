@@ -780,7 +780,7 @@ Padding(
           const Spacer(),
           if (value.isNotEmpty)
             Text(value,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: Theme.of(context).colorScheme.primary)),
@@ -988,6 +988,7 @@ Widget _miniPreview(
                         : 0,
                     fill: s.hotZoneStyle == 0,
                     previewOnly: !s.hotZoneVisible,
+                    previewColor: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ),
@@ -1081,8 +1082,8 @@ Future<void> _showFullPreview(
                 previewWidth: w,
                 tapToEnlarge: false,
               ),
-              const SizedBox(height: 12),
-              const Text(
+              SizedBox(height: 12),
+              Text(
                 '点任意位置关闭',
                 style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7), fontSize: 12),
               ),
@@ -1158,6 +1159,7 @@ class _HotZonePainter extends CustomPainter {
     required this.borderWidth,
     required this.fill,
     this.previewOnly = false,
+    this.previewColor,
   });
 
   final double x;
@@ -1170,6 +1172,9 @@ class _HotZonePainter extends CustomPainter {
   final bool fill;
   final bool previewOnly;
 
+  /// 预览态（hotZoneVisible=false）下用的颜色，由调用方在有 context 的地方算好传入。
+  final Color? previewColor;
+
   @override
   void paint(Canvas canvas, Size size) {
     final left = (x - w / 2) * size.width;
@@ -1180,7 +1185,7 @@ class _HotZonePainter extends CustomPainter {
     final rect = Rect.fromLTRB(left, top, right, bottom);
 
     final effectiveColor = previewOnly
-        ? Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: opacity.clamp(0.0, 1.0) * 0.6)
+        ? (previewColor ?? color).withValues(alpha: opacity.clamp(0.0, 1.0) * 0.6)
         : color.withValues(alpha: opacity.clamp(0.0, 1.0));
 
     if (fill && !previewOnly) {
@@ -2412,7 +2417,10 @@ class _BookmarkHighlightManagerState
                   tooltip: '取消选择',
                   onPressed: _exitSelection,
                 )
-              : AutoLeadingButton(),
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
           titleSpacing: 0,
           title: TabBar(
             controller: _tab,
