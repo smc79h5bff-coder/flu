@@ -1701,7 +1701,48 @@ xxx->=>yyy       ← 找到 xxx 替换成 yyy
 
 - 规范化 Unicode（NFC）
 
+##js脚本
+⚠️ 兼容性提示：
+本 App 内置的 JS 引擎支持 ES2019 及更早的语法。如果你从网上复制了最新写法的代码（如 ?. 可选链、?? 空值合并、replaceAll 等），可能会报错或无效。建议使用传统的 ES5 写法。
+⚠️ 写脚本前必看：
+本 App 使用的 JS 引擎兼容至 ES2019。如果你从网上（如 ChatGPT、百度）复制了 2020 年以后的新语法（比如带 ?. 或 ?? 的代码），脚本会直接失效且不会报错。
+建议尽量使用传统的 for 循环、replace 正则替换和常规的 if-else 判断。能不用高级语法就不用，这样脚本运行也最快！
 
+**现代语法（可能报错）与老写法对照表**
+| 现代语法（2020+，可能不支持） | 兼容老写法（ES2019 及以下，绝对支持） | 说明 / 常见场景 |
+|------|------|------|
+| `text?.length` | `text ? text.length : 0` | 可选链，防止变量为 null 时报错 |
+| `obj?.prop?.method()` | `obj && obj.prop && obj.prop.method()` | 连续安全调用 |
+| `a ?? b` | `a !== null && a !== undefined ? a : b` | 空值合并，只判断 null/undefined |
+| `a ??= b` | `if (a === null \|\| a === undefined) a = b` | 空值赋值 |
+| `a \|\|= b` | `a = a \|\| b` | 逻辑或赋值 |
+| `a &&= b` | `a = a && b` | 逻辑与赋值 |
+| `text.replaceAll('x', 'y')` | `text.replace(/x/g, 'y')` 或 `text.split('x').join('y')` | 全量替换（非常常用） |
+| `text.matchAll(regex)` | `while ((m = regex.exec(text)) !== null) { ... }` | 匹配所有结果，老写法需配合 while 循环 |
+| `arr.at(-1)` | `arr[arr.length - 1]` | 获取数组最后一个元素 |
+| `arr.at(0)` | `arr[0]` | 获取数组第一个元素 |
+| `arr.flat()` | `arr.reduce((acc, val) => acc.concat(val), [])` | 数组扁平化（降维） |
+| `arr.flatMap(fn)` | `arr.map(fn).reduce((acc, val) => acc.concat(val), [])` | 映射后扁平化 |
+| `arr.toSorted()` | `[...arr].sort()` | ES2023 的排序，不改变原数组 |
+| `arr.toReversed()` | `[...arr].reverse()` | ES2023 的反转，不改变原数组 |
+| `arr.findLast(fn)` | `[...arr].reverse().find(fn)` | 从后往前找第一个满足条件的元素 |
+| `Object.fromEntries(arr)` | `arr.reduce((obj, [k, v]) => { obj[k] = v; return obj; }, {})` | 将键值对数组转为对象 |
+| `Object.hasOwn(obj, 'key')` | `Object.prototype.hasOwnProperty.call(obj, 'key')` | 判断对象是否有某属性 |
+| `1_000_000` | `1000000` | 数字分隔符（纯语法糖，去掉下划线即可） |
+| `123n` | `Number(123)` 或直接写 `123` | BigInt（大整数），老引擎不支持，直接用 Number |
+| `structuredClone(obj)` | `JSON.parse(JSON.stringify(obj))` | 深拷贝对象 |
+| `class A { #private = 1; }` | 把 `#` 改为 `_`，如 `this._private = 1` | 类的私有字段（约定俗成用下划线） |
+| 顶层 `await func()` | `(async () => { await func(); })()` | 顶层 await，老引擎需要包在立即执行函数里 |
+
+💡**几个非常实用的文本处理替换示例**
+| 你的需求 | 现代写法（不支持） | 老写法（推荐） |
+|------|------|------|
+| 删除所有数字 | `text.replaceAll(/\d+/g, '')` | `text.replace(/\d+/g, '')` |
+| 按行切割并处理 | `text.split('\n').map(l => l?.trim())` | `text.split('\n').map(function(l) { return l ? l.trim() : ''; })` |
+| 去重数组 | `[...new Set(arr)]` | `[...new Set(arr)]`（Set 是 ES6 语法，引擎支持） |
+| 判断是否包含 | `arr.includes('a')` | `arr.indexOf('a') !== -1`（极老引擎不支持 includes） |
+| 去除开头空格 | `text.trimStart()` | `text.replace(/^\s+/, '')` |
+| 获取当前时间戳 | `Date.now()` | `new Date().getTime()` |
 
 ''';
 
