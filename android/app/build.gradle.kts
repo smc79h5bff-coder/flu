@@ -27,8 +27,8 @@ android {
             dimension = "app"
             applicationId = "com.example.docdiff"
             manifestPlaceholders["appName"] = "TxTdiff"
-            versionCode = 222
-            versionName = "2.2.2"
+            versionCode = 227
+            versionName = "2.2.7"
         }
         create("coexist") {
             dimension = "app"
