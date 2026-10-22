@@ -24,7 +24,18 @@ class _HelpScreenState extends State<HelpScreen>
   bool _loaded = false;
   bool _editing = false;
 
-  late final TabController _tabCtrl;
+  // ★ 从 `late final` 改成 `late`。
+  //
+  //   `late final` 字段**只能赋值一次**。之前的代码是：
+  //     initState 里赋值（第 1 次）
+  //     _loadContent 里 dispose 旧 + 赋值（第 2 次）→ 抛 LateInitializationError
+  //     catch 里再赋值（第 3 次）→ 又抛
+  //
+  //   结果：_loadContent 从读 prefs 到设置 tabs 的所有代码都白做，
+  //   用户自定义的 tab 全部丢失，_loaded 可能一直是 false → 永远转圈。
+  //
+  //   改成 `late` 后，_loadContent 里可以正常 dispose 旧的、创建新的。
+  late TabController _tabCtrl;
 
   final TextEditingController _titleCtrl = TextEditingController();
   final TextEditingController _contentCtrl = TextEditingController();
@@ -38,6 +49,18 @@ class _HelpScreenState extends State<HelpScreen>
   final Map<int, Offset> _touches = <int, Offset>{};
   double _pinchStartDistance = 0;
   double _pinchStartScale = 1.0;
+
+  // ==============================================================
+  // MarkdownStyleSheet 缓存
+  // ==============================================================
+  //
+  // flutter_markdown 的 MarkdownBody 内部有缓存，判断条件是：
+  //   if (oldWidget.styleSheet != widget.styleSheet || oldWidget.data != widget.data)
+  // MarkdownStyleSheet 没有重写 ==，所以 != 是引用比较。
+  // 每次 build 都 return 新对象 → 引用永远不同 → 每次都重新解析 markdown。
+  MarkdownStyleSheet? _cachedSheet;
+  double _cachedSheetFontSize = 0;
+  ColorScheme? _cachedSheetScheme;
 
   // ==============================================================
   // 默认 Tab 内容（精简重写，口语化，不写底层技术细节）
@@ -313,8 +336,11 @@ JS 比原生规则慢，大文本时尽量排在最后。
   @override
   void initState() {
     super.initState();
-    // 先用一个临时空 TabController（后面 _loadContent 会 dispose 替换掉）
-    _tabCtrl = TabController(length: 0, vsync: this);
+    // length 从 0 改成 1：TabController 本身不 assert length>0，
+    // 但 TabBar 渲染时有 assert(tabsLen == controller.length)。
+    // 现在恰好因为 _loaded=false 时不渲染 TabBar 躲过去，属于运气。
+    // 改成 1 更稳。后面 _loadContent 会 dispose 掉重新创建。
+    _tabCtrl = TabController(length: 1, vsync: this);
     _loadContent();
   }
 
@@ -332,9 +358,8 @@ JS 比原生规则慢，大文本时尽量排在最后。
         tabs = defaults;
       }
 
-      // 首次启动时清空旧版 v1 / v2，不保留用户手写内容
-      await prefs.remove('help_screen_content_v1');
-      await prefs.remove('help_screen_tabs_v2');
+      // v1 / v2 的 key 早就不用了，clean 动作放这没意义。
+      // remove 不存在的 key 不触发磁盘写，但每次启动跑一遍纯属浪费。
 
       int initialIdx = 0;
       final target = widget.initialTabId;
@@ -632,6 +657,9 @@ JS 比原生规则慢，大文本时尽量排在最后。
     _tabCtrl.dispose();
     _titleCtrl.dispose();
     _contentCtrl.dispose();
+    // 主动清缓存，让 GC 早回收。
+    _cachedSheet = null;
+    _cachedSheetScheme = null;
     super.dispose();
   }
 
@@ -770,9 +798,13 @@ JS 比原生规则慢，大文本时尽量排在最后。
           child: SingleChildScrollView(
             physics: pinching ? const NeverScrollableScrollPhysics() : null,
             padding: const EdgeInsets.all(16),
+            // ★ selectable: false —— 外层已经包了 SelectionArea。
+            //   Markdown(selectable: true) 内部会再包一层 SelectionArea，
+            //   Android 上双层需要构建两遍选区几何，几百个 widget 叠加起来
+            //   能慢到秒级。只保留外层，功能不变（整页仍可长按选中复制）。
             child: Markdown(
               data: tab.content,
-              selectable: true,
+              selectable: false,
               styleSheet: _buildMarkdownStyleSheet(s, _baseFontSize * _fontScale),
             ),
           ),
@@ -782,7 +814,12 @@ JS 比原生规则慢，大文本时尽量排在最后。
   }
 
   MarkdownStyleSheet _buildMarkdownStyleSheet(ColorScheme s, double fontSize) {
-    return MarkdownStyleSheet(
+    if (_cachedSheet != null &&
+        _cachedSheetFontSize == fontSize &&
+        identical(s, _cachedSheetScheme)) {
+      return _cachedSheet!;
+    }
+    final sheet = MarkdownStyleSheet(
       h1: TextStyle(fontSize: fontSize * 1.48, fontWeight: FontWeight.bold, height: 1.5),
       h2: TextStyle(fontSize: fontSize * 1.26, fontWeight: FontWeight.bold, height: 1.5),
       h3: TextStyle(fontSize: fontSize * 1.11, fontWeight: FontWeight.w600, height: 1.5),
@@ -811,11 +848,18 @@ JS 比原生规则慢，大文本时尽量排在最后。
       tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       tableHead: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
       tableBody: TextStyle(fontSize: fontSize, height: 1.5),
-      tableColumnWidth: const IntrinsicColumnWidth(),
+      // ★ 不设 tableColumnWidth，让 flutter_markdown 用默认的 FlexColumnWidth。
+      //   IntrinsicColumnWidth 需要两次 layout（intrinsic 预演 + 正常布局），
+      //   表格越多、单元格越多越慢。去掉后显示效果几乎一样，
+      //   只是列宽改成"平均分配"而不是"按内容自适应"。
       horizontalRuleDecoration: BoxDecoration(
         border: Border(top: BorderSide(color: s.outlineVariant, width: 0.5)),
       ),
     );
+    _cachedSheet = sheet;
+    _cachedSheetFontSize = fontSize;
+    _cachedSheetScheme = s;
+    return sheet;
   }
 }
 
