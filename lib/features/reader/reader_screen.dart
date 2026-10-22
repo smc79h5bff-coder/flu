@@ -12,13 +12,11 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../preprocessing/application/aho_corasick.dart';
 import '../preprocessing/application/encoding_detector.dart';
 import '../preprocessing/domain/encoding_type.dart';
-import '../file_browser/presentation/dir_loader.dart';
-import '../file_browser/presentation/dialogs/directory_picker_dialog.dart';
-import '../file_browser/presentation/providers/file_browser_providers.dart';
 import 'reader_load_log.dart';
 import 'reader_loupe.dart';
 import 'reader_models.dart';
@@ -81,6 +79,50 @@ class _DragInfo {
 
   /// 手指跟手柄逻辑位置的偏移（拖动开始时定下，之后固定）。
   final Offset? handleOffset;
+}
+
+/// 目录条目（Table of Contents entry）。
+class _TocEntry {
+  const _TocEntry({
+    required this.lineIndex,
+    required this.charOffset,
+    required this.title,
+    required this.level,
+  });
+
+  final int lineIndex; // 在 _text.split('\n') 里的行号
+  final int charOffset; // 标题在 _text 里的起始字符位置
+  final String title; // 显示给用户的标题（已 trim + 可能截断）
+  final int level; // 1 = 一级（# 或 第X章），2 = 二级（## 或 一、）
+}
+
+/// 目录自定义规则弹窗里的"示例正则"小标签按钮。
+class _PatternChip extends StatelessWidget {
+  const _PatternChip({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontFamily: 'monospace',
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ==================== 手柄绘制 ====================
@@ -244,21 +286,18 @@ class _EncodingPickerSheet extends StatelessWidget {
   final EncodingType? currentManual;
   final EncodingType? currentDetected;
 
-  
-static const List<EncodingType> _pickable = [
-  EncodingType.utf8,
-  EncodingType.utf8bom,
-  EncodingType.utf16le,
-  EncodingType.utf16be,
-  EncodingType.gbk,
-  EncodingType.gb2312,     // ← 新增
-  EncodingType.gb18030,
-  EncodingType.big5,       // ← 如果枚举里有 big5 就保留，没有就删这行
-  EncodingType.shiftJis,
-];
+  static const List<EncodingType> _pickable = [
+    EncodingType.utf8,
+    EncodingType.utf8bom,
+    EncodingType.utf16le,
+    EncodingType.utf16be,
+    EncodingType.gbk,
+    EncodingType.gb2312,
+    EncodingType.gb18030,
+    EncodingType.big5,
+    EncodingType.shiftJis,
+  ];
 
-
-  
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
@@ -271,7 +310,7 @@ static const List<EncodingType> _pickable = [
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300,
+              color: s.outlineVariant,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -284,7 +323,7 @@ static const List<EncodingType> _pickable = [
             child: Text(
               '如果自动检测错了，可以在这里手动指定。\n'
               '切换后当前文件会立即按新编码重新打开。',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12, color: s.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
           ),
@@ -543,6 +582,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _toastEntry?.remove();
     _toastEntry = null;
 
+    // 主动清空 4 个缓存。
+    //
+    // 场景：ReaderScreen 被 pop 掉后、新实例压栈之前，旧的这几个缓存
+    // 还挂在旧 State 上没被 GC。2MB 文件每次 pop 都会留几百 KB 到 1MB
+    // 的"僵尸内存"，连开几次容易撞上 OOM。
+    //
+    // 这 4 个字段都是 `final Map`，只能在 dispose 里 clear，不能重新赋值。
+    // 语义与 _invalidateAllCaches() 一致（清空），只是触发点更早。
+    _spansCache.clear();
+    _gradRectCache.clear();
+    _pageHighlightCacheMap.clear();
+    _previewCache.clear();
+    _pageHighlightCache = {};
+    _lastHighlightQueryLine = -1;
+    _lastHighlightQueryResult = const [];
+
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     _selNotifier.dispose();
@@ -620,8 +675,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       log.mark('EncodingDetector.detect');
       log.info('encoding = ${encoding.label}');
 
-      final rawText = EncodingDetector.decodeChunked(bytes, encoding);
+      final decoded = await EncodingDetector.decodeChunkedAsync(bytes, encoding);
+      // 复核后真正用上的编码可能就是它，界面要显示这个。
+      _currentEncoding = decoded.encoding;
+      final rawText = decoded.text;
       log.mark('decodeChunked');
+      log.info('实际编码 = ${decoded.encoding.label}');
       log.info('rawText chars = ${rawText.length}');
 
       final text = _normalizeForReading(rawText);
@@ -642,6 +701,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       log.info(
           'fontSize=${settings.fontSize} fontWeight=${settings.fontWeight} pageTopSafePx=${settings.pageTopSafePx} pageBottomSafePx=${settings.pageBottomSafePx}');
 
+      final split = splitLinesWithOffsets(text);
+      log.mark('splitLinesWithOffsets');
+      log.info('lines = ${split.lines.length}');
+
       final paginator = ReaderPaginator(
         text: text,
         viewportWidth: _viewportSize.width,
@@ -650,8 +713,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         fontWeight: settings.fontWeight,
         pageTopSafePx: settings.pageTopSafePx,
         pageBottomSafePx: settings.pageBottomSafePx,
+        preSplitLines: split.lines,
+        preSplitLineStarts: split.lineStarts,
       );
-      log.mark('new ReaderPaginator');
+      log.mark('new ReaderPaginator（复用已切行）');
 
       paginator.addListener(_onPaginatorChanged);
       log.mark('addListener');
@@ -660,10 +725,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       log.mark('paginator.start() 返回');
       log.info('pages = ${paginator.result?.pageCount}');
       log.info('renderUnits = ${paginator.result?.renderUnits.length}');
-
-      final split = splitLinesWithOffsets(text);
-      log.mark('splitLinesWithOffsets');
-      log.info('lines = ${split.lines.length}');
 
       final fileKey = readerFileKey(path);
       ref.read(readerHighlightsProvider.notifier).ensureLoaded(fileKey);
@@ -827,7 +888,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     _rebuildPageHighlightCache();
     _pageHighlightCacheMap[_currentPage] = _pageHighlightCache;
-    if (_pageHighlightCacheMap.length > 32) {
+    // 32 → 16：缓存最近翻过的 16 页高亮匹配结果。
+    // 用户"翻回去看"几乎都在 10 页以内，命中率基本不受影响。
+    if (_pageHighlightCacheMap.length > 16) {
       _pageHighlightCacheMap.remove(_pageHighlightCacheMap.keys.first);
     }
   }
@@ -1064,7 +1127,9 @@ void _saveProgressNow({bool fromPaginator = false}) {
     }
     final text = buf.toString();
 
-    if (_previewCache.length > 64) {
+    // 64 → 32：每项是一整页的预览文本（几 KB），64 页能占用几百 KB。
+    // 32 页足够覆盖用户前后翻的范围。
+    if (_previewCache.length > 32) {
       _previewCache.remove(_previewCache.keys.first);
     }
     _previewCache[_currentPage] = text;
@@ -1195,7 +1260,10 @@ void _saveProgressNow({bool fromPaginator = false}) {
             child: Material(
               elevation: 8,
               borderRadius: BorderRadius.circular(8),
-              color: Colors.black.withValues(alpha: 0.82),
+              color: Theme.of(context)
+                  .colorScheme
+                  .inverseSurface
+                  .withValues(alpha: 0.9),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -1203,8 +1271,8 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 ),
                 child: Text(
                   msg,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onInverseSurface,
                     fontSize: 13,
                   ),
                   maxLines: 2,
@@ -1292,15 +1360,15 @@ void _saveProgressNow({bool fromPaginator = false}) {
             const SizedBox(height: 4),
             Text(
               path,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
-                color: Colors.grey,
+                color: Theme.of(c).colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               '删除后无法恢复。',
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(c).colorScheme.error),
             ),
           ],
         ),
@@ -1310,7 +1378,9 @@ void _saveProgressNow({bool fromPaginator = false}) {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -1367,133 +1437,6 @@ void _saveProgressNow({bool fromPaginator = false}) {
     await _ensureLoaded();
   }
 
-  Future<void> _moveCurrentFile() async {
-    if (_filePaths.isEmpty) return;
-    final oldPath = _filePaths[_fileIndex];
-    final fileName = oldPath.split('/').last;
-
-    // 1. 选目标目录
-    final target = await showDialog<String>(
-      context: context,
-      builder: (_) => DirectoryPickerDialog(
-        title: '把「$fileName」移动到哪？',
-        rootPath: '/storage',
-        initialPath: File(oldPath).parent.path,
-        pickedPaths: [oldPath],
-      ),
-    );
-    if (target == null || !mounted) return;
-
-    if (target == File(oldPath).parent.path) {
-      _showToast('已经在这个目录了');
-      return;
-    }
-
-    // 2. 冲突处理（单个文件，三选一）
-    var dst = '$target/$fileName';
-    if (FileSystemEntity.typeSync(dst) != FileSystemEntityType.notFound) {
-      final choice = await showDialog<String>(
-        context: context,
-        builder: (c) => AlertDialog(
-          title: const Text('目标目录已有同名项'),
-          content: Text(fileName),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c, 'rename'),
-              child: const Text('自动改名'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () => Navigator.pop(c, 'overwrite'),
-              child: const Text('覆盖'),
-            ),
-          ],
-        ),
-      );
-      if (choice == null || !mounted) return;
-      if (choice == 'rename') {
-        dst = _findNonConflictPath(dst);
-      } else if (choice == 'overwrite') {
-        try {
-          if (Directory(dst).existsSync()) {
-            await Directory(dst).delete(recursive: true);
-          } else {
-            await File(dst).delete();
-          }
-        } catch (_) {}
-      }
-    }
-
-    // 3. 执行移动
-    try {
-      await File(oldPath).rename(dst);
-    } catch (e) {
-      if (!mounted) return;
-      _showToast('移动失败：$e');
-      return;
-    }
-    if (!mounted) return;
-
-    // 4. 从列表里移除，跳到下一个（与删除完全一致）
-    setState(() {
-      _filePaths.removeAt(_fileIndex);
-    });
-
-    if (_filePaths.isEmpty) {
-      _showToast('目录里的文件已移走完，返回文件浏览器');
-      await Future.delayed(const Duration(milliseconds: 900));
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      return;
-    }
-
-    var nextIndex = _fileIndex;
-    var hitEnd = false;
-    if (nextIndex >= _filePaths.length) {
-      nextIndex = _filePaths.length - 1;
-      hitEnd = true;
-    }
-
-    _clearSelection();
-    _manualEncoding = null;
-    _lastLoadedKey = null;
-    setState(() {
-      _fileIndex = nextIndex;
-    });
-
-    // 5. 缓存失效（原目录 + 目标目录）
-    DirCache.instance.invalidate(File(oldPath).parent.path);
-    DirCache.instance.invalidate(target);
-    ref.read(recentMoveTargetsProvider.notifier).add(target);
-
-    final nextName = _filePaths[nextIndex].split('/').last;
-    _showToast(
-      hitEnd ? '已移动，已到最后：$nextName' : '已移动，跳到：$nextName',
-    );
-
-    await _ensureLoaded();
-  }
-
-  String _findNonConflictPath(String originalDst) {
-    final dotIdx = originalDst.lastIndexOf('.');
-    final slashIdx = originalDst.lastIndexOf('/');
-    final hasExt = dotIdx > slashIdx && dotIdx < originalDst.length - 1;
-    final base = hasExt ? originalDst.substring(0, dotIdx) : originalDst;
-    final ext = hasExt ? originalDst.substring(dotIdx) : '';
-    for (var i = 1; i < 10000; i++) {
-      final candidate = '$base ($i)$ext';
-      if (FileSystemEntity.typeSync(candidate) ==
-          FileSystemEntityType.notFound) {
-        return candidate;
-      }
-    }
-    return '$base (${DateTime.now().millisecondsSinceEpoch})$ext';
-  }
-
   // ==================== 顶部菜单 ====================
 
   void _showTopMenu() {
@@ -1501,7 +1444,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
     _menuOpen = true;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       barrierColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -1583,7 +1526,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: Theme.of(ctx).colorScheme.outlineVariant,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1641,21 +1584,21 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 children: [
                   Expanded(
                     child: menuButton(
-                      icon: Icons.bookmark_add_outlined,
-                      label: '加书签',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _addBookmark();
-                      },
-                    ),
-                  ),
-                  Expanded(
-                    child: menuButton(
                       icon: Icons.bookmarks_outlined,
                       label: '书签与高亮',
                       onTap: () async {
                         Navigator.pop(ctx);
                         await _openManager();
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.bookmark_add_outlined,
+                      label: '加书签',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _addBookmark();
                       },
                     ),
                   ),
@@ -1688,6 +1631,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 ],
               ),
 
+              // 暂时隐藏「导出加载日志」入口，需要时恢复此 Row。
               Row(
                 children: [
                   Expanded(
@@ -1703,6 +1647,8 @@ void _saveProgressNow({bool fromPaginator = false}) {
                   const Expanded(child: SizedBox.shrink()),
                 ],
               ),
+              const Divider(height: 1),
+
               const Divider(height: 1),
 
               Row(
@@ -1721,7 +1667,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
                     child: menuButton(
                       icon: Icons.close,
                       label: '关闭文件',
-                      color: Colors.red,
+                      color: Theme.of(ctx).colorScheme.error,
                       onTap: () {
                         Navigator.pop(ctx);
                         _closeFile();
@@ -1742,7 +1688,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
   Future<void> _showEncodingPicker() async {
     final picked = await showModalBottomSheet<_EncodingChoice>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1856,6 +1802,433 @@ void _saveProgressNow({bool fromPaginator = false}) {
       if (p == null) return;
       final page = findPageForOffset(p, result);
       _jumpToPage(page);
+    }
+  }
+
+  // ==================== 目录（Table of Contents） ====================
+
+  /// 从当前文件文本里解析章节标题。
+  ///
+  /// 匹配模式（按优先级）：
+  ///   1. Markdown 一级/二级标题（`# / ##`）
+  ///   2. 中文常见：第X章 / 第X回 / 第X节 / 第X卷 / 第X篇
+  ///   3. 中文序号：一、二、三、... / 一. 二. 三.
+  ///   4. 英文：Chapter 1 / CHAPTER 1 / Part 1 / Section 1
+  ///   5. 纯数字行（第1行就是 1 / 1. / 1、 之类）
+  ///
+  /// 返回的条目里 `charOffset` 是标题在 `_text` 里的起始位置，
+  /// 用于定位到对应 page。
+  List<_TocEntry> _parseToc({String? userPattern}) {
+    final text = _text;
+    if (text == null || text.isEmpty) return const [];
+
+    final lines = text.split('\n');
+    final result = <_TocEntry>[];
+
+    // 预计算每行起始 offset（split 会丢 \n，所以自己算）
+    int offset = 0;
+    final lineStarts = List<int>.filled(lines.length, 0);
+    for (var i = 0; i < lines.length; i++) {
+      lineStarts[i] = offset;
+      offset += lines[i].length + 1;
+    }
+
+    // 如果用户配了自定义正则，优先用它（全局生效）
+    if (userPattern != null && userPattern.trim().isNotEmpty) {
+      RegExp? userReg;
+      try {
+        userReg = RegExp(userPattern.trim());
+      } catch (_) {
+        // 正则语法错误，忽略，继续用内置
+      }
+      if (userReg != null) {
+        for (var i = 0; i < lines.length; i++) {
+          final raw = lines[i].trim();
+          if (raw.isEmpty) continue;
+          final m = userReg.firstMatch(raw);
+          if (m == null) continue;
+
+          // 标题取：优先 group(1) → group(0) 整行 → raw
+          final String title;
+          if (m.groupCount >= 1 && m.group(1) != null && m.group(1)!.isNotEmpty) {
+            title = m.group(1)!.trim();
+          } else if (m.groupCount >= 2 && m.group(2) != null && m.group(2)!.isNotEmpty) {
+            title = m.group(2)!.trim();
+          } else {
+            title = m.group(0)!.trim();
+          }
+          if (title.isEmpty) continue;
+
+          result.add(_TocEntry(
+            lineIndex: i,
+            charOffset: lineStarts[i],
+            title: title.length > 60 ? '${title.substring(0, 57)}...' : title,
+            level: 1,
+          ));
+        }
+        if (result.length >= 2) return result;
+        // 用户正则没匹配出足够条目，回退到内置规则
+      }
+    }
+
+    // 以下是内置规则（按优先级）
+    final mdHeading = RegExp(r'^(#{1,2})\s+(.+)$');
+    final chineseChapter = RegExp(r'^\s*(第[\d一二三四五六七八九十百千万零〇两\u4e00-\u9fff]+[章回节卷篇部话集])\s*[:：.\- ]*(.+)?$');
+    final chineseSerial = RegExp(r'^\s*([一二三四五六七八九十]+)[、.]\s*(.+)?$');
+    final englishChapter = RegExp(r'^\s*(chapter|part|section)\s+\d+[\s:.\-]*(.+)?$', caseSensitive: false);
+    final numbered = RegExp(r'^\s*(\d{1,4})[、.．]\s*(.+)?$');
+
+    for (var i = 0; i < lines.length; i++) {
+      final raw = lines[i].trim();
+      if (raw.isEmpty) continue;
+
+      String? title;
+      int level = 0;
+
+      final mdMatch = mdHeading.firstMatch(raw);
+      if (mdMatch != null) {
+        level = mdMatch.group(1)!.length;
+        title = mdMatch.group(2)?.trim();
+      } else if (chineseChapter.hasMatch(raw)) {
+        final m = chineseChapter.firstMatch(raw)!;
+        title = (m.group(1)! + (m.group(2) != null ? ' ${m.group(2)!.trim()}' : '')).trim();
+        level = 1;
+      } else if (englishChapter.hasMatch(raw)) {
+        final m = englishChapter.firstMatch(raw)!;
+        title = (m.group(1)!.toUpperCase() + ' ' + raw.substring(m.group(0)!.length)).trim();
+        title = title.isEmpty ? raw : title;
+        level = 1;
+      } else if (numbered.hasMatch(raw)) {
+        final m = numbered.firstMatch(raw)!;
+        final subtitle = m.group(2);
+        if (subtitle == null || subtitle.trim().length < 2) continue;
+        title = raw;
+        level = 2;
+      } else if (chineseSerial.hasMatch(raw)) {
+        final m = chineseSerial.firstMatch(raw)!;
+        final subtitle = m.group(2);
+        if (subtitle == null || subtitle.trim().length < 2) continue;
+        title = raw;
+        level = 2;
+      } else {
+        continue;
+      }
+
+      if (title == null || title.trim().isEmpty) continue;
+      if (title.length > 60) title = '${title.substring(0, 57)}...';
+
+      result.add(_TocEntry(
+        lineIndex: i,
+        charOffset: lineStarts[i],
+        title: title.trim(),
+        level: level,
+      ));
+    }
+
+    if (result.length < 2) return const [];
+    return result;
+  }
+
+  /// 目录自定义正则的 SharedPreferences key。
+  static const String _tocUserPatternKey = 'reader_toc_user_pattern';
+
+  /// 读取用户自定义目录正则（全局）。
+  static Future<String?> _loadTocUserPattern() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_tocUserPatternKey);
+  }
+
+  /// 保存 / 清除用户自定义目录正则。
+  static Future<void> _saveTocUserPattern(String pattern) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (pattern.trim().isEmpty) {
+      await prefs.remove(_tocUserPatternKey);
+    } else {
+      await prefs.setString(_tocUserPatternKey, pattern.trim());
+    }
+  }
+
+  Future<void> _showToc() async {
+    if (_text == null || _text!.isEmpty) {
+      _showToast('文件还没加载完');
+      return;
+    }
+
+    // 读用户自定义正则（可能为空）
+    final userPattern = await _loadTocUserPattern();
+    final hasUserPattern = userPattern != null && userPattern.trim().isNotEmpty;
+
+    final entries = _parseToc(userPattern: userPattern);
+    if (entries.isEmpty) {
+      if (!mounted) return;
+      // 没识别出来 → 给个机会让用户自定义正则
+      final tryCustom = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('没找到可识别的章节'),
+          content: const Text(
+            '当前文件的目录结构不匹配内置规则。\n'
+            '可以自己输一条正则来匹配（例如用 () 捕获标题文字）。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('自定义规则'),
+            ),
+          ],
+        ),
+      );
+      if (tryCustom == true && mounted) {
+        await _openTocPatternEditor();
+      }
+      return;
+    }
+
+    final p = _paginator?.result;
+    final currentOffset = p == null
+        ? 0
+        : (ref.read(readerSettingsProvider).readerMode == 1
+            ? (ref.read(readerProgressProvider)[readerFileKey(widget.filePaths[_fileIndex])]?.charOffset ?? 0)
+            : pageStartOffset(p, _currentPage));
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(ctx).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      const Text(
+                        '目录',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: '自定义规则',
+                        icon: Icon(
+                          hasUserPattern ? Icons.rule_folder : Icons.rule_folder_outlined,
+                          size: 20,
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await _openTocPatternEditor();
+                        },
+                      ),
+                      Text(
+                        '${entries.length} 条',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 12),
+                Flexible(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: entries.length,
+                    itemBuilder: (ctx, i) {
+                      final e = entries[i];
+                      final isCurrent =
+                          i == 0 ||
+                          (i == entries.length - 1
+                              ? currentOffset >= e.charOffset
+                              : currentOffset >= e.charOffset &&
+                                  currentOffset < entries[i + 1].charOffset);
+
+                      final indent = (e.level - 1) * 16.0;
+                      final cs = Theme.of(ctx).colorScheme;
+
+                      return InkWell(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          if (p == null) return;
+                          final page = findPageForOffset(p, e.charOffset);
+                          _jumpToPage(page);
+                        },
+                        child: Container(
+                          padding: EdgeInsets.only(
+                            left: 16 + indent,
+                            right: 16,
+                            top: 10,
+                            bottom: 10,
+                          ),
+                          color: isCurrent
+                              ? cs.primary.withOpacity(0.08)
+                              : Colors.transparent,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  e.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: e.level == 1 ? 14 : 13,
+                                    fontWeight: e.level == 1
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                    color: isCurrent
+                                        ? cs.primary
+                                        : cs.onSurface,
+                                  ),
+                                ),
+                              ),
+                              if (isCurrent)
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  margin: const EdgeInsets.only(left: 8),
+                                  decoration: BoxDecoration(
+                                    color: cs.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 打开"目录自定义规则"编辑弹窗。
+  ///
+  /// 用户输一条正则（Dart RegExp 语法），优先匹配；
+  /// 用 () 捕获组把"标题文字"圈出来——group(1) 优先、group(2) 其次、
+  /// 都没有就用整行匹配。
+  Future<void> _openTocPatternEditor() async {
+    final current = await _loadTocUserPattern() ?? '';
+    final ctrl = TextEditingController(text: current);
+
+    if (!mounted) return;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (c) {
+        final cs = Theme.of(c).colorScheme;
+        return AlertDialog(
+          title: const Text('目录自定义规则'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '正则表达式',
+                  hintText: r'比如：^\s*【(.+?)】',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '示例：',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _PatternChip(label: r'【(.+?)】', onTap: () => ctrl.text = r'【(.+?)】'),
+                  _PatternChip(label: r'^\s*第(.+?)\s*[:：]', onTap: () => ctrl.text = r'^\s*第(.+?)\s*[:：]'),
+                  _PatternChip(label: r'^\s*\d+\.\s*(.+)', onTap: () => ctrl.text = r'^\s*\d+\.\s*(.+)'),
+                  _PatternChip(label: r'^\s*[一二三四五六七八九十]+[、.]\s*(.+)', onTap: () => ctrl.text = r'^\s*[一二三四五六七八九十]+[、.]\s*(.+)'),
+                  _PatternChip(label: r'^\s*\*\s*(.+)', onTap: () => ctrl.text = r'^\s*\*\s*(.+)'),
+                  _PatternChip(label: r'^\s*#\s*(.+)', onTap: () => ctrl.text = r'^\s*#\s*(.+)'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '用 () 把"标题文字"圈起来，程序会自动用 group(1) 或 group(2) 作为标题。\n'
+                '留空 = 恢复内置规则（支持 第X章 / Chapter / # / 一、 / 1. 等）。',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _saveTocUserPattern('');
+                if (!c.mounted) return;
+                Navigator.pop(c, true);
+              },
+              child: const Text('清除自定义规则'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final pattern = ctrl.text.trim();
+                if (pattern.isNotEmpty) {
+                  try {
+                    RegExp(pattern);
+                  } catch (e) {
+                    if (!c.mounted) return;
+                    ScaffoldMessenger.of(c).showSnackBar(
+                      SnackBar(content: Text('正则语法错误：$e')),
+                    );
+                    return;
+                  }
+                }
+                await _saveTocUserPattern(pattern);
+                if (!c.mounted) return;
+                Navigator.pop(c, true);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+
+    ctrl.dispose();
+    if (saved == true && mounted) {
+      _showToast(ctrl.text.trim().isEmpty ? '已恢复内置规则' : '已保存自定义规则');
     }
   }
 
@@ -2363,10 +2736,6 @@ void _saveProgressNow({bool fromPaginator = false}) {
       _deleteCurrentFile();
       return;
     }
-    if (btn == 'move') {
-      _moveCurrentFile();
-      return;
-    }
     if (_isInHotZone(globalPos)) {
       _showTopMenu();
       return;
@@ -2745,10 +3114,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
   List<Widget> _buildShellOverlays(ReaderSettings settings, Size size) {
     return [
       _buildHotZone(settings, size),
-      if (settings.showTopButton ||
-          settings.showBottomButton ||
-          settings.showDelButton ||
-          settings.showMoveButton)
+      if (settings.showButtons)
         Positioned.fill(
           child: IgnorePointer(
             ignoring: _scrollSelectionActive,
@@ -2758,40 +3124,35 @@ void _saveProgressNow({bool fromPaginator = false}) {
               curve: Curves.easeOut,
               child: Stack(
                 children: [
-                  if (settings.showTopButton)
-                    _buildFloatButton(
-                      style: settings.topBtnStyle,
-                      bgColor: Color(settings.topBtnBgColor),
-                      fgColor: Color(settings.topBtnFgColor),
-                      ringColor: Color(settings.topBtnRingColor),
-                      ringWidth: settings.topBtnRingWidth,
-                      x: settings.topBtnX,
-                      y: settings.topBtnY,
-                      scale: settings.topBtnScale,
-                      opacity: settings.topBtnOpacity,
-                      icon: Icons.keyboard_arrow_up,
-                      size: size,
-                      onTap: _prevFile,
-                    ),
-                  if (settings.showBottomButton)
-                    _buildFloatButton(
-                      style: settings.bottomBtnStyle,
-                      bgColor: Color(settings.bottomBtnBgColor),
-                      fgColor: Color(settings.bottomBtnFgColor),
-                      ringColor: Color(settings.bottomBtnRingColor),
-                      ringWidth: settings.bottomBtnRingWidth,
-                      x: settings.bottomBtnX,
-                      y: settings.bottomBtnY,
-                      scale: settings.bottomBtnScale,
-                      opacity: settings.bottomBtnOpacity,
-                      icon: Icons.keyboard_arrow_down,
-                      size: size,
-                      onTap: _nextFile,
-                    ),
-                  if (settings.showDelButton)
-                    _buildDeleteButton(settings, size),
-                  if (settings.showMoveButton)
-                    _buildMoveButton(settings, size),
+                  _buildFloatButton(
+                    style: settings.topBtnStyle,
+                    bgColor: Color(settings.topBtnBgColor),
+                    fgColor: Color(settings.topBtnFgColor),
+                    ringColor: Color(settings.topBtnRingColor),
+                    ringWidth: settings.topBtnRingWidth,
+                    x: settings.topBtnX,
+                    y: settings.topBtnY,
+                    scale: settings.topBtnScale,
+                    opacity: settings.topBtnOpacity,
+                    icon: Icons.keyboard_arrow_up,
+                    size: size,
+                    onTap: _prevFile,
+                  ),
+                  _buildFloatButton(
+                    style: settings.bottomBtnStyle,
+                    bgColor: Color(settings.bottomBtnBgColor),
+                    fgColor: Color(settings.bottomBtnFgColor),
+                    ringColor: Color(settings.bottomBtnRingColor),
+                    ringWidth: settings.bottomBtnRingWidth,
+                    x: settings.bottomBtnX,
+                    y: settings.bottomBtnY,
+                    scale: settings.bottomBtnScale,
+                    opacity: settings.bottomBtnOpacity,
+                    icon: Icons.keyboard_arrow_down,
+                    size: size,
+                    onTap: _nextFile,
+                  ),
+                  _buildDeleteButton(settings, size),
                 ],
               ),
             ),
@@ -2851,10 +3212,6 @@ void _saveProgressNow({bool fromPaginator = false}) {
               _deleteCurrentFile();
               return true;
             }
-            if (btn == 'move') {
-              _moveCurrentFile();
-              return true;
-            }
             if (_isInHotZone(pos)) {
               _showTopMenu();
               return true;
@@ -2909,12 +3266,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
 
   String? _hitFloatButton(Offset globalPos) {
     final settings = ref.read(readerSettingsProvider);
-    if (!settings.showDelButton &&
-        !settings.showMoveButton &&
-        !settings.showTopButton &&
-        !settings.showBottomButton) {
-      return null;
-    }
+    if (!settings.showButtons) return null;
 
     final size = _lastContentSize;
     if (size.width < 10 || size.height < 10) return null;
@@ -2929,21 +3281,14 @@ void _saveProgressNow({bool fromPaginator = false}) {
       return dx * dx + dy * dy < r * r;
     }
 
-    if (settings.showDelButton &&
-        inBtn(settings.delBtnX, settings.delBtnY, settings.delBtnScale)) {
+    if (inBtn(settings.delBtnX, settings.delBtnY, settings.delBtnScale)) {
       return 'del';
     }
-    if (settings.showMoveButton &&
-        inBtn(settings.moveBtnX, settings.moveBtnY, settings.moveBtnScale)) {
-      return 'move';
-    }
-    if (settings.showTopButton &&
-        inBtn(settings.topBtnX, settings.topBtnY, settings.topBtnScale)) {
+    if (inBtn(settings.topBtnX, settings.topBtnY, settings.topBtnScale)) {
       return 'prev';
     }
-    if (settings.showBottomButton &&
-        inBtn(settings.bottomBtnX, settings.bottomBtnY,
-            settings.bottomBtnScale)) {
+    if (inBtn(settings.bottomBtnX, settings.bottomBtnY,
+        settings.bottomBtnScale)) {
       return 'next';
     }
     return null;
@@ -3280,7 +3625,9 @@ final effectiveStyle = _baseStyle(settings);
       }
     }
 
-    if (_gradRectCache.length > 256) {
+    // 256 → 128：每项是这一段的渐变矩形列表（几个 Rect）。
+    // 128 覆盖"翻回来重看附近几十页"，命中率变化很小。
+    if (_gradRectCache.length > 128) {
       _gradRectCache.remove(_gradRectCache.keys.first);
     }
     _gradRectCache[key] = rects;
@@ -3301,7 +3648,10 @@ final effectiveStyle = _baseStyle(settings);
     }
 
     final spans = _doBuildUnitSpans(unit, sub, settings);
-    const cap = 512;
+    // 512 → 256：每项是这一段文字的 InlineSpan 列表，几百字节级别，
+    // 但几千页翻下来累积占用可观。256 仍覆盖"翻回来重看附近 10 多页"，
+    // 命中率几乎不变，内存占用减半。
+    const cap = 256;
     if (_spansCache.length >= cap) {
       _spansCache.remove(_spansCache.keys.first);
     }
@@ -3460,61 +3810,6 @@ final effectiveStyle = _baseStyle(settings);
         child: CustomPaint(
           size: Size.square(iconSize),
           painter: _TrashIconPainter(color: iconColor),
-        ),
-      );
-    }
-
-    return Positioned(
-      left: left,
-      top: top,
-      child: IgnorePointer(child: body),
-    );
-  }
-
-  Widget _buildMoveButton(ReaderSettings settings, Size size) {
-    final btnSize = 50.0 * settings.moveBtnScale;
-    final left = settings.moveBtnX * size.width - btnSize / 2;
-    final top = settings.moveBtnY * size.height - btnSize / 2;
-    final alpha = settings.moveBtnOpacity.clamp(0.0, 1.0);
-
-    final iconBaseColor = settings.moveBtnStyle == 0
-        ? Color(settings.moveBtnFgColor)
-        : Color(settings.moveBtnRingColor);
-    final iconColor = iconBaseColor.withValues(alpha: iconBaseColor.a * alpha);
-    final iconSize = btnSize * 0.6;
-
-    Widget body;
-    if (settings.moveBtnStyle == 0) {
-      final bg = Color(settings.moveBtnBgColor);
-      body = Container(
-        width: btnSize,
-        height: btnSize,
-        decoration: BoxDecoration(
-          color: bg.withValues(alpha: bg.a * alpha),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          Icons.drive_file_move_outline,
-          color: iconColor,
-          size: iconSize,
-        ),
-      );
-    } else {
-      final ring = Color(settings.moveBtnRingColor);
-      body = Container(
-        width: btnSize,
-        height: btnSize,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: ring.withValues(alpha: ring.a * alpha),
-            width: settings.moveBtnRingWidth,
-          ),
-        ),
-        child: Icon(
-          Icons.drive_file_move_outline,
-          color: iconColor,
-          size: iconSize,
         ),
       );
     }
@@ -3716,7 +4011,8 @@ final h = contentBox.globalToLocal(drag.handlePos);
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                  color: Colors.black.withValues(alpha: 0.10),
+                  color: Theme.of(context).colorScheme.outline
+                      .withValues(alpha: 0.3),
                   width: 0.5,
                 ),
               ),
@@ -3799,7 +4095,7 @@ top = top.clamp(4.0, size.height - approxH - 4);
         width: approxW,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
@@ -3904,7 +4200,7 @@ child: Container(
                 : null,
           )
         : null,
-    border: Border.all(color: Colors.black12),
+    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
     borderRadius: BorderRadius.circular(6),
   ),
   alignment: Alignment.center,
