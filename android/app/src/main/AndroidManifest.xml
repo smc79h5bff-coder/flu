@@ -26,25 +26,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
             <!-- 从其他 App 分享文本文件进来，直接进入对比页 -->
+            <!-- 合并成一个 intent-filter，某些 ROM 的分享面板对多 filter 合并逻辑敏感 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
                 <action android:name="android.intent.action.SEND_MULTIPLE"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="text/*"/>
-            </intent-filter>
-            <!-- 部分文件管理器分享 .md/.log 时用的是 octet-stream -->
-            <intent-filter>
-                <action android:name="android.intent.action.SEND"/>
-                <action android:name="android.intent.action.SEND_MULTIPLE"/>
-                <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="application/octet-stream"/>
-            </intent-filter>
-            <!-- 兜底：某些文件管理器（如 DocumentsUI、第三方文件管理器）用 */* 或不设 MIME -->
-            <!-- manifest 层全收，实际文件类型过滤交给 Dart 侧 DocumentParser._binaryExtensions -->
-            <intent-filter>
-                <action android:name="android.intent.action.SEND"/>
-                <action android:name="android.intent.action.SEND_MULTIPLE"/>
-                <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="*/*"/>
             </intent-filter>
         </activity>
