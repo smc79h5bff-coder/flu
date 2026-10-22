@@ -168,7 +168,7 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
 
       final bytes = await file.readAsBytes();
       final enc = EncodingDetector.detect(bytes);
-      final text = EncodingDetector.decodeChunked(bytes, enc);
+      final text = await EncodingDetector.decodeChunkedAsync(bytes, enc);
       if (!mounted) return;
       setState(() {
         _lines = text.split('\n');
