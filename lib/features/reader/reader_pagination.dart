@@ -37,7 +37,10 @@ class ReaderPaginator extends ChangeNotifier {
     required this.fontWeight,
     required this.pageTopSafePx,
     required this.pageBottomSafePx,
-  });
+    List<String>? preSplitLines,
+    List<int>? preSplitLineStarts,
+  })  : _preSplitLines = preSplitLines,
+        _preSplitLineStarts = preSplitLineStarts;
 
   final String text;
   final double viewportWidth;
@@ -51,9 +54,15 @@ class ReaderPaginator extends ChangeNotifier {
   /// 分页底部安全边距（像素）。含义见 ReaderSettings.pageBottomSafePx。
   final int pageBottomSafePx;
 
-  late final List<String> _lines;
-  late final List<int> _lineStarts;
-  late final List<double?> _preciseHeights;
+  /// 调用方如果已经切好行，直接塞进来避免 start() 里再切一次。
+  final List<String>? _preSplitLines;
+  final List<int>? _preSplitLineStarts;
+
+  // 从 `late final` 改为 `late` —— 允许 dispose 时把它们重置成 const []，
+  // 让 GC 尽快回收大数组（切编码时旧 paginator 未及时 GC，内存峰值翻倍）。
+  late List<String> _lines;
+  late List<int> _lineStarts;
+  late List<double?> _preciseHeights;
 
   PaginationResult? _result;
   bool _disposed = false;
@@ -61,6 +70,14 @@ class ReaderPaginator extends ChangeNotifier {
   bool _chunkScheduled = false;
 
   int _precisionCursor = 0;
+
+  /// 当前可见页。由 reader_screen 主动上报，_applyPrecision 重跑分页后
+  /// 用它做锚点把用户"钉"回同一段文字。
+  int _currentPage = 0;
+
+  /// 缓存 _readerStyle() —— _buildResult / _precisionChunk 每行都要用它，
+  /// 缓存能省掉每行一次 TextStyle 构造（几万行 × 每次 new 一个对象）。
+  late final TextStyle _cachedStyle = _readerStyle();
 
   /// 单行基准高度。所有行高都是它的整数倍。
   double _singleLineHeight = 0;
@@ -98,20 +115,21 @@ class ReaderPaginator extends ChangeNotifier {
     final log = ReaderLoadLog.instance;
     log.mark('paginator.start() 进入');
 
-    final split = splitLinesWithOffsets(text);
-    log.mark('paginator: splitLinesWithOffsets');
-    log.info('lines = ${split.lines.length}');
-
-    _lines = split.lines;
-    _lineStarts = split.lineStarts;
+    if (_preSplitLines != null && _preSplitLineStarts != null) {
+      _lines = _preSplitLines!;
+      _lineStarts = _preSplitLineStarts!;
+      log.mark('paginator: 使用外部传入的切行结果');
+    } else {
+      final split = splitLinesWithOffsets(text);
+      _lines = split.lines;
+      _lineStarts = split.lineStarts;
+      log.mark('paginator: 内部切行');
+    }
     _preciseHeights = List<double?>.filled(_lines.length, null);
-    log.mark('paginator: 分配 _preciseHeights');
+    _precisionCursor = 0;
+    log.mark('paginator: 分配数组');
 
-    final style = _readerStyle();
-    log.mark('paginator: 构造 _readerStyle');
-
-    // 计算基准单行高度。
-    // 用中英混合的参考串，取真实 layout 高度。
+    final style = _cachedStyle;
     final refTp = TextPainter(
       text: TextSpan(text: '中文Aa1，。', style: style),
       textDirection: ui.TextDirection.ltr,
@@ -119,35 +137,24 @@ class ReaderPaginator extends ChangeNotifier {
     refTp.layout();
     _singleLineHeight = refTp.height;
     log.mark('paginator: 测量单行基准高');
-    log.info('singleLineHeight = ${_singleLineHeight.toStringAsFixed(2)}');
 
-    // ===== 同步精修所有行 =====
-    // 之前的策略是"先给估算→后台分帧精修"，优点秒开，
-    // 但估算会导致右边宽窄不一的多余空白（字体特征值和 TextPainter
-    // 真正测量值之间有系统偏差）。
-    //
-    // 现在改成一次性同步跑完 TextPainter 测量，再生成分页结果。
-    // 代价是冷启动略慢（取决于行数，5000 行大约 150~250ms），
-    // 但用户感知到的是"慢一点但页面绝对准"——没有任何估算误差。
-    final swPrecise = Stopwatch()..start();
-    _preciseAllLines();
-    log.mark('paginator: 同步精修全部行');
-    log.info(
-        '精修耗时=${swPrecise.elapsedMilliseconds}ms  lines=${_lines.length}');
-
-    // 用精修后的结果生成分页
+    // ★ 立即用估算值出结果（秒开）。_buildResult() 里 null _preciseHeights[i]
+    // 自动回退到 _estimatedHeight，保证 UI 立刻有内容。
     _result = _buildResult();
-    log.mark('paginator: _buildResult()');
-    log.info('pages = ${_result?.pageCount}  units = ${_result?.renderUnits.length}');
-
     notifyListeners();
-    log.mark('paginator: notifyListeners');
-    log.mark('paginator.start() 结束');
+    log.mark('paginator: 初版分页完成（估算）');
+
+    // ★ 后台分帧精修，精修完自动 _applyPrecision() 重跑并保页。
+    _scheduleNextChunk();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _result = null;
+    _preciseHeights.clear();
+    _lines = const [];
+    _lineStarts = const [];
     super.dispose();
   }
 
@@ -165,9 +172,9 @@ class ReaderPaginator extends ChangeNotifier {
     }
   }
 
-  /// 兼容 reader_screen 的调用。全量精修不使用窗口。
+  /// 记住用户当前可见页，精修后用字符偏移恢复。
   void notifyVisiblePage(int pageIndex) {
-    // no-op
+    _currentPage = pageIndex;
   }
 
   // ==================== 同步精修 ====================
@@ -225,7 +232,7 @@ class ReaderPaginator extends ChangeNotifier {
 
     final usableWidth =
         math.max(10.0, viewportWidth - kReaderHorizontalPadding * 2);
-    final style = _readerStyle();
+    final style = _cachedStyle;
     final tp = _precisionTP;
 
     final sw = Stopwatch()..start();
@@ -266,9 +273,22 @@ class ReaderPaginator extends ChangeNotifier {
     if (_disposed) return;
     final log = ReaderLoadLog.instance;
     log.mark('_applyPrecision 开始');
+
+    // 记住当前页对应的字符偏移，重跑分页后恢复位置。
+    final oldResult = _result;
+    final anchorOffset = (oldResult != null && oldResult.pageCount > 0)
+        ? pageStartOffset(
+            oldResult, _currentPage.clamp(0, oldResult.pageCount - 1))
+        : 0;
+
     _result = _buildResult();
-    log.mark('_applyPrecision 完成，重跑分页');
+    log.mark('_applyPrecision 重跑分页完成');
     log.info('pages = ${_result?.pageCount}  units = ${_result?.renderUnits.length}');
+
+    if (_result != null && _result!.pageCount > 0) {
+      _currentPage = findPageForOffset(_result!, anchorOffset);
+    }
+
     notifyListeners();
     log.mark('_applyPrecision notifyListeners');
   }
@@ -303,7 +323,7 @@ class ReaderPaginator extends ChangeNotifier {
     final pageStarts = <int>[]..add(0);
     var rowsInPage = 0;
 
-    final style = _readerStyle();
+    final style = _cachedStyle;
     final tp = _precisionTP;
 
     void place(RenderUnit unit, int rowCount) {
