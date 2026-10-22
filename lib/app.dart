@@ -6,6 +6,7 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/skin.dart';
 import 'features/file_browser/presentation/file_browser_screen.dart';
 import 'features/file_browser/presentation/permission_gate.dart';
+import 'features/share_intake/presentation/share_intake_listener.dart';
 
 class DocDiffApp extends ConsumerWidget {
   const DocDiffApp({super.key});
@@ -41,7 +42,9 @@ class DocDiffApp extends ConsumerWidget {
       },
 
       navigatorObservers: [fileBrowserRouteObserver],
-      home: const PermissionGate(child: FileBrowserScreen()),
+      home: const ShareIntakeListener(
+        child: PermissionGate(child: FileBrowserScreen()),
+      ),
     );
   }
 }
