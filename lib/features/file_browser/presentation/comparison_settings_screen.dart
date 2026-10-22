@@ -1916,14 +1916,12 @@ class _RuleEditorDialogState extends ConsumerState<RuleEditorDialog> {
               Theme.of(context).colorScheme.surfaceVariant.withValues(alpha:0.4),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Text(
-          '这是「用代码处理文本」的入口。\n'
-          '\n'
-          '脚本里有一个变量 text，就是整篇文本。\n'
-          '\n'
-          ,
-          style: TextStyle(
-            fontSize: 12,
+     child: Text(
+  '⚠️ 写脚本前必看：\n'
+  '本 App 使用的 JS 引擎兼容至 ES2019。如果你从网上（如 ChatGPT、百度）复制了 2020 年以后的新语法（比如带 ?. 或 ?? 的代码），脚本会直接失效且不会报错。\n'
+  '建议尽量使用传统的 for 循环、replace 正则替换和常规的 if-else 判断。能不用高级语法就不用，这样脚本运行也最快！',
+  style: TextStyle(
+    fontSize: 12,
             height: 1.5,
             color: Theme.of(context).colorScheme.onSurface,
           ),
