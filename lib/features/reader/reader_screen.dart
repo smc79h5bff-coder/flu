@@ -12,6 +12,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../preprocessing/application/aho_corasick.dart';
 import '../preprocessing/application/encoding_detector.dart';
@@ -78,6 +79,50 @@ class _DragInfo {
 
   /// 手指跟手柄逻辑位置的偏移（拖动开始时定下，之后固定）。
   final Offset? handleOffset;
+}
+
+/// 目录条目（Table of Contents entry）。
+class _TocEntry {
+  const _TocEntry({
+    required this.lineIndex,
+    required this.charOffset,
+    required this.title,
+    required this.level,
+  });
+
+  final int lineIndex; // 在 _text.split('\n') 里的行号
+  final int charOffset; // 标题在 _text 里的起始字符位置
+  final String title; // 显示给用户的标题（已 trim + 可能截断）
+  final int level; // 1 = 一级（# 或 第X章），2 = 二级（## 或 一、）
+}
+
+/// 目录自定义规则弹窗里的"示例正则"小标签按钮。
+class _PatternChip extends StatelessWidget {
+  const _PatternChip({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontFamily: 'monospace',
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ==================== 手柄绘制 ====================
@@ -247,6 +292,7 @@ class _EncodingPickerSheet extends StatelessWidget {
     EncodingType.utf16le,
     EncodingType.utf16be,
     EncodingType.gbk,
+    EncodingType.gb2312,
     EncodingType.gb18030,
     EncodingType.big5,
     EncodingType.shiftJis,
@@ -1512,21 +1558,21 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 children: [
                   Expanded(
                     child: menuButton(
-                      icon: Icons.bookmark_add_outlined,
-                      label: '加书签',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _addBookmark();
-                      },
-                    ),
-                  ),
-                  Expanded(
-                    child: menuButton(
                       icon: Icons.bookmarks_outlined,
                       label: '书签与高亮',
                       onTap: () async {
                         Navigator.pop(ctx);
                         await _openManager();
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.bookmark_add_outlined,
+                      label: '加书签',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _addBookmark();
                       },
                     ),
                   ),
@@ -1730,6 +1776,433 @@ void _saveProgressNow({bool fromPaginator = false}) {
       if (p == null) return;
       final page = findPageForOffset(p, result);
       _jumpToPage(page);
+    }
+  }
+
+  // ==================== 目录（Table of Contents） ====================
+
+  /// 从当前文件文本里解析章节标题。
+  ///
+  /// 匹配模式（按优先级）：
+  ///   1. Markdown 一级/二级标题（`# / ##`）
+  ///   2. 中文常见：第X章 / 第X回 / 第X节 / 第X卷 / 第X篇
+  ///   3. 中文序号：一、二、三、... / 一. 二. 三.
+  ///   4. 英文：Chapter 1 / CHAPTER 1 / Part 1 / Section 1
+  ///   5. 纯数字行（第1行就是 1 / 1. / 1、 之类）
+  ///
+  /// 返回的条目里 `charOffset` 是标题在 `_text` 里的起始位置，
+  /// 用于定位到对应 page。
+  List<_TocEntry> _parseToc({String? userPattern}) {
+    final text = _text;
+    if (text == null || text.isEmpty) return const [];
+
+    final lines = text.split('\n');
+    final result = <_TocEntry>[];
+
+    // 预计算每行起始 offset（split 会丢 \n，所以自己算）
+    int offset = 0;
+    final lineStarts = List<int>.filled(lines.length, 0);
+    for (var i = 0; i < lines.length; i++) {
+      lineStarts[i] = offset;
+      offset += lines[i].length + 1;
+    }
+
+    // 如果用户配了自定义正则，优先用它（全局生效）
+    if (userPattern != null && userPattern.trim().isNotEmpty) {
+      RegExp? userReg;
+      try {
+        userReg = RegExp(userPattern.trim());
+      } catch (_) {
+        // 正则语法错误，忽略，继续用内置
+      }
+      if (userReg != null) {
+        for (var i = 0; i < lines.length; i++) {
+          final raw = lines[i].trim();
+          if (raw.isEmpty) continue;
+          final m = userReg.firstMatch(raw);
+          if (m == null) continue;
+
+          // 标题取：优先 group(1) → group(0) 整行 → raw
+          final String title;
+          if (m.groupCount >= 1 && m.group(1) != null && m.group(1)!.isNotEmpty) {
+            title = m.group(1)!.trim();
+          } else if (m.groupCount >= 2 && m.group(2) != null && m.group(2)!.isNotEmpty) {
+            title = m.group(2)!.trim();
+          } else {
+            title = m.group(0)!.trim();
+          }
+          if (title.isEmpty) continue;
+
+          result.add(_TocEntry(
+            lineIndex: i,
+            charOffset: lineStarts[i],
+            title: title.length > 60 ? '${title.substring(0, 57)}...' : title,
+            level: 1,
+          ));
+        }
+        if (result.length >= 2) return result;
+        // 用户正则没匹配出足够条目，回退到内置规则
+      }
+    }
+
+    // 以下是内置规则（按优先级）
+    final mdHeading = RegExp(r'^(#{1,2})\s+(.+)$');
+    final chineseChapter = RegExp(r'^\s*(第[\d一二三四五六七八九十百千万零〇两\u4e00-\u9fff]+[章回节卷篇部话集])\s*[:：.\- ]*(.+)?$');
+    final chineseSerial = RegExp(r'^\s*([一二三四五六七八九十]+)[、.]\s*(.+)?$');
+    final englishChapter = RegExp(r'^\s*(chapter|part|section)\s+\d+[\s:.\-]*(.+)?$', caseSensitive: false);
+    final numbered = RegExp(r'^\s*(\d{1,4})[、.．]\s*(.+)?$');
+
+    for (var i = 0; i < lines.length; i++) {
+      final raw = lines[i].trim();
+      if (raw.isEmpty) continue;
+
+      String? title;
+      int level = 0;
+
+      final mdMatch = mdHeading.firstMatch(raw);
+      if (mdMatch != null) {
+        level = mdMatch.group(1)!.length;
+        title = mdMatch.group(2)?.trim();
+      } else if (chineseChapter.hasMatch(raw)) {
+        final m = chineseChapter.firstMatch(raw)!;
+        title = (m.group(1)! + (m.group(2) != null ? ' ${m.group(2)!.trim()}' : '')).trim();
+        level = 1;
+      } else if (englishChapter.hasMatch(raw)) {
+        final m = englishChapter.firstMatch(raw)!;
+        title = (m.group(1)!.toUpperCase() + ' ' + raw.substring(m.group(0)!.length)).trim();
+        title = title.isEmpty ? raw : title;
+        level = 1;
+      } else if (numbered.hasMatch(raw)) {
+        final m = numbered.firstMatch(raw)!;
+        final subtitle = m.group(2);
+        if (subtitle == null || subtitle.trim().length < 2) continue;
+        title = raw;
+        level = 2;
+      } else if (chineseSerial.hasMatch(raw)) {
+        final m = chineseSerial.firstMatch(raw)!;
+        final subtitle = m.group(2);
+        if (subtitle == null || subtitle.trim().length < 2) continue;
+        title = raw;
+        level = 2;
+      } else {
+        continue;
+      }
+
+      if (title == null || title.trim().isEmpty) continue;
+      if (title.length > 60) title = '${title.substring(0, 57)}...';
+
+      result.add(_TocEntry(
+        lineIndex: i,
+        charOffset: lineStarts[i],
+        title: title.trim(),
+        level: level,
+      ));
+    }
+
+    if (result.length < 2) return const [];
+    return result;
+  }
+
+  /// 目录自定义正则的 SharedPreferences key。
+  static const String _tocUserPatternKey = 'reader_toc_user_pattern';
+
+  /// 读取用户自定义目录正则（全局）。
+  static Future<String?> _loadTocUserPattern() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_tocUserPatternKey);
+  }
+
+  /// 保存 / 清除用户自定义目录正则。
+  static Future<void> _saveTocUserPattern(String pattern) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (pattern.trim().isEmpty) {
+      await prefs.remove(_tocUserPatternKey);
+    } else {
+      await prefs.setString(_tocUserPatternKey, pattern.trim());
+    }
+  }
+
+  Future<void> _showToc() async {
+    if (_text == null || _text!.isEmpty) {
+      _showToast('文件还没加载完');
+      return;
+    }
+
+    // 读用户自定义正则（可能为空）
+    final userPattern = await _loadTocUserPattern();
+    final hasUserPattern = userPattern != null && userPattern.trim().isNotEmpty;
+
+    final entries = _parseToc(userPattern: userPattern);
+    if (entries.isEmpty) {
+      if (!mounted) return;
+      // 没识别出来 → 给个机会让用户自定义正则
+      final tryCustom = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('没找到可识别的章节'),
+          content: const Text(
+            '当前文件的目录结构不匹配内置规则。\n'
+            '可以自己输一条正则来匹配（例如用 () 捕获标题文字）。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('自定义规则'),
+            ),
+          ],
+        ),
+      );
+      if (tryCustom == true && mounted) {
+        await _openTocPatternEditor();
+      }
+      return;
+    }
+
+    final p = _paginator?.result;
+    final currentOffset = p == null
+        ? 0
+        : (ref.read(readerSettingsProvider).readerMode == 1
+            ? (_scrollViewKey.currentState?.currentOffset ?? 0)
+            : pageStartOffset(p, _currentPage));
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(ctx).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      const Text(
+                        '目录',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: '自定义规则',
+                        icon: Icon(
+                          hasUserPattern ? Icons.rule_folder : Icons.rule_folder_outlined,
+                          size: 20,
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await _openTocPatternEditor();
+                        },
+                      ),
+                      Text(
+                        '${entries.length} 条',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 12),
+                Flexible(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: entries.length,
+                    itemBuilder: (ctx, i) {
+                      final e = entries[i];
+                      final isCurrent =
+                          i == 0 ||
+                          (i == entries.length - 1
+                              ? currentOffset >= e.charOffset
+                              : currentOffset >= e.charOffset &&
+                                  currentOffset < entries[i + 1].charOffset);
+
+                      final indent = (e.level - 1) * 16.0;
+                      final cs = Theme.of(ctx).colorScheme;
+
+                      return InkWell(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          if (p == null) return;
+                          final page = findPageForOffset(p, e.charOffset);
+                          _jumpToPage(page);
+                        },
+                        child: Container(
+                          padding: EdgeInsets.only(
+                            left: 16 + indent,
+                            right: 16,
+                            top: 10,
+                            bottom: 10,
+                          ),
+                          color: isCurrent
+                              ? cs.primary.withOpacity(0.08)
+                              : Colors.transparent,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  e.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: e.level == 1 ? 14 : 13,
+                                    fontWeight: e.level == 1
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                    color: isCurrent
+                                        ? cs.primary
+                                        : cs.onSurface,
+                                  ),
+                                ),
+                              ),
+                              if (isCurrent)
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  margin: const EdgeInsets.only(left: 8),
+                                  decoration: BoxDecoration(
+                                    color: cs.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 打开"目录自定义规则"编辑弹窗。
+  ///
+  /// 用户输一条正则（Dart RegExp 语法），优先匹配；
+  /// 用 () 捕获组把"标题文字"圈出来——group(1) 优先、group(2) 其次、
+  /// 都没有就用整行匹配。
+  Future<void> _openTocPatternEditor() async {
+    final current = await _loadTocUserPattern() ?? '';
+    final ctrl = TextEditingController(text: current);
+
+    if (!mounted) return;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (c) {
+        final cs = Theme.of(c).colorScheme;
+        return AlertDialog(
+          title: const Text('目录自定义规则'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '正则表达式',
+                  hintText: r'比如：^\s*【(.+?)】',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '示例：',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _PatternChip(label: r'【(.+?)】', onTap: () => ctrl.text = r'【(.+?)】'),
+                  _PatternChip(label: r'^\s*第(.+?)\s*[:：]', onTap: () => ctrl.text = r'^\s*第(.+?)\s*[:：]'),
+                  _PatternChip(label: r'^\s*\d+\.\s*(.+)', onTap: () => ctrl.text = r'^\s*\d+\.\s*(.+)'),
+                  _PatternChip(label: r'^\s*[一二三四五六七八九十]+[、.]\s*(.+)', onTap: () => ctrl.text = r'^\s*[一二三四五六七八九十]+[、.]\s*(.+)'),
+                  _PatternChip(label: r'^\s*\*\s*(.+)', onTap: () => ctrl.text = r'^\s*\*\s*(.+)'),
+                  _PatternChip(label: r'^\s*#\s*(.+)', onTap: () => ctrl.text = r'^\s*#\s*(.+)'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '用 () 把"标题文字"圈起来，程序会自动用 group(1) 或 group(2) 作为标题。\n'
+                '留空 = 恢复内置规则（支持 第X章 / Chapter / # / 一、 / 1. 等）。',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _saveTocUserPattern('');
+                if (!c.mounted) return;
+                Navigator.pop(c, true);
+              },
+              child: const Text('清除自定义规则'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final pattern = ctrl.text.trim();
+                if (pattern.isNotEmpty) {
+                  try {
+                    RegExp(pattern);
+                  } catch (e) {
+                    if (!c.mounted) return;
+                    ScaffoldMessenger.of(c).showSnackBar(
+                      SnackBar(content: Text('正则语法错误：$e')),
+                    );
+                    return;
+                  }
+                }
+                await _saveTocUserPattern(pattern);
+                if (!c.mounted) return;
+                Navigator.pop(c, true);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+
+    ctrl.dispose();
+    if (saved == true && mounted) {
+      _showToast(ctrl.text.trim().isEmpty ? '已恢复内置规则' : '已保存自定义规则');
     }
   }
 
