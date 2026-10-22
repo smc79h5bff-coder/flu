@@ -31,7 +31,7 @@ class ReaderLoadLog {
   ///         installErrorHooks 的注释，才启用帧监控和异常捕获。
   ///
   /// 排查问题时改成 true 再跑，平时保持 false。
-  static const bool enabled = false;
+  static const bool enabled = true;
 
   static const int _maxLines = 40000;
   static const int _maxTotalChars = 4 * 1024 * 1024; // 4MB 字符上限
