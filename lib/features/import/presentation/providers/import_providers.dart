@@ -173,6 +173,11 @@ final modifiedFileNameProvider = StateProvider<String?>((ref) => null);
 final originalFilePathProvider = StateProvider<String?>((ref) => null);
 final modifiedFilePathProvider = StateProvider<String?>((ref) => null);
 
+/// 从其他 App 分享进来的临时文件路径。
+/// 只用于文件信息弹窗展示大小/时间，**不参与删除**（删除只看上面两个 provider）。
+final originalSharedTempPathProvider = StateProvider<String?>((ref) => null);
+final modifiedSharedTempPathProvider = StateProvider<String?>((ref) => null);
+
 final originalEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 final modifiedEncodingProvider = StateProvider<String>((ref) => 'UTF-8');
 
