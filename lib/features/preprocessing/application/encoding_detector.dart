@@ -20,7 +20,7 @@ class EncodingDetector {
   const EncodingDetector._();
 
   static const int _sampleSize = 64 * 1024;
-  static const int _decodeChunkSize = 64 * 1024;
+  static const int _decodeChunkSize = 16 * 1024;
 
   // ==================== 探测 ====================
 
@@ -66,9 +66,9 @@ class EncodingDetector {
         ? bytes
         : Uint8List.sublistView(bytes, 0, _sampleSize);
 
-    // 3. 严格 UTF-8
+    // 3. 严格 UTF-8（字节级判断，不会被 sample 截断误判）
     if (_isStrictUtf8(sample)) {
-      final isAscii = bytes.every((b) => b < 0x80);
+      final isAscii = sample.every((b) => b < 0x80);
       log.info('[Enc] detect → ${isAscii ? "ascii" : "utf8"}');
       return isAscii ? EncodingType.ascii : EncodingType.utf8;
     }
@@ -282,60 +282,62 @@ class EncodingDetector {
     return _decodeLenient(bytes, encoding);
   }
 
-  /// 逐字节宽容解码。
+  /// 逐字节宽容解码（分段版）。
   ///
-  /// - ASCII 直接输出
-  /// - 合法双字节对 → 尝试解码，成功输出，失败写 U+FFFD
-  /// - 非法字节 → 写 U+FFFD
-  ///
-  /// 关键：解不出的双字节也跳 2 字节，保证后续字节对齐不错位。
+  /// 不逐 pair decode（每对一次 decoder init，极慢）。
+  /// 改成"连续合法区段整段 decode + 跳过非法字节"。
   static String _decodeLenient(Uint8List bytes, EncodingType encoding) {
     final buf = StringBuffer();
     var i = 0;
+    var segStart = 0;
+
+    void flush(int end) {
+      if (end <= segStart) return;
+      final sub = Uint8List.sublistView(bytes, segStart, end);
+      try {
+        buf.write(_decodeStrict(sub, encoding));
+      } catch (_) {
+        for (var k = segStart; k < end; k++) {
+          buf.writeCharCode(0xFFFD);
+        }
+      }
+    }
+
     while (i < bytes.length) {
       final b = bytes[i];
       if (b < 0x80) {
-        buf.writeCharCode(b);
         i++;
         continue;
       }
       if (i + 1 < bytes.length &&
           _isDoubleByteLead(b, encoding) &&
           _isDoubleByteTrail(bytes[i + 1], encoding)) {
-        final b2 = bytes[i + 1];
-        try {
-          final pair = Uint8List.fromList([b, b2]);
-          final r = _decodeSinglePair(pair, encoding);
-          if (r.isNotEmpty && r.codeUnitAt(0) != 0xFFFD) {
-            buf.write(r);
-          } else {
-            buf.writeCharCode(0xFFFD);
-          }
-        } catch (_) {
-          buf.writeCharCode(0xFFFD);
-        }
         i += 2;
         continue;
       }
-      // 孤 lead / 非法字节
+      // 遇到非法字节：把 [segStart, i) 一次性 decode，跳过坏字节
+      flush(i);
       buf.writeCharCode(0xFFFD);
       i++;
+      segStart = i;
     }
+    flush(bytes.length);
     return buf.toString();
   }
 
-  static String _decodeSinglePair(Uint8List pair, EncodingType encoding) {
+  /// 严格 decode（对应编码）。用于 _decodeLenient 里的区段 decode。
+  static String _decodeStrict(Uint8List bytes, EncodingType encoding) {
     switch (encoding) {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
-        return gbk.decode(pair);
+        return gbk.decode(bytes);
       case EncodingType.big5:
-        return ec.big5.decode(pair);
+        return ec.big5.decode(bytes);
       case EncodingType.shiftJis:
-        return shiftJis.decode(pair);
+        return shiftJis.decode(bytes);
       default:
-        return utf8.decode(pair, allowMalformed: true);
+        return utf8.decode(bytes);
     }
   }
 
@@ -408,12 +410,31 @@ class EncodingDetector {
   // ==================== 检测启发式 ====================
 
   static bool _isStrictUtf8(Uint8List bytes) {
-    try {
-      utf8.decode(bytes);
-      return true;
-    } on FormatException {
-      return false;
+    var i = 0;
+    final n = bytes.length;
+    while (i < n) {
+      final b = bytes[i];
+      if (b < 0x80) {
+        i++;
+        continue;
+      }
+      final int len;
+      if ((b & 0xE0) == 0xC0) {
+        len = 2;
+      } else if ((b & 0xF0) == 0xE0) {
+        len = 3;
+      } else if ((b & 0xF8) == 0xF0) {
+        len = 4;
+      } else {
+        return false; // 首字节非法
+      }
+      if (i + len > n) return true; // 尾部被 sample 截断，视为合法
+      for (var k = 1; k < len; k++) {
+        if ((bytes[i + k] & 0xC0) != 0x80) return false;
+      }
+      i += len;
     }
+    return true;
   }
 
   static bool _looksLikeGbk(Uint8List bytes) {
