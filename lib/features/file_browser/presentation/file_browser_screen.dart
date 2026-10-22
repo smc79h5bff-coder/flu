@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../../help/presentation/help_screen.dart';
 import '../../import/presentation/providers/import_providers.dart';
 import '../../parser/application/document_parser.dart';
 import '../../preprocessing/application/encoding_detector.dart';
@@ -3427,8 +3428,8 @@ Future<void> _showDirInfoDialog() async {
         if (mounted) _searchFocus.requestFocus();
       });
     } else {
-      // 折叠前：清空搜索 + 退出模式 + 收键盘
-      _clearSearch();
+      // 折叠：只收起 UI，不清空搜索内容（对标 Solid Explorer）。
+      // 想清空请用输入框右边的 × 按钮。
       FocusManager.instance.primaryFocus?.unfocus();
       notifier.update(true);
     }
@@ -4607,6 +4608,8 @@ case 'favorites':
   _showFavorites();
     case 'newFolder':
       _newFolder();
+    case 'help':
+      Navigator.of(context).push(_noAnimRoute(const HelpScreen()));
   }
 },
           itemBuilder: (context) => [
@@ -4653,6 +4656,11 @@ case 'favorites':
             const PopupMenuItem<String>(
               value: 'newFolder',
               child: Text('新建文件夹'),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'help',
+              child: Text('使用说明'),
             ),
           ],
         ),
@@ -5925,7 +5933,7 @@ Widget _buildListBody() {
   // 在列表末尾补一段滚动留白，让最后一个文件能滚出底栏遮挡。
   // 留白在滚动内容末尾，不改变可视区高度，进入/退出选中模式内容不跳。
   final extra = _selectionMode ? 1 : 0;
-    return ScrollablePositionedList.builder(
+    return Scrollbar(child: ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
       itemCount: items.length + extra,
@@ -5941,7 +5949,7 @@ Widget _buildListBody() {
           child: _buildDisplayItemTile(item, fontName, fontMeta, colorScheme),
         );
       },
-    );
+    ));
   }
 
   /// 渲染一个 display item。磁盘项、zip 头、zip 内项各有不同样式。
@@ -6237,7 +6245,7 @@ return Listener(
     // 选中模式下底栏是覆盖层，网格末尾同样补一段滚动留白。
     final extraRow = _selectionMode ? 1 : 0;
 
-    return ScrollablePositionedList.builder(
+    return Scrollbar(child: ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
       itemCount: rowCount + extraRow,
@@ -6289,7 +6297,7 @@ return Listener(
           ),
         );
       },
-    );
+    ));
   }
 
   Widget _buildGridCell({
@@ -6458,7 +6466,7 @@ return Listener(
     // 选中模式下底栏是覆盖层，搜索结果列表末尾同样补滚动留白。
     final extra = _selectionMode ? 1 : 0;
 
-    return ScrollablePositionedList.builder(
+    return Scrollbar(child: ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
       itemCount: items.length + extra,
@@ -6474,7 +6482,7 @@ return Listener(
           child: _buildSearchResultTile(item, fontName, fontMeta, colorScheme),
         );
       },
-    );
+    ));
   }
 
   /// 搜索结果模式的列表项渲染（跟普通列表不同：显示路径副标题）。
