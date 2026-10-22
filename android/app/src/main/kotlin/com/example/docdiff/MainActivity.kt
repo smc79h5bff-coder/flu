@@ -2,6 +2,7 @@ package com.example.docdiff
 
 import android.app.ActivityManager
 import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -94,7 +95,7 @@ class MainActivity : FlutterActivity() {
             }
             Intent.ACTION_SEND_MULTIPLE -> {
                 val uris: List<Uri> = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                    ?: intent.getParcelableExtra<ClipData>(Intent.EXTRA_CLIP_DATA)?.let { cd ->
+                    ?: intent.clipData?.let { cd ->
                         (0 until cd.itemCount).mapNotNull { cd.getItemAt(it).uri }
                     }
                     ?: return
