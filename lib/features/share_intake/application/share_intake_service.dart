@@ -231,18 +231,22 @@ class ShareIntakeCoordinator {
       throw ShareIntakeException('复制分享文件失败：$e');
     }
 
-    final parsed = await compute(
-      _parsePairInWorker,
-      (leftPath: leftCopy, rightPath: rightCopy),
+    final leftParsed = await DocumentParser.parse(
+      fileName: leftName,
+      bytes: await File(leftCopy).readAsBytes(),
+    );
+    final rightParsed = await DocumentParser.parse(
+      fileName: rightName,
+      bytes: await File(rightCopy).readAsBytes(),
     );
 
     return ShareIntakePayload(
-      leftText: parsed.leftText,
-      rightText: parsed.rightText,
-      leftName: parsed.leftName,
-      rightName: parsed.rightName,
-      leftEncoding: parsed.leftEncoding,
-      rightEncoding: parsed.rightEncoding,
+      leftText: leftParsed.plainText,
+      rightText: rightParsed.plainText,
+      leftName: leftParsed.fileName,
+      rightName: rightParsed.fileName,
+      leftEncoding: leftParsed.encoding.label,
+      rightEncoding: rightParsed.encoding.label,
       leftTempPath: leftCopy,
       rightTempPath: rightCopy,
       sessionDir: session.path,
@@ -356,28 +360,3 @@ class _ShareItem {
   final String name;
 }
 
-({String leftText, String rightText, String leftName, String rightName,
-    String leftEncoding, String rightEncoding}) _parsePairInWorker(
-  ({String leftPath, String rightPath}) paths,
-) {
-  final leftBytes = File(paths.leftPath).readAsBytesSync();
-  final rightBytes = File(paths.rightPath).readAsBytesSync();
-
-  final left = DocumentParser.parse(
-    fileName: p.basename(paths.leftPath),
-    bytes: leftBytes,
-  );
-  final right = DocumentParser.parse(
-    fileName: p.basename(paths.rightPath),
-    bytes: rightBytes,
-  );
-
-  return (
-    leftText: left.plainText,
-    rightText: right.plainText,
-    leftName: left.fileName,
-    rightName: right.fileName,
-    leftEncoding: left.encoding.label,
-    rightEncoding: right.encoding.label,
-  );
-}
