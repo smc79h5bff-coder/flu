@@ -907,7 +907,7 @@ Padding(
               borderRadius: BorderRadius.circular(8),
             ),
             child: selected
-                ? const Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
                 : null,
           ),
           const SizedBox(height: 4),
@@ -1703,7 +1703,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
                 DropdownMenuItem<String?>(
                   value: g.id,
                   child: Text(g.name,
-                      style: const TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                 ),
             ],
             onChanged: (v) => setState(() => _defaultGroupId = v),
@@ -1719,7 +1719,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             ),
             child: RichText(
               text: TextSpan(
-                style: const TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
+                style: TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
                 children: [
                   const TextSpan(text: '这是一个 '),
                   WidgetSpan(
@@ -3974,7 +3974,7 @@ class _HighlightEditScreenState
                     style: TextStyle(
                       fontSize: 11,
                       fontFamily: 'monospace',
-                      color: Theme.of(context).colorScheme.onSurfaceVariant.shade700,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -3983,7 +3983,7 @@ class _HighlightEditScreenState
                   '长按路径可复制',
                   style: TextStyle(
                     fontSize: 10,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant.shade500,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -4196,7 +4196,7 @@ class _HighlightEditScreenState
             ),
             child: RichText(
               text: TextSpan(
-                style: const TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
+                style: TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
                 children: [
                   const TextSpan(text: '这是 '),
                   WidgetSpan(
@@ -4255,7 +4255,7 @@ class _HighlightEditScreenState
                 DropdownMenuItem<String?>(
                   value: g.id,
                   child: Text(g.name,
-                      style: const TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                 ),
             ],
             onChanged: (v) => setState(() => _groupId = v),
@@ -4411,7 +4411,7 @@ class _BookmarkEditScreenState extends State<_BookmarkEditScreen> {
             const SizedBox(height: 12),
             Text('创建时间：$time',
                 style:
-                    const TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ],
           const SizedBox(height: 24),
           const Divider(),
@@ -4977,7 +4977,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                     DropdownMenuItem<String?>(
                       value: g.id,
                       child: Text(g.name,
-                          style: const TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                     ),
                 ],
                 onChanged: (v) => setState(() => _groupId = v),
