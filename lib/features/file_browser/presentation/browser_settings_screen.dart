@@ -29,13 +29,6 @@ class BrowserSettingsScreen extends ConsumerWidget {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         title: const Text('浏览器设置'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.help_outline),
-            tooltip: '使用说明',
-            onPressed: () => _showHelp(context),
-          ),
-        ],
       ),
       body: ListView(
         children: [
