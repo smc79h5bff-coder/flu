@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../parser/application/document_parser.dart';
+import '../../preprocessing/domain/encoding_type.dart';
 
 /// 分享进来的两个文件解析完成后的结果。
 class ShareIntakePayload {
