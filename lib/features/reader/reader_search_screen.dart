@@ -41,6 +41,7 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.initialQuery);
+    _ctrl.addListener(() { if (mounted) setState(() {}); });
     _regex = widget.initialRegex;
     _caseSensitive = widget.initialCaseSensitive;
 
@@ -199,7 +200,8 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
     final state = ref.read(readerSearchProvider);
     if (state.currentPos < 0) return;
     if (!_scrollCtrl.hasClients) return;
-    const itemHeight = 36.0;
+    // 现在每项高度 = padding(10+10) + 字号(13 * 1.35 ≈ 17.55) ≈ 38
+    const itemHeight = 38.0;
     final offset = state.currentPos * itemHeight;
     final max = _scrollCtrl.position.maxScrollExtent;
     _scrollCtrl.jumpTo(offset.clamp(0, max));
@@ -225,16 +227,19 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
     icon: const Icon(Icons.arrow_back),
     tooltip: '关闭搜索',
     onPressed: () {
-      // 点返回按钮 = 关闭搜索：
-      // 清掉当前文件的搜索状态，这样回到阅读器后半开条不显示。
-      // 如果用户是想"跳转到某条结果"，应该点具体的结果行，
-      // 而不是点返回按钮。
       ref.read(readerSearchProvider.notifier).clear();
-      Navigator.of(context).pop();  // 不带 result，不跳转
+      Navigator.of(context).pop();
     },
   ),
   title: const Text('搜索'),
   actions: [
+    IconButton(
+      tooltip: '搜索',
+      icon: const Icon(Icons.search),
+      onPressed: _searching
+          ? null
+          : () => _doSearch(_ctrl.text.trim()),
+    ),
     IconButton(
       tooltip: '历史',
       icon: const Icon(Icons.history),
@@ -249,31 +254,28 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _ctrl,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: '查找…',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.search, size: 18),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                    ),
-                    onSubmitted: (v) => _doSearch(v.trim()),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                FilledButton(
-                  onPressed:
-                      _searching ? null : () => _doSearch(_ctrl.text.trim()),
-                  child: const Text('搜索'),
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: TextField(
+              controller: _ctrl,
+              autofocus: true,
+              onSubmitted: (v) => _doSearch(v.trim()),
+              decoration: InputDecoration(
+                hintText: '输入关键词，回车搜索…',
+                isDense: true,
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.search, size: 18),
+                suffixIcon: _ctrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () => setState(() {
+                          _ctrl.clear();
+                          _doSearch('');
+                        }),
+                      ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+              ),
             ),
           ),
           Padding(
@@ -314,7 +316,6 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
                     : ListView.builder(
                         controller: _scrollCtrl,
                         itemCount: hits.length,
-                        itemExtent: 36,
                         itemBuilder: (ctx, i) {
                           final hit = hits[i];
                           final isCurrent = i == state.currentPos;
@@ -322,12 +323,11 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
                             onTap: () => _onTapHit(i),
                             child: Container(
                               color: isCurrent
-                                  ? Colors.blue.withValues(alpha: 0.10)
+                                  ? s.primary.withValues(alpha: 0.08)
                                   : null,
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 12),
-                              alignment: Alignment.centerLeft,
-                              child: _buildResultRow(hit),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                              child: _buildResultRow(hit, isCurrent),
                             ),
                           );
                         },
@@ -338,24 +338,25 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
     );
   }
 
-  Widget _buildResultRow(ReaderSearchHit hit) {
-    // 匹配词深粉
-    const deepPink = Color(0xFFD50057);
+  Widget _buildResultRow(ReaderSearchHit hit, bool isCurrent) {
+    final s = Theme.of(context).colorScheme;
+    final matchBg = isCurrent ? s.primary : s.primaryContainer;
+    final matchFg = isCurrent ? s.onPrimary : s.onPrimaryContainer;
 
     final children = <InlineSpan>[
       TextSpan(
         text: '第 ${hit.lineIndex + 1} 行  ',
-        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        style: TextStyle(fontSize: 12, color: s.onSurfaceVariant),
       ),
     ];
     if (hit.preEllipsis) children.add(const TextSpan(text: '…'));
     if (hit.pre.isNotEmpty) children.add(TextSpan(text: hit.pre));
     children.add(TextSpan(
       text: hit.match,
-      style: const TextStyle(
-        backgroundColor: deepPink,
-        color: Colors.white,
-        fontWeight: FontWeight.bold,
+      style: TextStyle(
+        backgroundColor: matchBg,
+        color: matchFg,
+        fontWeight: FontWeight.w600,
       ),
     ));
     if (hit.post.isNotEmpty) children.add(TextSpan(text: hit.post));
@@ -364,10 +365,10 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
     return Text.rich(
       TextSpan(
         children: children,
-        style: const TextStyle(fontSize: 13, height: 1.2),
+        style: const TextStyle(fontSize: 13, height: 1.35),
       ),
       maxLines: 1,
-      overflow: TextOverflow.clip,
+      overflow: TextOverflow.ellipsis,
       softWrap: false,
     );
   }
