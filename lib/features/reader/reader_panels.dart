@@ -17,7 +17,7 @@ import 'reader_screen.dart';
 Future<void> showReaderSettingsSheet(BuildContext context) async {
   await showModalBottomSheet<void>(
     context: context,
-    backgroundColor: Colors.white,
+    backgroundColor: Theme.of(context).colorScheme.surface,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -52,40 +52,20 @@ class _ReaderSettingsSheetState extends ConsumerState<_ReaderSettingsSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: Theme.of(context).colorScheme.outlineVariant,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            const Text('阅读设置',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-
+            const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '点击预览可放大查看',
-                          style: TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '所有参数改动实时反映到预览。',
-                          style: TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const Text('阅读设置',
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Spacer(),
                   _miniPreview(context, s, pagePreview),
                 ],
               ),
@@ -202,7 +182,7 @@ Row(
         height: 36,
         decoration: BoxDecoration(
           color: Color(s.bgColor),
-          border: Border.all(color: Colors.black26),
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
           borderRadius: BorderRadius.circular(6),
         ),
       ),
@@ -237,7 +217,7 @@ Row(
                         '滚动：上下自由滑动，点击屏幕会往下滚一屏，左右滑动有也可翻页。',
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey.shade600,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
@@ -314,7 +294,7 @@ Padding(
     '默认开启。',
     style: TextStyle(
       fontSize: 11,
-      color: Colors.grey.shade600,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
     ),
   ),
 ),
@@ -338,7 +318,7 @@ Padding(
                         child: Text(
                           '已关闭。点击原来按钮的位置，只会正常翻页/打开菜单。',
                           style: TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600),
+                              fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                       ),
 
@@ -350,7 +330,7 @@ Padding(
     '「纵向 Y」拖到 0%~100% 之外，按钮会移出屏幕；'
     '拖回这个范围即可恢复。',
     style: TextStyle(
-        fontSize: 11, color: Colors.grey.shade600),
+        fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
   ),
 ),
 
@@ -582,7 +562,7 @@ Padding(
                     Text(
                       '点击此区域 → 打开菜单；点击其它区域 → 翻下一页/其他功能。',
                       style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
+                          fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 8),
 
@@ -601,7 +581,7 @@ Padding(
                       '关掉后 热区变成透明，仍可点击弹菜单，只是不绘制出来。开启后，阅读页中可点击弹出菜单的区域会显示。\n'
                       '默认位置：屏幕顶部一条横带（可在此页调整位置和大小）。',
                       style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
+                          fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 8),
 
@@ -659,7 +639,7 @@ Padding(
                         child: Text(
                           'ⓘ 贴屏幕边的边框不显示，比如热区贴顶时只画下边那条线。',
                           style: TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600),
+                              fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                       ),
 
@@ -781,7 +761,7 @@ Padding(
               height: 36,
               decoration: BoxDecoration(
                 color: color,
-                border: Border.all(color: Colors.black26),
+                border: Border.all(color: Theme.of(context).colorScheme.outline),
                 borderRadius: BorderRadius.circular(6),
               ),
             ),
@@ -803,7 +783,7 @@ Padding(
                 style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: Colors.blue)),
+                    color: Theme.of(context).colorScheme.primary)),
         ],
       ),
     );
@@ -872,7 +852,7 @@ Padding(
           padding: const EdgeInsets.only(top: 2, bottom: 4),
           child: Text(
             helpText,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ),
       ],
@@ -921,13 +901,13 @@ Padding(
             decoration: BoxDecoration(
               color: color,
               border: Border.all(
-                color: selected ? Colors.blue : Colors.black12,
+                color: selected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline.withValues(alpha: 0.25),
                 width: selected ? 3 : 1,
               ),
               borderRadius: BorderRadius.circular(8),
             ),
             child: selected
-                ? const Icon(Icons.check, color: Colors.blue)
+                ? const Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
                 : null,
           ),
           const SizedBox(height: 4),
@@ -955,7 +935,7 @@ Widget _miniPreview(
     height: previewHeight,
     decoration: BoxDecoration(
       color: Color(s.bgColor),
-      border: Border.all(color: Colors.grey.shade400),
+      border: Border.all(color: Theme.of(context).colorScheme.outline),
       borderRadius: BorderRadius.circular(6),
     ),
     clipBehavior: Clip.antiAlias,
@@ -1083,7 +1063,7 @@ Future<void> _showFullPreview(
 ) async {
   await showDialog<void>(
     context: context,
-    barrierColor: Colors.black.withValues(alpha: 0.75),
+    barrierColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.75),
     builder: (ctx) {
       final screenSize = MediaQuery.of(ctx).size;
       final w = screenSize.width * 0.72;
@@ -1104,7 +1084,7 @@ Future<void> _showFullPreview(
               const SizedBox(height: 12),
               const Text(
                 '点任意位置关闭',
-                style: TextStyle(color: Colors.white70, fontSize: 12),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7), fontSize: 12),
               ),
             ],
           ),
@@ -1200,7 +1180,7 @@ class _HotZonePainter extends CustomPainter {
     final rect = Rect.fromLTRB(left, top, right, bottom);
 
     final effectiveColor = previewOnly
-        ? Colors.grey.withValues(alpha: opacity.clamp(0.0, 1.0) * 0.6)
+        ? Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: opacity.clamp(0.0, 1.0) * 0.6)
         : color.withValues(alpha: opacity.clamp(0.0, 1.0));
 
     if (fill && !previewOnly) {
@@ -1283,7 +1263,7 @@ Future<void> showReaderFindBar(
 ) {
   return showModalBottomSheet<void>(
     context: context,
-    backgroundColor: Colors.white,
+    backgroundColor: Theme.of(context).colorScheme.surface,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -1430,7 +1410,7 @@ class _ReaderFindSheetState extends ConsumerState<_ReaderFindSheet> {
               const SizedBox(height: 12),
               const Divider(),
               const Text('历史（收藏优先）',
-                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               const SizedBox(height: 4),
               Expanded(
                 child: sorted.isEmpty
@@ -1696,7 +1676,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           const SizedBox(height: 4),
           const Text(
             '用这个色块加的高亮，默认归到这个分组。',
-            style: TextStyle(fontSize: 11, color: Colors.grey),
+            style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String?>(
@@ -1717,13 +1697,13 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
               const DropdownMenuItem<String?>(
                 value: null,
                 child: Text('未分组',
-                    style: TextStyle(color: Colors.black)),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
               for (final g in groups)
                 DropdownMenuItem<String?>(
                   value: g.id,
                   child: Text(g.name,
-                      style: const TextStyle(color: Colors.black)),
+                      style: const TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                 ),
             ],
             onChanged: (v) => setState(() => _defaultGroupId = v),
@@ -1734,12 +1714,12 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(6),
             ),
             child: RichText(
               text: TextSpan(
-                style: const TextStyle(fontSize: 16, color: Colors.black),
+                style: const TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
                 children: [
                   const TextSpan(text: '这是一个 '),
                   WidgetSpan(
@@ -1776,7 +1756,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
           const Text(
             '⚠️ 修改只影响以后新加的高亮，已有的保持原样。\n'
             '     如需修改已有高亮，去管理页。',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 16),
           OutlinedButton(
@@ -1804,7 +1784,7 @@ class _PaletteEditScreenState extends ConsumerState<PaletteEditScreen> {
             height: 36,
             decoration: BoxDecoration(
               color: color,
-              border: Border.all(color: Colors.black26),
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
               borderRadius: BorderRadius.circular(6),
             ),
           ),
@@ -2139,7 +2119,7 @@ class _GradientEditorState extends State<_GradientEditor> {
                             colors: _colors,
                             stops: _stops,
                           ),
-                          border: Border.all(color: Colors.black26),
+                          border: Border.all(color: Theme.of(context).colorScheme.outline),
                           borderRadius: BorderRadius.circular(6),
                         ),
                       ),
@@ -2157,14 +2137,14 @@ class _GradientEditorState extends State<_GradientEditor> {
                               shape: BoxShape.circle,
                               border: Border.all(
                                 color: _draggingIndex == i
-                                    ? Colors.blue
-                                    : Colors.white,
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Theme.of(context).colorScheme.surface,
                                 width: _draggingIndex == i ? 3 : 2,
                               ),
                               boxShadow: [
                                 BoxShadow(
                                   color:
-                                      Colors.black.withValues(alpha: 0.25),
+                                      Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25),
                                   blurRadius: 3,
                                 ),
                               ],
@@ -2201,7 +2181,7 @@ class _GradientEditorState extends State<_GradientEditor> {
           '拖动色条上的圆点改位置，点圆点改颜色。'
           '也可以拖动下面的滑块，或直接输入百分比。'
           '（顶部 = 高亮的上边缘）',
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
       ],
     );
@@ -2231,7 +2211,7 @@ class _GradientEditorState extends State<_GradientEditor> {
                   decoration: BoxDecoration(
                     color: _colors[i],
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.black26),
+                    border: Border.all(color: Theme.of(context).colorScheme.outline),
                   ),
                 ),
               ),
@@ -2432,12 +2412,14 @@ class _BookmarkHighlightManagerState
                   tooltip: '取消选择',
                   onPressed: _exitSelection,
                 )
-              : null,
+              : const AutoLeadingButton(),
           titleSpacing: 0,
           title: TabBar(
             controller: _tab,
             dividerColor: Colors.transparent,
             indicatorColor: Theme.of(context).colorScheme.primary,
+            indicatorSize: TabBarIndicatorSize.label,
+            tabAlignment: TabAlignment.start,
             tabs: [
               Tab(text: '书签 (${bookmarks.length})'),
               Tab(text: '高亮 (${highlights.length})'),
@@ -2445,80 +2427,67 @@ class _BookmarkHighlightManagerState
           ),
 
           actions: [
-            SizedBox(
-              width: 52,
-              height: kToolbarHeight,
-              child: _selectionMode && _isHighlightTab
-                  ? IconButton(
-                      icon: const Icon(Icons.drive_file_move_outlined),
-                      tooltip: '移入分组',
-                      onPressed: selectedCount == 0 ? null : _moveToGroup,
-                    )
-                  : (!_selectionMode && _isHighlightTab
-                      ? IconButton(
-                          icon: const Icon(Icons.add),
-                          tooltip: '新建高亮',
-                          onPressed: () => _newHighlight(context),
-                        )
-                      : null),
-            ),
-            SizedBox(
-              width: 52,
-              height: kToolbarHeight,
-              child: _selectionMode
-                  ? IconButton(
-                      icon: Icon(
-                        allSelected ? Icons.deselect : Icons.select_all,
-                      ),
-                      tooltip: allSelected ? '全不选' : '全选',
-                      onPressed: () {
-                        setState(() {
-                          if (_isBookmarkTab) {
-                            if (allSelected) {
-                              _selectedBookmarks.clear();
-                            } else {
-                              _selectedBookmarks
-                                ..clear()
-                                ..addAll(bookmarks.map((b) => b.id));
-                            }
-                          } else {
-                            if (allSelected) {
-                              _selectedHighlights.clear();
-                            } else {
-                              _selectedHighlights
-                                ..clear()
-                                ..addAll(highlights
-                                    .map((h) => (h.fileKey, h.entry.id)));
-                            }
-                          }
-                        });
-                      },
-                    )
-                  : (_isHighlightTab
-                      ? IconButton(
-                          icon: const Icon(Icons.filter_list),
-                          tooltip: '筛选（分组 / 范围）',
-                          onPressed: () => _showFilterSheet(groups),
-                        )
-                      : null),
-            ),
-            SizedBox(
-              width: 52,
-              height: kToolbarHeight,
-              child: _selectionMode
-                  ? IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      tooltip: '删除所选',
-                      onPressed: selectedCount == 0 ? null : _deleteSelected,
-                    )
-                  : InkWell(
-                      onTap: () => setState(() => _selectionMode = true),
-                      onLongPress: _isHighlightTab
-                          ? _showHighlightViewSettings
-                          : null,
-                      child: const Icon(Icons.checklist),
+            if (_selectionMode && _isHighlightTab)
+              IconButton(
+                icon: const Icon(Icons.drive_file_move_outlined),
+                tooltip: '移入分组',
+                onPressed: selectedCount == 0 ? null : _moveToGroup,
+              ),
+            if (!_selectionMode && _isHighlightTab)
+              IconButton(
+                icon: const Icon(Icons.add),
+                tooltip: '新建高亮',
+                onPressed: () => _newHighlight(context),
+              ),
+
+            _selectionMode
+                ? IconButton(
+                    icon: Icon(
+                      allSelected ? Icons.deselect : Icons.select_all,
                     ),
-            ),
+                    tooltip: allSelected ? '全不选' : '全选',
+                    onPressed: () {
+                      setState(() {
+                        if (_isBookmarkTab) {
+                          if (allSelected) {
+                            _selectedBookmarks.clear();
+                          } else {
+                            _selectedBookmarks
+                              ..clear()
+                              ..addAll(bookmarks.map((b) => b.id));
+                          }
+                        } else {
+                          if (allSelected) {
+                            _selectedHighlights.clear();
+                          } else {
+                            _selectedHighlights
+                              ..clear()
+                              ..addAll(highlights
+                                  .map((h) => (h.fileKey, h.entry.id)));
+                          }
+                        }
+                      });
+                    },
+                  )
+                : _isHighlightTab
+                    ? IconButton(
+                        icon: const Icon(Icons.filter_list),
+                        tooltip: '筛选（分组 / 范围）',
+                        onPressed: () => _showFilterSheet(groups),
+                      )
+                    : const SizedBox(width: 8),
+
+            _selectionMode
+                ? IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    tooltip: '删除所选',
+                    onPressed: selectedCount == 0 ? null : _deleteSelected,
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.checklist),
+                    tooltip: '进入多选',
+                    onPressed: () => setState(() => _selectionMode = true),
+                  ),
           ],
         ),
         body: TabBarView(
@@ -2573,7 +2542,7 @@ class _BookmarkHighlightManagerState
                       '更多设置项（高亮名大小、书名字号/颜色/背景、'
                       '删除按钮大小等）后续会加到这里。',
                       style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
+                          fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -2612,7 +2581,7 @@ class _BookmarkHighlightManagerState
     final result = await showModalBottomSheet<
         ({bool allBooks, Set<String?> groups})>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -2828,26 +2797,49 @@ class _BookmarkHighlightManagerState
 
   Widget _buildBookmarks(List<ReaderBookmark> bookmarks) {
     if (bookmarks.isEmpty) {
-      return const Center(child: Text('还没有书签'));
+      final s = Theme.of(context).colorScheme;
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.bookmark_border, size: 48, color: s.onSurfaceVariant.withValues(alpha: 0.5)),
+            const SizedBox(height: 16),
+            Text(
+              '还没有书签',
+              style: TextStyle(color: s.onSurfaceVariant, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '在阅读页单击顶部"加书签"即可',
+              style: TextStyle(color: s.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+        ),
+      );
     }
     return ListView.builder(
       itemCount: bookmarks.length,
       itemBuilder: (_, i) {
         final b = bookmarks[i];
         final selected = _selectedBookmarks.contains(b.id);
+        final wasNamed = b.name.isNotEmpty;
 
         return _selectionTile(
           selected: selected,
           child: ListTile(
-            leading: const Icon(Icons.bookmark),
+            leading: Icon(Icons.bookmark, color: Theme.of(context).colorScheme.primary),
             title: Text(
               b.displayName.isEmpty ? '(空)' : b.displayName,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              '位置 ${b.charOffset}',
-              style: const TextStyle(fontSize: 11),
+              // 用户命名过的书签用 preview 做副标题，没命名的就用 preview 做标题
+              wasNamed
+                  ? b.preview.isEmpty ? '' : b.preview
+                  : '添加于 ${_formatRelativeTime(b.createdAt)}',
+              maxLines: wasNamed ? 1 : null,
+              style: const TextStyle(fontSize: 12),
             ),
             onTap: _selectionMode
                 ? () => _toggleBookmark(b.id)
@@ -2872,6 +2864,17 @@ class _BookmarkHighlightManagerState
         );
       },
     );
+  }
+
+  /// 把 Unix 时间戳（毫秒）格式成"X 分钟前 / X 小时前 / X 天前"。
+  static String _formatRelativeTime(int ms) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
+    if (diff.inHours < 24) return '${diff.inHours} 小时前';
+    if (diff.inDays < 30) return '${diff.inDays} 天前';
+    return '${dt.month}/${dt.day}';
   }
 
   void _onLongPressBookmark(String id, List<ReaderBookmark> all) {
@@ -3039,7 +3042,7 @@ class _BookmarkHighlightManagerState
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(c, true),
             child: const Text('删除'),
           ),
@@ -3229,7 +3232,7 @@ class _HighlightCard extends StatelessWidget {
                         child: Icon(
                           Icons.close,
                           size: 14,
-                          color: Colors.grey,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
@@ -3250,7 +3253,7 @@ class _HighlightCard extends StatelessWidget {
   style: const TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.bold,
-    color: Colors.black,
+    color: Theme.of(context).colorScheme.onSurface,
   ),
 ),
             ],
@@ -3429,7 +3432,7 @@ class _HighlightFilterSheetState extends State<_HighlightFilterSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -3662,7 +3665,7 @@ class _GroupManagerScreenState extends ConsumerState<GroupManagerScreen> {
             child: const Text('保留，变未分组'),
           ),
           TextButton(
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(c, 'delete'),
             child: const Text('连同高亮删除'),
           ),
@@ -3941,9 +3944,9 @@ class _HighlightEditScreenState
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.black12),
+              border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.25)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3971,7 +3974,7 @@ class _HighlightEditScreenState
                     style: TextStyle(
                       fontSize: 11,
                       fontFamily: 'monospace',
-                      color: Colors.grey.shade700,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant.shade700,
                     ),
                   ),
                 ),
@@ -3980,7 +3983,7 @@ class _HighlightEditScreenState
                   '长按路径可复制',
                   style: TextStyle(
                     fontSize: 10,
-                    color: Colors.grey.shade500,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant.shade500,
                   ),
                 ),
               ],
@@ -4062,7 +4065,7 @@ class _HighlightEditScreenState
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 _regexError!,
-                style: const TextStyle(color: Colors.red, fontSize: 12),
+                style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
               ),
             ),
 
@@ -4120,7 +4123,7 @@ class _HighlightEditScreenState
                 '   正则 (?<=「)[^」]+(?=」) 填 0，一样效果。',
                 style: TextStyle(
                   fontSize: 11,
-                  color: Colors.grey.shade600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -4188,12 +4191,12 @@ class _HighlightEditScreenState
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(6),
             ),
             child: RichText(
               text: TextSpan(
-                style: const TextStyle(fontSize: 16, color: Colors.black),
+                style: const TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
                 children: [
                   const TextSpan(text: '这是 '),
                   WidgetSpan(
@@ -4246,13 +4249,13 @@ class _HighlightEditScreenState
               const DropdownMenuItem<String?>(
                 value: null,
                 child: Text('未分组',
-                    style: TextStyle(color: Colors.black)),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
               for (final g in groups)
                 DropdownMenuItem<String?>(
                   value: g.id,
                   child: Text(g.name,
-                      style: const TextStyle(color: Colors.black)),
+                      style: const TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                 ),
             ],
             onChanged: (v) => setState(() => _groupId = v),
@@ -4261,9 +4264,9 @@ class _HighlightEditScreenState
           const Divider(),
           const SizedBox(height: 8),
           OutlinedButton.icon(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            label: const Text('删除这条高亮',
-                style: TextStyle(color: Colors.red)),
+            icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+            label: Text('删除这条高亮',
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
             onPressed: _delete,
           ),
         ],
@@ -4293,7 +4296,7 @@ class _HighlightEditScreenState
             height: 36,
             decoration: BoxDecoration(
               color: color,
-              border: Border.all(color: Colors.black26),
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
               borderRadius: BorderRadius.circular(6),
             ),
           ),
@@ -4396,7 +4399,7 @@ class _BookmarkEditScreenState extends State<_BookmarkEditScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
@@ -4408,7 +4411,7 @@ class _BookmarkEditScreenState extends State<_BookmarkEditScreen> {
             const SizedBox(height: 12),
             Text('创建时间：$time',
                 style:
-                    const TextStyle(fontSize: 12, color: Colors.grey)),
+                    const TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ],
           const SizedBox(height: 24),
           const Divider(),
@@ -4420,9 +4423,9 @@ class _BookmarkEditScreenState extends State<_BookmarkEditScreen> {
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            label: const Text('删除这个书签',
-                style: TextStyle(color: Colors.red)),
+            icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+            label: Text('删除这个书签',
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
             onPressed: _delete,
           ),
         ],
@@ -4679,7 +4682,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   child: Text(
                     _regexError!,
                     style:
-                        const TextStyle(color: Colors.red, fontSize: 12),
+                        TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12),
                   ),
                 ),
 
@@ -4736,7 +4739,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                     '   正则 (?<=「)[^」]+(?=」) 填 0，一样效果。',
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey.shade600,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -4755,7 +4758,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                     '（点一下套用，之后还能改）',
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey.shade600,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -4797,8 +4800,8 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                                 : null,
                             border: Border.all(
                               color: selected
-                                  ? Colors.blue
-                                  : Colors.black12,
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.outline.withValues(alpha: 0.25),
                               width: selected ? 3 : 1,
                             ),
                             borderRadius: BorderRadius.circular(6),
@@ -4902,13 +4905,13 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: RichText(
                   text: TextSpan(
                     style: const TextStyle(
-                        fontSize: 16, color: Colors.black),
+                        fontSize: 16, color: Theme.of(context).colorScheme.onSurface),
                     children: [
                       const TextSpan(text: '这是 '),
                       WidgetSpan(
@@ -4968,13 +4971,13 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
                   const DropdownMenuItem<String?>(
                     value: null,
                     child: Text('未分组',
-                        style: TextStyle(color: Colors.black)),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                   ),
                   for (final g in widget.groups)
                     DropdownMenuItem<String?>(
                       value: g.id,
                       child: Text(g.name,
-                          style: const TextStyle(color: Colors.black)),
+                          style: const TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                     ),
                 ],
                 onChanged: (v) => setState(() => _groupId = v),
@@ -5022,7 +5025,7 @@ class _NewHighlightDialogState extends State<_NewHighlightDialog> {
             height: 36,
             decoration: BoxDecoration(
               color: color,
-              border: Border.all(color: Colors.black26),
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
               borderRadius: BorderRadius.circular(6),
             ),
           ),
