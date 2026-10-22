@@ -15,7 +15,7 @@ class ImportService {
   Future<ImportedDoc> importLocalFile(String path) async {
     final file = File(path);
     final bytes = await file.readAsBytes();
-    final parsed = DocumentParser.parse(
+    final parsed = await DocumentParser.parse(
       fileName: file.uri.pathSegments.last,
       bytes: Uint8List.fromList(bytes),
     );
