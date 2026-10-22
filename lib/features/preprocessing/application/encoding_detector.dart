@@ -5,6 +5,7 @@ import 'package:charset/charset.dart' show gbk, shiftJis;
 import 'package:enough_convert/enough_convert.dart' as ec;
 import 'package:gbk_codec/gbk_codec.dart' as gbkCodec;
 
+import 'encoding_bridge.dart';
 import '../domain/encoding_type.dart';
 import '../../reader/reader_load_log.dart';
 
@@ -252,6 +253,42 @@ class EncodingDetector {
         '[Enc] decodeChunked $encoding (分块)  块数=$chunkCount  ${result.length} chars  '
         '耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
     return result;
+  }
+
+  /// 异步版本：Android 走系统 ICU，其他平台回落 [decodeChunked] 的 Dart 包。
+  ///
+  /// 只对需要 ICU 全码表的编码走原生：GBK / GB2312 / GB18030 / Big5 /
+  /// Shift-JIS。UTF-8 / UTF-16 / ASCII 的 Dart 原生实现已经正确，不走原生。
+  static Future<String> decodeChunkedAsync(
+    Uint8List bytes,
+    EncodingType encoding,
+  ) async {
+    if (EncodingBridge.isSupported) {
+      final charset = _androidCharsetName(encoding);
+      if (charset != null) {
+        final r = await EncodingBridge.decode(bytes, charset);
+        if (r != null) return r;
+        // 原生失败：继续走下面的 Dart 降级
+      }
+    }
+    return decodeChunked(bytes, encoding);
+  }
+
+  /// 需要走 Android ICU 的编码 → Android charset 名字。其余返回 null。
+  static String? _androidCharsetName(EncodingType encoding) {
+    switch (encoding) {
+      case EncodingType.gbk:
+      case EncodingType.gb2312:
+        return 'GBK';
+      case EncodingType.gb18030:
+        return 'GB18030';
+      case EncodingType.big5:
+        return 'Big5';
+      case EncodingType.shiftJis:
+        return 'Shift-JIS';
+      default:
+        return null;
+    }
   }
 
   // ==================== 宽容解码（核心） ====================
