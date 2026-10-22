@@ -3,14 +3,13 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import '../../parser/application/document_parser.dart';
-import '../../preprocessing/domain/encoding_type.dart';
 
-/// 分享进来的两个文件解析完成后的结果（全部在内存里，可直接灌进 provider）。
+/// 分享进来的两个文件解析完成后的结果。
 class ShareIntakePayload {
   const ShareIntakePayload({
     required this.leftText,
@@ -50,20 +49,20 @@ class ShareIntakeException implements Exception {
 /// 从其他 App 分享进来的文件 → 校验 → 复制 → 解析 → 进入对比页。
 ///
 /// 只处理 Android 的 ACTION_SEND / ACTION_SEND_MULTIPLE。
+/// 原生侧：MainActivity.kt 通过 MethodChannel `docdiff/share_intent` 把缓存好的
+/// 文件列表喂给 Flutter。这里不引入第三方分享插件，避免 Fluter 3.47 的
+/// kernel snapshot 兼容性问题。
 class ShareIntakeCoordinator {
   ShareIntakeCoordinator._();
 
   static final ShareIntakeCoordinator instance = ShareIntakeCoordinator._();
 
-  /// 单文件上限 5MB（文本对比再大首屏会明显卡）。
   static const int maxBytes = 5 * 1024 * 1024;
-
-  /// 分享可能分好几帧投递，聚合一小段时间再判定数量，避免误报。
-  static const Duration _aggregateWindow = Duration(milliseconds: 500);
-
   static const Duration _maxCacheAge = Duration(days: 3);
+  static const Duration _aggregateWindow = Duration(milliseconds: 400);
 
-  /// 明确是二进制的后缀：直接拒绝，省得读文件。
+  static const MethodChannel _channel = MethodChannel('docdiff/share_intent');
+
   static const Set<String> _binaryExtensions = {
     '.docx', '.doc', '.rtf', '.odt', '.wps',
     '.xlsx', '.xls', '.ods', '.pptx', '.ppt', '.odp',
@@ -81,15 +80,13 @@ class ShareIntakeCoordinator {
   bool _started = false;
   bool _busy = false;
   Timer? _aggregateTimer;
-  final List<SharedMediaFile> _buffer = <SharedMediaFile>[];
-  StreamSubscription<List<SharedMediaFile>>? _subscription;
+  final List<_ShareItem> _buffer = <_ShareItem>[];
+
+  String? _lastSignature;
+  DateTime? _lastSignatureAt;
 
   Future<void> Function(ShareIntakePayload)? _onReady;
   Future<void> Function(String)? _onRejected;
-
-  /// 防重复投递：记录上一批文件的路径签名。
-  String? _lastSignature;
-  DateTime? _lastSignatureAt;
 
   /// 启动监听。必须在 MaterialApp 之内、权限门之外调用。
   Future<void> start({
@@ -101,27 +98,43 @@ class ShareIntakeCoordinator {
     _onReady = onReady;
     _onRejected = onRejected;
 
-    // 不阻塞启动；失败了也不影响主流程。
-    unawaited(cleanupOldSessions());
+    // 清理旧缓存，不阻塞启动。
+    unawaited(_cleanupOldSessions());
 
-    try {
-      _subscription = ReceiveSharingIntent.instance.getMediaStream().listen(
-        _onBatch,
-        onError: (Object e) {
-          unawaited(_reject('读取分享内容失败：$e'));
-        },
-      );
-      final initial =
-          await ReceiveSharingIntent.instance.getInitialMedia();
-      if (initial.isNotEmpty) _onBatch(initial);
-    } catch (e) {
-      // 插件不可用（例如非 Android 宿主）时静默忽略。
+    _channel.setMethodCallHandler(_onNativeCall);
+
+    // 冷启动时 MainActivity 已经在 configureFlutterEngine 之前收到 intent 并填好
+    // pendingShares，那时我们的 handler 还没注册，所以主动拉一次。
+    // 原生侧会在 getPendingShares 后清空，保证下次拉不到重复数据。
+    final initial = await _poll();
+    if (initial.isNotEmpty) _onBatch(initial);
+  }
+
+  Future<void> _onNativeCall(MethodCall call) async {
+    if (call.method == 'onSharesPending') {
+      final items = await _poll();
+      if (items.isNotEmpty) _onBatch(items);
     }
   }
 
-  void _onBatch(List<SharedMediaFile> batch) {
+  Future<List<_ShareItem>> _poll() async {
+    try {
+      final raw = await _channel.invokeListMethod<Map>('getPendingShares');
+      if (raw == null) return const [];
+      return raw
+          .map((e) => _ShareItem(
+                path: e['path'] as String? ?? '',
+                name: e['name'] as String? ?? '',
+              ))
+          .where((e) => e.path.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  void _onBatch(List<_ShareItem> batch) {
     if (batch.isEmpty) return;
-    // 冷启动时 getInitialMedia 和 stream 可能把同一批文件各投一次，按路径去重。
     for (final f in batch) {
       if (_buffer.any((e) => e.path == f.path)) continue;
       _buffer.add(f);
@@ -132,19 +145,20 @@ class ShareIntakeCoordinator {
 
   Future<void> _drain() async {
     if (_busy) {
-      // 正在处理上一批（比如确认弹窗/解析中），稍后再试，别丢文件。
       _aggregateTimer?.cancel();
-      _aggregateTimer =
-          Timer(const Duration(milliseconds: 300), () => unawaited(_drain()));
+      _aggregateTimer = Timer(
+        const Duration(milliseconds: 300),
+        () => unawaited(_drain()),
+      );
       return;
     }
-    final files = List<SharedMediaFile>.of(_buffer);
+    final files = List<_ShareItem>.of(_buffer);
     _buffer.clear();
     if (files.isEmpty) return;
 
     _busy = true;
     try {
-      // 同一批文件可能被 stream 和 initial 各投一次；10 秒内同签名直接忽略。
+      // 10 秒内同签名视为重复投递（冷启动 initial + 热启动事件各投一次）。
       final signature = (files.map((f) => f.path).toList()..sort()).join('|');
       final now = DateTime.now();
       final lastAt = _lastSignatureAt;
@@ -154,10 +168,7 @@ class ShareIntakeCoordinator {
         return;
       }
 
-      // 消费掉初始数据，否则从后台回到前台会重复触发。
-      ReceiveSharingIntent.instance.reset();
       final payload = await _buildPayload(files);
-      // 只有真正处理成功才记账，避免用户改名重发被当成重复投递。
       _lastSignature = signature;
       _lastSignatureAt = now;
       final cb = _onReady;
@@ -176,8 +187,7 @@ class ShareIntakeCoordinator {
     if (cb != null) await cb(message);
   }
 
-  Future<ShareIntakePayload> _buildPayload(
-      List<SharedMediaFile> files) async {
+  Future<ShareIntakePayload> _buildPayload(List<_ShareItem> files) async {
     if (files.length != 2) {
       if (files.isEmpty) {
         throw const ShareIntakeException(
@@ -191,17 +201,14 @@ class ShareIntakeCoordinator {
 
     final rawLeft = files[0].path;
     final rawRight = files[1].path;
-    if (rawLeft.isEmpty || rawRight.isEmpty) {
-      throw const ShareIntakeException('没能读取到分享的文件，请重试');
-    }
-
-    // 系统/插件会按显示名先落到缓存里，同名会互相覆盖 —— 先挡住。
     if (rawLeft == rawRight) {
-      throw const ShareIntakeException('两个文件同名，无法区分，请改名后再分享');
+      throw const ShareIntakeException(
+        '两个文件被系统合并成同一个，请换一个分享来源再试',
+      );
     }
 
-    final leftName = p.basename(rawLeft);
-    final rightName = p.basename(rawRight);
+    final leftName = files[0].name.isEmpty ? p.basename(rawLeft) : files[0].name;
+    final rightName = files[1].name.isEmpty ? p.basename(rawRight) : files[1].name;
     if (leftName.toLowerCase() == rightName.toLowerCase()) {
       throw const ShareIntakeException('两个文件同名，无法区分，请改名后再分享');
     }
@@ -222,11 +229,6 @@ class ShareIntakeCoordinator {
       await cleanupSession(session.path);
       throw ShareIntakeException('复制分享文件失败：$e');
     }
-
-    // 插件把内容落到了 App 缓存里；已经复制到自己目录后，原副本可以立刻删掉，
-    // 否则同名分享会互相覆盖、缓存越积越多。只删缓存内的文件，绝不动用户真实文件。
-    await _deleteSourceCopyIfInCache(rawLeft);
-    await _deleteSourceCopyIfInCache(rawRight);
 
     final parsed = await compute(
       _parsePairInWorker,
@@ -279,7 +281,6 @@ class ShareIntakeCoordinator {
     }
   }
 
-  /// 内容嗅探：UTF-16 BOM 放行；其余出现 0x00 判为二进制。
   static bool _looksLikeText(Uint8List bytes) {
     if (bytes.length >= 2) {
       final b0 = bytes[0];
@@ -320,8 +321,7 @@ class ShareIntakeCoordinator {
     return dir;
   }
 
-  /// 清理超过 3 天的分享缓存（只动自己的子目录）。
-  static Future<void> cleanupOldSessions() async {
+  static Future<void> _cleanupOldSessions() async {
     try {
       final root = await _sessionsRoot();
       if (!await root.exists()) return;
@@ -346,22 +346,15 @@ class ShareIntakeCoordinator {
       if (await d.exists()) await d.delete(recursive: true);
     } catch (_) {}
   }
-
-  /// 只删除位于 App 缓存目录里的分享副本；
-  /// 某些 App 会直接给 file:// 真实路径，那种绝不能删。
-  static Future<void> _deleteSourceCopyIfInCache(String path) async {
-    try {
-      final tmp = await getTemporaryDirectory();
-      final root = p.normalize(tmp.path);
-      final target = p.normalize(path);
-      if (!p.isWithin(root, target)) return;
-      if (p.isWithin(p.join(root, 'share_compare'), target)) return;
-      await File(target).delete();
-    } catch (_) {}
-  }
 }
 
-/// isolate 里跑完整解析（读字节 + 编码检测 + 拆段）。
+class _ShareItem {
+  const _ShareItem({required this.path, required this.name});
+
+  final String path;
+  final String name;
+}
+
 ({String leftText, String rightText, String leftName, String rightName,
     String leftEncoding, String rightEncoding}) _parsePairInWorker(
   ({String leftPath, String rightPath}) paths,
