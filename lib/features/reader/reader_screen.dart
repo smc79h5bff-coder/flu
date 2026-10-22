@@ -582,6 +582,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _toastEntry?.remove();
     _toastEntry = null;
 
+    // 主动清空 4 个缓存。
+    //
+    // 场景：ReaderScreen 被 pop 掉后、新实例压栈之前，旧的这几个缓存
+    // 还挂在旧 State 上没被 GC。2MB 文件每次 pop 都会留几百 KB 到 1MB
+    // 的"僵尸内存"，连开几次容易撞上 OOM。
+    //
+    // 这 4 个字段都是 `final Map`，只能在 dispose 里 clear，不能重新赋值。
+    // 语义与 _invalidateAllCaches() 一致（清空），只是触发点更早。
+    _spansCache.clear();
+    _gradRectCache.clear();
+    _pageHighlightCacheMap.clear();
+    _previewCache.clear();
+    _pageHighlightCache = {};
+    _lastHighlightQueryLine = -1;
+    _lastHighlightQueryResult = const [];
+
     _paginator?.removeListener(_onPaginatorChanged);
     _paginator?.dispose();
     _selNotifier.dispose();
@@ -681,6 +697,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       log.info(
           'fontSize=${settings.fontSize} fontWeight=${settings.fontWeight} pageTopSafePx=${settings.pageTopSafePx} pageBottomSafePx=${settings.pageBottomSafePx}');
 
+      final split = splitLinesWithOffsets(text);
+      log.mark('splitLinesWithOffsets');
+      log.info('lines = ${split.lines.length}');
+
       final paginator = ReaderPaginator(
         text: text,
         viewportWidth: _viewportSize.width,
@@ -689,8 +709,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         fontWeight: settings.fontWeight,
         pageTopSafePx: settings.pageTopSafePx,
         pageBottomSafePx: settings.pageBottomSafePx,
+        preSplitLines: split.lines,
+        preSplitLineStarts: split.lineStarts,
       );
-      log.mark('new ReaderPaginator');
+      log.mark('new ReaderPaginator（复用已切行）');
 
       paginator.addListener(_onPaginatorChanged);
       log.mark('addListener');
@@ -699,10 +721,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       log.mark('paginator.start() 返回');
       log.info('pages = ${paginator.result?.pageCount}');
       log.info('renderUnits = ${paginator.result?.renderUnits.length}');
-
-      final split = splitLinesWithOffsets(text);
-      log.mark('splitLinesWithOffsets');
-      log.info('lines = ${split.lines.length}');
 
       final fileKey = readerFileKey(path);
       ref.read(readerHighlightsProvider.notifier).ensureLoaded(fileKey);
@@ -866,7 +884,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
     _rebuildPageHighlightCache();
     _pageHighlightCacheMap[_currentPage] = _pageHighlightCache;
-    if (_pageHighlightCacheMap.length > 32) {
+    // 32 → 16：缓存最近翻过的 16 页高亮匹配结果。
+    // 用户"翻回去看"几乎都在 10 页以内，命中率基本不受影响。
+    if (_pageHighlightCacheMap.length > 16) {
       _pageHighlightCacheMap.remove(_pageHighlightCacheMap.keys.first);
     }
   }
@@ -1103,7 +1123,9 @@ void _saveProgressNow({bool fromPaginator = false}) {
     }
     final text = buf.toString();
 
-    if (_previewCache.length > 64) {
+    // 64 → 32：每项是一整页的预览文本（几 KB），64 页能占用几百 KB。
+    // 32 页足够覆盖用户前后翻的范围。
+    if (_previewCache.length > 32) {
       _previewCache.remove(_previewCache.keys.first);
     }
     _previewCache[_currentPage] = text;
@@ -3599,7 +3621,9 @@ final effectiveStyle = _baseStyle(settings);
       }
     }
 
-    if (_gradRectCache.length > 256) {
+    // 256 → 128：每项是这一段的渐变矩形列表（几个 Rect）。
+    // 128 覆盖"翻回来重看附近几十页"，命中率变化很小。
+    if (_gradRectCache.length > 128) {
       _gradRectCache.remove(_gradRectCache.keys.first);
     }
     _gradRectCache[key] = rects;
@@ -3620,7 +3644,10 @@ final effectiveStyle = _baseStyle(settings);
     }
 
     final spans = _doBuildUnitSpans(unit, sub, settings);
-    const cap = 512;
+    // 512 → 256：每项是这一段文字的 InlineSpan 列表，几百字节级别，
+    // 但几千页翻下来累积占用可观。256 仍覆盖"翻回来重看附近 10 多页"，
+    // 命中率几乎不变，内存占用减半。
+    const cap = 256;
     if (_spansCache.length >= cap) {
       _spansCache.remove(_spansCache.keys.first);
     }
