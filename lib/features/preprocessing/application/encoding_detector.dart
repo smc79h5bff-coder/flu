@@ -69,6 +69,13 @@ class EncodingDetector {
         ? bytes
         : Uint8List.sublistView(bytes, 0, _sampleSize);
 
+    // 2.5 二进制守卫：控制字节占比过高时直接判 unknown，
+    // 避免把压缩包 / 图片当成 UTF-16 解出满屏乱码。
+    if (_looksBinary(sample)) {
+      log.info('[Enc] detect → unknown (控制字节过多)');
+      return EncodingType.unknown;
+    }
+
     // 3. 严格 UTF-8
     if (_isStrictUtf8(sample)) {
       final isAscii = bytes.every((b) => b < 0x80);
@@ -76,35 +83,42 @@ class EncodingDetector {
       return isAscii ? EncodingType.ascii : EncodingType.utf8;
     }
 
-    // 4. 多字节候选：按字节结构筛，再按解码可读性打分择优。
+    // 4. 多字节候选：结构启发式只用来打日志，最终靠「采样解码可读性打分」择优。
+    //
+    //    不能只用结构做硬门槛：GBK / Big5 / Shift-JIS / UTF-16 的字节范围
+    //    高度重叠。纯中文且没有 BOM 的 UTF-16 里没有零字节，会被结构判定
+    //    漏掉，退化成 GBK 后整篇解成 U+0080-U+00FF 的假字符（一字节一字符）。
     final looksGbk = _looksLikeGbk(sample);
     final looksBig5 = _looksLikeBig5(sample);
     final looksSjis = _looksLikeShiftJis(sample);
-    final candidates = <EncodingType>[
-      if (looksGbk) EncodingType.gbk,
-      if (looksBig5) EncodingType.big5,
-      if (looksSjis) EncodingType.shiftJis,
-    ];
     log.info(
         '[Enc] 多字节候选  looksGbk=$looksGbk  looksBig5=$looksBig5  looksSjis=$looksSjis');
 
-    if (candidates.isNotEmpty) {
-      var best = candidates.first;
-      var bestScore = _plausibilityScore(sample, best);
-      for (var i = 1; i < candidates.length; i++) {
-        final score = _plausibilityScore(sample, candidates[i]);
-        if (score > bestScore) {
-          best = candidates[i];
-          bestScore = score;
-        }
+    var best = EncodingType.unknown;
+    var bestScore = -999999;
+    for (final candidate in const <EncodingType>[
+      EncodingType.gbk,
+      EncodingType.big5,
+      EncodingType.shiftJis,
+      EncodingType.utf16le,
+      EncodingType.utf16be,
+    ]) {
+      final score = _plausibilityScore(sample, candidate);
+      log.info('[Enc]   候选 $candidate 得分=$score');
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
       }
-      log.info(
-          '[Enc] detect → $best  得分=$bestScore  总=${DateTime.now().difference(t0).inMilliseconds}ms');
-      return best;
     }
 
-    log.info('[Enc] detect → unknown');
-    return EncodingType.unknown;
+    if (bestScore <= 0) {
+      log.info(
+          '[Enc] detect → unknown (最高分 $bestScore)  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return EncodingType.unknown;
+    }
+    log.info(
+        '[Enc] detect → $best  得分=$bestScore  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+    return best;
   }
 
   /// 候选评分。这里用 **charset**（快）：
@@ -124,6 +138,12 @@ class EncodingDetector {
           break;
         case EncodingType.shiftJis:
           text = shiftJis.decode(bytes);
+          break;
+        case EncodingType.utf16le:
+          text = _decodeUtf16(bytes, littleEndian: true);
+          break;
+        case EncodingType.utf16be:
+          text = _decodeUtf16(bytes, littleEndian: false);
           break;
         default:
           return -999999;
@@ -147,6 +167,15 @@ class EncodingDetector {
         replacement++;
         continue;
       }
+      if (r == 0x09 || r == 0x0A || r == 0x0D) {
+        score += 1;
+        continue;
+      }
+      // 控制字符：解错编码时大量出现（UTF-16 当单字节解、错块边界等）。
+      if (r < 0x20 || r == 0x7F) {
+        score -= 20;
+        continue;
+      }
       if (r < 0x80) {
         score += 1;
       } else if (_commonHan.contains(r)) {
@@ -158,13 +187,31 @@ class EncodingDetector {
           (r >= 0x2010 && r <= 0x2027)) {
         score += 1;
       } else if (r >= 0x80 && r <= 0xFF) {
-        score -= 8;
+        // Latin-1 区：真实中文文本里几乎不会出现，
+        // 出现就说明「把每个字节当成一个字符」，是错编码的强信号。
+        score -= 30;
+      } else if (r >= 0xE000 && r <= 0xF8FF) {
+        // 私用区：错编码的另一个强信号。
+        score -= 10;
+      } else if (r >= 0x3400 && r <= 0x4DBF) {
+        // CJK 扩展 A：生僻字，正确解码里比例很低。
+        score -= 1;
       } else {
         score -= 2;
       }
     }
-    if (total > 0) score -= (replacement * 10) ~/ total;
+    if (total > 0) score -= (replacement * 30) ~/ total;
     return score;
+  }
+
+  /// 二进制判定：可打印文本里不该出现大量控制字节。
+  static bool _looksBinary(Uint8List bytes) {
+    if (bytes.isEmpty) return false;
+    var control = 0;
+    for (final b in bytes) {
+      if (b < 0x09 || (b > 0x0D && b < 0x20)) control++;
+    }
+    return control / bytes.length > 0.20;
   }
 
   // ==================== 解码入口 ====================
