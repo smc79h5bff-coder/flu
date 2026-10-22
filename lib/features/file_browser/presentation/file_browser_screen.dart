@@ -1313,50 +1313,79 @@ try {
   bool get _isGridMode =>
       !_searchActive && ref.read(browserGridModeProvider);
 
+  /// 网格模式实际渲染的条目（与 _buildGridBody 的数据源完全一致）。
+  /// 网格不渲染 zip 内部展开项，且过滤结果由 _filterEntries 决定，
+  /// 因此行号/下标计算不能复用列表模式的 _visibleItems。
+  List<EntryInfo> get _gridRenderEntries =>
+      _filterEntries(_entries ?? const <EntryInfo>[]);
+
   List<String> _snapshotVisiblePaths() {
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return const <String>[];
-    // 用 _visibleItems：和 ScrollablePositionedList 的 itemBuilder 一致
-    final allItems = _visibleItems ?? _cachedDisplayItems;
-    if (allItems == null || allItems.isEmpty) return const <String>[];
 
     final sorted = positions.toList()
       ..sort((a, b) => a.index.compareTo(b.index));
-
-    final grid = _isGridMode;
     final out = <String>[];
-    for (final p in sorted) {
-      if (grid) {
+
+    if (_isGridMode) {
+      final entries = _gridRenderEntries;
+      if (entries.isEmpty) return const <String>[];
+      for (final p in sorted) {
         final i1 = p.index * 2;
         final i2 = i1 + 1;
-        if (i1 >= 0 && i1 < allItems.length) out.add(allItems[i1].key);
-        if (i2 >= 0 && i2 < allItems.length) out.add(allItems[i2].key);
-      } else {
-        if (p.index < 0 || p.index >= allItems.length) continue;
-        out.add(allItems[p.index].key);
+        if (i1 >= 0 && i1 < entries.length) {
+          out.add(entries[i1].entity.path);
+        }
+        if (i2 >= 0 && i2 < entries.length) {
+          out.add(entries[i2].entity.path);
+        }
       }
+      return out;
+    }
+
+    // 列表 / 搜索：用 _visibleItems，和 ScrollablePositionedList 的 itemBuilder 一致
+    final allItems = _visibleItems ?? _cachedDisplayItems;
+    if (allItems == null || allItems.isEmpty) return const <String>[];
+    for (final p in sorted) {
+      if (p.index < 0 || p.index >= allItems.length) continue;
+      out.add(allItems[p.index].key);
     }
     return out;
   }
 
   void _restoreScrollAnchor(List<String> anchorKeys) {
     if (anchorKeys.isEmpty) return;
-    // 用 _visibleItems：和 ScrollablePositionedList 的 itemBuilder 一致
-    final allItems = _visibleItems ?? _cachedDisplayItems;
-    if (allItems == null || allItems.isEmpty) return;
-
-    var targetIdx = -1;
-    for (final k in anchorKeys) {
-      final idx = allItems.indexWhere((it) => it.key == k);
-      if (idx >= 0) {
-        targetIdx = idx;
-        break;
-      }
-    }
-    if (targetIdx < 0) targetIdx = 0;
-
     final grid = _isGridMode;
-    final jumpIdx = grid ? targetIdx ~/ 2 : targetIdx;
+
+    final int jumpIdx;
+    if (grid) {
+      final entries = _gridRenderEntries;
+      if (entries.isEmpty) return;
+      var targetIdx = -1;
+      for (final k in anchorKeys) {
+        final idx = entries.indexWhere((e) => e.entity.path == k);
+        if (idx >= 0) {
+          targetIdx = idx;
+          break;
+        }
+      }
+      if (targetIdx < 0) targetIdx = 0;
+      jumpIdx = targetIdx ~/ 2;
+    } else {
+      // 列表 / 搜索：用 _visibleItems，和 itemBuilder 一致
+      final allItems = _visibleItems ?? _cachedDisplayItems;
+      if (allItems == null || allItems.isEmpty) return;
+      var targetIdx = -1;
+      for (final k in anchorKeys) {
+        final idx = allItems.indexWhere((it) => it.key == k);
+        if (idx >= 0) {
+          targetIdx = idx;
+          break;
+        }
+      }
+      if (targetIdx < 0) targetIdx = 0;
+      jumpIdx = targetIdx;
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -2461,12 +2490,20 @@ void _jumpToTop() {
   _itemScrollController.jumpTo(index: 0);
 }
   void _scrollToPath(String path) {
-    final allItems = _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
-    final index = allItems.indexWhere((it) => it.key == path);
-    if (index < 0) return;
-
-    final grid = _isGridMode;
-    final jumpIdx = grid ? index ~/ 2 : index;
+    final int jumpIdx;
+    if (_isGridMode) {
+      // 网格：行号基于实际渲染的 entries，而不是 _visibleItems
+      final entries = _gridRenderEntries;
+      final index = entries.indexWhere((e) => e.entity.path == path);
+      if (index < 0) return;
+      jumpIdx = index ~/ 2;
+    } else {
+      final allItems =
+          _visibleItems ?? _cachedDisplayItems ?? const <_DisplayItem>[];
+      final index = allItems.indexWhere((it) => it.key == path);
+      if (index < 0) return;
+      jumpIdx = index;
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -4882,7 +4919,7 @@ String _normalizePath(String path) {
                   onTap: () => setState(() => _markerMode = _MarkerMode.off),
                   child: Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        const EdgeInsets.symmetric(horizontal: 1, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.transparent,
                       borderRadius: BorderRadius.circular(18),
@@ -4890,8 +4927,10 @@ String _normalizePath(String path) {
                     ),
                     child: const Text(
                       '单击即标记',
+                      maxLines: 1,
+                      softWrap: false,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: Colors.black,
                       ),
@@ -6773,10 +6812,10 @@ return _wrapWithFlash(
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
-            top: BorderSide(color: colorScheme.primary, width: 1),
-            bottom: BorderSide(color: colorScheme.primary, width: 1),
-            left: BorderSide(color: colorScheme.primary, width: 3),
-            right: BorderSide(color: colorScheme.primary, width: 3),
+            top: BorderSide(color: Color(0xFFB000FF), width: 1),
+            bottom: BorderSide(color: Color(0xFFB000FF), width: 1),
+            left: BorderSide(color: Color(0xFFB000FF), width: 3),
+            right: BorderSide(color: Color(0xFFB000FF), width: 3),
           ),
         )
       : null,
@@ -6908,10 +6947,10 @@ return _wrapWithFlash(
   foregroundDecoration: selected
       ? BoxDecoration(
           border: Border(
-            top: BorderSide(color: colorScheme.primary, width: 1),
-            bottom: BorderSide(color: colorScheme.primary, width: 1),
-            left: BorderSide(color: colorScheme.primary, width: 3),
-            right: BorderSide(color: colorScheme.primary, width: 3),
+            top: BorderSide(color: Color(0xFFB000FF), width: 1),
+            bottom: BorderSide(color: Color(0xFFB000FF), width: 1),
+            left: BorderSide(color: Color(0xFFB000FF), width: 3),
+            right: BorderSide(color: Color(0xFFB000FF), width: 3),
           ),
         )
       : null,
@@ -7332,10 +7371,10 @@ return _wrapWithFlash(
         foregroundDecoration: selected
             ? BoxDecoration(
                 border: Border(
-                  top: BorderSide(color: colorScheme.primary, width: 1),
-                  bottom: BorderSide(color: colorScheme.primary, width: 1),
-                  left: BorderSide(color: colorScheme.primary, width: 3),
-                  right: BorderSide(color: colorScheme.primary, width: 3),
+                  top: BorderSide(color: Color(0xFFFF00C3), width: 1),
+                  bottom: BorderSide(color: Color(0xFFFF00C3), width: 1),
+                  left: BorderSide(color: Color(0xFFFF00C3), width: 3),
+                  right: BorderSide(color: Color(0xFFFF00C3), width: 3),
                 ),
               )
             : null,
