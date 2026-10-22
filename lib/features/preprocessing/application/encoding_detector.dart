@@ -27,6 +27,15 @@ class EncodingDetector {
   static const int _sampleSize = 64 * 1024;
   static const int _decodeChunkSize = 64 * 1024;
 
+  /// 复核可读性时只看前这么多字符，避免大文件重复遍历。
+  static const int _readabilitySample = 20000;
+
+  /// 低于这个「每字可读性」就认为探测结果不可信，换编码重解。
+  static const double _readableThreshold = 1.5;
+
+  /// 换编码时，必须明显更好才采纳，避免在两种错编码之间来回跳。
+  static const double _switchMargin = 0.3;
+
   // ==================== 探测 ====================
 
   static EncodingType detect(Uint8List bytes) {
@@ -121,9 +130,11 @@ class EncodingDetector {
     return best;
   }
 
-  /// 候选评分。这里用 **charset**（快）：
-  /// 打分只需要比较候选，不需要绝对正确，charset 的静默错位不影响
-  /// 「GBK 出常用字 vs SJIS 出假名」这种粗粒度区分。
+  /// 候选评分：用 charset 系列解码后按文本可读性打分。
+  ///
+  /// 注意：这里只用于「探测阶段挑候选」，charset 的 GBK 实现对某些字节
+  /// 会静默错位（把字节原样映射成 U+0080-U+00FF），所以探测结果不可全信。
+  /// 真正的把关在 [decodeChunkedAsync] 里的可读性复核。
   static int _plausibilityScore(Uint8List bytes, EncodingType encoding) {
     String text;
     try {
@@ -157,7 +168,14 @@ class EncodingDetector {
       }
     }
     if (text.isEmpty) return -999999;
+    return _scoreText(text);
+  }
 
+  /// 文本打分（绝对值，比较时需除以字数）。
+  ///
+  /// 正确解码的中文文本里「常用汉字」占比高；解错编码时会出现大量
+  /// Latin-1 字符、控制字符、私用区字符，这些都给重罚。
+  static int _scoreText(String text) {
     var score = 0;
     var total = 0;
     var replacement = 0;
@@ -197,11 +215,23 @@ class EncodingDetector {
         // CJK 扩展 A：生僻字，正确解码里比例很低。
         score -= 1;
       } else {
+        // 日文假名 / 韩文 / 其它文字：中文小说里不该大量出现。
         score -= 2;
       }
     }
     if (total > 0) score -= (replacement * 30) ~/ total;
     return score;
+  }
+
+  /// 每字平均可读性。中文小说正确解码一般 1.5~2.5；
+  /// 错编码（拉丁一字节、日文假名、乱码繁体）基本在 1.2 以下。
+  static double _readability(String text) {
+    if (text.isEmpty) return -999;
+    final sample =
+        text.length > _readabilitySample ? text.substring(0, _readabilitySample) : text;
+    final total = sample.runes.length;
+    if (total == 0) return -999;
+    return _scoreText(sample) / total;
   }
 
   /// 二进制判定：可打印文本里不该出现大量控制字节。
@@ -311,20 +341,82 @@ class EncodingDetector {
     EncodingType encoding,
   ) async {
     final log = ReaderLoadLog.instance;
+    final t0 = DateTime.now();
+    log.info(
+        '[Enc] decodeChunkedAsync enc=$encoding bridge=${EncodingBridge.isSupported ? "on" : "off"} androidCharset=${_androidCharsetName(encoding)} bytes=${bytes.length}');
+
+    final first = await _decodeOnce(bytes, encoding);
+    var best = encoding;
+    var text = first;
+    var readability = _readability(first);
+    log.info('[Enc] 可读性 $encoding = ${readability.toStringAsFixed(2)}/字');
+
+    // 复核：GBK / Big5 / Shift-JIS 的字节范围高度重叠，探测可能选错
+    // （例如把 GBK 小说判成 Shift-JIS，整篇就是日文假名）。
+    // 可读性不足时用系统 ICU 换编码重解，选可读性最高的那个。
+    // 非 Android 没有 ICU，Dart 全量重解太慢，不做复核。
+    if (readability < _readableThreshold &&
+        EncodingBridge.isSupported &&
+        _needsCrossCheck(encoding)) {
+      for (final alt in _retryCandidates(encoding)) {
+        final candidate = await _decodeOnce(bytes, alt);
+        final score = _readability(candidate);
+        log.info('[Enc]   复核 $alt = ${score.toStringAsFixed(2)}/字');
+        if (score > readability + _switchMargin) {
+          readability = score;
+          text = candidate;
+          best = alt;
+        }
+      }
+      if (best != encoding) {
+        log.info('[Enc] 探测结果 $encoding 可读性不足，改用 $best');
+      }
+    }
+
+    log.info(
+        '[Enc] decodeChunkedAsync → $best chars=${text.length}  ${DateTime.now().difference(t0).inMilliseconds}ms');
+    return text;
+  }
+
+  /// 单次解码：Android 上走系统 ICU，失败或非 Android 回落 Dart。
+  static Future<String> _decodeOnce(
+      Uint8List bytes, EncodingType encoding) async {
     final charset = _androidCharsetName(encoding);
-    log.info('[Enc] decodeChunkedAsync enc=$encoding bridge=${EncodingBridge.isSupported ? "on" : "off"} androidCharset=$charset bytes=${bytes.length}');
     if (EncodingBridge.isSupported && charset != null) {
       final r = await EncodingBridge.decode(bytes, charset);
-      if (r != null) {
-        log.info('[Enc] decodeChunkedAsync → bridge chars=${r.length}');
-        return r;
-      }
-      log.info('[Enc] decodeChunkedAsync bridge failed, fallback to Dart');
+      if (r != null) return r;
     }
-    final t0 = DateTime.now();
-    final r = decodeChunked(bytes, encoding);
-    log.info('[Enc] decodeChunkedAsync → Dart bytes=${bytes.length}→${r.length}chars  ${DateTime.now().difference(t0).inMilliseconds}ms');
-    return r;
+    return decodeChunked(bytes, encoding);
+  }
+
+  /// 只有编码本身有歧义的这几种才需要复核；
+  /// UTF-8 / UTF-16 / ASCII 的 Dart 实现是可靠的，不做无谓重解。
+  /// unknown / binary 走的是 utf8 宽容解码（每字节一个 U+FFFD），
+  /// 也要参与复核，否则没有候选能救回来。
+  static bool _needsCrossCheck(EncodingType encoding) {
+    switch (encoding) {
+      case EncodingType.gbk:
+      case EncodingType.gb2312:
+      case EncodingType.gb18030:
+      case EncodingType.big5:
+      case EncodingType.shiftJis:
+      case EncodingType.unknown:
+      case EncodingType.binary:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /// 复核时的候选顺序（不含当前编码）。简体中文小说优先 GBK。
+  static List<EncodingType> _retryCandidates(EncodingType current) {
+    return const <EncodingType>[
+      EncodingType.gbk,
+      EncodingType.big5,
+      EncodingType.shiftJis,
+      EncodingType.utf16le,
+      EncodingType.utf16be,
+    ].where((e) => e != current).toList(growable: false);
   }
 
   /// 需要走 Android ICU 的编码 → Android charset 名字。其余返回 null。
