@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:charset/charset.dart' show gbk, shiftJis;
 import 'package:enough_convert/enough_convert.dart' as ec;
-import 'package:gbk_codec/gbk_codec.dart' as gbkCodec;
 
 import 'encoding_bridge.dart';
 import '../domain/encoding_type.dart';
@@ -12,12 +11,14 @@ import '../../reader/reader_load_log.dart';
 /// 编码探测与解码。**正确优先，速度其次。**
 ///
 /// 关键决策：
-///   - GBK 系列解码用 gbk_codec 优先，不用 charset。charset 的 GBK 解码器
-///     对某些字节序列会**静默错位**：不抛异常，但从某处开始连续解出错误的
-///     汉字，直到遇到下一个 ASCII 字符才恢复对齐。表现为「一段连续乱码、
-///     换行后又正常」。gbk_codec 是逐字节实现，不会静默错位。
-///   - charset 只用于 _plausibilityScore 的快速打分（只是比较候选，
-///     不需要绝对正确，只需要区分 GBK / Big5 / Shift-JIS）。
+///   - GBK / GB2312 / GB18030 / Big5 / Shift-JIS 解码：
+///     Android 上 [decodeChunkedAsync] 走系统 ICU（[EncodingBridge]），
+///     零错位全码表。其他平台回落 [decodeChunked] 的 Dart 包（charset
+///     / enough_convert）。charset 的 GBK 解码器对某些字节序列会静默错位
+///     （从某处开始连续解出错误汉字，遇到 ASCII 才恢复对齐），但这只影响
+///     非 Android 平台的 fallback，可接受。
+///   - 探测阶段 _plausibilityScore 用 charset（快），打分不需要绝对正确，
+///     只需要区分 GBK / Big5 / Shift-JIS。
 ///   - 所有路径都保留 _decodeLenient 兜底：坏一个字符写 U+FFFD，
 ///     绝不 String.fromCharCodes（那会把整段字节当 Latin-1，产生
 ///     ìÎÒÓÖ 这种整段乱码）。
@@ -107,7 +108,7 @@ class EncodingDetector {
     return EncodingType.unknown;
   }
 
-  /// 候选评分。这里用 **charset**（快）而不是 gbk_codec（慢）：
+  /// 候选评分。这里用 **charset**（快）：
   /// 打分只需要比较候选，不需要绝对正确，charset 的静默错位不影响
   /// 「GBK 出常用字 vs SJIS 出假名」这种粗粒度区分。
   static int _plausibilityScore(Uint8List bytes, EncodingType encoding) {
@@ -296,9 +297,8 @@ class EncodingDetector {
   /// 宽容解码：多级降级，保证不整段乱码。
   ///
   /// GBK 系列：
-  ///   1. gbk_codec 整体解码（正确，可能慢）
-  ///   2. charset 整体解码（快，但可能静默错位）——只在 gbk_codec 抛异常时
-  ///   3. 逐字节宽容（坏一个字符，不坏整段）
+  ///   1. charset 整体解码（快，非 Android fallback 路径）
+  ///   2. 逐字节宽容（坏一个字符，不坏整段）
   ///
   /// Big5 / Shift-JIS：
   ///   enough_convert / charset → 逐字节宽容
@@ -309,10 +309,6 @@ class EncodingDetector {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
-        try {
-          final r = gbkCodec.gbk.decode(bytes);
-          if (r.isNotEmpty) return r;
-        } catch (_) {}
         try {
           final r = gbk.decode(bytes);
           if (r.isNotEmpty) return r;
@@ -341,7 +337,7 @@ class EncodingDetector {
   /// 逐字节宽容解码。
   ///
   /// - ASCII 直接输出
-  /// - 合法双字节对 → 用 gbk_codec / enough_convert / charset 尝试解码
+  /// - 合法双字节对 → 用 charset / enough_convert 尝试解码
   /// - 解不出的双字节也跳 2 字节，保证后续字节对齐不错位
   /// - 非法字节 → 写 U+FFFD
   static String _decodeLenient(Uint8List bytes, EncodingType encoding) {
@@ -383,7 +379,7 @@ class EncodingDetector {
       case EncodingType.gbk:
       case EncodingType.gb2312:
       case EncodingType.gb18030:
-        return gbkCodec.gbk.decode(pair);
+        return gbk.decode(pair);
       case EncodingType.big5:
         return ec.big5.decode(pair);
       case EncodingType.shiftJis:
