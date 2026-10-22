@@ -48,10 +48,10 @@ class DocumentParser {
     '.db', '.sqlite', '.sqlite3',
   };
 
-  static ParsedDocument parse({
+  static Future<ParsedDocument> parse({
     required String fileName,
     required Uint8List bytes,
-  }) {
+  }) async {
     final ext = _extOf(fileName);
 
     if (_binaryExtensions.contains(ext)) {
