@@ -1966,7 +1966,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
     final currentOffset = p == null
         ? 0
         : (ref.read(readerSettingsProvider).readerMode == 1
-            ? (_scrollViewKey.currentState?.currentOffset ?? 0)
+            ? (ref.read(readerProgressProvider)[readerFileKey(widget.filePaths[_fileIndex])]?.charOffset ?? 0)
             : pageStartOffset(p, _currentPage));
 
     await showModalBottomSheet<void>(
