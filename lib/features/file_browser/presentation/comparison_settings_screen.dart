@@ -284,7 +284,9 @@ class _ComparisonSettingsScreenState
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const HelpScreen(),
+                    builder: (_) => const HelpScreen(
+                      initialTabId: 'comparison_rules',
+                    ),
                   ),
                 );
               },
