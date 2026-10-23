@@ -33,6 +33,8 @@ class DiffOnlyView extends ConsumerStatefulWidget {
     this.jumpedToEntry,
     this.onLongPressEntry,
     this.onDeleteFile,
+    this.deletedLeft = false,
+    this.deletedRight = false,
     super.key,
   });
   final DiffResult result;
@@ -50,6 +52,10 @@ class DiffOnlyView extends ConsumerStatefulWidget {
   final int? jumpedToEntry;
   final void Function(List<int> entryIndices)? onLongPressEntry;
   final Future<void> Function({required bool isOriginal})? onDeleteFile;
+
+  /// 左侧 / 右侧文件已从磁盘删除：该侧内容盖红色遮罩。
+  final bool deletedLeft;
+  final bool deletedRight;
 
   static const Color _matchYellow = Color(0xFFFFF59D);
   static const Color _matchPink = Color(0xFFFF4081);
@@ -221,6 +227,11 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
       final Widget scrolled = isLeft
           ? list
           : buildViewerScrollbar(child: list, controller: ctrl);
+      final Widget masked = buildDeletedPaneOverlay(
+        context: context,
+        child: scrolled,
+        deleted: isLeft ? widget.deletedLeft : widget.deletedRight,
+      );
 
       if (widget.noWrap) {
         return SingleChildScrollView(
@@ -228,11 +239,11 @@ class _DiffOnlyViewState extends ConsumerState<DiffOnlyView> {
           child: SizedBox(
             width: contentWidth,
             height: double.infinity,
-            child: scrolled,
+            child: masked,
           ),
         );
       }
-      return scrolled;
+      return masked;
     }
 
     return Column(
