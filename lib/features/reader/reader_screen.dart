@@ -675,8 +675,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       log.mark('EncodingDetector.detect');
       log.info('encoding = ${encoding.label}');
 
-      final rawText = await EncodingDetector.decodeChunkedAsync(bytes, encoding);
+      final decoded = await EncodingDetector.decodeChunkedAsync(bytes, encoding);
+      // 复核后真正用上的编码可能就是它，界面要显示这个。
+      _currentEncoding = decoded.encoding;
+      final rawText = decoded.text;
       log.mark('decodeChunked');
+      log.info('实际编码 = ${decoded.encoding.label}');
       log.info('rawText chars = ${rawText.length}');
 
       final text = _normalizeForReading(rawText);
@@ -1555,11 +1559,11 @@ void _saveProgressNow({bool fromPaginator = false}) {
                 children: [
                   Expanded(
                     child: menuButton(
-                      icon: Icons.tune,
-                      label: '进度 $pct',
+                      icon: Icons.list_alt,
+                      label: '目录',
                       onTap: () {
                         Navigator.pop(ctx);
-                        _showProgressSlider();
+                        _showToc();
                       },
                     ),
                   ),
@@ -1575,9 +1579,18 @@ void _saveProgressNow({bool fromPaginator = false}) {
                   ),
                 ],
               ),
-
               Row(
                 children: [
+                  Expanded(
+                    child: menuButton(
+                      icon: Icons.tune,
+                      label: '进度 $pct',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _showProgressSlider();
+                      },
+                    ),
+                  ),
                   Expanded(
                     child: menuButton(
                       icon: Icons.bookmarks_outlined,
@@ -1588,6 +1601,10 @@ void _saveProgressNow({bool fromPaginator = false}) {
                       },
                     ),
                   ),
+                ],
+              ),
+              Row(
+                children: [
                   Expanded(
                     child: menuButton(
                       icon: Icons.bookmark_add_outlined,
@@ -1598,12 +1615,6 @@ void _saveProgressNow({bool fromPaginator = false}) {
                       },
                     ),
                   ),
-                ],
-              ),
-              const Divider(height: 1),
-
-              Row(
-                children: [
                   Expanded(
                     child: menuButton(
                       icon: Icons.view_list,
@@ -1614,6 +1625,10 @@ void _saveProgressNow({bool fromPaginator = false}) {
                       },
                     ),
                   ),
+                ],
+              ),
+              Row(
+                children: [
                   Expanded(
                     child: menuButton(
                       icon: Icons.translate,
@@ -1624,6 +1639,7 @@ void _saveProgressNow({bool fromPaginator = false}) {
                       },
                     ),
                   ),
+                  const Expanded(child: SizedBox.shrink()),
                 ],
               ),
 
