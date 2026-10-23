@@ -105,6 +105,10 @@ class _DiffViewerScreenState extends ConsumerState<DiffViewerScreen> {
   bool _originalDeleted = false;
   bool _modifiedDeleted = false;
 
+  /// 正在删除确认弹窗中的一侧：null = 没有，true = 左侧，false = 右侧。
+  /// 只在弹窗存活期间给对应那一栏盖红色遮罩，确认或取消后立即清空。
+  bool? _pendingDeleteOriginal;
+
   List<int>? _cachedDiffIndices;
   DiffResult? _cachedDiffIndicesFor;
 
@@ -2637,7 +2641,12 @@ void _toast(String msg) {
       isOriginal ? originalFilePathProvider : modifiedFilePathProvider,
     );
     final label = isOriginal ? '左边文件' : '右边文件';
+    // 弹窗打开期间，给即将被删的那一栏盖红色遮罩。
+    setState(() => _pendingDeleteOriginal = isOriginal);
     final ok = await _confirmDelete(label, path);
+    if (mounted) {
+      setState(() => _pendingDeleteOriginal = null);
+    }
     if (!ok || !mounted) return;
 
     try {
@@ -2895,6 +2904,8 @@ void _toast(String msg) {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
           onDeleteFile: _deleteSide,
+          deletedLeft: _pendingDeleteOriginal == true,
+          deletedRight: _pendingDeleteOriginal == false,
         ),
       ViewMode.diffOnly => DiffOnlyView(
           result: diff,
@@ -2912,6 +2923,8 @@ void _toast(String msg) {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
           onDeleteFile: _deleteSide,
+          deletedLeft: _pendingDeleteOriginal == true,
+          deletedRight: _pendingDeleteOriginal == false,
         ),
       ViewMode.diffOnlyPlain => DiffOnlyPlainView(
           result: diff,
@@ -2928,8 +2941,14 @@ void _toast(String msg) {
           noWrap: noWrap,
           onLongPressEntry: _onRowLongPress,
           onDeleteFile: _deleteSide,
+          deletedLeft: _pendingDeleteOriginal == true,
+          deletedRight: _pendingDeleteOriginal == false,
         ),
-      ViewMode.grouped => GroupedDiffView(key: _groupedKey),
+      ViewMode.grouped => GroupedDiffView(
+          key: _groupedKey,
+          deletedLeft: _pendingDeleteOriginal == true,
+          deletedRight: _pendingDeleteOriginal == false,
+        ),
     };
 
     if (!noWrap) return inner;
@@ -2949,6 +2968,197 @@ void _toast(String msg) {
     }
 
     return inner;
+  }
+
+  // ==================== 顶栏按钮（返回 / 更多 固定，中间可按设置排序） ====================
+
+  Widget _buildTopBarBack() {
+    return SizedBox(
+      height: 48,
+      child: Tooltip(
+        message: '返回',
+        child: InkWell(
+          onTap: () => Navigator.of(context).maybePop(),
+          child: const Center(
+            child: Icon(Icons.arrow_back, size: 24),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBarAction(TopBarButton b, ViewMode viewMode) {
+    switch (b) {
+      case TopBarButton.pageUp:
+        return _buildTopBarPageButton(viewMode: viewMode, up: true);
+      case TopBarButton.pageDown:
+        return _buildTopBarPageButton(viewMode: viewMode, up: false);
+      case TopBarButton.prevDiff:
+        return _buildTopBarDiffJump(viewMode: viewMode, prev: true);
+      case TopBarButton.nextDiff:
+        return _buildTopBarDiffJump(viewMode: viewMode, prev: false);
+      case TopBarButton.find:
+        return _buildTopBarFind();
+      case TopBarButton.deleteLeft:
+        return _buildTopBarDelete(isOriginal: true);
+      case TopBarButton.deleteRight:
+        return _buildTopBarDelete(isOriginal: false);
+    }
+  }
+
+  Widget _buildTopBarPageButton({
+    required ViewMode viewMode,
+    required bool up,
+  }) {
+    return SizedBox(
+      height: 48,
+      child: Builder(builder: (ctx) {
+        final iconColor =
+            IconTheme.of(ctx).color ?? Theme.of(ctx).colorScheme.onSurface;
+        return InkWell(
+          key: Key(up ? 'page-up' : 'page-down'),
+          onTap: () {
+            if (viewMode == ViewMode.grouped) {
+              final s = _groupedKey.currentState as dynamic;
+              if (up) {
+                s?.pageUp();
+              } else {
+                s?.pageDown();
+              }
+            } else {
+              if (up) {
+                _pageUp();
+              } else {
+                _pageDown();
+              }
+            }
+          },
+          onLongPress: () {
+            if (viewMode == ViewMode.grouped) {
+              final s = _groupedKey.currentState as dynamic;
+              if (up) {
+                s?.jumpToTop();
+              } else {
+                s?.jumpToBottom();
+              }
+            } else {
+              if (up) {
+                _jumpToDocTop();
+              } else {
+                _jumpToDocBottom();
+              }
+            }
+          },
+          child: Center(
+            child: CustomPaint(
+              size: const Size.square(24),
+              painter: up
+                  ? _PageUpIconPainter(color: iconColor)
+                  : _PageDownIconPainter(color: iconColor),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildTopBarDiffJump({
+    required ViewMode viewMode,
+    required bool prev,
+  }) {
+    return SizedBox(
+      height: 48,
+      child: InkWell(
+        key: Key(prev ? 'prev-diff' : 'next-diff'),
+        onTap: () {
+          if (viewMode == ViewMode.grouped) {
+            final s = _groupedKey.currentState as dynamic;
+            if (prev) {
+              s?.jumpToPrevDiff();
+            } else {
+              s?.jumpToNextDiff();
+            }
+          } else {
+            if (prev) {
+              _jumpToPrevDiff();
+            } else {
+              _jumpToNextDiff();
+            }
+          }
+        },
+        onLongPress: () {
+          if (viewMode == ViewMode.grouped) {
+            final s = _groupedKey.currentState as dynamic;
+            if (prev) {
+              s?.jumpToTop();
+            } else {
+              s?.jumpToBottom();
+            }
+          } else {
+            if (prev) {
+              _jumpToDocTop();
+            } else {
+              _jumpToDocBottom();
+            }
+          }
+        },
+        child: Center(
+          child: Icon(
+            prev ? Icons.arrow_upward : Icons.arrow_downward,
+            size: 24,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBarFind() {
+    return SizedBox(
+      height: 48,
+      child: Tooltip(
+        message: '查找 / 替换',
+        child: InkWell(
+          onTap: () => setState(() => _showFind = !_showFind),
+          child: const Center(
+            child: Icon(Icons.find_in_page, size: 24),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBarDelete({required bool isOriginal}) {
+    final deleted = isOriginal ? _originalDeleted : _modifiedDeleted;
+    final path = ref.watch(
+      isOriginal ? originalFilePathProvider : modifiedFilePathProvider,
+    );
+    final enabled = !deleted && path != null;
+    final s = Theme.of(context).colorScheme;
+    final base = enabled
+        ? (IconTheme.of(context).color ?? s.onSurface)
+        : s.onSurfaceVariant.withValues(alpha: 0.4);
+    final label = isOriginal ? '左边文件' : '右边文件';
+
+    return SizedBox(
+      height: 48,
+      child: Tooltip(
+        message: deleted ? '$label已删除' : '删除$label',
+        child: InkWell(
+          key: Key(isOriginal ? 'topbar-del-left' : 'topbar-del-right'),
+          onTap: enabled ? () => _deleteSide(isOriginal: isOriginal) : null,
+          child: Center(
+            child: CustomPaint(
+              size: const Size.square(22),
+              painter: DeleteSideIconPainter(
+                color: base,
+                accent: enabled ? s.error : base,
+                isLeft: isOriginal,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildDiffScaffold(
@@ -2979,155 +3189,12 @@ void _toast(String msg) {
   titleSpacing: 0,
   title: Row(
     children: [
-      // 1. 返回
-      Expanded(
-        child: SizedBox(
-          height: 48,
-          child: Tooltip(
-            message: '返回',
-            child: InkWell(
-              onTap: () => Navigator.of(context).maybePop(),
-              child: const Center(
-                child: Icon(Icons.arrow_back, size: 24),
-              ),
-            ),
-          ),
-        ),
-      ),
-      // 2. 上翻页
-      Expanded(
-        child: SizedBox(
-          height: 48,
-          child: Builder(builder: (ctx) {
-            final iconColor =
-                IconTheme.of(ctx).color ?? Theme.of(ctx).colorScheme.onSurface;
-            return InkWell(
-              key: const Key('page-up'),
-              onTap: () {
-                if (viewMode == ViewMode.grouped) {
-                  (_groupedKey.currentState as dynamic)?.pageUp();
-                } else {
-                  _pageUp();
-                }
-              },
-              onLongPress: () {
-                if (viewMode == ViewMode.grouped) {
-                  (_groupedKey.currentState as dynamic)?.jumpToTop();
-                } else {
-                  _jumpToDocTop();
-                }
-              },
-              child: Center(
-                child: CustomPaint(
-                  size: const Size.square(24),
-                  painter: _PageUpIconPainter(color: iconColor),
-                ),
-              ),
-            );
-          }),
-        ),
-      ),
-      // 3. 下翻页
-      Expanded(
-        child: SizedBox(
-          height: 48,
-          child: Builder(builder: (ctx) {
-            final iconColor =
-                IconTheme.of(ctx).color ?? Theme.of(ctx).colorScheme.onSurface;
-            return InkWell(
-              key: const Key('page-down'),
-              onTap: () {
-                if (viewMode == ViewMode.grouped) {
-                  (_groupedKey.currentState as dynamic)?.pageDown();
-                } else {
-                  _pageDown();
-                }
-              },
-              onLongPress: () {
-                if (viewMode == ViewMode.grouped) {
-                  (_groupedKey.currentState as dynamic)?.jumpToBottom();
-                } else {
-                  _jumpToDocBottom();
-                }
-              },
-              child: Center(
-                child: CustomPaint(
-                  size: const Size.square(24),
-                  painter: _PageDownIconPainter(color: iconColor),
-                ),
-              ),
-            );
-          }),
-        ),
-      ),
-      // 4. 上一处差异
-      Expanded(
-        child: SizedBox(
-          height: 48,
-          child: InkWell(
-            key: const Key('prev-diff'),
-            onTap: () {
-              if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToPrevDiff();
-              } else {
-                _jumpToPrevDiff();
-              }
-            },
-            onLongPress: () {
-              if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToTop();
-              } else {
-                _jumpToDocTop();
-              }
-            },
-            child: const Center(
-              child: Icon(Icons.arrow_upward, size: 24),
-            ),
-          ),
-        ),
-      ),
-      // 5. 下一处差异
-      Expanded(
-        child: SizedBox(
-          height: 48,
-          child: InkWell(
-            key: const Key('next-diff'),
-            onTap: () {
-              if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToNextDiff();
-              } else {
-                _jumpToNextDiff();
-              }
-            },
-            onLongPress: () {
-              if (viewMode == ViewMode.grouped) {
-                (_groupedKey.currentState as dynamic)?.jumpToBottom();
-              } else {
-                _jumpToDocBottom();
-              }
-            },
-            child: const Center(
-              child: Icon(Icons.arrow_downward, size: 24),
-            ),
-          ),
-        ),
-      ),
-      // 6. 查找
-      Expanded(
-        child: SizedBox(
-          height: 48,
-          child: Tooltip(
-            message: '查找 / 替换',
-            child: InkWell(
-              onTap: () => setState(() => _showFind = !_showFind),
-              child: const Center(
-                child: Icon(Icons.find_in_page, size: 24),
-              ),
-            ),
-          ),
-        ),
-      ),
-      // 7. 更多
+      // 固定：返回
+      Expanded(child: _buildTopBarBack()),
+      // 可排序：按用户设置的顺序
+      for (final b in ref.watch(topBarOrderProvider))
+        Expanded(child: _buildTopBarAction(b, viewMode)),
+      // 固定：更多
       Expanded(
         child: PopupMenuButton<String>(
           tooltip: '更多操作',
