@@ -3192,7 +3192,7 @@ void _toast(String msg) {
       // 固定：返回
       Expanded(child: _buildTopBarBack()),
       // 可排序：按用户设置的顺序
-      for (final b in ref.watch(topBarOrderProvider))
+      for (final b in ref.watch(topBarOrderProvider.notifier).visibleButtons)
         Expanded(child: _buildTopBarAction(b, viewMode)),
       // 固定：更多
       Expanded(
