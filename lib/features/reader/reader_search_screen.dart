@@ -141,7 +141,13 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
   }
 
   /// 生成一条结果的显示内容。
-  /// 匹配词前 ~25 字、后 ~25 字，本行不够就向上/下借。
+  ///
+  /// 以前是"前文优先 25 字 + 后文 25 字"，整行左对齐，
+  /// 当命中词在行内偏右位置时，它会被左侧堆起来的前文挤出屏幕右侧。
+  ///
+  /// 现在改成**以命中词为锚点**：前文严格限制在 10 字以内（保证高亮词
+  /// 始终能在屏幕里看到），后文取 30 字足够展示上下文，总跨度里高亮词
+  /// 固定出现在左 1/3 位置。
   ReaderSearchHit _buildHit({
     required List<String> lines,
     required List<int> lineStarts,
@@ -149,34 +155,33 @@ class _ReaderSearchScreenState extends ConsumerState<ReaderSearchScreen> {
     required int startInLine,
     required int endInLine,
   }) {
-    const half = 25;
+    const preBudget = 10;
+    const postBudget = 30;
     final line = lines[lineIndex];
 
-    // ---- 前文 ----
-    var preBudget = half;
-    final preStart = (startInLine - preBudget).clamp(0, startInLine);
+    // ---- 前文（严格 ≤10 字，不够时向上一行尾部借） ----
+    var preStart = (startInLine - preBudget).clamp(0, startInLine);
     var pre = line.substring(preStart, startInLine);
-    preBudget -= pre.length;
     var preEllipsis = preStart > 0;
-    if (preBudget > 0 && lineIndex > 0) {
+    if (pre.length < preBudget && lineIndex > 0) {
       final prev = lines[lineIndex - 1];
       if (prev.isNotEmpty) {
-        final takeFrom = (prev.length - preBudget).clamp(0, prev.length);
+        final need = preBudget - pre.length;
+        final takeFrom = (prev.length - need).clamp(0, prev.length);
         pre = prev.substring(takeFrom) + pre;
         preEllipsis = true;
       }
     }
 
-    // ---- 后文 ----
-    var postBudget = half;
-    final postEnd = (endInLine + postBudget).clamp(0, line.length);
+    // ---- 后文（最多 30 字，不够向下一行头部借） ----
+    var postEnd = (endInLine + postBudget).clamp(0, line.length);
     var post = line.substring(endInLine, postEnd);
-    postBudget -= post.length;
     var postEllipsis = postEnd < line.length;
-    if (postBudget > 0 && lineIndex + 1 < lines.length) {
+    if (post.length < postBudget && lineIndex + 1 < lines.length) {
       final next = lines[lineIndex + 1];
       if (next.isNotEmpty) {
-        final takeTo = postBudget.clamp(0, next.length);
+        final need = postBudget - post.length;
+        final takeTo = need.clamp(0, next.length);
         post = post + next.substring(0, takeTo);
         postEllipsis = true;
       }
