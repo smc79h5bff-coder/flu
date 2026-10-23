@@ -6958,11 +6958,15 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     target = File(target).parent.path;
   }
   if (!Directory(target).existsSync()) {
-    _toast('目录不存在');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('目录不存在')),
+    );
     return;
   }
   if (!target.startsWith(widget.rootPath)) {
-    _toast('只能跳到内部存储以内');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('只能跳到内部存储以内')),
+    );
     return;
   }
   setState(() {
