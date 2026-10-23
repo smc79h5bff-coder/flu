@@ -55,6 +55,10 @@ static const colorGroupedFindPink = 'colorGroupedFindPink';
   /// 规则表（支持正则）的详细说明（用户可编辑，为空表示用默认）。
   static const String regexRulesHelp = '${_p}rules.regexHelp';
 
+  // ==================== 对比页顶栏 ====================
+  /// 顶栏按钮顺序（可拖动排序；删除左/右文件是候选项，可加进顶栏）。
+  static const String topBarOrder = '${_p}viewer.topBarOrder';
+
   // ==================== 对比页按钮栏 ====================
   static const String toolbarRules = '${_p}toolbar.rules';
   static const String toolbarOrder = '${_p}toolbar.order';
@@ -113,4 +117,55 @@ static const String browserSettingsHelp = 'jianming.browser.settingsHelp';
 
   /// 网格模式：大小/时间字号。
   static const String browserFontGridMeta = '${_p}browser.fontGridMeta';
+
+  // ==================== 文件浏览器 · 列表紧凑 ====================
+
+  /// 列表模式是否使用紧凑行高（默认 false，保持原有间距）。
+  static const String browserListCompact = '${_p}browser.listCompact';
+
+  // ==================== 文件浏览器 · 可拖动滚动条 ====================
+
+  /// 是否显示可拖动滚动条（默认 false）。
+  static const String browserScrollbarEnabled =
+      '${_p}browser.scrollbarEnabled';
+
+  /// 滚动条轨道颜色。
+  static const String browserScrollbarTrackColor =
+      '${_p}browser.scrollbarTrackColor';
+
+  /// 滚动条拖动块颜色。
+  static const String browserScrollbarThumbColor =
+      '${_p}browser.scrollbarThumbColor';
+
+  /// 滚动条透明度（0~100）。
+  static const String browserScrollbarOpacity =
+      '${_p}browser.scrollbarOpacity';
+
+  /// 滚动条宽度（像素）。
+  static const String browserScrollbarWidth =
+      '${_p}browser.scrollbarWidth';
+
+  // ==================== 文件浏览器 · 悬浮翻页按钮 ====================
+
+  /// 是否显示悬浮上/下翻页按钮（默认 false）。
+  static const String browserFloatingPageEnabled =
+      '${_p}browser.floatingPageEnabled';
+
+  /// 上翻页按钮位置 / 下翻页按钮位置（屏幕百分比）。
+  static const String browserFloatingPageUpX =
+      '${_p}browser.floatingPageUpX';
+  static const String browserFloatingPageUpY =
+      '${_p}browser.floatingPageUpY';
+  static const String browserFloatingPageDownX =
+      '${_p}browser.floatingPageDownX';
+  static const String browserFloatingPageDownY =
+      '${_p}browser.floatingPageDownY';
+
+  /// 按钮大小（像素）、透明度（0~100）、颜色。
+  static const String browserFloatingPageSize =
+      '${_p}browser.floatingPageSize';
+  static const String browserFloatingPageOpacity =
+      '${_p}browser.floatingPageOpacity';
+  static const String browserFloatingPageColor =
+      '${_p}browser.floatingPageColor';
 }
