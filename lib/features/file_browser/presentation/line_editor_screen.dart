@@ -168,12 +168,12 @@ class _LineEditorScreenState extends ConsumerState<LineEditorScreen> {
 
       final bytes = await file.readAsBytes();
       final enc = EncodingDetector.detect(bytes);
-      final text = await EncodingDetector.decodeChunkedAsync(bytes, enc);
+      final decoded = await EncodingDetector.decodeChunkedAsync(bytes, enc);
       if (!mounted) return;
       setState(() {
-        _lines = text.split('\n');
-        _detectedEncoding = enc.label;
-        _saveEncoding = _guessSaveEncoding(enc);
+        _lines = decoded.text.split('\n');
+        _detectedEncoding = decoded.encoding.label;
+        _saveEncoding = _guessSaveEncoding(decoded.encoding);
         _loading = false;
       });
     } catch (e) {
