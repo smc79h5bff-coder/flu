@@ -224,7 +224,15 @@ List<List<int>> _blobHighlight(
 // ==================== 视图 ====================
 
 class GroupedDiffView extends ConsumerStatefulWidget {
-  const GroupedDiffView({super.key});
+  const GroupedDiffView({
+    this.deletedLeft = false,
+    this.deletedRight = false,
+    super.key,
+  });
+
+  /// 删除确认弹窗期间，对应那一栏盖红色遮罩。
+  final bool deletedLeft;
+  final bool deletedRight;
 
   @override
   ConsumerState<GroupedDiffView> createState() => GroupedDiffViewState();
@@ -1069,6 +1077,37 @@ class GroupedDiffViewState extends ConsumerState<GroupedDiffView> {
             child: Stack(
               children: [
                 buildViewerScrollbar(child: listView, controller: _ctrl),
+                // 删除确认时，给即将被删的那一栏盖红色遮罩。
+                if (widget.deletedLeft)
+                  Positioned.fill(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: 0.5,
+                        heightFactor: 1,
+                        child: buildDeletedPaneOverlay(
+                          context: context,
+                          child: const SizedBox.expand(),
+                          deleted: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (widget.deletedRight)
+                  Positioned.fill(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: FractionallySizedBox(
+                        widthFactor: 0.5,
+                        heightFactor: 1,
+                        child: buildDeletedPaneOverlay(
+                          context: context,
+                          child: const SizedBox.expand(),
+                          deleted: true,
+                        ),
+                      ),
+                    ),
+                  ),
                 if (_jumping)
                   Positioned.fill(
                     child: ColoredBox(
