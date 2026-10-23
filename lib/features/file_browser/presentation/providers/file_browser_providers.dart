@@ -1,6 +1,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/storage/pref_keys.dart';
@@ -203,6 +204,195 @@ final browserGridShowTimeProvider =
 class BrowserGridShowTimeNotifier extends BoolPrefNotifier {
   BrowserGridShowTimeNotifier()
       : super(key: PrefKeys.browserGridShowTime, initial: true);
+}
+
+// ==================== 视图 · 列表紧凑（持久化） ====================
+
+/// 列表模式是否使用紧凑行高（默认 false，保持原有间距）。
+final browserListCompactProvider =
+    NotifierProvider<BrowserListCompactNotifier, bool>(
+  BrowserListCompactNotifier.new,
+);
+
+class BrowserListCompactNotifier extends BoolPrefNotifier {
+  BrowserListCompactNotifier()
+      : super(key: PrefKeys.browserListCompact, initial: false);
+}
+
+// ==================== 可拖动滚动条（持久化） ====================
+//
+// 默认关闭：和现在一样没有常驻滚动条。
+
+final browserScrollbarEnabledProvider =
+    NotifierProvider<BrowserScrollbarEnabledNotifier, bool>(
+  BrowserScrollbarEnabledNotifier.new,
+);
+
+class BrowserScrollbarEnabledNotifier extends BoolPrefNotifier {
+  BrowserScrollbarEnabledNotifier()
+      : super(key: PrefKeys.browserScrollbarEnabled, initial: false);
+}
+
+final browserScrollbarTrackColorProvider =
+    NotifierProvider<BrowserScrollbarTrackColorNotifier, Color>(
+  BrowserScrollbarTrackColorNotifier.new,
+);
+
+class BrowserScrollbarTrackColorNotifier extends BrowserColorPrefNotifier {
+  BrowserScrollbarTrackColorNotifier()
+      : super(
+          key: PrefKeys.browserScrollbarTrackColor,
+          initial: const Color(0xFF9E9E9E),
+        );
+}
+
+final browserScrollbarThumbColorProvider =
+    NotifierProvider<BrowserScrollbarThumbColorNotifier, Color>(
+  BrowserScrollbarThumbColorNotifier.new,
+);
+
+class BrowserScrollbarThumbColorNotifier extends BrowserColorPrefNotifier {
+  BrowserScrollbarThumbColorNotifier()
+      : super(
+          key: PrefKeys.browserScrollbarThumbColor,
+          initial: const Color(0xFF546E7A),
+        );
+}
+
+final browserScrollbarOpacityProvider =
+    NotifierProvider<BrowserScrollbarOpacityNotifier, double>(
+  BrowserScrollbarOpacityNotifier.new,
+);
+
+class BrowserScrollbarOpacityNotifier extends DoublePrefNotifier {
+  BrowserScrollbarOpacityNotifier()
+      : super(key: PrefKeys.browserScrollbarOpacity, initial: 55);
+}
+
+final browserScrollbarWidthProvider =
+    NotifierProvider<BrowserScrollbarWidthNotifier, double>(
+  BrowserScrollbarWidthNotifier.new,
+);
+
+class BrowserScrollbarWidthNotifier extends DoublePrefNotifier {
+  BrowserScrollbarWidthNotifier()
+      : super(key: PrefKeys.browserScrollbarWidth, initial: 10);
+}
+
+// ==================== 悬浮上/下翻页按钮（持久化） ====================
+//
+// 默认关闭。位置用屏幕百分比，和对比页的悬浮按钮一致。
+
+final browserFloatingPageEnabledProvider =
+    NotifierProvider<BrowserFloatingPageEnabledNotifier, bool>(
+  BrowserFloatingPageEnabledNotifier.new,
+);
+
+class BrowserFloatingPageEnabledNotifier extends BoolPrefNotifier {
+  BrowserFloatingPageEnabledNotifier()
+      : super(key: PrefKeys.browserFloatingPageEnabled, initial: false);
+}
+
+final browserFloatingPageUpXProvider =
+    NotifierProvider<BrowserFloatingPageUpXNotifier, double>(
+  BrowserFloatingPageUpXNotifier.new,
+);
+
+class BrowserFloatingPageUpXNotifier extends DoublePrefNotifier {
+  BrowserFloatingPageUpXNotifier()
+      : super(key: PrefKeys.browserFloatingPageUpX, initial: 86);
+}
+
+final browserFloatingPageUpYProvider =
+    NotifierProvider<BrowserFloatingPageUpYNotifier, double>(
+  BrowserFloatingPageUpYNotifier.new,
+);
+
+class BrowserFloatingPageUpYNotifier extends DoublePrefNotifier {
+  BrowserFloatingPageUpYNotifier()
+      : super(key: PrefKeys.browserFloatingPageUpY, initial: 24);
+}
+
+final browserFloatingPageDownXProvider =
+    NotifierProvider<BrowserFloatingPageDownXNotifier, double>(
+  BrowserFloatingPageDownXNotifier.new,
+);
+
+class BrowserFloatingPageDownXNotifier extends DoublePrefNotifier {
+  BrowserFloatingPageDownXNotifier()
+      : super(key: PrefKeys.browserFloatingPageDownX, initial: 86);
+}
+
+final browserFloatingPageDownYProvider =
+    NotifierProvider<BrowserFloatingPageDownYNotifier, double>(
+  BrowserFloatingPageDownYNotifier.new,
+);
+
+class BrowserFloatingPageDownYNotifier extends DoublePrefNotifier {
+  BrowserFloatingPageDownYNotifier()
+      : super(key: PrefKeys.browserFloatingPageDownY, initial: 76);
+}
+
+final browserFloatingPageSizeProvider =
+    NotifierProvider<BrowserFloatingPageSizeNotifier, double>(
+  BrowserFloatingPageSizeNotifier.new,
+);
+
+class BrowserFloatingPageSizeNotifier extends DoublePrefNotifier {
+  BrowserFloatingPageSizeNotifier()
+      : super(key: PrefKeys.browserFloatingPageSize, initial: 46);
+}
+
+final browserFloatingPageOpacityProvider =
+    NotifierProvider<BrowserFloatingPageOpacityNotifier, double>(
+  BrowserFloatingPageOpacityNotifier.new,
+);
+
+class BrowserFloatingPageOpacityNotifier extends DoublePrefNotifier {
+  BrowserFloatingPageOpacityNotifier()
+      : super(key: PrefKeys.browserFloatingPageOpacity, initial: 70);
+}
+
+final browserFloatingPageColorProvider =
+    NotifierProvider<BrowserFloatingPageColorNotifier, Color>(
+  BrowserFloatingPageColorNotifier.new,
+);
+
+class BrowserFloatingPageColorNotifier extends BrowserColorPrefNotifier {
+  BrowserFloatingPageColorNotifier()
+      : super(
+          key: PrefKeys.browserFloatingPageColor,
+          initial: const Color(0xFF546E7A),
+        );
+}
+
+// ==================== 颜色持久化 ====================
+
+/// 颜色偏好：存 `#RRGGBB`。
+class BrowserColorPrefNotifier extends PersistentNotifier<Color> {
+  BrowserColorPrefNotifier({required this.key, required Color initial})
+      : _initial = initial;
+
+  @override
+  final String key;
+  final Color _initial;
+
+  @override
+  Color get defaultValue => _initial;
+
+  @override
+  Color decode(String raw) {
+    final hex = raw.startsWith('#') ? raw.substring(1) : raw;
+    final v = int.tryParse(hex, radix: 16);
+    if (v == null) throw const FormatException('Invalid color string');
+    return Color(0xFF000000 | v);
+  }
+
+  @override
+  String encode(Color value) {
+    final argb = value.toARGB32();
+    return '#${argb.toRadixString(16).padLeft(8, '0').substring(2)}';
+  }
 }
 
 // ==================== 视图 · 字号（持久化） ====================
