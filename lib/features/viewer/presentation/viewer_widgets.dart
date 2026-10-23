@@ -51,6 +51,47 @@ Widget buildViewerScrollbar({
   );
 }
 
+// ==================== 删除确认时的红色遮罩 ====================
+
+/// 删除确认弹窗弹出期间，给「即将被删」的那一栏盖一层红色遮罩。
+///
+/// 弹窗在前、对比页变暗在后，红色遮罩用来提示删的是哪一栏。
+/// 遮罩不拦截手势，仍可滚动查看。
+Widget buildDeletedPaneOverlay({
+  required BuildContext context,
+  required Widget child,
+  required bool deleted,
+}) {
+  if (!deleted) return child;
+
+  final error = Theme.of(context).colorScheme.error;
+  return Stack(
+    fit: StackFit.expand,
+    children: [
+      child,
+      IgnorePointer(
+        child: ColoredBox(color: error.withValues(alpha: 0.5)),
+      ),
+      IgnorePointer(
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            color: error.withValues(alpha: 0.95),
+            child: const Text(
+              '即将删除',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
 // ==================== 显示设置底部面板 ====================
 
 class DisplaySettingsSheet extends ConsumerWidget {
@@ -262,6 +303,23 @@ class DisplaySettingsSheet extends ConsumerWidget {
                           );
                         },
                       ),
+
+                    // ========== 顶栏按钮排序 ==========
+                    const Divider(height: 32),
+                    Text(
+                      '顶栏按钮排序',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '拖动右侧手柄调整顺序。「返回」和「更多」固定在顶栏两端，不参与排序。',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const _TopBarOrderSection(),
 
                     // ========== 悬浮下翻页按钮 ==========
                     const Divider(height: 32),
@@ -608,6 +666,253 @@ class DisplaySettingsSheet extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ==================== 顶栏按钮排序 ====================
+
+/// 显示设置里「顶栏按钮排序」区块。
+///
+/// 列表里出现的按钮 = 顶栏上显示的按钮，拖动即保存。
+/// 两个「删除文件」按钮是候选：用下面的开关加进顶栏或移出顶栏。
+class _TopBarOrderSection extends ConsumerStatefulWidget {
+  const _TopBarOrderSection();
+
+  @override
+  ConsumerState<_TopBarOrderSection> createState() =>
+      _TopBarOrderSectionState();
+}
+
+class _TopBarOrderSectionState extends ConsumerState<_TopBarOrderSection> {
+  late List<TopBarButton> _order;
+
+  @override
+  void initState() {
+    super.initState();
+    _order = List<TopBarButton>.from(ref.read(topBarOrderProvider));
+  }
+
+  void _persist() {
+    ref.read(topBarOrderProvider.notifier).setAll(_order);
+  }
+
+  String _label(TopBarButton b) {
+    switch (b) {
+      case TopBarButton.pageUp:
+        return '上翻页';
+      case TopBarButton.pageDown:
+        return '下翻页';
+      case TopBarButton.prevDiff:
+        return '上一处差异';
+      case TopBarButton.nextDiff:
+        return '下一处差异';
+      case TopBarButton.find:
+        return '查找 / 替换';
+      case TopBarButton.deleteLeft:
+        return '删除左边文件';
+      case TopBarButton.deleteRight:
+        return '删除右边文件';
+    }
+  }
+
+  IconData _iconData(TopBarButton b) {
+    switch (b) {
+      case TopBarButton.pageUp:
+        return Icons.keyboard_double_arrow_up;
+      case TopBarButton.pageDown:
+        return Icons.keyboard_double_arrow_down;
+      case TopBarButton.prevDiff:
+        return Icons.arrow_upward;
+      case TopBarButton.nextDiff:
+        return Icons.arrow_downward;
+      case TopBarButton.find:
+        return Icons.find_in_page;
+      case TopBarButton.deleteLeft:
+      case TopBarButton.deleteRight:
+        return Icons.delete_outline;
+    }
+  }
+
+  void _setCandidate(TopBarButton b, bool show) {
+    setState(() {
+      if (show) {
+        if (!_order.contains(b)) _order.add(b);
+      } else {
+        _order.remove(b);
+      }
+    });
+    _persist();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final hasLeft = _order.contains(TopBarButton.deleteLeft);
+    final hasRight = _order.contains(TopBarButton.deleteRight);
+    final rowHeight = 48.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: (_order.length * rowHeight)
+              .clamp(rowHeight, 7 * rowHeight)
+              .toDouble(),
+          child: ReorderableListView.builder(
+            buildDefaultDragHandles: false,
+            itemCount: _order.length,
+            onReorder: (oldIndex, newIndex) {
+              setState(() {
+                if (newIndex > oldIndex) newIndex--;
+                final item = _order.removeAt(oldIndex);
+                _order.insert(newIndex, item);
+              });
+              _persist();
+            },
+            itemBuilder: (ctx, i) {
+              final b = _order[i];
+              final isDelete = b == TopBarButton.deleteLeft ||
+                  b == TopBarButton.deleteRight;
+              return ListTile(
+                key: ValueKey<String>('topbar:${b.name}'),
+                dense: true,
+                contentPadding: const EdgeInsets.only(left: 4, right: 0),
+                leading: SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: Center(
+                    child: isDelete
+                        ? CustomPaint(
+                            size: const Size.square(22),
+                            painter: DeleteSideIconPainter(
+                              color: s.onSurface,
+                              accent: s.error,
+                              isLeft: b == TopBarButton.deleteLeft,
+                            ),
+                          )
+                        : Icon(
+                            _iconData(b),
+                            size: 20,
+                            color: s.onSurface,
+                          ),
+                  ),
+                ),
+                title: Text(_label(b)),
+                trailing: ReorderableDragStartListener(
+                  index: i,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(Icons.drag_handle),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '可加入顶栏的按钮',
+          style: TextStyle(
+            fontSize: 12,
+            color: s.onSurfaceVariant,
+          ),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: hasLeft,
+          title: const Text('删除左边文件'),
+          subtitle: const Text(
+            '和「更多」菜单里的功能相同',
+            style: TextStyle(fontSize: 11),
+          ),
+          onChanged: (v) => _setCandidate(TopBarButton.deleteLeft, v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: hasRight,
+          title: const Text('删除右边文件'),
+          subtitle: const Text(
+            '和「更多」菜单里的功能相同',
+            style: TextStyle(fontSize: 11),
+          ),
+          onChanged: (v) => _setCandidate(TopBarButton.deleteRight, v),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () {
+              setState(() {
+                _order = List<TopBarButton>.from(
+                  ref.read(topBarOrderProvider.notifier).defaultValue,
+                );
+              });
+              _persist();
+            },
+            child: const Text('恢复默认顺序'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 「删除左/右文件」顶栏图标：一张文件，目标半边打叉。
+class DeleteSideIconPainter extends CustomPainter {
+  DeleteSideIconPainter({
+    required this.color,
+    required this.accent,
+    required this.isLeft,
+  });
+
+  final Color color;
+  final Color accent;
+  final bool isLeft;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 24.0;
+    canvas.save();
+    canvas.scale(scale, scale);
+
+    final line = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final cross = Paint()
+      ..color = accent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    // 文件外框
+    final doc = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(4, 2, 16, 20),
+      const Radius.circular(2.5),
+    );
+    canvas.drawRRect(doc, line);
+
+    // 左右分界线
+    canvas.drawLine(const Offset(12, 2.5), const Offset(12, 21.5), line);
+
+    // 目标半边打叉
+    if (isLeft) {
+      canvas.drawLine(const Offset(6.4, 10), const Offset(9.6, 14), cross);
+      canvas.drawLine(const Offset(9.6, 10), const Offset(6.4, 14), cross);
+    } else {
+      canvas.drawLine(const Offset(14.4, 10), const Offset(17.6, 14), cross);
+      canvas.drawLine(const Offset(17.6, 10), const Offset(14.4, 14), cross);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(DeleteSideIconPainter old) =>
+      old.color != color || old.accent != accent || old.isLeft != isLeft;
 }
 
 // ==================== 按钮排序对话框 ====================
