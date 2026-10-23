@@ -6089,6 +6089,7 @@ Widget _buildListBody() {
   final fontName = ref.watch(browserFontListNameProvider);
   final fontMeta = ref.watch(browserFontListMetaProvider);
   final colorScheme = Theme.of(context).colorScheme;
+  final scrollbarOn = ref.watch(browserScrollbarEnabledProvider);
 
   final items = _visibleItems ?? const <_DisplayItem>[];
   // 选中模式下底栏是 Stack 覆盖层，不占布局；
@@ -6096,24 +6097,26 @@ Widget _buildListBody() {
   // 留白在滚动内容末尾，不改变可视区高度，进入/退出选中模式内容不跳。
   final extra = _selectionMode ? 1 : 0;
   _scrollItemCount = items.length + extra;
-    return Scrollbar(child: ScrollablePositionedList.builder(
-      itemScrollController: _itemScrollController,
-      itemPositionsListener: _positionsListener,
-      itemCount: items.length + extra,
-      itemBuilder: (ctx, i) {
-        if (i >= items.length) {
-          return SizedBox(
-            height: MediaQuery.of(context).padding.bottom + 110,
-          );
-        }
-        final item = items[i];
-        return RepaintBoundary(
-          key: ValueKey('rb_${item.key}'),
-          child: _buildDisplayItemTile(item, fontName, fontMeta, colorScheme),
+  final list = ScrollablePositionedList.builder(
+    itemScrollController: _itemScrollController,
+    itemPositionsListener: _positionsListener,
+    itemCount: items.length + extra,
+    itemBuilder: (ctx, i) {
+      if (i >= items.length) {
+        return SizedBox(
+          height: MediaQuery.of(context).padding.bottom + 110,
         );
-      },
-    ));
-  }
+      }
+      final item = items[i];
+      return RepaintBoundary(
+        key: ValueKey('rb_${item.key}'),
+        child: _buildDisplayItemTile(item, fontName, fontMeta, colorScheme),
+      );
+    },
+  );
+  // 自定义可拖动滚动条开启时，默认 Scrollbar 就关掉，避免两条并存。
+  return scrollbarOn ? list : Scrollbar(child: list);
+}
 
   /// 渲染一个 display item。磁盘项、zip 头、zip 内项各有不同样式。
   ///
@@ -6404,13 +6407,14 @@ return Listener(
     final showTime = ref.watch(browserGridShowTimeProvider);
     final fontName = ref.watch(browserFontGridNameProvider);
     final fontMeta = ref.watch(browserFontGridMetaProvider);
+    final scrollbarOn = ref.watch(browserScrollbarEnabledProvider);
 
     final rowCount = (entries.length + 1) ~/ 2;
     // 选中模式下底栏是覆盖层，网格末尾同样补一段滚动留白。
     final extraRow = _selectionMode ? 1 : 0;
     _scrollItemCount = rowCount + extraRow;
 
-    return Scrollbar(child: ScrollablePositionedList.builder(
+    final list = ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
       itemCount: rowCount + extraRow,
@@ -6462,7 +6466,8 @@ return Listener(
           ),
         );
       },
-    ));
+    );
+    return scrollbarOn ? list : Scrollbar(child: list);
   }
 
   Widget _buildGridCell({
@@ -6626,13 +6631,14 @@ return Listener(
     final colorScheme = Theme.of(context).colorScheme;
     final fontName = ref.watch(browserFontListNameProvider);
     final fontMeta = ref.watch(browserFontListMetaProvider);
+    final scrollbarOn = ref.watch(browserScrollbarEnabledProvider);
 
     final items = _cachedDisplayItems ?? const <_DisplayItem>[];
     // 选中模式下底栏是覆盖层，搜索结果列表末尾同样补滚动留白。
     final extra = _selectionMode ? 1 : 0;
     _scrollItemCount = items.length + extra;
 
-    return Scrollbar(child: ScrollablePositionedList.builder(
+    final list = ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
       itemCount: items.length + extra,
@@ -6648,7 +6654,8 @@ return Listener(
           child: _buildSearchResultTile(item, fontName, fontMeta, colorScheme),
         );
       },
-    ));
+    );
+    return scrollbarOn ? list : Scrollbar(child: list);
   }
 
   /// 搜索结果模式的列表项渲染（跟普通列表不同：显示路径副标题）。
