@@ -93,54 +93,110 @@ enum TopBarButton {
   deleteRight,
 }
 
-/// 顶栏按钮顺序。列表里出现的按钮 = 顶栏上显示的按钮。
+/// 顶栏按钮的一项：固定顺序里的每颗按钮 + 是否在顶栏显示。
+class TopBarEntry {
+  const TopBarEntry(this.button, this.visible);
+  final TopBarButton button;
+  final bool visible;
+
+  TopBarEntry copyWith({TopBarButton? button, bool? visible}) {
+    return TopBarEntry(button ?? this.button, visible ?? this.visible);
+  }
+}
+
+/// 顶栏按钮顺序与可见性。
+///
+/// 持久化格式：`buttonName:1\u0000buttonName:0...`
+/// 旧格式（只有名字）解析时默认 visible=true，向前兼容。
 final topBarOrderProvider =
-    NotifierProvider<TopBarOrderNotifier, List<TopBarButton>>(
+    NotifierProvider<TopBarOrderNotifier, List<TopBarEntry>>(
   TopBarOrderNotifier.new,
 );
 
-class TopBarOrderNotifier extends PersistentNotifier<List<TopBarButton>> {
+class TopBarOrderNotifier extends PersistentNotifier<List<TopBarEntry>> {
   @override
   String get key => PrefKeys.topBarOrder;
 
-  static const List<TopBarButton> _defaultOrder = [
-    TopBarButton.pageUp,
-    TopBarButton.pageDown,
-    TopBarButton.prevDiff,
-    TopBarButton.nextDiff,
-    TopBarButton.find,
+  /// 全部按钮的默认顺序（前 5 个显示，删除按钮默认隐藏）。
+  static const List<TopBarEntry> _default = [
+    TopBarEntry(TopBarButton.pageUp, true),
+    TopBarEntry(TopBarButton.pageDown, true),
+    TopBarEntry(TopBarButton.prevDiff, true),
+    TopBarEntry(TopBarButton.nextDiff, true),
+    TopBarEntry(TopBarButton.find, true),
+    TopBarEntry(TopBarButton.deleteLeft, false),
+    TopBarEntry(TopBarButton.deleteRight, false),
   ];
 
-  /// 原有 5 个按钮不允许删除，缺失时自动补回。
-  static const List<TopBarButton> _required = _defaultOrder;
+  @override
+  List<TopBarEntry> get defaultValue => _default;
 
   @override
-  List<TopBarButton> get defaultValue => _defaultOrder;
-
-  @override
-  List<TopBarButton> decode(String raw) {
-    if (raw.isEmpty) return _defaultOrder;
-    final result = <TopBarButton>[];
-    for (final name in raw.split('\u0000')) {
-      if (name.isEmpty) continue;
-      for (final b in TopBarButton.values) {
-        if (b.name == name && !result.contains(b)) {
-          result.add(b);
-          break;
+  List<TopBarEntry> decode(String raw) {
+    if (raw.isEmpty) return _default;
+    final result = <TopBarEntry>[];
+    final seenButtons = <TopBarButton>{};
+    for (final token in raw.split('\u0000')) {
+      if (token.isEmpty) continue;
+      TopBarButton? button;
+      var visible = true;
+      final colon = token.indexOf(':');
+      if (colon > 0) {
+        // 新格式：name:visible
+        final name = token.substring(0, colon);
+        for (final b in TopBarButton.values) {
+          if (b.name == name) {
+            button = b;
+            visible = token.substring(colon + 1) == '1';
+            break;
+          }
+        }
+      } else {
+        // 旧格式：只有 name，默认 visible=true
+        for (final b in TopBarButton.values) {
+          if (b.name == token) {
+            button = b;
+            break;
+          }
         }
       }
+      if (button != null && !seenButtons.contains(button)) {
+        seenButtons.add(button);
+        result.add(TopBarEntry(button, visible));
+      }
     }
-    for (final b in _required) {
-      if (!result.contains(b)) result.add(b);
+    // 补齐所有没出现过的按钮（保持默认顺序）
+    for (final entry in _default) {
+      if (!seenButtons.contains(entry.button)) result.add(entry);
     }
     return result;
   }
 
   @override
-  String encode(List<TopBarButton> value) =>
-      value.map((b) => b.name).join('\u0000');
+  String encode(List<TopBarEntry> value) =>
+      value.map((e) => '${e.button.name}:${e.visible ? '1' : '0'}').join('\u0000');
 
-  void setAll(List<TopBarButton> order) => update(List<TopBarButton>.from(order));
+  void setAll(List<TopBarEntry> entries) =>
+      update(List<TopBarEntry>.from(entries));
+
+  void reorder(int oldIndex, int newIndex) {
+    final list = List<TopBarEntry>.from(state);
+    if (newIndex > oldIndex) newIndex--;
+    final item = list.removeAt(oldIndex);
+    list.insert(newIndex, item);
+    update(list);
+  }
+
+  void setVisible(TopBarButton button, bool visible) {
+    final list = state
+        .map((e) => e.button == button ? e.copyWith(visible: visible) : e)
+        .toList();
+    update(list);
+  }
+
+  /// 顶栏上实际显示的按钮（visible=true 的，按当前顺序）。
+  List<TopBarButton> get visibleButtons =>
+      state.where((e) => e.visible).map((e) => e.button).toList();
 }
 
 final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
