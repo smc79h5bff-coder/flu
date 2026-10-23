@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -46,6 +47,10 @@ class BrowserSettingsScreen extends ConsumerWidget {
           ],
 
           _buildFontSizeSection(context, ref),
+          const Divider(height: 1),
+          _buildScrollbarSection(context, ref),
+          const Divider(height: 1),
+          _buildFloatingPageSection(context, ref),
           const Divider(height: 1),
           _buildSortSection(context, ref),
           const Divider(height: 1),
@@ -154,6 +159,7 @@ class BrowserSettingsScreen extends ConsumerWidget {
   // ==================== 显示方式 ====================
 Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
   final gridMode = ref.watch(browserGridModeProvider);
+  final compact = ref.watch(browserListCompactProvider);
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -178,6 +184,17 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
               },
             ),
           ],
+        ),
+      ),
+      // 列表模式下的行高：默认是 MD3 的宽松间距，打开后更紧凑。
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: _SwitchRow(
+          label: '紧凑列表（行距更小，一屏显示更多文件）',
+          value: compact,
+          enabled: !gridMode,
+          onChanged: (v) =>
+              ref.read(browserListCompactProvider.notifier).update(v),
         ),
       ),
     ],
@@ -288,6 +305,207 @@ Widget _buildDisplayModeSection(BuildContext context, WidgetRef ref) {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  // ==================== 滚动条 ====================
+
+  Widget _buildScrollbarSection(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(browserScrollbarEnabledProvider);
+    final track = ref.watch(browserScrollbarTrackColorProvider);
+    final thumb = ref.watch(browserScrollbarThumbColorProvider);
+    final opacity = ref.watch(browserScrollbarOpacityProvider);
+    final width = ref.watch(browserScrollbarWidthProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(
+          title: '滚动条',
+          subtitle: '默认关闭。打开后列表右侧会出现一根可以拖动/点按的滚动条。',
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: _SwitchRow(
+            label: '显示滚动条',
+            value: enabled,
+            enabled: true,
+            onChanged: (v) =>
+                ref.read(browserScrollbarEnabledProvider.notifier).update(v),
+          ),
+        ),
+        if (enabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Column(
+              children: [
+                _ColorRow(
+                  label: '轨道颜色',
+                  color: track,
+                  onChanged: (c) => ref
+                      .read(browserScrollbarTrackColorProvider.notifier)
+                      .update(c),
+                ),
+                _ColorRow(
+                  label: '拖动块颜色',
+                  color: thumb,
+                  onChanged: (c) => ref
+                      .read(browserScrollbarThumbColorProvider.notifier)
+                      .update(c),
+                ),
+                _SliderRow(
+                  label: '透明度',
+                  value: opacity,
+                  min: 0,
+                  max: 100,
+                  suffix: '%',
+                  onChanged: (v) => ref
+                      .read(browserScrollbarOpacityProvider.notifier)
+                      .update(v),
+                ),
+                _SliderRow(
+                  label: '宽度',
+                  value: width,
+                  min: 2,
+                  max: 28,
+                  suffix: '',
+                  onChanged: (v) => ref
+                      .read(browserScrollbarWidthProvider.notifier)
+                      .update(v),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  // ==================== 悬浮翻页按钮 ====================
+
+  Widget _buildFloatingPageSection(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(browserFloatingPageEnabledProvider);
+    final color = ref.watch(browserFloatingPageColorProvider);
+    final opacity = ref.watch(browserFloatingPageOpacityProvider);
+    final size = ref.watch(browserFloatingPageSizeProvider);
+    final upX = ref.watch(browserFloatingPageUpXProvider);
+    final upY = ref.watch(browserFloatingPageUpYProvider);
+    final downX = ref.watch(browserFloatingPageDownXProvider);
+    final downY = ref.watch(browserFloatingPageDownYProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader(
+          title: '悬浮翻页按钮',
+          subtitle: '默认关闭。打开后列表上出现上/下两个悬浮按钮，点一下翻一页；'
+              '向下翻页时，上一页最后一个文件仍会显示在最上面。',
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: _SwitchRow(
+            label: '显示悬浮翻页按钮',
+            value: enabled,
+            enabled: true,
+            onChanged: (v) => ref
+                .read(browserFloatingPageEnabledProvider.notifier)
+                .update(v),
+          ),
+        ),
+        if (enabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ColorRow(
+                  label: '按钮颜色',
+                  color: color,
+                  onChanged: (c) => ref
+                      .read(browserFloatingPageColorProvider.notifier)
+                      .update(c),
+                ),
+                _SliderRow(
+                  label: '透明度',
+                  value: opacity,
+                  min: 0,
+                  max: 100,
+                  suffix: '%',
+                  onChanged: (v) => ref
+                      .read(browserFloatingPageOpacityProvider.notifier)
+                      .update(v),
+                ),
+                _SliderRow(
+                  label: '大小',
+                  value: size,
+                  min: 28,
+                  max: 88,
+                  suffix: '',
+                  onChanged: (v) => ref
+                      .read(browserFloatingPageSizeProvider.notifier)
+                      .update(v),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '上按钮位置',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                _SliderRow(
+                  label: 'X',
+                  value: upX,
+                  min: 0,
+                  max: 100,
+                  suffix: '%',
+                  onChanged: (v) => ref
+                      .read(browserFloatingPageUpXProvider.notifier)
+                      .update(v),
+                ),
+                _SliderRow(
+                  label: 'Y',
+                  value: upY,
+                  min: 0,
+                  max: 100,
+                  suffix: '%',
+                  onChanged: (v) => ref
+                      .read(browserFloatingPageUpYProvider.notifier)
+                      .update(v),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '下按钮位置',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                _SliderRow(
+                  label: 'X',
+                  value: downX,
+                  min: 0,
+                  max: 100,
+                  suffix: '%',
+                  onChanged: (v) => ref
+                      .read(browserFloatingPageDownXProvider.notifier)
+                      .update(v),
+                ),
+                _SliderRow(
+                  label: 'Y',
+                  value: downY,
+                  min: 0,
+                  max: 100,
+                  suffix: '%',
+                  onChanged: (v) => ref
+                      .read(browserFloatingPageDownYProvider.notifier)
+                      .update(v),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 8),
       ],
     );
   }
@@ -612,6 +830,183 @@ class _SwitchRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// 一行颜色：标签 + 色值 + 色块（点色块打开取色板）。
+class _ColorRow extends StatelessWidget {
+  const _ColorRow({
+    required this.label,
+    required this.color,
+    required this.onChanged,
+  });
+
+  final String label;
+  final Color color;
+  final ValueChanged<Color> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final argb = color.toARGB32();
+    final hex = '#${argb.toRadixString(16).padLeft(8, '0').substring(2)}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+          Text(
+            hex.toUpperCase(),
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: s.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: () async {
+              final picked = await _pickColorDialog(context, color);
+              if (picked != null) onChanged(picked);
+            },
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color,
+                border: Border.all(color: s.outline),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 一行滑块：标签 + 当前值 + 滑杆。
+class _SliderRow extends StatelessWidget {
+  const _SliderRow({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.suffix,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final String suffix;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value.clamp(min, max).toDouble();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(label, style: const TextStyle(fontSize: 13)),
+            ),
+            Text(
+              '${v.round()}$suffix',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(
+          height: 28,
+          child: Slider(
+            value: v,
+            min: min,
+            max: max,
+            divisions: (max - min).round(),
+            onChanged: onChanged,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 取色弹窗。返回选中的颜色；取消返回 null。
+Future<Color?> _pickColorDialog(BuildContext context, Color initial) async {
+  var picked = initial;
+  final argb = picked.toARGB32();
+  final controller = TextEditingController(
+    text: '#${argb.toRadixString(16).padLeft(8, '0').substring(2)}',
+  );
+
+  try {
+    return await showDialog<Color>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setDialogState) => AlertDialog(
+          insetPadding: const EdgeInsets.all(8),
+          title: const Text('选择颜色'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ColorPicker(
+                  pickerColor: picked,
+                  onColorChanged: (color) {
+                    picked = color;
+                    controller.text = '#'
+                        '${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
+                  },
+                  enableAlpha: false,
+                  labelTypes: const [],
+                  pickerAreaHeightPercent: 0.7,
+                  displayThumbColor: true,
+                  portraitOnly: true,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    hintText: '#RRGGBB',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onSubmitted: (v) {
+                    final text = v.trim().replaceFirst('#', '');
+                    final n = int.tryParse(text, radix: 16);
+                    if (n != null) {
+                      picked = Color(0xFF000000 | n);
+                      setDialogState(() {});
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, picked),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+  } finally {
+    controller.dispose();
   }
 }
 
