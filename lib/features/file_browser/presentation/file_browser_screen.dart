@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:archive/archive.dart';
 import 'package:charset/charset.dart';
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show ValueListenable, compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -801,6 +802,10 @@ static const Set<String> _archiveExts = {
       ItemPositionsListener.create();
 
   final Map<String, int> _dirScrollPositions = {};
+
+  /// 当前列表（网格模式按行算）的条目总数，供自定义滚动条与翻页按钮使用。
+  /// 每次构建列表时刷新；非列表状态（加载中/空目录/出错）置 0。
+  int _scrollItemCount = 0;
 
   bool _selectionMode = false;
   final Set<String> _selectedPaths = <String>{};
@@ -3670,24 +3675,47 @@ Future<void> _showDirInfoDialog() async {
 
   // ==================== 文件操作 ====================
 
+  // 记录上一次 toast 的消息和时间，用于"短时间内相同消息不重复弹"。
+  String? _lastToastMsg;
+  DateTime? _lastToastTime;
+
   void _toast(String msg) {
-  if (!mounted) return;
-  final ms = msg.length <= 10 ? 1500 : 2000;
-  final messenger = ScaffoldMessenger.of(context);
-  messenger.clearSnackBars();
-  messenger.showSnackBar(
-    SnackBar(
-      content: Text(
-        msg,
-        style: TextStyle(
-          color: Theme.of(context).colorScheme.onInverseSurface,
-          fontWeight: FontWeight.bold,
+    if (!mounted) return;
+
+    // 去重：1.5 秒内同一条消息不再重弹。
+    final now = DateTime.now();
+    if (_lastToastMsg == msg &&
+        _lastToastTime != null &&
+        now.difference(_lastToastTime!) < const Duration(milliseconds: 1500)) {
+      return;
+    }
+    _lastToastMsg = msg;
+    _lastToastTime = now;
+
+    final ms = msg.length <= 10 ? 1500 : 2000;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onInverseSurface,
+            fontWeight: FontWeight.bold,
+          ),
         ),
+        duration: Duration(milliseconds: ms),
+        // 悬浮样式：浮在底部操作栏上方，不会被遮挡。
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: 72,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
-      duration: Duration(milliseconds: ms),
-    ),
-  );
-}
+    );
+  }
 
   Future<bool> _confirm(String title, String message) async {
     if (!mounted) return false;
@@ -4410,7 +4438,8 @@ String _normalizePath(String path) {
 
   static String _formatGridTime(DateTime t) {
     String two(int n) => n < 10 ? '0$n' : '$n';
-    return '${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
+    return '${t.year}-${two(t.month)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}';
   }
 
   String get _title {
@@ -4475,7 +4504,7 @@ String _normalizePath(String path) {
                   : const SizedBox(width: double.infinity, height: 0),
             ),
           ),
-          Expanded(child: _buildBody()),
+          Expanded(child: _buildBodyWithOverlays()),
         ],
       ),
       // 选中底栏改为覆盖层：ScrollablePositionedList 是底部锚定的，
@@ -5827,10 +5856,155 @@ child: Row(
     );
   }
 
+  // ==================== 列表之上的覆盖层（滚动条 / 悬浮翻页按钮） ====================
+  //
+  // 不改文件浏览器本身的滚动实现，只在外面盖一层：
+  //   · 可拖动滚动条（默认关）
+  //   · 上下悬浮翻页按钮（默认关）
+
+  Widget _buildBodyWithOverlays() {
+    final scrollbarOn = ref.watch(browserScrollbarEnabledProvider);
+    final floatingOn = ref.watch(browserFloatingPageEnabledProvider);
+    final body = _buildBody();
+    if (!scrollbarOn && !floatingOn) return body;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        body,
+        if (scrollbarOn) _buildBrowserScrollbar(),
+        if (floatingOn) _buildFloatingPageOverlay(),
+      ],
+    );
+  }
+
+  Widget _buildBrowserScrollbar() {
+    final track = ref.watch(browserScrollbarTrackColorProvider);
+    final thumb = ref.watch(browserScrollbarThumbColorProvider);
+    final opacity = (ref.watch(browserScrollbarOpacityProvider) / 100)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final width = ref
+        .watch(browserScrollbarWidthProvider)
+        .clamp(2.0, 28.0)
+        .toDouble();
+
+    return Positioned(
+      top: 2,
+      bottom: 2,
+      right: 0,
+      width: math.max(width + 12, 24),
+      child: _BrowserScrollbar(
+        positions: _positionsListener.itemPositions,
+        itemCount: () => _scrollItemCount,
+        thumbWidth: width,
+        trackColor: track.withValues(alpha: opacity * 0.35),
+        thumbColor: thumb.withValues(alpha: opacity),
+        onJump: _jumpToIndex,
+      ),
+    );
+  }
+
+  Widget _buildFloatingPageOverlay() {
+    final color = ref.watch(browserFloatingPageColorProvider);
+    final opacity = (ref.watch(browserFloatingPageOpacityProvider) / 100)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final size = ref
+        .watch(browserFloatingPageSizeProvider)
+        .clamp(28.0, 88.0)
+        .toDouble();
+    final upX = ref.watch(browserFloatingPageUpXProvider);
+    final upY = ref.watch(browserFloatingPageUpYProvider);
+    final downX = ref.watch(browserFloatingPageDownXProvider);
+    final downY = ref.watch(browserFloatingPageDownYProvider);
+
+    return Positioned.fill(
+      child: LayoutBuilder(
+        builder: (ctx, c) {
+          Widget btn({
+            required double x,
+            required double y,
+            required bool up,
+          }) {
+            final left =
+                (c.maxWidth - size) * (x.clamp(0.0, 100.0).toDouble() / 100);
+            final top =
+                (c.maxHeight - size) * (y.clamp(0.0, 100.0).toDouble() / 100);
+            return Positioned(
+              left: left,
+              top: top,
+              width: size,
+              height: size,
+              child: _BrowserFloatingPageButton(
+                size: size,
+                color: color.withValues(alpha: opacity),
+                up: up,
+                onTap: up ? _pageUp : _pageDown,
+              ),
+            );
+          }
+
+          return Stack(
+            children: [
+              btn(x: upX, y: upY, up: true),
+              btn(x: downX, y: downY, up: false),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 跳到指定条目（顶部对齐）。
+  void _jumpToIndex(int index) {
+    if (!_itemScrollController.isAttached) return;
+    final count = _scrollItemCount;
+    if (count <= 0) return;
+    try {
+      _itemScrollController.jumpTo(
+        index: index.clamp(0, count - 1).toInt(),
+        alignment: 0,
+      );
+    } catch (_) {}
+  }
+
+  /// 当前可见区间的首/末条目索引与可见条目数。
+  _VisibleRange _visibleRange() {
+    var first = -1;
+    var last = -1;
+    var visible = 0;
+    for (final p in _positionsListener.itemPositions.value) {
+      if (p.itemTrailingEdge > 0 && p.itemLeadingEdge < 1) {
+        visible++;
+        if (first < 0 || p.index < first) first = p.index;
+        if (p.index > last) last = p.index;
+      }
+    }
+    return _VisibleRange(first: first, last: last, visible: visible);
+  }
+
+  /// 向下翻一页：上一页最后一个文件仍显示在最上面。
+  void _pageDown() {
+    final r = _visibleRange();
+    if (r.last < 0) return;
+    _jumpToIndex(r.last);
+  }
+
+  /// 向上翻一页。
+  void _pageUp() {
+    final r = _visibleRange();
+    if (r.first <= 0) return;
+    final step = r.visible > 1 ? r.visible - 1 : 1;
+    _jumpToIndex(r.first - step);
+  }
+
   Widget _keyed(String k, Widget child) =>
       KeyedSubtree(key: ValueKey(k), child: child);
 
   Widget _buildBodyState() {
+    // 先清零，下面各列表构建时再写入真实条目数。
+    _scrollItemCount = 0;
+
     if (_searchActive) {
       return _keyed('search', _buildSearchResultsList());
     }
@@ -5921,6 +6095,7 @@ Widget _buildListBody() {
   // 在列表末尾补一段滚动留白，让最后一个文件能滚出底栏遮挡。
   // 留白在滚动内容末尾，不改变可视区高度，进入/退出选中模式内容不跳。
   final extra = _selectionMode ? 1 : 0;
+  _scrollItemCount = items.length + extra;
     return Scrollbar(child: ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
       itemPositionsListener: _positionsListener,
@@ -6004,9 +6179,10 @@ Widget _buildListBody() {
     }
 
     final selected = _selectedPaths.contains(item.key);
+    final compact = ref.watch(browserListCompactProvider);
 
     // 左侧图标区宽度（含缩进）。点这块 = 选中/取消。
-    final iconZoneRight = 48.0 + item.depth * 18.0;
+    final iconZoneRight = (compact ? 36.0 : 48.0) + item.depth * 18.0;
 
     // zip 头（顶层或嵌套）：和普通文件一样的 ListTile，
     // 只用图标区分展开/折叠（折叠=空心蓝，展开=实心蓝）。
@@ -6021,7 +6197,7 @@ if (item.isZip) {
 return Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
-    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 0 : 2),
     decoration: BoxDecoration(
       color: selected
           ? colorScheme.primary.withValues(alpha: 0.14)
@@ -6034,17 +6210,17 @@ return Listener(
       contentPadding: EdgeInsets.only(
   left: item.depth * 18.0,
   right: 8,
-  top: 4,
-  bottom: 4,
+  top: compact ? 1 : 4,
+  bottom: compact ? 1 : 4,
 ),
 leading: SizedBox(
-  width: 48,
+  width: compact ? 36 : 48,
   child: Padding(
-    padding: const EdgeInsets.only(left: 8),
+    padding: EdgeInsets.only(left: compact ? 4 : 8),
     child: Center(
       child: Icon(
         zipIcon,
-        size: 24,
+        size: compact ? 20 : 24,
         color: colorScheme.onSurfaceVariant,
       ),
     ),
@@ -6052,12 +6228,12 @@ leading: SizedBox(
 ),
       title: Text(
         item.displayName,
-        maxLines: 2,
+        maxLines: compact ? 1 : 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: fontName,
           fontWeight: FontWeight.w500,
-          height: 1.3,
+          height: compact ? 1.15 : 1.3,
         ),
       ),
       subtitle: metaLine.isEmpty
@@ -6096,8 +6272,8 @@ leading: SizedBox(
         padding: EdgeInsets.only(
           left: 8.0 + item.depth * 18.0,
           right: 12,
-          top: 7,
-          bottom: 7,
+          top: compact ? 4 : 7,
+          bottom: compact ? 4 : 7,
         ),
         child: Row(
           children: [
@@ -6128,7 +6304,7 @@ leading: SizedBox(
 return Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
-    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 0 : 2),
     decoration: BoxDecoration(
       color: selected
           ? colorScheme.primary.withValues(alpha: 0.14)
@@ -6142,13 +6318,13 @@ return Listener(
   contentPadding: EdgeInsets.only(
         left: item.depth * 18.0,
         right: 8,
-        top: 4,
-        bottom: 4,
+        top: compact ? 1 : 4,
+        bottom: compact ? 1 : 4,
       ),
       leading: SizedBox(
-        width: 48,
+        width: compact ? 36 : 48,
         child: Padding(
-          padding: const EdgeInsets.only(left: 8),
+          padding: EdgeInsets.only(left: compact ? 4 : 8),
           child: Center(
             child: Icon(
               isZipInner
@@ -6156,7 +6332,7 @@ return Listener(
                   : (item.isDir
                       ? Icons.folder
                       : Icons.insert_drive_file_outlined),
-              size: 24,
+              size: compact ? 20 : 24,
               color: isZipInner
                   ? colorScheme.onSurfaceVariant.withValues(alpha: 0.6)
                   : _fileIconColor(context, isDir: item.isDir),
@@ -6166,14 +6342,14 @@ return Listener(
       ),
         title: Text(
           item.displayName,
-          maxLines: 2,
+          maxLines: compact ? 1 : 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: fontName,
             fontWeight: item.isDir
                 ? FontWeight.bold
                 : FontWeight.w500,
-            height: 1.3,
+            height: compact ? 1.15 : 1.3,
             color: isZipInner
                 ? colorScheme.onSurface.withOpacity(0.85)
                 : null,
@@ -6232,6 +6408,7 @@ return Listener(
     final rowCount = (entries.length + 1) ~/ 2;
     // 选中模式下底栏是覆盖层，网格末尾同样补一段滚动留白。
     final extraRow = _selectionMode ? 1 : 0;
+    _scrollItemCount = rowCount + extraRow;
 
     return Scrollbar(child: ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
@@ -6453,6 +6630,7 @@ return Listener(
     final items = _cachedDisplayItems ?? const <_DisplayItem>[];
     // 选中模式下底栏是覆盖层，搜索结果列表末尾同样补滚动留白。
     final extra = _selectionMode ? 1 : 0;
+    _scrollItemCount = items.length + extra;
 
     return Scrollbar(child: ScrollablePositionedList.builder(
       itemScrollController: _itemScrollController,
@@ -6500,13 +6678,15 @@ return Listener(
         ? item.fullDisplayPath
         : (item.diskPath ?? '');
 
+    final compact = ref.watch(browserListCompactProvider);
+
     // 左侧图标区宽度（含缩进）。点这块 = 选中/取消。
-    final iconZoneRight = 48.0 + item.depth * 18.0;
+    final iconZoneRight = (compact ? 36.0 : 48.0) + item.depth * 18.0;
 
     return Listener(
       onPointerDown: (e) => _lastTapX = e.localPosition.dx,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 0 : 2),
         decoration: BoxDecoration(
           color: selected
               ? colorScheme.primary.withValues(alpha: 0.14)
@@ -6520,13 +6700,13 @@ return Listener(
           contentPadding: EdgeInsets.only(
             left: item.depth * 18.0,
             right: 8,
-            top: 4,
-            bottom: 4,
+            top: compact ? 1 : 4,
+            bottom: compact ? 1 : 4,
           ),
           leading: SizedBox(
-            width: 48,
+            width: compact ? 36 : 48,
             child: Padding(
-              padding: const EdgeInsets.only(left: 8, top: 4),
+              padding: EdgeInsets.only(left: compact ? 4 : 8, top: compact ? 2 : 4),
               child: Align(
                 alignment: Alignment.topCenter,
                 child: Icon(
@@ -6535,7 +6715,7 @@ return Listener(
                       : (item.isDir
                           ? Icons.folder
                           : Icons.insert_drive_file_outlined),
-                  size: 24,
+                  size: compact ? 20 : 24,
                   color: isZipInner
                       ? colorScheme.onSurfaceVariant.withValues(alpha: 0.6)
                       : _fileIconColor(context, isDir: item.isDir),
@@ -6778,15 +6958,11 @@ class _SearchFolderPickerDialogState extends State<_SearchFolderPickerDialog> {
     target = File(target).parent.path;
   }
   if (!Directory(target).existsSync()) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('目录不存在')),
-    );
+    _toast('目录不存在');
     return;
   }
   if (!target.startsWith(widget.rootPath)) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('只能跳到内部存储以内')),
-    );
+    _toast('只能跳到内部存储以内');
     return;
   }
   setState(() {
@@ -7725,4 +7901,249 @@ class _LoadingSkeletonState extends State<_LoadingSkeleton>
       },
     );
   }
+}
+
+// ==================== 可拖动滚动条（外包在列表之上） ====================
+
+/// ScrollablePositionedList 不暴露 ScrollController，
+/// 所以用 ItemPositionsListener 的可见项信息推算滚动位置，
+/// 拖动时换算成目标条目索引再 jumpTo。
+class _BrowserScrollbar extends StatefulWidget {
+  const _BrowserScrollbar({
+    required this.positions,
+    required this.itemCount,
+    required this.thumbWidth,
+    required this.trackColor,
+    required this.thumbColor,
+    required this.onJump,
+  });
+
+  final ValueListenable<Iterable<ItemPosition>> positions;
+  final int Function() itemCount;
+  final double thumbWidth;
+  final Color trackColor;
+  final Color thumbColor;
+  final void Function(int index) onJump;
+
+  @override
+  State<_BrowserScrollbar> createState() => _BrowserScrollbarState();
+}
+
+class _BrowserScrollbarState extends State<_BrowserScrollbar> {
+  static const double _minThumb = 36;
+
+  /// 拖动中的拇指顶部位置；null 表示跟随列表实际位置。
+  double? _dragTop;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (ctx, c) {
+        final h = c.maxHeight;
+        return ValueListenableBuilder<Iterable<ItemPosition>>(
+          valueListenable: widget.positions,
+          builder: (ctx, positions, _) {
+            final m = _metrics(h, positions);
+            final top =
+                (_dragTop ?? m.top).clamp(0.0, m.maxTop).toDouble();
+
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (d) {
+                // 点轨道直接跳到对应位置（拖动时不会误触发）。
+                final t = (d.localPosition.dy - m.thumbH / 2)
+                    .clamp(0.0, m.maxTop)
+                    .toDouble();
+                _apply(m, t);
+              },
+              onVerticalDragStart: (d) {
+                final inThumb = d.localPosition.dy >= top &&
+                    d.localPosition.dy <= top + m.thumbH;
+                if (inThumb) {
+                  setState(() => _dragTop = top);
+                } else {
+                  final t = (d.localPosition.dy - m.thumbH / 2)
+                      .clamp(0.0, m.maxTop)
+                      .toDouble();
+                  setState(() => _dragTop = t);
+                  _apply(m, t);
+                }
+              },
+              onVerticalDragUpdate: (d) {
+                final t = ((_dragTop ?? top) + d.delta.dy)
+                    .clamp(0.0, m.maxTop)
+                    .toDouble();
+                setState(() => _dragTop = t);
+                _apply(m, t);
+              },
+              onVerticalDragEnd: (_) => setState(() => _dragTop = null),
+              onVerticalDragCancel: () => setState(() => _dragTop = null),
+              child: CustomPaint(
+                size: Size(c.maxWidth, h),
+                painter: _BrowserScrollbarPainter(
+                  top: top,
+                  thumbHeight: m.thumbH,
+                  thumbWidth: widget.thumbWidth,
+                  trackColor: widget.trackColor,
+                  thumbColor: widget.thumbColor,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _apply(_ScrollMetrics m, double top) {
+    if (m.maxTop <= 0) return;
+    final f = top / m.maxTop;
+    widget.onJump((f * m.maxScroll).round());
+  }
+
+  _ScrollMetrics _metrics(
+    double h,
+    Iterable<ItemPosition> positions,
+  ) {
+    final count = widget.itemCount();
+    var visible = 0;
+    var first = 0;
+    var leading = 0.0;
+    var found = false;
+
+    for (final p in positions) {
+      if (p.itemTrailingEdge > 0 && p.itemLeadingEdge < 1) {
+        visible++;
+        if (!found || p.index < first) {
+          found = true;
+          first = p.index;
+          leading = p.itemLeadingEdge;
+        }
+      }
+    }
+
+    if (!found || count <= 0) {
+      return _ScrollMetrics(thumbH: h, top: 0, maxTop: 0, maxScroll: 1);
+    }
+
+    final thumbH = math.min(h, math.max(_minThumb, h * visible / count));
+    final maxTop = math.max(0.0, h - thumbH);
+    final maxScroll = math.max(1, count - visible);
+    final raw = first + leading.clamp(-1.0, 0.0).toDouble();
+    final top =
+        (raw / maxScroll).clamp(0.0, 1.0).toDouble() * maxTop;
+    return _ScrollMetrics(
+      thumbH: thumbH,
+      top: top,
+      maxTop: maxTop,
+      maxScroll: maxScroll,
+    );
+  }
+}
+
+class _ScrollMetrics {
+  const _ScrollMetrics({
+    required this.thumbH,
+    required this.top,
+    required this.maxTop,
+    required this.maxScroll,
+  });
+
+  final double thumbH;
+  final double top;
+  final double maxTop;
+  final int maxScroll;
+}
+
+class _BrowserScrollbarPainter extends CustomPainter {
+  const _BrowserScrollbarPainter({
+    required this.top,
+    required this.thumbHeight,
+    required this.thumbWidth,
+    required this.trackColor,
+    required this.thumbColor,
+  });
+
+  final double top;
+  final double thumbHeight;
+  final double thumbWidth;
+  final Color trackColor;
+  final Color thumbColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.height <= 0 || size.width <= 0) return;
+    final w = thumbWidth.clamp(2.0, size.width).toDouble();
+    final left = size.width - w;
+
+    // 轨道
+    final trackRect = Rect.fromLTWH(left, 0, w, size.height);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(trackRect, Radius.circular(w / 2)),
+      Paint()..color = trackColor,
+    );
+
+    // 拖动块
+    final thumbRect = Rect.fromLTWH(left, top, w, thumbHeight);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(thumbRect, Radius.circular(w / 2)),
+      Paint()..color = thumbColor,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BrowserScrollbarPainter old) =>
+      old.top != top ||
+      old.thumbHeight != thumbHeight ||
+      old.thumbWidth != thumbWidth ||
+      old.trackColor != trackColor ||
+      old.thumbColor != thumbColor;
+}
+
+// ==================== 悬浮翻页按钮 ====================
+
+class _BrowserFloatingPageButton extends StatelessWidget {
+  const _BrowserFloatingPageButton({
+    required this.size,
+    required this.color,
+    required this.up,
+    required this.onTap,
+  });
+
+  final double size;
+  final Color color;
+  final bool up;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg =
+        color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+    return Material(
+      color: color,
+      shape: const CircleBorder(),
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Icon(
+          up ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+          size: size * 0.62,
+          color: fg,
+        ),
+      ),
+    );
+  }
+}
+
+class _VisibleRange {
+  const _VisibleRange({
+    required this.first,
+    required this.last,
+    required this.visible,
+  });
+
+  final int first;
+  final int last;
+  final int visible;
 }
