@@ -174,13 +174,13 @@ class _SingleFileEditorScreenState
 
       final bytes = await file.readAsBytes();
       final enc = EncodingDetector.detect(bytes);
-      final text = await EncodingDetector.decodeChunkedAsync(bytes, enc);
+      final decoded = await EncodingDetector.decodeChunkedAsync(bytes, enc);
       if (!mounted) return;
       setState(() {
-        _textCtrl.text = text;
+        _textCtrl.text = decoded.text;
         _dirty = false;
-        _detectedEncoding = enc.label;
-        _saveEncoding = _guessSaveEncoding(enc);
+        _detectedEncoding = decoded.encoding.label;
+        _saveEncoding = _guessSaveEncoding(decoded.encoding);
         _noWrap = noWrap;
         _loading = false;
       });
