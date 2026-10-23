@@ -77,6 +77,72 @@ class ViewModeOrderNotifier extends PersistentNotifier<List<ViewMode>> {
   void setAll(List<ViewMode> order) => update(List<ViewMode>.from(order));
 }
 
+// ==================== 顶栏按钮排序（持久化） ====================
+
+/// 对比页顶栏里可排序的按钮。
+///
+/// 「返回」和「更多」固定在两端，不在这个枚举里。
+/// deleteLeft / deleteRight 是候选按钮：默认不在顶栏，用户可在显示设置里加进来。
+enum TopBarButton {
+  pageUp,
+  pageDown,
+  prevDiff,
+  nextDiff,
+  find,
+  deleteLeft,
+  deleteRight,
+}
+
+/// 顶栏按钮顺序。列表里出现的按钮 = 顶栏上显示的按钮。
+final topBarOrderProvider =
+    NotifierProvider<TopBarOrderNotifier, List<TopBarButton>>(
+  TopBarOrderNotifier.new,
+);
+
+class TopBarOrderNotifier extends PersistentNotifier<List<TopBarButton>> {
+  @override
+  String get key => PrefKeys.topBarOrder;
+
+  static const List<TopBarButton> _defaultOrder = [
+    TopBarButton.pageUp,
+    TopBarButton.pageDown,
+    TopBarButton.prevDiff,
+    TopBarButton.nextDiff,
+    TopBarButton.find,
+  ];
+
+  /// 原有 5 个按钮不允许删除，缺失时自动补回。
+  static const List<TopBarButton> _required = _defaultOrder;
+
+  @override
+  List<TopBarButton> get defaultValue => _defaultOrder;
+
+  @override
+  List<TopBarButton> decode(String raw) {
+    if (raw.isEmpty) return _defaultOrder;
+    final result = <TopBarButton>[];
+    for (final name in raw.split('\u0000')) {
+      if (name.isEmpty) continue;
+      for (final b in TopBarButton.values) {
+        if (b.name == name && !result.contains(b)) {
+          result.add(b);
+          break;
+        }
+      }
+    }
+    for (final b in _required) {
+      if (!result.contains(b)) result.add(b);
+    }
+    return result;
+  }
+
+  @override
+  String encode(List<TopBarButton> value) =>
+      value.map((b) => b.name).join('\u0000');
+
+  void setAll(List<TopBarButton> order) => update(List<TopBarButton>.from(order));
+}
+
 final showPerfOverlayProvider = StateProvider<bool>((ref) => false);
 
 final noWrapProvider = StateProvider<bool>((ref) => false);
