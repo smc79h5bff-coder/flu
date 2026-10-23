@@ -30,6 +30,10 @@ class EncodingDetector {
   /// 复核可读性时只看前这么多字符，避免大文件重复遍历。
   static const int _readabilitySample = 20000;
 
+  /// 复核时每个候选只解文件开头这么多字节。
+  /// 可读性只看前 2 万字，没必要为每个候选把整本小说都解一遍。
+  static const int _crossCheckSample = 128 * 1024;
+
   /// 低于这个「每字可读性」就认为探测结果不可信，换编码重解。
   static const double _readableThreshold = 1.5;
 
@@ -100,6 +104,18 @@ class EncodingDetector {
     if (utf8Valid >= 0.90) {
       log.info('[Enc] detect → utf8 (夹着少量坏字节)');
       return EncodingType.utf8;
+    }
+
+    // 3.5 Android 短路：不再自己盲猜。
+    //
+    //     多字节解码器在 Dart 侧要么不可靠（gbk_codec 对部分 GBK 文件
+    //     打分 -191 万），要么很慢（5 次试解码约 240ms），而结论最终还要
+    //     靠系统 ICU 复核推翻。直接给 unknown，让 decodeChunkedAsync 用
+    //     ICU 按可读性逐编码择优，那几个格式判断也一并省掉。
+    if (EncodingBridge.isSupported) {
+      log.info(
+          '[Enc] detect → unknown (交给 ICU 复核)  总=${DateTime.now().difference(t0).inMilliseconds}ms');
+      return EncodingType.unknown;
     }
 
     // 4. 多字节候选：结构启发式只用来打日志，最终靠「采样解码可读性打分」择优。
@@ -352,7 +368,10 @@ class EncodingDetector {
   ///
   /// 只对需要 ICU 全码表的编码走原生：GBK / GB2312 / GB18030 / Big5 /
   /// Shift-JIS。UTF-8 / UTF-16 / ASCII 的 Dart 原生实现已经正确，不走原生。
-  static Future<String> decodeChunkedAsync(
+  ///
+  /// 返回的 [DecodedText.encoding] 是复核后真正用上的编码，可能和传入的
+  /// [encoding] 不同（Android 上探测只给初猜，unknown 时由 ICU 择优）。
+  static Future<DecodedText> decodeChunkedAsync(
     Uint8List bytes,
     EncodingType encoding,
   ) async {
@@ -364,7 +383,7 @@ class EncodingDetector {
     final first = await _decodeOnce(bytes, encoding);
     var best = encoding;
     var text = first;
-    var readability = _readability(first);
+    final readability = _readability(first);
     log.info(
         '[Enc] 可读性 $encoding = ${readability.toStringAsFixed(2)}/字  「${_preview(first)}」');
 
@@ -377,16 +396,20 @@ class EncodingDetector {
         _needsCrossCheck(encoding)) {
       var bestAlt = encoding;
       var bestScore = readability;
-      var bestText = first;
+
+      // 每个候选只解开头一段用来打分：可读性本身也只取前 2 万字，
+      // 没必要为候选把整本小说解一遍（那才是几百毫秒的来源）。
+      final checkBytes = bytes.length <= _crossCheckSample
+          ? bytes
+          : Uint8List.sublistView(bytes, 0, _crossCheckSample);
       for (final alt in _retryCandidates(encoding)) {
-        final candidate = await _decodeOnce(bytes, alt);
+        final candidate = await _decodeOnce(checkBytes, alt);
         final score = _readability(candidate);
         log.info(
             '[Enc]   复核 $alt = ${score.toStringAsFixed(2)}/字  「${_preview(candidate)}」');
         if (score > bestScore) {
           bestAlt = alt;
           bestScore = score;
-          bestText = candidate;
         }
       }
       // 正常情况：必须明显更好才换，避免在两种错编码之间来回跳。
@@ -395,16 +418,16 @@ class EncodingDetector {
       final switchByMargin = bestScore > readability + _switchMargin;
       final allBad = bestScore < _readableThreshold;
       if (bestAlt != encoding && (switchByMargin || allBad)) {
-        readability = bestScore;
-        text = bestText;
         best = bestAlt;
+        // 上面只解了一小段用来比较，选中的编码还要整本解一遍。
+        text = await _decodeOnce(bytes, best);
         log.info('[Enc] 探测结果 $encoding 可读性不足，改用 $best');
       }
     }
 
     log.info(
         '[Enc] decodeChunkedAsync → $best chars=${text.length}  ${DateTime.now().difference(t0).inMilliseconds}ms');
-    return text;
+    return DecodedText(text, best);
   }
 
   /// 单次解码：Android 上走系统 ICU，失败或非 Android 回落 Dart。
@@ -788,4 +811,16 @@ class EncodingDetector {
       '的一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经十三之进着等部度家电力里如水化高自二理起小物现实加量都两体制机当使点从业本去把性好应开它合还因由其些然前外天政四日那社义事平形相全表间样与关各重新线内数正心反你明看原又么利比或但质气第向道命此变条只没结解问意建月公无系军很情者最立代想已通并提直题党程展五果料象员革位入常文总次品式活设及管特件长求老头基资边流路级少图山统接知较将组见计别她手角期根论运农指几九区强放决西被干做必战先回则任取据处队南给色光门即保治北造百规热领七海口东导器压志世金增争济阶油思术极交受联什认六共权收证改清己美再采转更单风切打白教速花带安场身车例真务具万每目至达走积示议声报斗完类八离华名确才科张信马节话米整空元况今集温传土许步群广石记需段研界拉林律叫且究观越织装影算低持音众书布复容儿须际商非验连断深难近矿千周委素技备半办青省列习响约支般史感劳便团往酸历市克何除消构府称太准精值号率族维划选标写存候毛亲快效斯院查江型眼王按格养易置派层片始却专状育厂京识适属圆包火住调满县局照参红细引听该铁价严'
           .runes
           .toSet();
+}
+
+/// [EncodingDetector.decodeChunkedAsync] 的结果。
+///
+/// [encoding] 是复核后真正用上的编码，可能和传进去的不同（Android 上
+/// 探测只给初猜，unknown 时由系统 ICU 按可读性择优）。调用方要用它来
+/// 显示编码、决定保存编码，否则 GBK 文件会显示成「Unknown」并按 UTF-8 存回去。
+class DecodedText {
+  const DecodedText(this.text, this.encoding);
+
+  final String text;
+  final EncodingType encoding;
 }
