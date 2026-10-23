@@ -6200,7 +6200,7 @@ if (item.isZip) {
 return Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
-    margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 0 : 2),
+    margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 1 : 2),
     decoration: BoxDecoration(
       color: selected
           ? colorScheme.primary.withValues(alpha: 0.14)
@@ -6307,7 +6307,7 @@ leading: SizedBox(
 return Listener(
   onPointerDown: (e) => _lastTapX = e.localPosition.dx,
   child: Container(
-    margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 0 : 2),
+    margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 1 : 2),
     decoration: BoxDecoration(
       color: selected
           ? colorScheme.primary.withValues(alpha: 0.14)
@@ -6693,7 +6693,7 @@ return Listener(
     return Listener(
       onPointerDown: (e) => _lastTapX = e.localPosition.dx,
       child: Container(
-        margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 0 : 2),
+        margin: EdgeInsets.symmetric(horizontal: 6, vertical: compact ? 1 : 2),
         decoration: BoxDecoration(
           color: selected
               ? colorScheme.primary.withValues(alpha: 0.14)
