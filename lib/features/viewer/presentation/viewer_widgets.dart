@@ -683,16 +683,16 @@ class _TopBarOrderSection extends ConsumerStatefulWidget {
 }
 
 class _TopBarOrderSectionState extends ConsumerState<_TopBarOrderSection> {
-  late List<TopBarButton> _order;
+  late List<TopBarEntry> _entries;
 
   @override
   void initState() {
     super.initState();
-    _order = List<TopBarButton>.from(ref.read(topBarOrderProvider));
+    _entries = List<TopBarEntry>.from(ref.read(topBarOrderProvider));
   }
 
   void _persist() {
-    ref.read(topBarOrderProvider.notifier).setAll(_order);
+    ref.read(topBarOrderProvider.notifier).setAll(_entries);
   }
 
   String _label(TopBarButton b) {
@@ -732,50 +732,41 @@ class _TopBarOrderSectionState extends ConsumerState<_TopBarOrderSection> {
     }
   }
 
-  void _setCandidate(TopBarButton b, bool show) {
-    setState(() {
-      if (show) {
-        if (!_order.contains(b)) _order.add(b);
-      } else {
-        _order.remove(b);
-      }
-    });
-    _persist();
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
-    final hasLeft = _order.contains(TopBarButton.deleteLeft);
-    final hasRight = _order.contains(TopBarButton.deleteRight);
     final rowHeight = 48.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          height: (_order.length * rowHeight)
-              .clamp(rowHeight, 7 * rowHeight)
-              .toDouble(),
-          child: ReorderableListView.builder(
-            buildDefaultDragHandles: false,
-            itemCount: _order.length,
-            onReorder: (oldIndex, newIndex) {
-              setState(() {
-                if (newIndex > oldIndex) newIndex--;
-                final item = _order.removeAt(oldIndex);
-                _order.insert(newIndex, item);
-              });
-              _persist();
-            },
-            itemBuilder: (ctx, i) {
-              final b = _order[i];
-              final isDelete = b == TopBarButton.deleteLeft ||
-                  b == TopBarButton.deleteRight;
-              return ListTile(
-                key: ValueKey<String>('topbar:${b.name}'),
+        ReorderableListView.builder(
+          buildDefaultDragHandles: false,
+          // NeverScrollableScrollPhysics：让外层 SingleChildScrollView 统一滚动，
+          // 避免内层 ReorderableListView 抢手势。
+          physics: const NeverScrollableScrollPhysics(),
+          shrinkWrap: true,
+          itemCount: _entries.length,
+          onReorder: (oldIndex, newIndex) {
+            setState(() {
+              if (newIndex > oldIndex) newIndex--;
+              final item = _entries.removeAt(oldIndex);
+              _entries.insert(newIndex, item);
+            });
+            _persist();
+          },
+          itemBuilder: (ctx, i) {
+            final entry = _entries[i];
+            final b = entry.button;
+            final isDelete = b == TopBarButton.deleteLeft ||
+                b == TopBarButton.deleteRight;
+            final dim = !entry.visible;
+            return SizedBox(
+              key: ValueKey<String>('topbar:${b.name}'),
+              height: rowHeight,
+              child: ListTile(
                 dense: true,
-                contentPadding: const EdgeInsets.only(left: 4, right: 0),
+                contentPadding: const EdgeInsets.only(left: 4, right: 4),
                 leading: SizedBox(
                   width: 26,
                   height: 26,
@@ -784,72 +775,74 @@ class _TopBarOrderSectionState extends ConsumerState<_TopBarOrderSection> {
                         ? CustomPaint(
                             size: const Size.square(22),
                             painter: DeleteSideIconPainter(
-                              color: s.onSurface,
-                              accent: s.error,
+                              color: s.onSurface.withValues(alpha: dim ? 0.38 : 1),
+                              accent: dim
+                                  ? s.onSurface.withValues(alpha: 0.38)
+                                  : s.error,
                               isLeft: b == TopBarButton.deleteLeft,
                             ),
                           )
                         : Icon(
                             _iconData(b),
                             size: 20,
-                            color: s.onSurface,
+                            color: s.onSurface.withValues(alpha: dim ? 0.38 : 1),
                           ),
                   ),
                 ),
-                title: Text(_label(b)),
-                trailing: ReorderableDragStartListener(
-                  index: i,
-                  child: const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Icon(Icons.drag_handle),
+                title: Text(
+                  _label(b),
+                  style: TextStyle(
+                    color: s.onSurface.withValues(alpha: dim ? 0.38 : 1),
                   ),
                 ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '可加入顶栏的按钮',
-          style: TextStyle(
-            fontSize: 12,
-            color: s.onSurfaceVariant,
-          ),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          value: hasLeft,
-          title: const Text('删除左边文件'),
-          subtitle: const Text(
-            '和「更多」菜单里的功能相同',
-            style: TextStyle(fontSize: 11),
-          ),
-          onChanged: (v) => _setCandidate(TopBarButton.deleteLeft, v),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          value: hasRight,
-          title: const Text('删除右边文件'),
-          subtitle: const Text(
-            '和「更多」菜单里的功能相同',
-            style: TextStyle(fontSize: 11),
-          ),
-          onChanged: (v) => _setCandidate(TopBarButton.deleteRight, v),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 眼睛：控制是否显示
+                    IconButton(
+                      iconSize: 22,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      tooltip: entry.visible ? '从顶栏隐藏' : '显示在顶栏',
+                      icon: Icon(
+                        entry.visible
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                        color: s.onSurfaceVariant,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _entries[i] = entry.copyWith(visible: !entry.visible);
+                        });
+                        _persist();
+                      },
+                    ),
+                    // 拖动手柄
+                    ReorderableDragStartListener(
+                      index: i,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.drag_handle),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
         Align(
           alignment: Alignment.centerRight,
           child: TextButton(
             onPressed: () {
               setState(() {
-                _order = List<TopBarButton>.from(
+                _entries = List<TopBarEntry>.from(
                   ref.read(topBarOrderProvider.notifier).defaultValue,
                 );
               });
               _persist();
             },
-            child: const Text('恢复默认顺序'),
+            child: const Text('恢复默认'),
           ),
         ),
       ],
